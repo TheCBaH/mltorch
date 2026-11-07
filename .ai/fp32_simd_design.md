@@ -82,6 +82,31 @@ TwoSum, round to odd), checked bit for bit against the host's `fmaf` over a
 large generated sample that includes constructed double-rounding cases and shown
 able to fail (the `round32 (Float.fma ..)` shortcut differs on the same sample).
 
+`exp` has a second, faster form with the same bits (`F32_math.Make_fast`, an
+instance's `FAST` pieces): `pow2_int` for an integer `|n| <= 126` and
+`trunc_small` for `|x| < 2^23` (a zero result may be `-0`) replace the 2^n
+ladder (about 40 operations and a division per factor) and the add/subtract
+truncation. The call sites prove the contracts. `k` comes from a second clamp
+that sends a NaN to the lower bound and equals the first clamp elsewhere, so
+`|t +- 0.5| < 151` and `k1`, `k2` lie in [-75, 64]. A `-0` from `trunc_small`
+arises only for an argument in (-1, 0), where `xc` is nonzero and the powers
+are 1, so the bits are unchanged. `log`, `sin` and `cos` keep the reference
+truncation: their arguments have no bounding clamp. A piece must not fail
+outside its contract, which is why a NaN is kept away by the clamp rather than
+by the piece. The reference construction of `pow2_int` is
+`F32_math.pow2_int32`: `n + 1.5 * 2^23 + 127` holds `n + 127` in its low nine
+bits, and a shift left by 23 puts them in the exponent field (no integer add,
+so no target needs a vector add of i32 lanes). `test/f32_math` checks it over
+all 253 integers of its contract, and `Value_fast` against `Value` bit for bit
+on 5.3 million inputs: a 1021-stride of the line, every pattern near each
+point where `k` steps, the clamps, the `-0` region and NaN payloads. A bias of
+128 instead of 127 fails both. `make f32.exhaustive` (manual, about a minute)
+prints both forms as C (`truncf` and the bit construction as the pieces),
+compiles them natively and compares `exp` and `erf` over all 2^32 inputs, NaNs
+by their bits: no difference; the bias-128 build differs on 3,258,020,377
+inputs, and the target runs it as a must-fail step. `tanh`, GELU and softmax
+reach the fast form only through `exp`.
+
 For a vector kernel the oracle is the plan's vector program expanded lane by lane
 and run by the interpreter (`Loop_plan.oracle`): independent of both backends.
 `Loop_interp.run ~fused:false` is the unfused reading a relaxed madd also admits.

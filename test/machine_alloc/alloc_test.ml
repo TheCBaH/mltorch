@@ -94,9 +94,9 @@ let%expect_test "allocation mutations are caught" =
     {|
     cycle scratch: rejected: checker: fn0 bb5: [slot13:8] does not hold %13
     copy placement: rejected: checker: fn0 bb8: [slot13:8] does not hold %11
-    slot reuse: rejected: checker: fn0 bb1: [slot83:8] does not hold %83
+    slot reuse: rejected: checker: fn0 bb1: [slot104:8] does not hold %104
     spill width: rejected: physical verifier: allocated fn0 bb1: target constraint: a location that does not fit its value
-    reload order: rejected: checker: fn0 bb1: [slot126:8] does not hold %126 |}]
+    reload order: rejected: checker: fn0 bb1: [slot102:8] does not hold %102 |}]
 
 open Machine_ir
 module Loc = Mir_phys.Loc
@@ -252,8 +252,8 @@ let%expect_test "hand edits of a correct allocation are caught" =
        Machine_aarch64_test.A64_select_test.mixed ~inputs:mixed_inputs);
   [%expect
     {|
-    missing reload: rejected: checker: fn0 bb1: x9 does not hold %126
-    register overlap: rejected: checker: fn0 bb1: x9 does not hold %83
+    missing reload: rejected: checker: fn0 bb1: x9 does not hold %102
+    register overlap: rejected: checker: fn0 bb1: x13 does not hold %81
     live-in claim: rejected: checker: fn0 bb1: [slot4:8] does not hold %19
     incoming edge state: rejected: checker: fn0 bb3: [slot6:8] does not hold %6
     tie kept: ok

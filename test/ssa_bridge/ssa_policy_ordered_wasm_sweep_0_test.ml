@@ -25,5 +25,5 @@ let%expect_test "policy sweep (ordered_wasm), slice 0 of 4" =
     split_with_sizes_i64         agree=12 failed-alike=0
     sum                          agree=12 failed-alike=0
     upsample_bicubic2d           agree=12 failed-alike=0
-      plans=228 binary32=24 vector-loops=134 scheduled-sums=0 fused-multiply-adds=0
-      against the Loop plan: same-precision=162 same-vector-loops=160 more-vector-loops=4 fewer-vector-loops=64 same-blocked-rows=228 |}]
+      plans=228 binary32=44 vector-loops=178 scheduled-sums=0 fused-multiply-adds=0
+      against the Loop plan: same-precision=182 same-vector-loops=204 more-vector-loops=4 fewer-vector-loops=20 same-blocked-rows=228 |}]

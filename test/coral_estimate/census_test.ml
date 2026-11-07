@@ -176,5 +176,5 @@ let%expect_test "innermost loop bodies" =
     {|
     div 32x128: iteration=256 vec_f32_div=1024 vec_load_dtcm=2048 vec_store_dtcm=1024
     softmax over C 16x16: f32_op=256 iteration=256 load_dtcm=256
-    softmax over C 16x16: f32_op=256 iteration=256 local=256 f32_exp=256 load_dtcm=256
-    softmax over C 16x16: f32_div=256 f32_op=256 iteration=256 local=512 f32_exp=256 load_dtcm=256 store_dtcm=256 |}]
+    softmax over C 16x16: f32_op=256 iteration=256 f32_exp=256 load_dtcm=256
+    softmax over C 16x16: iteration=16 vec_f32_div=64 vec_f32_op=64 vec_load_dtcm=64 vec_exp=64 vec_store_dtcm=64 |}]

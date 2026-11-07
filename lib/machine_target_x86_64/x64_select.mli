@@ -40,6 +40,9 @@ module Mutation : sig
     | Pruned_live  (** values only a terminator reads pruned as unread *)
     | Scaled_address  (** a folded index scaled by twice its element size *)
     | Signed_compare  (** an unsigned compare tested with a signed condition *)
+    | Unguarded_trunc
+        (** the SSE2 truncation through an integer without its range select,
+            wrong for a NaN or a magnitude past the integer's *)
 end
 
 type result = { selected : X64_stage.Sel.Verified.t; record : Mir_id.View.t }

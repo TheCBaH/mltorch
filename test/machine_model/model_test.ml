@@ -101,7 +101,7 @@ let in_format (sg : Tensor_sig.t) t =
         }
   | Payload.Fmt _ -> t
 
-let check ?route ?contractions ?bf16_pairs ?attention ?layer ?prepack
+let check ?route ?contractions ?bf16_pairs ?attention ?layer ?sequence ?prepack
     ?on_program ?(pipeline = Ssa_backends.Pipeline.Exact)
     ?(oracle = Reference_f64) ?(same = fun a b -> bits a = bits b) ?(calls = 2)
     ?constant ?(input = fun ~salt _ -> values ~salt) name g =
@@ -124,8 +124,8 @@ let check ?route ?contractions ?bf16_pairs ?attention ?layer ?prepack
       b.Loop_ir.Loop_bundle.constants
   in
   match
-    M.prepare ?route ?contractions ?bf16_pairs ?attention ?layer ?prepack
-      ?on_program ~pipeline b
+    M.prepare ?route ?contractions ?bf16_pairs ?attention ?layer ?sequence
+      ?prepack ?on_program ~pipeline b
   with
   | Error rs ->
       Fmt.pr "%s: refused: %a@." name Fmt.(list ~sep:(any "; ") M.Refusal.pp) rs
@@ -526,51 +526,8 @@ let vector_fixtures =
             relu n) );
   ]
 
-(* Transformer elementwise and normalization graphs: residual add, RMS norm,
-   and tanh-approximated GELU gated by an up projection. The 2x160, 1x67 and
-   1x33 shapes exercise full vectors and tails through each target's regular
-   lowering. *)
-let transformer_fixture ?fmt name build =
-  List.map
-    (fun (rows, hidden) ->
-      (Fmt.str "%s %dx%d" name rows hidden, fun () -> build ?fmt ~rows ~hidden))
-    [ (2, 160); (1, 67); (1, 33) ]
-
-let transformer_residual_add ?fmt ~rows ~hidden () =
-  F.build "residual_add"
-    Graph_builder.(
-      let* a = input ~shape:(F.s 1 1 1 1 rows hidden) ?fmt () in
-      let* b = input ~shape:(F.s 1 1 1 1 rows hidden) ?fmt () in
-      add a b)
-
-let transformer_rms_norm ?fmt ~rows ~hidden () =
-  F.build "rms_norm"
-    Graph_builder.(
-      let* x = input ~shape:(F.s 1 1 1 1 rows hidden) ?fmt () in
-      let* w = constant ~shape:(F.s 1 1 1 1 1 hidden) ?fmt () in
-      rms_norm { Norm.RmsNorm.dims = [ Axis.C ]; eps = 1e-6 } ~x ~weight:w ())
-
-let transformer_tanh_gelu_mul ?fmt ~rows ~hidden () =
-  F.build "tanh_gelu_mul"
-    Graph_builder.(
-      let* gate = input ~shape:(F.s 1 1 1 1 rows hidden) ?fmt () in
-      let* up = input ~shape:(F.s 1 1 1 1 rows hidden) ?fmt () in
-      let* g = gelu Pointwise.Gelu.Tanh gate in
-      mul g up)
-
-let transformer_variants ?fmt suffix =
-  let apply f ?fmt ~rows ~hidden = f ?fmt ~rows ~hidden () in
-  transformer_fixture ?fmt ("residual add" ^ suffix)
-    (apply transformer_residual_add)
-  @ transformer_fixture ?fmt ("rms norm" ^ suffix) (apply transformer_rms_norm)
-  @ transformer_fixture ?fmt ("tanh gelu mul" ^ suffix)
-      (apply transformer_tanh_gelu_mul)
-
-let transformer_fixtures = transformer_variants ""
-
-(* The same three with bfloat16 inputs and float32 outputs. *)
-let transformer_bf16_fixtures =
-  transformer_variants ~fmt:(Payload.Fmt Payload.BF16) " bf16"
+let transformer_fixtures = Transformer_fixtures.f32
+let transformer_bf16_fixtures = Transformer_fixtures.bf16
 
 let vector_loops b =
   List.fold_left
@@ -652,15 +609,15 @@ let%expect_test "Fp32_ordered vectors: Machine IR is the binary32 oracle" =
       generic (1 invocations): bitwise, bitwise
       aarch64 scanned (1 invocations): bitwise, bitwise
       x86_64 scanned (1 invocations): bitwise, bitwise
-    rms norm 2x160: 0 vector loops; binary64 arithmetic 0, conversion 0, helper_call 0, memory_move 0
+    rms norm 2x160: 1 vector loops; binary64 arithmetic 0, conversion 0, helper_call 0, memory_move 0
       generic (1 invocations): bitwise, bitwise
       aarch64 scanned (1 invocations): bitwise, bitwise
       x86_64 scanned (1 invocations): bitwise, bitwise
-    rms norm 1x67: 0 vector loops; binary64 arithmetic 0, conversion 0, helper_call 0, memory_move 0
+    rms norm 1x67: 1 vector loops; binary64 arithmetic 0, conversion 0, helper_call 0, memory_move 0
       generic (1 invocations): bitwise, bitwise
       aarch64 scanned (1 invocations): bitwise, bitwise
       x86_64 scanned (1 invocations): bitwise, bitwise
-    rms norm 1x33: 0 vector loops; binary64 arithmetic 0, conversion 0, helper_call 0, memory_move 0
+    rms norm 1x33: 1 vector loops; binary64 arithmetic 0, conversion 0, helper_call 0, memory_move 0
       generic (1 invocations): bitwise, bitwise
       aarch64 scanned (1 invocations): bitwise, bitwise
       x86_64 scanned (1 invocations): bitwise, bitwise
@@ -688,15 +645,15 @@ let%expect_test "Fp32_ordered vectors: Machine IR is the binary32 oracle" =
       generic (1 invocations): bitwise, bitwise
       aarch64 scanned (1 invocations): bitwise, bitwise
       x86_64 scanned (1 invocations): bitwise, bitwise
-    rms norm bf16 2x160: 0 vector loops; binary64 arithmetic 0, conversion 0, helper_call 0, memory_move 0
+    rms norm bf16 2x160: 1 vector loops; binary64 arithmetic 0, conversion 0, helper_call 0, memory_move 0
       generic (1 invocations): bitwise, bitwise
       aarch64 scanned (1 invocations): bitwise, bitwise
       x86_64 scanned (1 invocations): bitwise, bitwise
-    rms norm bf16 1x67: 0 vector loops; binary64 arithmetic 0, conversion 0, helper_call 0, memory_move 0
+    rms norm bf16 1x67: 1 vector loops; binary64 arithmetic 0, conversion 0, helper_call 0, memory_move 0
       generic (1 invocations): bitwise, bitwise
       aarch64 scanned (1 invocations): bitwise, bitwise
       x86_64 scanned (1 invocations): bitwise, bitwise
-    rms norm bf16 1x33: 0 vector loops; binary64 arithmetic 0, conversion 0, helper_call 0, memory_move 0
+    rms norm bf16 1x33: 1 vector loops; binary64 arithmetic 0, conversion 0, helper_call 0, memory_move 0
       generic (1 invocations): bitwise, bitwise
       aarch64 scanned (1 invocations): bitwise, bitwise
       x86_64 scanned (1 invocations): bitwise, bitwise

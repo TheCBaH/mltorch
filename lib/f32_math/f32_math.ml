@@ -80,7 +80,31 @@ module type OPS = sig
   val share : t -> t
 end
 
-module Make (O : OPS) = struct
+module type FNS = sig
+  type t
+
+  val cos : t -> t
+  val erf : t -> t
+  val exp : t -> t
+  val log : t -> t
+  val sin : t -> t
+end
+
+module type FAST = sig
+  type t
+
+  val pow2_int : t -> t
+  val trunc_small : t -> t
+end
+
+(* [fast] replaces the two exact pieces of [exp] (see {!FAST}); [None] is the
+   reference sequence, operation for operation. *)
+module Make_with
+    (O : OPS)
+    (Fast : sig
+      val fast : (module FAST with type t = O.t) option
+    end) =
+struct
   open O
 
   let c = const
@@ -137,13 +161,33 @@ module Make (O : OPS) = struct
     let f = go one a [ 64.; 32.; 16.; 8.; 4.; 2.; 1. ] in
     select_lt n zero (div one f) f
 
+  (* With the fast pieces, [k] is taken from a second clamp that sends a NaN
+     to [lo] and is [xc] for every other [x] (the bounds compare the other way
+     round), so both pieces only ever see their contracts: [t] is in
+     [-150.05, 128.4], so [|t +- 0.5| < 151 < 2^23] and [k] is an integer in
+     [-150, 128]; [k1 = trunc (k / 2)] and [k2 = k - k1] are integers in
+     [-75, 64], inside [pow2_int]'s [|n| <= 126]. A NaN [x] still reaches the
+     result through [xc], [r] and [y], times two finite powers. A zero [k]
+     may come back as [-0] where [trunc] gives [+0], only for an argument in
+     (-1, 0), so [t < 0] and [xc] is nonzero: [xc - (+-0) c] is [xc] either
+     way, and [k1], [k2] are zeros of either sign, whose power is 1. So the
+     result has the reference's bits for every [x]. *)
   let exp x =
     let x = share x in
     let lo = c (-104.) and hi = c 89. in
     (* a NaN falls through both comparisons and stays *)
     let xc = share (select_lt x lo lo (select_lt hi x hi x)) in
-    let t = share (mul xc (c 1.44269504088896341)) in
-    let k = share (trunc (add t (select_lt t zero (c (-0.5)) half))) in
+    let k_of trunc xk =
+      let t = share (mul xk (c 1.44269504088896341)) in
+      share (trunc (add t (select_lt t zero (c (-0.5)) half)))
+    in
+    let trunc, pow2, k =
+      match Fast.fast with
+      | None -> (trunc, pow2, k_of trunc xc)
+      | Some (module F) ->
+          let xk = share (select_lt lo x (select_lt x hi x hi) lo) in
+          (F.trunc_small, F.pow2_int, k_of F.trunc_small xk)
+    in
     let r =
       share (sub (sub xc (mul k (c 0.693359375))) (mul k (c (-2.12194440e-4))))
     in
@@ -284,6 +328,20 @@ module Make (O : OPS) = struct
     mul sign (sub one (mul poly e))
 end
 
+module Make (O : OPS) =
+  Make_with
+    (O)
+    (struct
+      let fast = None
+    end)
+
+module Make_fast (O : OPS) (F : FAST with type t = O.t) =
+  Make_with
+    (O)
+    (struct
+      let fast = Some (module F : FAST with type t = O.t)
+    end)
+
 module Value_ops = struct
   type t = float
 
@@ -299,6 +357,31 @@ end
 
 module Value = struct
   module M = Make (Value_ops)
+
+  let arg f x = f (round32 x)
+  let cos = arg M.cos
+  let erf = arg M.erf
+  let exp = arg M.exp
+  let log = arg M.log
+  let sin = arg M.sin
+end
+
+(* [2^n] built from its bits: [n + 1.5 * 2^23 + 127] is exact and holds
+   [n + 127] in its low nine bits, which the shift moves into the exponent
+   field. *)
+let pow2_int32 n =
+  Int32.float_of_bits
+    (Int32.shift_left (Int32.bits_of_float (round32 (n +. 12583039.))) 23)
+
+module Value_fast_ops = struct
+  type t = float
+
+  let pow2_int = pow2_int32
+  let trunc_small = Float.trunc
+end
+
+module Value_fast = struct
+  module M = Make_fast (Value_ops) (Value_fast_ops)
 
   let arg f x = f (round32 x)
   let cos = arg M.cos

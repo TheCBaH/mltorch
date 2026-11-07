@@ -23,6 +23,12 @@ val hoist : alias:Ssa_effects.policy -> pass
 (** Pure operations out of the loops they do not depend on, and loads proved in
     bounds out of loops that run and never write what they read. *)
 
+val collapse : pass
+(** A perfect nest of two unit-step loops from zero over whole adjacent rows of
+    the buffers it accesses becomes one loop over the merged axis, each such
+    buffer declared with the two axes joined ({!Ssa_opt_collapse}). Planned
+    pipelines only, before vectorization. *)
+
 val share : alias:Ssa_effects.policy -> pass
 (** A load an earlier load already performed, with nothing that may write its
     buffer in between. *)

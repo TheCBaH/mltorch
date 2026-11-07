@@ -37,8 +37,11 @@ let summary ?target ?fma (plan : Ssa_plan.t) =
     | None -> (Mir_type.Lanes.of_int 1, "scalar", [])
     | Some t ->
         ( Mir_type.Lanes.of_int (Ssa_type.Lanes.to_int t.Ssa_target.lanes),
-          Printf.sprintf "%s/row_block=%d" t.Ssa_target.name
-            t.Ssa_target.row_block,
+          Printf.sprintf "%s/row_block=%d%s" t.Ssa_target.name
+            t.Ssa_target.row_block
+            (if t.Ssa_target.unroll > 1 then
+               Printf.sprintf "/unroll=%d" t.Ssa_target.unroll
+             else ""),
           Mir_planning.Capability.Vector_bits
             (Int64.of_int t.Ssa_target.vector_bits)
           ::
@@ -822,7 +825,8 @@ let scan (cfg : Ssa_cfg.t) =
         (f32, fma) b.Ssa_cfg_block.body)
     (false, false) cfg.Ssa_cfg.blocks
 
-let program ?mutation ~planning (p : Ssa_program.t) =
+let program ?mutation ?(sequence = Sequence.Reference) ~planning
+    (p : Ssa_program.t) =
   Err.Escape.with_escape @@ fun esc ->
   let refuse r = Err.Escape.throw esc r in
   (match Err.payload (Ssa_verify.check p) with
@@ -878,6 +882,7 @@ let program ?mutation ~planning (p : Ssa_program.t) =
       cur = entry;
       origin = Mir_origin.unknown;
       mutation;
+      sequence;
     }
   in
   let rpo =

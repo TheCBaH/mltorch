@@ -175,6 +175,7 @@ let instructions env (op : X.t) ~(uses : Loc.t list) ~(defs : Loc.t list) :
           [ x (u 0); x (d 0) ];
       ]
   | X.Cvtdq2ps _ -> [ mk "cvtdq2ps" [ x (u 0); x (d 0) ] ]
+  | X.Cvttps2dq _ -> [ mk "cvttps2dq" [ x (u 0); x (d 0) ] ]
   | X.Cvtpd2ps _ -> [ mk "cvtpd2ps" [ x (u 0); x (d 0) ] ]
   | X.Cvtps2pd _ -> [ mk "cvtps2pd" [ x (u 0); x (d 0) ] ]
   | X.Cvtsi2s (fsz, _) -> [ mk ("cvtsi2" ^ fs fsz ^ "q") [ gq (u 0); x (d 0) ] ]

@@ -75,13 +75,13 @@ let%expect_test "baseline census of both emitters' bundles" =
     chain loop fp32_ordered: arithmetic 0, conversion 0, helper_call 0, memory_move 0; imports 0
     chain ssa exact: arithmetic 13, conversion 18, helper_call 0, memory_move 73; imports 0
     chain ssa fp32_ordered scalar: arithmetic 0, conversion 0, helper_call 0, memory_move 0; imports 0
-    chain ssa simd_fp32_ordered: arithmetic 13, conversion 18, helper_call 0, memory_move 72; imports 0
+    chain ssa simd_fp32_ordered: arithmetic 26, conversion 48, helper_call 0, memory_move 120; imports 0
     softmax loop reference: arithmetic 5, conversion 4, helper_call 2, memory_move 17; imports 1
     softmax loop simd_fp32_ordered: arithmetic 9, conversion 12, helper_call 6, memory_move 29; imports 1
     softmax loop fp32_ordered: arithmetic 0, conversion 0, helper_call 0, memory_move 0; imports 0
     softmax ssa exact: arithmetic 5, conversion 6, helper_call 2, memory_move 47; imports 1
     softmax ssa fp32_ordered scalar: arithmetic 0, conversion 0, helper_call 0, memory_move 0; imports 0
-    softmax ssa simd_fp32_ordered: arithmetic 5, conversion 6, helper_call 2, memory_move 47; imports 1 |}]
+    softmax ssa simd_fp32_ordered: arithmetic 9, conversion 16, helper_call 6, memory_move 67; imports 1 |}]
 
 (* The gate: under Fp32_ordered a bundle's module holds no binary64 instruction
    of any role and imports nothing, from either emitter. A module that failed

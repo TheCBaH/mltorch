@@ -207,57 +207,57 @@ let%expect_test "under pressure: both checked; what each mutation breaks" =
   [%expect
     {|
     aarch64, 3 registers chain/0:
-      reference checked: 111 instructions; 0 register moves, 138 stores, 167 loads, 0 slot moves, 0 rematerialized; 117 slots (784 bytes)
-      linear scan checked: 111 instructions; 28 register moves, 67 stores, 53 loads, 0 slot moves, 9 rematerialized; 23 slots (148 bytes)
+      reference checked: 91 instructions; 0 register moves, 120 stores, 140 loads, 0 slot moves, 0 rematerialized; 98 slots (632 bytes)
+      linear scan checked: 91 instructions; 11 register moves, 62 stores, 51 loads, 0 slot moves, 6 rematerialized; 25 slots (164 bytes)
     aarch64, 3 registers chain/1:
-      reference checked: 68 instructions; 0 register moves, 82 stores, 94 loads, 0 slot moves, 0 rematerialized; 73 slots (524 bytes)
-      linear scan checked: 68 instructions; 16 register moves, 20 stores, 17 loads, 0 slot moves, 5 rematerialized; 9 slots (60 bytes)
+      reference checked: 58 instructions; 0 register moves, 80 stores, 82 loads, 0 slot moves, 0 rematerialized; 67 slots (476 bytes)
+      linear scan checked: 58 instructions; 4 register moves, 39 stores, 30 loads, 0 slot moves, 3 rematerialized; 17 slots (124 bytes)
     aarch64, 3 registers chain/2:
-      reference checked: 41 instructions; 0 register moves, 56 stores, 65 loads, 0 slot moves, 0 rematerialized; 46 slots (324 bytes)
-      linear scan checked: 41 instructions; 8 register moves, 13 stores, 11 loads, 0 slot moves, 5 rematerialized; 7 slots (44 bytes)
+      reference checked: 27 instructions; 0 register moves, 42 stores, 45 loads, 0 slot moves, 0 rematerialized; 32 slots (212 bytes)
+      linear scan checked: 27 instructions; 11 register moves, 8 stores, 8 loads, 0 slot moves, 2 rematerialized; 7 slots (44 bytes)
     aarch64, 3 registers bmm/0:
-      reference checked: 65 instructions; 0 register moves, 88 stores, 100 loads, 0 slot moves, 0 rematerialized; 74 slots (536 bytes)
-      linear scan checked: 65 instructions; 14 register moves, 27 stores, 24 loads, 0 slot moves, 7 rematerialized; 12 slots (80 bytes)
+      reference checked: 38 instructions; 0 register moves, 61 stores, 64 loads, 0 slot moves, 0 rematerialized; 47 slots (320 bytes)
+      linear scan checked: 38 instructions; 11 register moves, 23 stores, 19 loads, 0 slot moves, 4 rematerialized; 11 slots (76 bytes)
     aarch64, 3 registers softmax/0:
-      reference checked: 205 instructions; 0 register moves, 180 stores, 248 loads, 0 slot moves, 0 rematerialized; 162 slots (1140 bytes)
-      linear scan checked: 205 instructions; 19 register moves, 48 stores, 41 loads, 0 slot moves, 14 rematerialized; 17 slots (120 bytes)
+      reference checked: 180 instructions; 0 register moves, 155 stores, 213 loads, 0 slot moves, 0 rematerialized; 137 slots (940 bytes)
+      linear scan checked: 180 instructions; 22 register moves, 38 stores, 36 loads, 0 slot moves, 8 rematerialized; 19 slots (136 bytes)
     aarch64, 3 registers sdpa/0:
-      reference checked: 559 instructions; 0 register moves, 442 stores, 647 loads, 0 slot moves, 0 rematerialized; 407 slots (2896 bytes)
-      linear scan checked: 559 instructions; 45 register moves, 129 stores, 108 loads, 0 slot moves, 24 rematerialized; 29 slots (212 bytes)
+      reference checked: 516 instructions; 0 register moves, 411 stores, 590 loads, 0 slot moves, 0 rematerialized; 370 slots (2596 bytes)
+      linear scan checked: 516 instructions; 29 register moves, 130 stores, 108 loads, 0 slot moves, 16 rematerialized; 35 slots (256 bytes)
     aarch64, 3 registers conv/0:
-      reference checked: 132 instructions; 0 register moves, 164 stores, 197 loads, 0 slot moves, 0 rematerialized; 140 slots (940 bytes)
-      linear scan checked: 132 instructions; 21 register moves, 73 stores, 59 loads, 0 slot moves, 14 rematerialized; 26 slots (168 bytes)
+      reference checked: 105 instructions; 0 register moves, 139 stores, 161 loads, 0 slot moves, 0 rematerialized; 114 slots (732 bytes)
+      linear scan checked: 105 instructions; 11 register moves, 69 stores, 57 loads, 0 slot moves, 9 rematerialized; 29 slots (188 bytes)
     x86_64, 3 registers chain/0:
-      reference checked: 116 instructions; 0 register moves, 143 stores, 172 loads, 0 slot moves, 0 rematerialized; 122 slots (816 bytes)
-      linear scan checked: 116 instructions; 24 register moves, 61 stores, 61 loads, 0 slot moves, 14 rematerialized; 23 slots (148 bytes)
+      reference checked: 92 instructions; 0 register moves, 121 stores, 141 loads, 0 slot moves, 0 rematerialized; 99 slots (632 bytes)
+      linear scan checked: 92 instructions; 17 register moves, 61 stores, 57 loads, 0 slot moves, 11 rematerialized; 24 slots (156 bytes)
     x86_64, 3 registers chain/1:
-      reference checked: 73 instructions; 0 register moves, 87 stores, 99 loads, 0 slot moves, 0 rematerialized; 78 slots (540 bytes)
-      linear scan checked: 73 instructions; 11 register moves, 22 stores, 23 loads, 0 slot moves, 7 rematerialized; 11 slots (76 bytes)
+      reference checked: 55 instructions; 0 register moves, 77 stores, 79 loads, 0 slot moves, 0 rematerialized; 64 slots (428 bytes)
+      linear scan checked: 55 instructions; 5 register moves, 35 stores, 30 loads, 0 slot moves, 8 rematerialized; 13 slots (92 bytes)
     x86_64, 3 registers chain/2:
-      reference checked: 45 instructions; 0 register moves, 60 stores, 69 loads, 0 slot moves, 0 rematerialized; 50 slots (348 bytes)
-      linear scan checked: 45 instructions; 13 register moves, 16 stores, 18 loads, 0 slot moves, 7 rematerialized; 7 slots (44 bytes)
+      reference checked: 27 instructions; 0 register moves, 42 stores, 45 loads, 0 slot moves, 0 rematerialized; 32 slots (204 bytes)
+      linear scan checked: 27 instructions; 11 register moves, 9 stores, 11 loads, 0 slot moves, 2 rematerialized; 7 slots (44 bytes)
     x86_64, 3 registers bmm/0:
-      reference checked: 65 instructions; 0 register moves, 88 stores, 100 loads, 0 slot moves, 0 rematerialized; 74 slots (524 bytes)
-      linear scan checked: 65 instructions; 17 register moves, 29 stores, 32 loads, 0 slot moves, 10 rematerialized; 12 slots (80 bytes)
+      reference checked: 38 instructions; 0 register moves, 61 stores, 64 loads, 0 slot moves, 0 rematerialized; 47 slots (308 bytes)
+      linear scan checked: 38 instructions; 12 register moves, 22 stores, 22 loads, 0 slot moves, 4 rematerialized; 12 slots (80 bytes)
     x86_64, 3 registers softmax/0:
-      reference checked: 230 instructions; 0 register moves, 202 stores, 280 loads, 0 slot moves, 0 rematerialized; 184 slots (1300 bytes)
-      linear scan checked: 230 instructions; 27 register moves, 41 stores, 48 loads, 0 slot moves, 28 rematerialized; 15 slots (104 bytes)
+      reference checked: 200 instructions; 0 register moves, 172 stores, 240 loads, 0 slot moves, 0 rematerialized; 154 slots (1060 bytes)
+      linear scan checked: 200 instructions; 33 register moves, 39 stores, 41 loads, 0 slot moves, 16 rematerialized; 17 slots (120 bytes)
     x86_64, 3 registers sdpa/0:
-      reference checked: 601 instructions; 0 register moves, 474 stores, 689 loads, 0 slot moves, 0 rematerialized; 439 slots (3132 bytes)
-      linear scan checked: 601 instructions; 44 register moves, 109 stores, 115 loads, 0 slot moves, 53 rematerialized; 26 slots (188 bytes)
+      reference checked: 543 instructions; 0 register moves, 427 stores, 616 loads, 0 slot moves, 0 rematerialized; 386 slots (2704 bytes)
+      linear scan checked: 543 instructions; 38 register moves, 111 stores, 98 loads, 0 slot moves, 41 rematerialized; 31 slots (224 bytes)
     x86_64, 3 registers conv/0:
-      reference checked: 130 instructions; 0 register moves, 162 stores, 194 loads, 0 slot moves, 0 rematerialized; 138 slots (920 bytes)
-      linear scan checked: 130 instructions; 31 register moves, 67 stores, 69 loads, 0 slot moves, 22 rematerialized; 26 slots (168 bytes)
-    aarch64, 3 registers call interval: caught on 2 kernels; first softmax/0: checker: fn0 bb12: d2 does not hold %36
+      reference checked: 100 instructions; 0 register moves, 134 stores, 155 loads, 0 slot moves, 0 rematerialized; 109 slots (688 bytes)
+      linear scan checked: 100 instructions; 15 register moves, 71 stores, 68 loads, 0 slot moves, 11 rematerialized; 27 slots (176 bytes)
+    aarch64, 3 registers call interval: caught on 2 kernels; first softmax/0: checker: fn0 bb14: [slot8:8] does not hold %62
     aarch64, 3 registers hole: NOT CAUGHT
     aarch64, 3 registers live tie: NOT CAUGHT
-    aarch64, 3 registers needed eviction: caught on 7 kernels; first chain/0: physical verifier: allocated fn0 bb1: target constraint: an undeclared slot
-    aarch64, 3 registers split move: caught on 7 kernels; first chain/0: checker: fn0 bb1: x2 does not hold %188
-    x86_64, 3 registers call interval: caught on 2 kernels; first softmax/0: checker: fn0 bb12: xmm2.d does not hold %36
+    aarch64, 3 registers needed eviction: caught on 7 kernels; first chain/0: physical verifier: allocated fn0 bb6 i236: target constraint: an instruction operand in memory
+    aarch64, 3 registers split move: caught on 7 kernels; first chain/0: checker: fn0 bb1: [slot1:8] does not hold %202
+    x86_64, 3 registers call interval: caught on 2 kernels; first softmax/0: checker: fn0 bb17: xmm1.d does not hold %115
     x86_64, 3 registers hole: NOT CAUGHT
-    x86_64, 3 registers live tie: caught on 7 kernels; first chain/0: physical verifier: allocated fn0 bb6 i278: target constraint: an instruction operand in memory
-    x86_64, 3 registers needed eviction: caught on 7 kernels; first chain/0: physical verifier: allocated fn0 bb1: target constraint: an undeclared slot
-    x86_64, 3 registers split move: caught on 7 kernels; first chain/0: checker: fn0 bb1: rdi does not hold %193 |}]
+    x86_64, 3 registers live tie: caught on 7 kernels; first chain/0: physical verifier: allocated fn0 bb15 i297: target constraint: an instruction operand in memory
+    x86_64, 3 registers needed eviction: caught on 7 kernels; first chain/0: physical verifier: allocated fn0 bb4 i216: target constraint: an instruction operand in memory
+    x86_64, 3 registers split move: caught on 7 kernels; first chain/0: checker: fn0 bb1: eax does not hold %32 |}]
 
 let%expect_test "both allocators pass the same checker; what each costs" =
   A64.compare ();
@@ -265,47 +265,47 @@ let%expect_test "both allocators pass the same checker; what each costs" =
   [%expect
     {|
     aarch64 chain/0:
-      reference checked: 111 instructions; 0 register moves, 138 stores, 167 loads, 0 slot moves, 0 rematerialized; 117 slots (784 bytes)
-      linear scan checked: 111 instructions; 34 register moves, 0 stores, 0 loads, 0 slot moves, 1 rematerialized; 0 slots (0 bytes)
+      reference checked: 91 instructions; 0 register moves, 120 stores, 140 loads, 0 slot moves, 0 rematerialized; 98 slots (632 bytes)
+      linear scan checked: 91 instructions; 39 register moves, 1 stores, 1 loads, 0 slot moves, 2 rematerialized; 1 slots (8 bytes)
     aarch64 chain/1:
-      reference checked: 68 instructions; 0 register moves, 82 stores, 94 loads, 0 slot moves, 0 rematerialized; 73 slots (524 bytes)
-      linear scan checked: 68 instructions; 16 register moves, 0 stores, 0 loads, 0 slot moves, 0 rematerialized; 0 slots (0 bytes)
+      reference checked: 58 instructions; 0 register moves, 80 stores, 82 loads, 0 slot moves, 0 rematerialized; 67 slots (476 bytes)
+      linear scan checked: 58 instructions; 21 register moves, 0 stores, 0 loads, 0 slot moves, 0 rematerialized; 0 slots (0 bytes)
     aarch64 chain/2:
-      reference checked: 41 instructions; 0 register moves, 56 stores, 65 loads, 0 slot moves, 0 rematerialized; 46 slots (324 bytes)
-      linear scan checked: 41 instructions; 14 register moves, 0 stores, 0 loads, 0 slot moves, 0 rematerialized; 0 slots (0 bytes)
+      reference checked: 27 instructions; 0 register moves, 42 stores, 45 loads, 0 slot moves, 0 rematerialized; 32 slots (212 bytes)
+      linear scan checked: 27 instructions; 15 register moves, 0 stores, 0 loads, 0 slot moves, 0 rematerialized; 0 slots (0 bytes)
     aarch64 bmm/0:
-      reference checked: 65 instructions; 0 register moves, 88 stores, 100 loads, 0 slot moves, 0 rematerialized; 74 slots (536 bytes)
-      linear scan checked: 65 instructions; 18 register moves, 0 stores, 0 loads, 0 slot moves, 0 rematerialized; 0 slots (0 bytes)
+      reference checked: 38 instructions; 0 register moves, 61 stores, 64 loads, 0 slot moves, 0 rematerialized; 47 slots (320 bytes)
+      linear scan checked: 38 instructions; 22 register moves, 0 stores, 0 loads, 0 slot moves, 0 rematerialized; 0 slots (0 bytes)
     aarch64 softmax/0:
-      reference checked: 205 instructions; 0 register moves, 180 stores, 248 loads, 0 slot moves, 0 rematerialized; 162 slots (1140 bytes)
-      linear scan checked: 205 instructions; 54 register moves, 6 stores, 6 loads, 0 slot moves, 0 rematerialized; 6 slots (40 bytes)
+      reference checked: 180 instructions; 0 register moves, 155 stores, 213 loads, 0 slot moves, 0 rematerialized; 137 slots (940 bytes)
+      linear scan checked: 180 instructions; 50 register moves, 4 stores, 4 loads, 0 slot moves, 3 rematerialized; 4 slots (28 bytes)
     aarch64 sdpa/0:
-      reference checked: 559 instructions; 0 register moves, 442 stores, 647 loads, 0 slot moves, 0 rematerialized; 407 slots (2896 bytes)
-      linear scan checked: 559 instructions; 101 register moves, 30 stores, 27 loads, 0 slot moves, 0 rematerialized; 14 slots (100 bytes)
+      reference checked: 516 instructions; 0 register moves, 411 stores, 590 loads, 0 slot moves, 0 rematerialized; 370 slots (2596 bytes)
+      linear scan checked: 516 instructions; 122 register moves, 29 stores, 27 loads, 0 slot moves, 0 rematerialized; 14 slots (104 bytes)
     aarch64 conv/0:
-      reference checked: 132 instructions; 0 register moves, 164 stores, 197 loads, 0 slot moves, 0 rematerialized; 140 slots (940 bytes)
-      linear scan checked: 132 instructions; 39 register moves, 3 stores, 3 loads, 0 slot moves, 3 rematerialized; 3 slots (24 bytes)
+      reference checked: 105 instructions; 0 register moves, 139 stores, 161 loads, 0 slot moves, 0 rematerialized; 114 slots (732 bytes)
+      linear scan checked: 105 instructions; 46 register moves, 5 stores, 5 loads, 0 slot moves, 3 rematerialized; 5 slots (40 bytes)
     x86_64 chain/0:
-      reference checked: 116 instructions; 0 register moves, 143 stores, 172 loads, 0 slot moves, 0 rematerialized; 122 slots (816 bytes)
-      linear scan checked: 116 instructions; 52 register moves, 18 stores, 16 loads, 0 slot moves, 3 rematerialized; 13 slots (84 bytes)
+      reference checked: 92 instructions; 0 register moves, 121 stores, 141 loads, 0 slot moves, 0 rematerialized; 99 slots (632 bytes)
+      linear scan checked: 92 instructions; 45 register moves, 18 stores, 18 loads, 0 slot moves, 4 rematerialized; 14 slots (92 bytes)
     x86_64 chain/1:
-      reference checked: 73 instructions; 0 register moves, 87 stores, 99 loads, 0 slot moves, 0 rematerialized; 78 slots (540 bytes)
-      linear scan checked: 73 instructions; 25 register moves, 1 stores, 1 loads, 0 slot moves, 1 rematerialized; 1 slots (8 bytes)
+      reference checked: 55 instructions; 0 register moves, 77 stores, 79 loads, 0 slot moves, 0 rematerialized; 64 slots (428 bytes)
+      linear scan checked: 55 instructions; 23 register moves, 5 stores, 5 loads, 0 slot moves, 5 rematerialized; 4 slots (28 bytes)
     x86_64 chain/2:
-      reference checked: 45 instructions; 0 register moves, 60 stores, 69 loads, 0 slot moves, 0 rematerialized; 50 slots (348 bytes)
-      linear scan checked: 45 instructions; 22 register moves, 0 stores, 0 loads, 0 slot moves, 1 rematerialized; 0 slots (0 bytes)
+      reference checked: 27 instructions; 0 register moves, 42 stores, 45 loads, 0 slot moves, 0 rematerialized; 32 slots (204 bytes)
+      linear scan checked: 27 instructions; 19 register moves, 0 stores, 0 loads, 0 slot moves, 1 rematerialized; 0 slots (0 bytes)
     x86_64 bmm/0:
-      reference checked: 65 instructions; 0 register moves, 88 stores, 100 loads, 0 slot moves, 0 rematerialized; 74 slots (524 bytes)
-      linear scan checked: 65 instructions; 31 register moves, 4 stores, 4 loads, 0 slot moves, 1 rematerialized; 4 slots (28 bytes)
+      reference checked: 38 instructions; 0 register moves, 61 stores, 64 loads, 0 slot moves, 0 rematerialized; 47 slots (308 bytes)
+      linear scan checked: 38 instructions; 24 register moves, 4 stores, 4 loads, 0 slot moves, 1 rematerialized; 4 slots (28 bytes)
     x86_64 softmax/0:
-      reference checked: 230 instructions; 0 register moves, 202 stores, 280 loads, 0 slot moves, 0 rematerialized; 184 slots (1300 bytes)
-      linear scan checked: 230 instructions; 58 register moves, 23 stores, 23 loads, 0 slot moves, 2 rematerialized; 12 slots (84 bytes)
+      reference checked: 200 instructions; 0 register moves, 172 stores, 240 loads, 0 slot moves, 0 rematerialized; 154 slots (1060 bytes)
+      linear scan checked: 200 instructions; 56 register moves, 23 stores, 23 loads, 0 slot moves, 5 rematerialized; 13 slots (96 bytes)
     x86_64 sdpa/0:
-      reference checked: 601 instructions; 0 register moves, 474 stores, 689 loads, 0 slot moves, 0 rematerialized; 439 slots (3132 bytes)
-      linear scan checked: 601 instructions; 93 register moves, 50 stores, 49 loads, 0 slot moves, 13 rematerialized; 20 slots (148 bytes)
+      reference checked: 543 instructions; 0 register moves, 427 stores, 616 loads, 0 slot moves, 0 rematerialized; 386 slots (2704 bytes)
+      linear scan checked: 543 instructions; 90 register moves, 63 stores, 57 loads, 0 slot moves, 18 rematerialized; 24 slots (176 bytes)
     x86_64 conv/0:
-      reference checked: 130 instructions; 0 register moves, 162 stores, 194 loads, 0 slot moves, 0 rematerialized; 138 slots (920 bytes)
-      linear scan checked: 130 instructions; 59 register moves, 21 stores, 19 loads, 0 slot moves, 3 rematerialized; 16 slots (104 bytes) |}]
+      reference checked: 100 instructions; 0 register moves, 134 stores, 155 loads, 0 slot moves, 0 rematerialized; 109 slots (688 bytes)
+      linear scan checked: 100 instructions; 59 register moves, 21 stores, 21 loads, 0 slot moves, 4 rematerialized; 17 slots (112 bytes) |}]
 
 let%expect_test "linear-scan mutations with full pools" =
   A64.mutations ();
@@ -316,9 +316,9 @@ let%expect_test "linear-scan mutations with full pools" =
     aarch64 hole: NOT CAUGHT
     aarch64 live tie: NOT CAUGHT
     aarch64 needed eviction: NOT CAUGHT
-    aarch64 split move: caught on 2 kernels; first softmax/0: checker: fn0 bb20: x0 does not hold %52
-    x86_64 call interval: caught on 2 kernels; first softmax/0: checker: fn0 bb4: eax does not hold %30
-    x86_64 hole: caught on 3 kernels; first chain/0: checker: fn0 bb13: r9 does not hold %225
-    x86_64 live tie: caught on 7 kernels; first chain/0: checker: fn0 bb4: r12d does not hold %41
-    x86_64 needed eviction: caught on 1 kernels; first sdpa/0: physical verifier: allocated fn0 bb6 i555: target constraint: an instruction operand in memory
-    x86_64 split move: caught on 5 kernels; first chain/0: checker: fn0 bb6: ebx does not hold %2 |}]
+    aarch64 split move: caught on 2 kernels; first softmax/0: checker: fn0 bb17: x19 does not hold %257
+    x86_64 call interval: caught on 2 kernels; first softmax/0: checker: fn0 bb10: xmm1.d does not hold %35
+    x86_64 hole: caught on 4 kernels; first chain/0: checker: fn0 bb10: r14 does not hold %227
+    x86_64 live tie: caught on 7 kernels; first chain/0: checker: fn0 bb4: r13d does not hold %41
+    x86_64 needed eviction: caught on 4 kernels; first chain/0: physical verifier: allocated fn0 bb12 i278: target constraint: an instruction operand in memory
+    x86_64 split move: caught on 5 kernels; first chain/0: checker: fn0 bb6: r9 does not hold %193 |}]

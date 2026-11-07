@@ -835,7 +835,8 @@ let%expect_test "dequantization as vectors under node" =
             let loop_p =
               Lf.program
                 ~buffers:
-                  (List.map Ssa_bridge.Loop_of_ssa.loop_buffer
+                  (List.map
+                     (Ssa_bridge.Loop_of_ssa.loop_buffer_of p)
                      (Ssa_wasm.arguments q))
                 []
             in

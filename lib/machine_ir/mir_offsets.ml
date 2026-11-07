@@ -10,7 +10,9 @@
    preheader, shared by the accesses with the same base and terms; inside, an
    address adds the varying terms (once per block for accesses that share
    them) and then its constant, which a target's address form takes as a
-   displacement. Only the innermost loop: pointers moved further out would
+   displacement. A view's address counts as a term from outside: an access
+   whose only term is the loop's counter still moves its base to the
+   preheader and becomes a carried pointer. Only the innermost loop: pointers moved further out would
    stay live through every loop inside them, one per access per level, on top
    of the counters. Pure instructions and narrowings nothing reads are then
    deleted. The result is verified again. *)
@@ -374,12 +376,30 @@ let func ?mutation (f : (Mir_op.t, Mir_terminator.t) Mir_func.t) =
           | Some ip -> Some ip
           | None ->
               let ip = fresh Mir_type.Ptr in
+              (* the start [hoisted + sext(init) * c]: folded when the
+                 counter starts at a constant, nothing added for zero *)
               let start =
-                append_to pre origin Mir_type.Ptr
-                  (Mir_op.Ptr_add
-                     ( hoisted,
-                       Option.get
-                         (materialize_in pre origin [ (Leaf.Sext init, c) ]) ))
+                match op_of init with
+                | Some (Mir_op.Const k)
+                  when Mir_type.equal k.Mir_const.ty Mir_type.i32 -> (
+                    match
+                      Int64.mul c
+                        (Mir_width.signed Mir_width.W32 k.Mir_const.bits)
+                    with
+                    | 0L -> hoisted
+                    | off ->
+                        append_to pre origin Mir_type.Ptr
+                          (Mir_op.Ptr_add
+                             ( hoisted,
+                               append_to pre origin Mir_type.i64
+                                 (Mir_op.Const (Mir_const.i64 off)) )))
+                | _ ->
+                    append_to pre origin Mir_type.Ptr
+                      (Mir_op.Ptr_add
+                         ( hoisted,
+                           Option.get
+                             (materialize_in pre origin [ (Leaf.Sext init, c) ])
+                         ))
               in
               let bump = ref [] in
               let by =
@@ -464,8 +484,14 @@ let func ?mutation (f : (Mir_op.t, Mir_terminator.t) Mir_func.t) =
                       List.filter (fun t -> eff t = k) fm.Form.terms
                     in
                     (* nothing to move unless some term lives outside the
-                       innermost loop *)
-                    if not (List.exists (fun t -> eff t < depth) fm.Form.terms)
+                       innermost loop, or the base is a view's address (read
+                       from the table on every iteration otherwise) beside a
+                       term that varies: a loop whose only term is its own
+                       counter then carries one pointer instead *)
+                    if
+                      not
+                        (List.exists (fun t -> eff t < depth) fm.Form.terms
+                        || (Option.is_some base_view && fm.Form.terms <> []))
                     then ()
                     else begin
                       let var =

@@ -108,7 +108,7 @@ let%expect_test "conv, batch norm, relu under the planned policy" =
 
 let fp32_ordered = T.fp32_ordered
 
-let table_check ?(allocation = Rt.Allocation.Reference)
+let table_check ?(allocation = Rt.Allocation.Reference) ?sequence
     ?(pipeline = fp32_ordered) ?constant ?(calls = 2)
     ?(input = fun ~salt _ sg -> T.values ~salt sg) name g =
   let g = g () in
@@ -121,7 +121,7 @@ let table_check ?(allocation = Rt.Allocation.Reference)
         (id, T.in_format sg (constant sg)))
       b.Loop_ir.Loop_bundle.constants
   in
-  match H.prepare ~allocation ~pipeline b with
+  match H.prepare ?sequence ~allocation ~pipeline b with
   | Error rs ->
       Fmt.pr "%s: refused: %a@." name
         Fmt.(list ~sep:(any "; ") Mm.Refusal.pp)
@@ -284,3 +284,47 @@ let%expect_test "binary32 transcendentals as NEON vectors" =
     cos scanned (1 invocations): bitwise
     gelu (erf) reference (1 invocations): bitwise
     gelu (erf) scanned (1 invocations): bitwise |}]
+
+(* The fast binary32 sequences on this CPU, both allocators, scalar and
+   vector. *)
+let%expect_test "fast sequences on this CPU" =
+  let module S = Machine_model_test.Sequence_test in
+  List.iter
+    (fun allocation ->
+      List.iter
+        (fun (pname, pipeline) ->
+          List.iter
+            (fun (name, g) ->
+              table_check ~allocation
+                ~sequence:Machine_lower.Mir_lower.Sequence.Fast ~pipeline
+                ~calls:1 ~input:S.wide
+                (Fmt.str "%s, %s %s" name pname (Rt.Allocation.name allocation))
+                g)
+            S.route_fixtures)
+        [ ("scalar", fp32_ordered); ("vector", T.fp32_vector) ])
+    Rt.Allocation.[ Reference; Scanned ];
+  [%expect {|
+    exp, scalar reference (1 invocations): bitwise
+    erf, scalar reference (1 invocations): bitwise
+    exact gelu, scalar reference (1 invocations): bitwise
+    softmax over H, W=32, scalar reference (1 invocations): bitwise
+    tanh gelu mul 1x67, scalar reference (2 invocations): bitwise
+    tanh gelu mul bf16 1x33, scalar reference (2 invocations): bitwise
+    exp, vector reference (1 invocations): bitwise
+    erf, vector reference (1 invocations): bitwise
+    exact gelu, vector reference (1 invocations): bitwise
+    softmax over H, W=32, vector reference (1 invocations): bitwise
+    tanh gelu mul 1x67, vector reference (2 invocations): bitwise
+    tanh gelu mul bf16 1x33, vector reference (2 invocations): bitwise
+    exp, scalar scanned (1 invocations): bitwise
+    erf, scalar scanned (1 invocations): bitwise
+    exact gelu, scalar scanned (1 invocations): bitwise
+    softmax over H, W=32, scalar scanned (1 invocations): bitwise
+    tanh gelu mul 1x67, scalar scanned (2 invocations): bitwise
+    tanh gelu mul bf16 1x33, scalar scanned (2 invocations): bitwise
+    exp, vector scanned (1 invocations): bitwise
+    erf, vector scanned (1 invocations): bitwise
+    exact gelu, vector scanned (1 invocations): bitwise
+    softmax over H, W=32, vector scanned (1 invocations): bitwise
+    tanh gelu mul 1x67, vector scanned (2 invocations): bitwise
+    tanh gelu mul bf16 1x33, vector scanned (2 invocations): bitwise |}]

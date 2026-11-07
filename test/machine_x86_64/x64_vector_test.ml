@@ -34,6 +34,7 @@ let%expect_test "pointwise and matmul as packed SSE2" =
       ("sqrt x", Expr.Value.sqrt x);
       ("x * x + x", Expr.Value.(add (mul x x) x));
       ("0 - x", Expr.Value.(sub (const 0.) x));
+      ("trunc x", Expr.Value.trunc x);
     ];
   List.iter
     (fun (m, k, n) ->
@@ -51,6 +52,8 @@ let%expect_test "pointwise and matmul as packed SSE2" =
     x * x + x, w=37: ok
     0 - x, w=16: ok
     0 - x, w=37: ok
+    trunc x, w=16: ok
+    trunc x, w=37: ok
     2x3x16: ok
     3x5x17: ok
     5x7x33: ok |}]
@@ -126,6 +129,22 @@ let%expect_test "masks as packed compares" =
     x < 0 ? -x : x / 3, w=37: ok
     x == 0 ? 0 : 1, w=16: ok
     x == 0 ? 0 : 1, w=37: ok |}]
+
+(* The SSE2 truncation's range select, packed (the full vectors) and scalar
+   (the tail): without it a NaN and 3.4e38 come back through int32. *)
+let%expect_test "an unguarded truncation is caught" =
+  let shape = Loop_fixtures.shape_w 37 in
+  let d = data 37 in
+  d.(0) <- Float.nan;
+  d.(1) <- -0.;
+  d.(2) <- 3.4e38;
+  d.(36) <- -0.5;
+  d.(35) <- 1e10;
+  show ~mutation:Machine_target_x86_64.X64_select.Mutation.Unguarded_trunc
+    (Loop_fixtures.pixel_kernel ~shape (Expr.Value.trunc x))
+    ~bind:(bind_data ~shape d);
+  [%expect
+    {| ok DISAGREE generic vs x86_64: output t1[0]: nan:f32 vs -0x1p+31:f32; oracle vs x86_64: output t1[0]: nan:f32 vs -0x1p+31:f32 |}]
 
 let%expect_test "mask selection mutations are caught" =
   let name, body = List.hd mask_kernels in

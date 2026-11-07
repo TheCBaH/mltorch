@@ -108,18 +108,18 @@ let%expect_test "binary32 bundles on MPACT" =
     mpact-v2, zve32f128, residual add 2x160: refused: invocation 0 (n0): configuration mpact-v2 has no Zve32f, which the kernel uses
     mpact-v2, zve32f128, residual add 1x67: refused: invocation 0 (n0): configuration mpact-v2 has no Zve32f, which the kernel uses
     mpact-v2, zve32f128, residual add 1x33: refused: invocation 0 (n0): configuration mpact-v2 has no Zve32f, which the kernel uses
-    mpact-v2, zve32f128, rms norm 2x160 (1 invocations): bitwise
-    mpact-v2, zve32f128, rms norm 1x67 (1 invocations): bitwise
-    mpact-v2, zve32f128, rms norm 1x33 (1 invocations): bitwise
+    mpact-v2, zve32f128, rms norm 2x160: refused: invocation 0 (n0): configuration mpact-v2 has no Zve32f, which the kernel uses
+    mpact-v2, zve32f128, rms norm 1x67: refused: invocation 0 (n0): configuration mpact-v2 has no Zve32f, which the kernel uses
+    mpact-v2, zve32f128, rms norm 1x33: refused: invocation 0 (n0): configuration mpact-v2 has no Zve32f, which the kernel uses
     mpact-v2, zve32f128, tanh gelu mul 2x160: refused: invocation 0 (n0): configuration mpact-v2 has no Zve32f, which the kernel uses; invocation 1 (n1): configuration mpact-v2 has no Zve32f, which the kernel uses
     mpact-v2, zve32f128, tanh gelu mul 1x67: refused: invocation 0 (n0): configuration mpact-v2 has no Zve32f, which the kernel uses; invocation 1 (n1): configuration mpact-v2 has no Zve32f, which the kernel uses
     mpact-v2, zve32f128, tanh gelu mul 1x33: refused: invocation 0 (n0): configuration mpact-v2 has no Zve32f, which the kernel uses; invocation 1 (n1): configuration mpact-v2 has no Zve32f, which the kernel uses
     mpact-v2, zve32f128, residual add bf16 2x160: refused: invocation 0 (n0): configuration mpact-v2 has no Zve32f, which the kernel uses
     mpact-v2, zve32f128, residual add bf16 1x67: refused: invocation 0 (n0): configuration mpact-v2 has no Zve32f, which the kernel uses
     mpact-v2, zve32f128, residual add bf16 1x33: refused: invocation 0 (n0): configuration mpact-v2 has no Zve32f, which the kernel uses
-    mpact-v2, zve32f128, rms norm bf16 2x160 (1 invocations): bitwise
-    mpact-v2, zve32f128, rms norm bf16 1x67 (1 invocations): bitwise
-    mpact-v2, zve32f128, rms norm bf16 1x33 (1 invocations): bitwise
+    mpact-v2, zve32f128, rms norm bf16 2x160: refused: invocation 0 (n0): configuration mpact-v2 has no Zve32f, which the kernel uses
+    mpact-v2, zve32f128, rms norm bf16 1x67: refused: invocation 0 (n0): configuration mpact-v2 has no Zve32f, which the kernel uses
+    mpact-v2, zve32f128, rms norm bf16 1x33: refused: invocation 0 (n0): configuration mpact-v2 has no Zve32f, which the kernel uses
     mpact-v2, zve32f128, tanh gelu mul bf16 2x160: refused: invocation 0 (n0): configuration mpact-v2 has no Zve32f, which the kernel uses; invocation 1 (n1): configuration mpact-v2 has no Zve32f, which the kernel uses
     mpact-v2, zve32f128, tanh gelu mul bf16 1x67: refused: invocation 0 (n0): configuration mpact-v2 has no Zve32f, which the kernel uses; invocation 1 (n1): configuration mpact-v2 has no Zve32f, which the kernel uses
     mpact-v2, zve32f128, tanh gelu mul bf16 1x33: refused: invocation 0 (n0): configuration mpact-v2 has no Zve32f, which the kernel uses; invocation 1 (n1): configuration mpact-v2 has no Zve32f, which the kernel uses |}]
@@ -175,6 +175,34 @@ let%expect_test "the ELF each run loads" =
     residual add 1x33 (1 invocations): bitwise
       1 ELF images, all starting with \x7fELF: true |}]
 
+(* The fast binary32 sequences on MPACT m3, scalar and Zve32f, on operands
+   across [exp]'s range: the reference's bits. *)
+let%expect_test "fast sequences on MPACT" =
+  let module S = Machine_model_test.Sequence_test in
+  List.iter
+    (fun (tname, target) ->
+      S.each
+        ~route:(C.route (config "mpact-m3"))
+        ~pipeline:(planned target) ("mpact-m3 " ^ tname))
+    [
+      ("scalar", Ssa_ir.Ssa_target.scalar);
+      ("zve32f128", Ssa_ir.Ssa_target.zve32f128);
+    ];
+  [%expect
+    {|
+    exp, mpact-m3 scalar (1 invocations): bitwise
+    erf, mpact-m3 scalar (1 invocations): bitwise
+    exact gelu, mpact-m3 scalar (1 invocations): bitwise
+    softmax over H, W=32, mpact-m3 scalar (1 invocations): bitwise
+    tanh gelu mul 1x67, mpact-m3 scalar (2 invocations): bitwise
+    tanh gelu mul bf16 1x33, mpact-m3 scalar (2 invocations): bitwise
+    exp, mpact-m3 zve32f128 (1 invocations): bitwise
+    erf, mpact-m3 zve32f128 (1 invocations): bitwise
+    exact gelu, mpact-m3 zve32f128 (1 invocations): bitwise
+    softmax over H, W=32, mpact-m3 zve32f128 (1 invocations): bitwise
+    tanh gelu mul 1x67, mpact-m3 zve32f128 (2 invocations): bitwise
+    tanh gelu mul bf16 1x33, mpact-m3 zve32f128 (2 invocations): bitwise |}]
+
 (* The DMA engine is the subsystem's: a core without one refuses [~dma:Allowed]
    before running, and [Forbidden] is the in-place route it always was. *)
 let%expect_test "the DMA policy on a core with no DMA" =
@@ -206,4 +234,4 @@ let%expect_test "a forced DMA plan on MPACT" =
     ~oracle:T.Fp32 ~constant:T.positive ~calls:1 "forced DMA"
     (List.assoc "linear 9x32 k64" T.contraction_fixtures);
   [%expect
-    {| forced DMA (1 invocations): invocation 0 (n0): unsupported(guest trap: mcause 7 mepc 0x0000066c mtval 0x40050008) |}]
+    {| forced DMA (1 invocations): invocation 0 (n0): unsupported(guest trap: mcause 7 mepc 0x000006a0 mtval 0x40050008) |}]

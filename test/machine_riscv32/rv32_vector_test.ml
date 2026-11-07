@@ -163,21 +163,21 @@ let%expect_test "the plans' vectors are Zve32f forms" =
     (cases ());
   [%expect
     {|
-    x / 3 - 1.5, w=16: 24 of 47 forms vector; features [zve32f]
-    x / 3 - 1.5, w=37: 24 of 59 forms vector; features [zve32f]
-    sqrt x, w=16: 12 of 31 forms vector; features [zve32f]
-    sqrt x, w=37: 12 of 42 forms vector; features [zve32f]
-    x * x + x, w=16: 24 of 43 forms vector; features [zve32f]
-    x * x + x, w=37: 24 of 55 forms vector; features [zve32f]
-    trunc x, w=16: 36 of 63 forms vector; features [zve32f]
-    trunc x, w=37: 36 of 81 forms vector; features [zve32f]
-    x < 0 ? -x : x / 3, w=16: 40 of 63 forms vector; features [zve32f]
-    x < 0 ? -x : x / 3, w=37: 40 of 77 forms vector; features [zve32f]
-    x == 0 ? 0 : 1, w=16: 24 of 47 forms vector; features [zve32f]
-    x == 0 ? 0 : 1, w=37: 24 of 59 forms vector; features [zve32f]
-    2x3x16: 38 of 96 forms vector; features [zve32f]
-    3x5x17: 21 of 99 forms vector; features [zve32f]
-    5x7x33: 21 of 99 forms vector; features [zve32f] |}]
+    x / 3 - 1.5, w=16: 24 of 46 forms vector; features [zve32f]
+    x / 3 - 1.5, w=37: 24 of 60 forms vector; features [zve32f]
+    sqrt x, w=16: 12 of 30 forms vector; features [zve32f]
+    sqrt x, w=37: 12 of 43 forms vector; features [zve32f]
+    x * x + x, w=16: 24 of 42 forms vector; features [zve32f]
+    x * x + x, w=37: 24 of 56 forms vector; features [zve32f]
+    trunc x, w=16: 36 of 62 forms vector; features [zve32f]
+    trunc x, w=37: 36 of 82 forms vector; features [zve32f]
+    x < 0 ? -x : x / 3, w=16: 40 of 62 forms vector; features [zve32f]
+    x < 0 ? -x : x / 3, w=37: 40 of 78 forms vector; features [zve32f]
+    x == 0 ? 0 : 1, w=16: 24 of 46 forms vector; features [zve32f]
+    x == 0 ? 0 : 1, w=37: 24 of 60 forms vector; features [zve32f]
+    2x3x16: 38 of 80 forms vector; features [zve32f]
+    3x5x17: 21 of 76 forms vector; features [zve32f]
+    5x7x33: 21 of 76 forms vector; features [zve32f] |}]
 
 let%expect_test "vector selection mutations are caught" =
   let find n = List.find (fun (m, _, _) -> String.equal m n) (cases ()) in

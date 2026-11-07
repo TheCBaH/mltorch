@@ -111,6 +111,25 @@ let%expect_test "a loop-carried pointer advanced twice as far is detected" =
   [%expect
     {| 5x7x3: ok [reference: agree] DISAGREE structured vs offsets: inconclusive: success vs defect(bad_access) |}]
 
+(* A single loop whose accesses' only term is its counter: each base moves
+   to the preheader and becomes a carried pointer, so both mutations reach a
+   pointwise kernel too. *)
+let%expect_test "a one-loop kernel's carried pointers" =
+  let shape = Loop_fixtures.shape_w 37 in
+  let bind = data_bind ~shape (Array.init 37 (fun i -> float_of_int i)) in
+  let k =
+    Loop_fixtures.pixel_kernel ~shape
+      (Expr.Value.sub
+         (Expr.Value.div Loop_fixtures.load_t0 (Expr.Value.const 3.))
+         (Expr.Value.const 1.5))
+  in
+  show k ~bind;
+  show ~offsets_mutation:Machine_ir.Mir_offsets.Mutation.Doubled_bump k ~bind;
+  [%expect
+    {|
+    ok [reference: agree]
+    ok [reference: agree] DISAGREE structured vs offsets: inconclusive: success vs defect(bad_access) |}]
+
 (* ... and with its in-domain index arithmetic at 32 bits; a narrowed
    constant one larger steps a loop past outputs it should write. *)
 let%expect_test "a narrowed constant one larger is detected" =
@@ -241,3 +260,12 @@ let%expect_test "a vector built directly: splat, then extract" =
   in
   print_endline (Mir_source.check_program p ~inputs:[]);
   [%expect {| ok [0x1p+0:f32] |}]
+
+(* An i64 input (a gather's indices) is bound as eight-byte cells: indices in
+   range succeed on every route. *)
+let%expect_test "a gather through every route" =
+  show Loop_programs.gather_kernel
+    ~bind:
+      (Loop_programs.i64_bind ~floats:[| 10.; 20.; 30.; 40. |]
+         ~cells:[| 3L; 0L; -2L; 1L |]);
+  [%expect {| ok [reference: agree] |}]

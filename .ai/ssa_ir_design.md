@@ -198,7 +198,15 @@ its own name becomes its interface and hides its siblings (the lowering is
   load proved in bounds into the unchecked form, deletes a check that cannot
   fire, removes a loop that cannot run and inlines one that runs once; **hoist**
   moves pure total operations out of any loop and a load only when it is in
-  bounds, the loop runs, and nothing in it may write what it reads; **share**
+  bounds, the loop runs, and nothing in it may write what it reads; a
+  `local.read` moves under the same three shapes of proof: its object is
+  allocated outside the loop, the loop runs, its index is a constant inside the
+  object's slots, and no `local.write` in the loop (however nested) names the
+  object (`Ssa_effects.writes_local`). The loop-runs condition is what keeps a
+  hoisted read from reaching a cell nothing wrote. A varying or non-constant
+  index stays put. This is what lets a reduce-then-pointwise kernel (RMS norm)
+  vectorize its pointwise loop, which reads the reduction's one-cell result on
+  every trip and `Ssa_vector_body` has no vector form for; **share**
   replaces a repeated load by the earlier one until something may write its
   buffer, and discards what a loop body may overwrite on entering it;
   **convert_ifs** (`Ssa_opt_if`, planner pipelines only, after guards) turns a
@@ -208,6 +216,49 @@ its own name becomes its interface and hides its siblings (the lowering is
   a checked operation, mark, store or loop keeps the branch. A lowered clamp or
   guarded load is a branch, and the vectorizer holds no branch in a loop body.
   The driver verifies every revision a pass returns.
+- **Dense-row collapse** (`Ssa_opt_collapse`, planned pipelines only, after the
+  first hoist and before vectorization). The SSA counterpart of
+  `Loop_opt_collapse`, which the planned pipelines never see: they lower from
+  the fusion plan. A perfect nest of two unit-step loops from zero, carrying
+  only the effect, whose variables appear only as adjacent coordinates
+  `(a, a+1)` of in-bounds loads and stores with the inner trips the whole of
+  axis `a+1`, becomes one loop over `g = n2 * v1 + v2`. Each such buffer is
+  declared with the two axes merged (extent 1 at `a`, `E(a) * E(a+1)` at
+  `a+1`), the same dense bytes, accessed at `(0, g)`. A buffer merges one
+  pair of axes a pass (the declarations are rewritten once, at the pass's
+  end); a nest sharing it waits for the next round, which sees the merged
+  extents (csatv2's 1x1 convolution, `(t, d)` around `(h, w)`, otherwise
+  indexed the second pair against the first pair's extents). A `Flat` access would
+  have been the Loop rule's form, but the vectorizer refuses a varying flat
+  access, so the coordinate merge keeps the loop vectorizable. Refused: a
+  buffer accessed anywhere else (a checked load, a bounds check, a
+  contraction, an attention, another nest), a per-channel quantized buffer, a
+  broadcast row, a transposed pair, a partial row, and `v1`/`v2` anywhere but
+  those coordinates (a bound, a yield, index arithmetic). Consumers that pair
+  a buffer with its tensor walk the tensor's own shape (`Ssa_exec`; the test
+  harnesses through `Loop_of_ssa.loop_buffer_in`/`loop_buffer_of`), since only
+  the element count must agree. Residual add 2x160 becomes one 320-element
+  loop; it pays only with `Mir_offsets` carrying function-level pointers
+  (without that rule the collapsed loop re-read its bases every trip and was
+  slower on Coral, 612 to 864 cycles).
+- **Unroll and interleave** (`Ssa_opt_unroll`, planned pipelines, after
+  vectorization and before row blocking; `Ssa_target.unroll` copies, 1 off,
+  2 on `zve32f128`). A vector loop of constant trips becomes a main loop of
+  `unroll` copies of its body at `iv + k * step`, then the original loop for
+  the leftover trips. The next copy's loads are issued after the current
+  copy's last load and after each of its later operations (a two-copy add:
+  load A0, load B0, load A1, add 0, load B1, store 0, add 1, store 1), and the
+  effect chain is rebuilt in that order. Loads stay ordered among loads and
+  stores among stores; the one reordering is a later copy's load above an
+  earlier copy's store, allowed only when every store and every load of a
+  buffer that may overlap it use the same coordinate, so each copy touches its
+  own lanes (vectorizing at `unroll` times the lanes would be legal). The
+  vectorizer already refuses a loop carried through memory, so the check
+  never fires on its output; a directly built vector recurrence shows it does
+  (without it the answer is wrong). Register-bounded: only a body of exact
+  binary32 accesses and cheap lanewise arithmetic, at most four vectors a copy
+  (splats excluded), unrolls; a binary16 decode unrolled spilled past an RV32
+  frame's code model.
 - **Independent-output blocking** (`Ssa_opt_block`, in the pipeline after hoist
   and before share). A loop with constant trips whose iterations are separate
   outputs around one ordered sum becomes full groups of G outputs (one reduction
@@ -287,7 +338,11 @@ its own name becomes its interface and hides its siblings (the lowering is
   reference, the scalar program and its scalar-lane expansion, and the sweep
   runs it for the cost model's target and for every legal loop.
 - **Scheduled sums** (`Ssa_vector_sum`, relaxed policy only). A sum no enclosing
-  loop's lanes took is rewritten along its own axis. The schedule is a
+  loop's lanes took is rewritten along its own axis. An enclosing loop took
+  them only if it is itself a vector loop: a step above one and a vector
+  operation in its own body, not merely in a loop nested beside the sum (a row
+  loop holding a sum and the vectorized pointwise loop that consumes it, as RMS
+  norm is, leaves the sum schedulable). The schedule is a
   definition, not an accident of the code: the terms split into `parts` lanes of
   `rounds` terms each, plus `extra` leftover terms; each lane folds its terms in
   order, the lanes combine by adjacent-pair trees, and the result is the seed plus

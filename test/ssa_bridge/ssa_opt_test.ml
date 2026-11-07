@@ -117,7 +117,9 @@ let show ?(passes = [ Ssa_opt.simplify; Ssa_opt.guards; Ssa_opt.simplify ]) p =
   let run p =
     let out = Array.make 4 0. in
     let memory = memory [ (0, floats [| 1.; 2.; 3.; 4. |]); (1, floats out) ] in
-    (Err.payload (Ssa_interp.run p ~memory), Array.copy out)
+    (* run first: a tuple's components are evaluated right to left *)
+    let r = Err.payload (Ssa_interp.run p ~memory) in
+    (r, Array.copy out)
   in
   Fmt.pr "same result: %b@." (run p = run q)
 
@@ -650,3 +652,346 @@ let%expect_test "a lone access check is dropped only when it cannot fire" =
     {|
     w = 3: ok | optimized (0 checks): ok
     w = 4: t0: coordinate W = 4 is outside the buffer, at (0,0,0,0,4,0) | optimized (1 checks): t0: coordinate W = 4 is outside the buffer, at (0,0,0,0,4,0) |}]
+
+(* ---- local reads -------------------------------------------------------------- *)
+
+(* How many local reads sit at the entry, before any loop, after hoisting; and
+   whether the hoisted program computes the same as the original: the output
+   cells, or the failure, on the given first input cell. *)
+let hoisting_local ?(first = 5.) name p =
+  let q, _ =
+    Ssa_opt.run ~alias
+      ~passes:[ Ssa_opt.guards; Ssa_opt.hoist ~alias; Ssa_opt.simplify ]
+      p
+  in
+  let entry_reads (p : Ssa_program.t) =
+    List.length
+      (List.filter
+         (function
+           | Ssa_stmt.Instr { Ssa_instr.op = Ssa_op.Local_read _; _ } -> true
+           | _ -> false)
+         p.Ssa_program.entry.Ssa_region.body)
+  in
+  let run p =
+    let out = Array.make 4 0. in
+    let memory =
+      memory [ (0, floats [| first; 2.; 3.; 4. |]); (1, floats out) ]
+    in
+    let r =
+      match Err.payload (Ssa_interp.run p ~memory) with
+      | Ok _ -> "ok"
+      | Error e -> Fmt.str "%a" Ssa_interp.pp_error e
+      | exception Invalid_argument defect -> defect
+    in
+    (r, Array.to_list out)
+  in
+  let r, out = run q in
+  Fmt.pr "%s: reads at entry %d -> %d; %s [%s]; same result: %b@." name
+    (entry_reads p) (entry_reads q) r
+    (String.concat "; " (List.map (Fmt.str "%g") out))
+    (run p = run q)
+
+(* a one-slot object written before the loop with the first input cell *)
+let with_local ?(slots = 1L) bld =
+  let l = B.local_alloc bld ~slots in
+  B.local_write bld l (idx bld 0) (load_at bld 0 (idx bld 0));
+  l
+
+let loop2 bld f =
+  let B.Nil =
+    B.for_ bld ~lo:(idx bld 0) ~hi:(idx bld 2) ~init:B.Nil (fun bld i B.Nil ->
+        f bld i;
+        B.Nil)
+  in
+  ()
+
+let%expect_test "a local read leaves a loop under the four conditions only" =
+  hoisting_local "invariant one-cell local"
+    (program (fun bld ->
+         let l = with_local bld in
+         loop2 bld (fun bld i ->
+             store_at bld 1 i (B.local_read bld l (idx bld 0)))));
+  (* the loop writes the object: each trip reads what the last one wrote *)
+  hoisting_local "written in the loop"
+    (program (fun bld ->
+         let l = with_local bld in
+         loop2 bld (fun bld i ->
+             let x = B.local_read bld l (idx bld 0) in
+             store_at bld 1 i x;
+             B.local_write bld l (idx bld 0)
+               (B.f64_binary bld Expr.Value.Add x (B.f64 bld 1.)))));
+  (* a loop that may run no times over a cell nothing wrote: the original reads
+     nothing; a hoisted read would reach the unset cell *)
+  hoisting_local ~first:0. "possibly empty loop, unset cell"
+    (program (fun bld ->
+         let l = B.local_alloc bld ~slots:1L in
+         let n =
+           B.index_of_i64 bld (B.float_to_i64 bld (load_at bld 0 (idx bld 0)))
+         in
+         let B.Nil =
+           B.for_ bld ~lo:(idx bld 0) ~hi:n ~init:B.Nil (fun bld i B.Nil ->
+               store_at bld 1 i (B.local_read bld l (idx bld 0));
+               B.Nil)
+         in
+         ()));
+  (* the index is past the object's one slot: the read can fail *)
+  hoisting_local "index outside the object"
+    (program (fun bld ->
+         let l = with_local bld in
+         loop2 bld (fun bld i ->
+             store_at bld 1 i (B.local_read bld l (idx bld 1)))));
+  (* an invariant index that is not a constant: no range proof is tried *)
+  hoisting_local ~first:0. "non-constant index"
+    (program (fun bld ->
+         let l = with_local bld in
+         let k =
+           B.index_of_i64 bld (B.float_to_i64 bld (load_at bld 0 (idx bld 0)))
+         in
+         loop2 bld (fun bld i -> store_at bld 1 i (B.local_read bld l k))));
+  [%expect
+    {|
+    invariant one-cell local: reads at entry 0 -> 1; ok [5; 5; 0; 0]; same result: true
+    written in the loop: reads at entry 0 -> 0; ok [5; 6; 0; 0]; same result: true
+    possibly empty loop, unset cell: reads at entry 0 -> 0; ok [0; 0; 0; 0]; same result: true
+    index outside the object: reads at entry 0 -> 0; Ssa_interp: a local read outside its object [0; 0; 0; 0]; same result: true
+    non-constant index: reads at entry 0 -> 0; ok [0; 0; 0; 0]; same result: true |}]
+
+(* ---- collapsing dense rows ------------------------------------------------------ *)
+
+let grid id ~h ~w role = buffer id ~h ~w Ssa_format.F32 role
+
+(* out[h, w] = f(a[h, w], b[...]) over an [rows x cols] nest; [b_at] says
+   where [b] is read. *)
+let nest2 ~rows ~cols ~b_ext ~b_at =
+  build
+    ~buffers:
+      [
+        grid 0 ~h:2L ~w:6L Ssa_buffer.Input;
+        grid 1 ~h:(fst b_ext) ~w:(snd b_ext) Ssa_buffer.Input;
+        grid 2 ~h:2L ~w:6L Ssa_buffer.Output;
+      ]
+    (fun bld ->
+      let B.Nil =
+        B.for_ bld ~lo:(idx bld 0) ~hi:(idx bld rows) ~init:B.Nil
+          (fun bld r B.Nil ->
+            let B.Nil =
+              B.for_ bld ~lo:(idx bld 0) ~hi:(idx bld cols) ~init:B.Nil
+                (fun bld c B.Nil ->
+                  let ld id h w =
+                    B.load_f64 bld (buf id) ~decode:Ssa_op.Decode.F32_to_f64
+                      (at bld ~h ~w)
+                  in
+                  let bh, bw = b_at bld r c in
+                  B.store_f64 bld (buf 2) ~encode:Ssa_op.Encode.F32_round
+                    (at bld ~h:r ~w:c)
+                    (B.f64_binary bld Expr.Value.Add (ld 0 r c) (ld 1 bh bw));
+                  B.Nil)
+            in
+            B.Nil)
+      in
+      ())
+
+let collapsing name p =
+  let passes =
+    [ Ssa_opt.guards; Ssa_opt.simplify; Ssa_opt.hoist ~alias; Ssa_opt.collapse ]
+  in
+  let q, _ = Ssa_opt.run ~alias ~passes p in
+  let loops (p : Ssa_program.t) =
+    let rec count (r : Ssa_region.t) =
+      List.fold_left
+        (fun n -> function
+          | Ssa_stmt.For { body; _ } -> n + 1 + count body | _ -> n)
+        0 r.Ssa_region.body
+    in
+    count p.Ssa_program.entry
+  in
+  let run p =
+    let out = Array.make 12 0. in
+    let memory =
+      memory
+        [
+          (0, floats (Array.init 12 (fun i -> float_of_int (i * i))));
+          (1, floats (Array.init 12 (fun i -> 0.5 +. float_of_int i)));
+          (2, floats out);
+        ]
+    in
+    (* run first: a tuple's components are evaluated right to left *)
+    let r = Err.payload (Ssa_interp.run p ~memory) in
+    (r, Array.to_list out)
+  in
+  Fmt.pr "%s: loops %d -> %d; extents [%s]; same result: %b@." name (loops p)
+    (loops q)
+    (String.concat "; "
+       (List.map
+          (fun (b : Ssa_buffer.t) ->
+            String.concat "x"
+              (List.map Int64.to_string
+                 [
+                   Expr.Coord.get b.Ssa_buffer.extents Expr.Axis.H;
+                   Expr.Coord.get b.Ssa_buffer.extents Expr.Axis.W;
+                 ]))
+          q.Ssa_program.buffers))
+    (run p = run q)
+
+let%expect_test "dense rows collapse into one loop, and only they" =
+  collapsing "both rows whole"
+    (nest2 ~rows:2 ~cols:6 ~b_ext:(2L, 6L) ~b_at:(fun _ r c -> (r, c)));
+  collapsing "b broadcast over rows"
+    (nest2 ~rows:2 ~cols:6 ~b_ext:(1L, 6L) ~b_at:(fun bld _ c -> (idx bld 0, c)));
+  collapsing "b transposed"
+    (nest2 ~rows:2 ~cols:2 ~b_ext:(6L, 2L) ~b_at:(fun _ r c -> (c, r)));
+  collapsing "partial rows"
+    (nest2 ~rows:2 ~cols:4 ~b_ext:(2L, 6L) ~b_at:(fun _ r c -> (r, c)));
+  [%expect
+    {|
+    both rows whole: loops 2 -> 1; extents [1x12; 1x12; 1x12]; same result: true
+    b broadcast over rows: loops 2 -> 2; extents [2x6; 1x6; 2x6]; same result: true
+    b transposed: loops 2 -> 2; extents [2x6; 6x2; 2x6]; same result: true
+    partial rows: loops 2 -> 2; extents [2x6; 2x6; 2x6]; same result: true |}]
+
+(* ---- unroll and interleave ------------------------------------------------------ *)
+
+(* x[w] = x[w - 16] + 1 over w in [16, 112): a recurrence at a distance of
+   one vector of sixteen. Vectorized at sixteen lanes each trip reads what the
+   previous trip wrote; two copies interleaved would read before the earlier
+   copy stores, so the pass must leave the loop as it is. *)
+let recurrence_at d =
+  build
+    ~buffers:[ buffer 0 ~h:1L ~w:112L Ssa_format.F32 Ssa_buffer.Output ]
+    (fun bld ->
+      let B.Nil =
+        B.for_ bld ~lo:(idx bld 16) ~hi:(idx bld 112) ~init:B.Nil
+          (fun bld w B.Nil ->
+            let back = B.index_add bld w (B.index bld (Int64.neg d)) in
+            let x =
+              B.load_f64 bld (buf 0) ~decode:Ssa_op.Decode.F32_to_f64
+                (at bld ~h:(idx bld 0) ~w:back)
+            in
+            B.store_f64 bld (buf 0) ~encode:Ssa_op.Encode.F32_round
+              (at bld ~h:(idx bld 0) ~w)
+              (B.f64_binary bld Expr.Value.Add x (B.f64 bld 1.));
+            B.Nil)
+      in
+      ())
+
+let unrolled name ~unroll p =
+  let target =
+    Ssa_target.with_unroll unroll (Ssa_target.forced Ssa_target.neon128)
+  in
+  match Ssa_plan.fp32_vector ~alias ~target p with
+  | Error _ -> Fmt.pr "%s: not admitted@." name
+  | Ok plan ->
+      let q = plan.Ssa_plan.program in
+      let steps =
+        let rec go (r : Ssa_region.t) =
+          List.concat_map
+            (function
+              | Ssa_stmt.For { step; body; _ } -> step :: go body | _ -> [])
+            r.Ssa_region.body
+        in
+        go q.Ssa_program.entry
+      in
+      let run p =
+        let cells = Array.init 112 (fun i -> float_of_int (i mod 16)) in
+        let memory = memory [ (0, floats cells) ] in
+        let r = Err.payload (Ssa_interp.run p ~memory) in
+        (r, Array.to_list cells)
+      in
+      List.iter
+        (fun (d : Ssa_vectorize.Decision.t) ->
+          Fmt.pr "  %s@."
+            (match d.Ssa_vectorize.Decision.outcome with
+            | Ssa_vectorize.Decision.Vectorized -> "vectorized"
+            | Ssa_vectorize.Decision.Kept_scalar r ->
+                Ssa_vectorize.Reason.name r))
+        plan.Ssa_plan.vectorized;
+      Fmt.pr "%s: loop steps [%s]; same result: %b@." name
+        (String.concat "; " (List.map Int64.to_string steps))
+        (run p = run q)
+
+(* The vectorizer refuses every loop carried through memory (above), so a
+   vector loop whose store feeds a later trip's load is built directly:
+   x[w + 16 ..) = x[w ..), a vector step of 16. Interleaving two copies would
+   load the second copy's x[w + 16 ..) before the first stores it. *)
+let vector_recurrence =
+  let lanes = Ssa_type.Lanes.of_int 16 in
+  let p =
+    build
+      ~buffers:[ buffer 0 ~h:1L ~w:64L Ssa_format.F32 Ssa_buffer.Output ]
+      (fun bld ->
+        let zero = idx bld 0 in
+        let coord (w : Ssa_type.index B.value) =
+          let z = (zero :> Ssa_value.t) in
+          Expr.Coord.make ~n:z ~t:z ~d:z ~h:z ~w:(w :> Ssa_value.t) ~c:z
+        in
+        let steps = Expr.Coord.make ~n:0L ~t:0L ~d:0L ~h:0L ~w:1L ~c:0L in
+        let B.Nil =
+          B.for_ bld ~lo:(idx bld 0) ~hi:(idx bld 33) ~init:B.Nil
+            (fun bld w B.Nil ->
+              let ahead = B.index_add bld w (B.index bld 16L) in
+              let x =
+                B.vec_load bld (buf 0) ~decode:Ssa_op.Decode.F32_exact ~lanes
+                  ~steps (coord w)
+              in
+              B.vec_store bld (buf 0) ~encode:Ssa_op.Encode.F32_exact ~lanes
+                ~steps (coord ahead) x;
+              B.Nil)
+        in
+        ())
+  in
+  let entry = p.Ssa_program.entry in
+  {
+    p with
+    Ssa_program.entry =
+      {
+        entry with
+        Ssa_region.body =
+          List.map
+            (function
+              | Ssa_stmt.For f -> Ssa_stmt.For { f with step = 16L } | s -> s)
+            entry.Ssa_region.body;
+      };
+  }
+
+let interleaved name p =
+  (* the guards first, as in the pipeline: the index arithmetic in domain *)
+  let p, _ =
+    Ssa_opt.run ~alias ~passes:[ Ssa_opt.guards; Ssa_opt.simplify ] p
+  in
+  let q, _ = Ssa_opt_unroll.pass ~unroll:2 ~alias p in
+  let steps (p : Ssa_program.t) =
+    List.filter_map
+      (function Ssa_stmt.For { step; _ } -> Some step | _ -> None)
+      p.Ssa_program.entry.Ssa_region.body
+  in
+  let run p =
+    let cells = Array.init 64 float_of_int in
+    let r =
+      Err.payload (Ssa_interp.run p ~memory:(memory [ (0, floats cells) ]))
+    in
+    (r, Array.to_list cells)
+  in
+  Fmt.pr "%s: steps [%s]; same result: %b@." name
+    (String.concat "; " (List.map Int64.to_string (steps q)))
+    (run p = run q)
+
+let%expect_test "a vector loop carried through memory keeps its trips in order"
+    =
+  interleaved "x[w + 16..) = x[w..)" vector_recurrence;
+  [%expect {| x[w + 16..) = x[w..): steps [16]; same result: true |}]
+
+let%expect_test "a recurrence at a vector's distance is not interleaved" =
+  List.iter
+    (fun d ->
+      unrolled (Fmt.str "distance %Ld, unroll 2" d) ~unroll:2 (recurrence_at d))
+    [ 16L; 20L; 24L; 32L ];
+  [%expect
+    {|
+      loop_carried
+    distance 16, unroll 2: loop steps [1]; same result: true
+      no_vector_form:load
+    distance 20, unroll 2: loop steps [1]; same result: true
+      no_vector_form:load
+    distance 24, unroll 2: loop steps [1]; same result: true
+      no_vector_form:load
+    distance 32, unroll 2: loop steps [1]; same result: true |}]

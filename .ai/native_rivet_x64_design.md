@@ -93,7 +93,10 @@ meaningful with the probe's stubs.
 ## Vectors
 
 Packed forms are SSE2 on XMM registers (FMA and SSE4.1 only under their
-features). The selector takes, besides the arithmetic: packed compares into masks
+features). A binary32 `ftrunc` is CVTTPS2DQ and CVTDQ2PS with the sign ORed
+back, selected by a packed less-than of the magnitude against 2^23 (SSE2 has no
+packed round); `Unguarded_trunc` drops that select and the suite catches it. The
+selector takes, besides the arithmetic: packed compares into masks
 (`CMPPS/CMPPD`, predicates equal, less, less-or-equal, unordered; a mask is a
 register with every bit of a lane set or clear, so a NaN is false for every
 ordered compare); mask logic and not (`pcmpeqd` makes the ones); a mask select as

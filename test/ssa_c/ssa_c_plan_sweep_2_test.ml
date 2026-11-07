@@ -15,7 +15,7 @@ let%expect_test "C sweep of vector and numerical plans, slice 2 of 8" =
     ];
   [%expect
     {|
-    strict-vectors: disagreements 0, agree 108, failed alike 0, refused 0; with binary32 56, vectors 4, fused 0
-    ordered-binary32: disagreements 0, agree 108, failed alike 0, refused 0; with binary32 60, vectors 8, fused 0
-    relaxed-binary32: disagreements 0, agree 108, failed alike 0, refused 0; with binary32 60, vectors 8, fused 0
-    fp32-vectors: disagreements 0, agree 108, failed alike 0, refused 0; with binary32 84, vectors 0, fused 0 |}]
+    strict-vectors: disagreements 0, agree 108, failed alike 0, refused 0; with binary32 34, vectors 60, fused 0
+    ordered-binary32: disagreements 0, agree 108, failed alike 0, refused 0; with binary32 44, vectors 60, fused 0
+    relaxed-binary32: disagreements 0, agree 108, failed alike 0, refused 0; with binary32 44, vectors 60, fused 0
+    fp32-vectors: disagreements 0, agree 108, failed alike 0, refused 0; with binary32 84, vectors 8, fused 0 |}]

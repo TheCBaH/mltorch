@@ -156,160 +156,160 @@ let%expect_test "the fit set" =
   [%expect
     {|
     cos 16x16 (1 invocations): bitwise
-      [0] cycles 23404 instret 10991
+      [0] cycles 23061 instret 10726
     cos 16x16, scalar (1 invocations): bitwise
-      [0] cycles 72851 instret 40722
+      [0] cycles 72794 instret 40670
     cos 32x32 (1 invocations): bitwise
-      [0] cycles 92716 instret 43311
+      [0] cycles 92037 instret 42790
     cos 32x32, scalar (1 invocations): bitwise
-      [0] cycles 290764 instret 162235
+      [0] cycles 290659 instret 162135
     exp 16x16 (1 invocations): bitwise
-      [0] cycles 38028 instret 17441
+      [0] cycles 37685 instret 17176
     exp 16x16, scalar (1 invocations): bitwise
-      [0] cycles 118121 instret 56057
+      [0] cycles 118054 instret 56005
     exp 32x32 (1 invocations): bitwise
-      [0] cycles 151212 instret 69105
+      [0] cycles 150533 instret 68584
     exp 32x32, scalar (1 invocations): bitwise
-      [0] cycles 471801 instret 223561
+      [0] cycles 471670 instret 223461
     log 16x16 (1 invocations): bitwise
-      [0] cycles 28187 instret 13884
+      [0] cycles 27845 instret 13622
     log 16x16, scalar (1 invocations): bitwise
-      [0] cycles 108809 instret 54121
+      [0] cycles 108751 instret 54066
     log 32x32 (1 invocations): bitwise
-      [0] cycles 111851 instret 54892
+      [0] cycles 111173 instret 54374
     log 32x32, scalar (1 invocations): bitwise
-      [0] cycles 434588 instret 215825
+      [0] cycles 434482 instret 215722
     sin 16x16 (1 invocations): bitwise
-      [0] cycles 23052 instret 11041
+      [0] cycles 22709 instret 10776
     sin 16x16, scalar (1 invocations): bitwise
-      [0] cycles 71747 instret 40354
+      [0] cycles 71689 instret 40299
     sin 32x32 (1 invocations): bitwise
-      [0] cycles 91308 instret 43505
+      [0] cycles 90629 instret 42984
     sin 32x32, scalar (1 invocations): bitwise
-      [0] cycles 286335 instret 160756
+      [0] cycles 286229 instret 160653
     sqrt 16x16 (1 invocations): bitwise
-      [0] cycles 1563 instret 751
+      [0] cycles 1235 instret 486
     sqrt 16x16, scalar (1 invocations): bitwise
-      [0] cycles 8093 instret 2607
+      [0] cycles 8035 instret 2552
     sqrt 32x32 (1 invocations): bitwise
-      [0] cycles 5387 instret 2351
+      [0] cycles 4739 instret 1830
     sqrt 32x32, scalar (1 invocations): bitwise
-      [0] cycles 31695 instret 9775
+      [0] cycles 31589 instret 9672
     add 16x64 (1 invocations): bitwise
-      [0] cycles 3127 instret 2667
+      [0] cycles 2629 instret 2119
     add 16x64, scalar (1 invocations): bitwise
-      [0] cycles 18765 instret 11619
+      [0] cycles 18690 instret 11562
     add 32x128 (1 invocations): bitwise
-      [0] cycles 18711 instret 9883 ram 1,2
+      [0] cycles 17477 instret 8359 ram 1,2
     add 32x128, scalar (1 invocations): bitwise
-      [0] cycles 86637 instret 45715 ram 1,2
+      [0] cycles 86498 instret 45610 ram 1,2
     div 16x64 (1 invocations): bitwise
-      [0] cycles 5274 instret 2667
+      [0] cycles 4908 instret 2343
     div 16x64, scalar (1 invocations): bitwise
-      [0] cycles 30936 instret 11619
+      [0] cycles 30861 instret 11562
     div 32x128 (1 invocations): bitwise
-      [0] cycles 21672 instret 9883 ram 1,2
+      [0] cycles 20950 instret 9255 ram 1,2
     div 32x128, scalar (1 invocations): bitwise
-      [0] cycles 135333 instret 45715 ram 1,2
+      [0] cycles 135194 instret 45610 ram 1,2
     mul 16x64 (1 invocations): bitwise
-      [0] cycles 3127 instret 2667
+      [0] cycles 2629 instret 2119
     mul 16x64, scalar (1 invocations): bitwise
-      [0] cycles 18765 instret 11619
+      [0] cycles 18690 instret 11562
     mul 32x128 (1 invocations): bitwise
-      [0] cycles 18711 instret 9883 ram 1,2
+      [0] cycles 17477 instret 8359 ram 1,2
     mul 32x128, scalar (1 invocations): bitwise
-      [0] cycles 86637 instret 45715 ram 1,2
+      [0] cycles 86498 instret 45610 ram 1,2
     x*2 16x64 (1 invocations): bitwise
-      [0] cycles 2423 instret 2107
+      [0] cycles 1899 instret 1613
     x*2 16x64, scalar (1 invocations): bitwise
-      [0] cycles 15658 instret 9519
+      [0] cycles 15592 instret 9470
     x*2 32x128 (1 invocations): bitwise
-      [0] cycles 12761 instret 7739 ram 1
+      [0] cycles 11340 instret 6317 ram 1
     x*2 32x128, scalar (1 invocations): bitwise
-      [0] cycles 61963 instret 37423 ram 1
+      [0] cycles 61833 instret 37326 ram 1
     x*x+x 16x64 (2 invocations): bitwise
-      [0] cycles 3061 instret 2357
-      [1] cycles 3127 instret 2667
+      [0] cycles 2626 instret 1862
+      [1] cycles 2629 instret 2119
     x*x+x 16x64, scalar (2 invocations): bitwise
-      [0] cycles 15657 instret 9520
-      [1] cycles 18765 instret 11619
+      [0] cycles 15584 instret 9465
+      [1] cycles 18690 instret 11562
     x*x+x 32x128 (2 invocations): bitwise
-      [0] cycles 15447 instret 8757 ram 1
-      [1] cycles 18711 instret 9883 ram 0,2
+      [0] cycles 14402 instret 7334 ram 1
+      [1] cycles 17477 instret 8359 ram 0,2
     x*x+x 32x128, scalar (2 invocations): bitwise
-      [0] cycles 61962 instret 37424 ram 1
-      [1] cycles 86637 instret 45715 ram 0,2
+      [0] cycles 61825 instret 37321 ram 1
+      [1] cycles 86498 instret 45610 ram 0,2
     x+y+z 16x64 (2 invocations): bitwise
-      [0] cycles 3127 instret 2667
-      [1] cycles 3127 instret 2667
+      [0] cycles 2629 instret 2119
+      [1] cycles 2629 instret 2119
     x+y+z 16x64, scalar (2 invocations): bitwise
-      [0] cycles 18765 instret 11619
-      [1] cycles 18765 instret 11619
+      [0] cycles 18690 instret 11562
+      [1] cycles 18690 instret 11562
     x+y+z 32x128 (2 invocations): bitwise
-      [0] cycles 18711 instret 9883 ram 1,3
-      [1] cycles 18711 instret 9883 ram 2,4
+      [0] cycles 17477 instret 8359 ram 1,3
+      [1] cycles 17477 instret 8359 ram 2,4
     x+y+z 32x128, scalar (2 invocations): bitwise
-      [0] cycles 86637 instret 45715 ram 1,3
-      [1] cycles 86637 instret 45715 ram 2,4
+      [0] cycles 86498 instret 45610 ram 1,3
+      [1] cycles 86498 instret 45610 ram 2,4
     add 16x64, in RAM (1 invocations): bitwise
-      [0] cycles 5671 instret 2667 ram 0,1,2
+      [0] cycles 5188 instret 2119 ram 0,1,2
     add 32x128, in RAM (1 invocations): bitwise
-      [0] cycles 21751 instret 9883 ram 0,1,2
+      [0] cycles 20548 instret 8359 ram 0,1,2
     div 16x64, in RAM (1 invocations): bitwise
-      [0] cycles 6410 instret 2667 ram 0,1,2
+      [0] cycles 6055 instret 2343 ram 0,1,2
     div 32x128, in RAM (1 invocations): bitwise
-      [0] cycles 24712 instret 9883 ram 0,1,2
+      [0] cycles 24021 instret 9255 ram 0,1,2
     exp 32x32, in RAM (1 invocations): bitwise
-      [0] cycles 152238 instret 69105 ram 0,1
+      [0] cycles 151683 instret 68584 ram 0,1
     add 16x64, scalar, in RAM (1 invocations): bitwise
-      [0] cycles 24925 instret 11619 ram 0,1,2
+      [0] cycles 24850 instret 11562 ram 0,1,2
     softmax over C 16x16 (1 invocations): bitwise
-      [0] cycles 262426 instret 125468
+      [0] cycles 163662 instret 79179
     softmax over C 32x32 (1 invocations): bitwise
-      [0] cycles 1048224 instret 500376
+      [0] cycles 651521 instret 314057
     sum over C 16x64 (1 invocations): bitwise
-      [0] cycles 1838 instret 1747
+      [0] cycles 1826 instret 1741
     sum over C 32x128 (1 invocations): bitwise
-      [0] cycles 7055 instret 6772
+      [0] cycles 7036 instret 6762
     sum over W 16x64 (1 invocations): bitwise
-      [0] cycles 1544 instret 1462
+      [0] cycles 1514 instret 1440
     transpose 32x32 (1 invocations): bitwise
-      [0] cycles 3403 instret 2798
+      [0] cycles 3172 instret 2252
     transpose 64x64 (1 invocations): bitwise
-      [0] cycles 15947 instret 10030 ram 1
+      [0] cycles 15492 instret 8108 ram 1
     transpose 32x32, in RAM (1 invocations): bitwise
-      [0] cycles 7499 instret 2798 ram 0,1
+      [0] cycles 7268 instret 2252 ram 0,1
     head split 16x64, 2 heads (2 invocations): bitwise
-      [0] cycles 173202 instret 108489
-      [1] cycles 2598 instret 2186
+      [0] cycles 173009 instret 108328
+      [1] cycles 2455 instret 1848
     head split 32x128, 4 heads (2 invocations): bitwise
-      [0] cycles 732355 instret 433003 ram 1
-      [1] cycles 14113 instret 8453 ram 2
+      [0] cycles 731737 instret 432548 ram 1
+      [1] cycles 13578 instret 7151 ram 2
     head split 49x64, 2 heads (2 invocations): bitwise
-      [0] cycles 567877 instret 338369 ram 1
-      [1] cycles 10816 instret 6476 ram 2
+      [0] cycles 567288 instret 337878 ram 1
+      [1] cycles 10416 instret 5481 ram 2
     linear 9x32 k64 (1 invocations): bitwise
-      [0] cycles 4895 instret 2240
+      [0] cycles 4844 instret 2145
     linear 16x64 k64 (1 invocations): bitwise
-      [0] cycles 14824 instret 5222 ram 2,4
+      [0] cycles 14754 instret 4945 ram 2,4
     linear 64x64 k64 (1 invocations): bitwise
-      [0] cycles 107982 instret 20624 ram 1,2,4
+      [0] cycles 107721 instret 19534 ram 1,2,4
     linear 16x128 k32 (1 invocations): bitwise
-      [0] cycles 20036 instret 7286 ram 2,4
+      [0] cycles 19966 instret 6785 ram 2,4
     linear 32x32 k128 (1 invocations): bitwise
-      [0] cycles 47891 instret 8295 ram 1,4
+      [0] cycles 47758 instret 7973 ram 1,4
     linear 48x80 k32 (1 invocations): bitwise
-      [0] cycles 37714 instret 13892 ram 2,4
+      [0] cycles 37517 instret 13360 ram 2,4
     linear bf16 9x32 k64 (1 invocations): bitwise
-      [0] cycles 4241 instret 1895
+      [0] cycles 4192 instret 1800
     linear bf16 16x64 k64 (1 invocations): bitwise
-      [0] cycles 11304 instret 4242 ram 2,4
+      [0] cycles 11236 instret 3965 ram 2,4
     linear bf16 64x64 k64 (1 invocations): bitwise
-      [0] cycles 37789 instret 12752 ram 1,2,4
+      [0] cycles 37530 instret 11662 ram 1,2,4
     linear bf16 32x128 k32 (1 invocations): bitwise
-      [0] cycles 27091 instret 10940 ram 2,4
+      [0] cycles 26959 instret 9943 ram 2,4
     linear bf16 48x48 k48 (1 invocations): bitwise
-      [0] cycles 18544 instret 7863 ram 2,4
+      [0] cycles 18355 instret 7673 ram 2,4
     sdpa bf16 32x32 d32 (1 invocations): bitwise
       [0] cycles 87669 instret 30256
     sdpa bf16 64x64 d64 (1 invocations): bitwise
@@ -323,21 +323,21 @@ let%expect_test "the fit set" =
     sdpa bf16 64x32 d32 (1 invocations): bitwise
       [0] cycles 175321 instret 60394 ram 8
     linear 9x32 k64, in RAM (1 invocations): bitwise
-      [0] cycles 15217 instret 2240 ram 0,1,2,3,4
+      [0] cycles 15175 instret 2145 ram 0,1,2,3,4
     linear 32x32 k64, in RAM (1 invocations): bitwise
-      [0] cycles 39637 instret 5479 ram 0,1,2,3,4
+      [0] cycles 39504 instret 5157 ram 0,1,2,3,4
     linear bf16 16x256 k64 (1 invocations): bitwise
-      [0] cycles 103194 instret 16334 ram 1,4
+      [0] cycles 103124 instret 15385 ram 1,4
     linear bf16 32x128 k128 (1 invocations): bitwise
-      [0] cycles 193518 instret 24266 ram 1,2,4
+      [0] cycles 193384 instret 23269 ram 1,2,4
     linear bf16 49x512 k64 (1 invocations): bitwise
-      [0] cycles 789079 instret 117164 ram 1,2,4
+      [0] cycles 788876 instret 111523 ram 1,2,4
     linear bf16 16x256 k64, in RAM (1 invocations): bitwise
-      [0] cycles 156412 instret 16334 ram 0,1,2,3,4
+      [0] cycles 156342 instret 15385 ram 0,1,2,3,4
     linear bf16 16x64 k64, in RAM (1 invocations): bitwise
-      [0] cycles 18984 instret 4242 ram 0,1,2,3,4
+      [0] cycles 18916 instret 3965 ram 0,1,2,3,4
     linear bf16 64x64 k64, in RAM (1 invocations): bitwise
-      [0] cycles 43933 instret 12752 ram 0,1,2,3,4
+      [0] cycles 43674 instret 11662 ram 0,1,2,3,4
     sdpa bf16 32x32 d32, in RAM (1 invocations): bitwise
       [0] cycles 89717 instret 30256 ram 0,1,2,7,8
     sdpa bf16 16x16 d32 bk16, in RAM (1 invocations): bitwise
@@ -352,39 +352,39 @@ let%expect_test "the check set" =
   [%expect
     {|
     exp 64x64 (1 invocations): bitwise
-      [0] cycles 607246 instret 275249 ram 1
+      [0] cycles 606021 instret 274216 ram 1
     softmax over C 64x64 (1 invocations): bitwise
-      [0] cycles 4190117 instret 1998734 ram 1
+      [0] cycles 2600899 instret 1251108 ram 1
     softmax over W 16x16 (1 invocations): bitwise
-      [0] cycles 262426 instret 125468
+      [0] cycles 163763 instret 79309
     layer norm over C 16x64 (1 invocations): bitwise
-      [0] cycles 148915 instret 83187
+      [0] cycles 40191 instret 23001
     rms norm over C 16x64 (1 invocations): bitwise
-      [0] cycles 61083 instret 34604
+      [0] cycles 20229 instret 11521
     linear 32x96 k48 (1 invocations): bitwise
-      [0] cycles 61656 instret 13139 ram 1,4
+      [0] cycles 61522 instret 12366 ram 1,4
     sdpa bf16 41x61 d32 (1 invocations): bitwise
       [0] cycles 241222 instret 84947 ram 8
     layer, bare (1 invocations): bitwise
-      [0] cycles 260314 instret 121585 ram 1,2,3,4,5,7,8,9,10,11,12,13,14,15
+      [0] cycles 259919 instret 121187 ram 1,2,3,4,5,7,8,9,10,11,12,13,14,15
     layer, all flags (1 invocations): bitwise
-      [0] cycles 323334 instret 144122 ram 1,3,5,7,10,11,12,13,14,15,16,17,18,19,20
+      [0] cycles 299379 instret 141837 ram 1,3,5,7,10,11,12,13,14,15,16,17,18,19,20
     layer, pre layer norm, rope (1 invocations): bitwise
-      [0] cycles 436619 instret 195124 ram 3,5,7,9,12,13,14,15,16,17,18,19,20,21,22,23,24
+      [0] cycles 397265 instret 182975 ram 3,5,7,9,12,13,14,15,16,17,18,19,20,21,22,23,24
     layer, post rms (1 invocations): bitwise
-      [0] cycles 373464 instret 167100 ram 2,4,6,8,11,12,13,14,15,16,17,18,19,20,21,22
+      [0] cycles 343311 instret 162686 ram 2,4,6,8,11,12,13,14,15,16,17,18,19,20,21,22
     layer decomposed, bare (14 invocations): bitwise
-      [0] cycles 14824 instret 5222 ram 5,20
-      [1] cycles 173202 instret 108489
-      [2] cycles 2598 instret 2186
-      [3] cycles 14824 instret 5222 ram 8,20
-      [4] cycles 173202 instret 108489
-      [5] cycles 2598 instret 2186
-      [6] cycles 14824 instret 5222 ram 11,20
-      [7] cycles 173202 instret 108489
-      [8] cycles 2598 instret 2186
-      [9] cycles 1982524 instret 1233524
-      [10] cycles 2911 instret 2511
-      [11] cycles 237302 instret 142681
-      [12] cycles 14824 instret 5222 ram 17,20
-      [13] cycles 3127 instret 2667 |}]
+      [0] cycles 14754 instret 4945 ram 5,20
+      [1] cycles 173009 instret 108328
+      [2] cycles 2455 instret 1848
+      [3] cycles 14754 instret 4945 ram 8,20
+      [4] cycles 173009 instret 108328
+      [5] cycles 2455 instret 1848
+      [6] cycles 14754 instret 4945 ram 11,20
+      [7] cycles 173009 instret 108328
+      [8] cycles 2455 instret 1848
+      [9] cycles 1388841 instret 836303
+      [10] cycles 2655 instret 2074
+      [11] cycles 237237 instret 142632
+      [12] cycles 14754 instret 4945 ram 17,20
+      [13] cycles 2629 instret 2119 |}]

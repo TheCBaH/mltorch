@@ -295,8 +295,22 @@ let schedule ~(target : Ssa_target.t) info t (s : Ssa_region.t Ssa_stmt.t) =
   | Ssa_stmt.Instr _ | Ssa_stmt.For _ | Ssa_stmt.If _ ->
       invalid_arg "Ssa_vector_sum.schedule: not a sum"
 
+(* Whether a loop is itself a vector loop: its iterations step by more than
+   one, and its own body (not a loop nested in it) holds a vector operation.
+   The vectorizer makes exactly that shape; a scalar loop whose body only
+   holds a vector loop, beside a sum, is not one. *)
+let vector_loop ~step (body : Ssa_region.t) =
+  Int64.compare step 1L > 0
+  && List.exists
+       (function
+         | Ssa_stmt.Instr _ as s ->
+             has_vector { body with Ssa_region.body = [ s ] }
+         | Ssa_stmt.For _ | Ssa_stmt.If _ | Ssa_stmt.Ordered_sum _ -> false)
+       body.Ssa_region.body
+
 (* The sums nested under a vector loop: the loop's own lanes already took what
-   they could. *)
+   they could. A vector loop that is only a sibling of the sum, nested in the
+   same enclosing loop, does not count. *)
 let under_vector_loops (p : Ssa_program.t) =
   let inside = Hashtbl.create 16 in
   let rec region ~under (r : Ssa_region.t) =
@@ -306,7 +320,8 @@ let under_vector_loops (p : Ssa_program.t) =
     | Ssa_stmt.Ordered_sum { body; _ } ->
         if under then Hashtbl.replace inside (body.Ssa_region.id :> int) ();
         region ~under body
-    | Ssa_stmt.For { body; _ } -> region ~under:(under || has_vector body) body
+    | Ssa_stmt.For { step; body; _ } ->
+        region ~under:(under || vector_loop ~step body) body
     | Ssa_stmt.If { then_; else_; _ } ->
         region ~under then_;
         region ~under else_

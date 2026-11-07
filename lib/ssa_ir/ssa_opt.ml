@@ -4,6 +4,7 @@ let simplify = { name = "simplify"; run = Ssa_opt_simplify.run }
 let convert_ifs = { name = "convert_ifs"; run = Ssa_opt_if.pass }
 let guards = { name = "guards"; run = Ssa_opt_guards.pass }
 let hoist ~alias = { name = "hoist"; run = Ssa_opt_hoist.pass ~alias }
+let collapse = { name = "collapse"; run = Ssa_opt_collapse.pass }
 let share ~alias = { name = "share"; run = Ssa_opt_share.pass ~alias }
 
 let block ~alias ~group =
@@ -60,6 +61,7 @@ let pipeline ?target ~alias () =
   [ simplify; guards; simplify ]
   @ (match target with Some _ -> [ convert_ifs; simplify ] | None -> [])
   @ [ hoist ~alias ]
+  @ (match target with Some _ -> [ collapse ] | None -> [])
   @ (match target with
     | Some target ->
         (* the splats the vectorizer made are loop invariant *)

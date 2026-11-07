@@ -22,4 +22,4 @@ let%expect_test "binary32 vector sweep, slice 1 of 4" =
     sqrt                         agree=12 failed-alike=0
     to_copy_bool                 agree=12 failed-alike=0
     upsample_bilinear2d          agree=12 failed-alike=0
-      plans=864 vector-loops=48 forced-vector-loops=48 wide-vectors=0 inherited-from-scalar=0 |}]
+      plans=864 vector-loops=92 forced-vector-loops=96 wide-vectors=0 inherited-from-scalar=0 |}]

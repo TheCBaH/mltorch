@@ -85,28 +85,28 @@ let%expect_test "forms of the vector fixtures" =
   [%expect
     {|
     relu then add over C=32, scalar:
-      instructions 145, configurations 0, spills 0, reloads 0, remats 0, frame 64 bytes, helper calls 0
+      instructions 121, configurations 0, spills 0, reloads 0, remats 0, frame 64 bytes, helper calls 0
       vector none
     relu then add over C=32, zve32f128:
-      instructions 229, configurations 3, spills 0, reloads 0, remats 0, frame 128 bytes, helper calls 0
-      vector vfadd.vv 4, vfmv.v.f 4, vle32.v 16, vmerge.vim 4, vmerge.vvm 4, vmflt.vv 4, vmsne.vi 4, vmv.v.i 4, vse32.v 8
+      instructions 193, configurations 3, spills 0, reloads 0, remats 0, frame 80 bytes, helper calls 0
+      vector vfadd.vv 8, vfmv.v.f 4, vle32.v 24, vmerge.vim 4, vmerge.vvm 4, vmflt.vv 4, vmsne.vi 4, vmv.v.i 4, vse32.v 12
     softmax over H, W=32, scalar:
-      instructions 840, configurations 0, spills 0, reloads 0, remats 0, frame 64 bytes, helper calls 0
+      instructions 838, configurations 0, spills 0, reloads 0, remats 0, frame 80 bytes, helper calls 0
       vector none
     softmax over H, W=32, zve32f128:
-      instructions 840, configurations 0, spills 0, reloads 0, remats 0, frame 64 bytes, helper calls 0
+      instructions 838, configurations 0, spills 0, reloads 0, remats 0, frame 80 bytes, helper calls 0
       vector none
     layer_norm over H, W=32, scalar:
-      instructions 602, configurations 0, spills 0, reloads 0, remats 0, frame 64 bytes, helper calls 0
+      instructions 609, configurations 0, spills 0, reloads 0, remats 0, frame 80 bytes, helper calls 0
       vector none
     layer_norm over H, W=32, zve32f128:
-      instructions 602, configurations 0, spills 0, reloads 0, remats 0, frame 64 bytes, helper calls 0
+      instructions 609, configurations 0, spills 0, reloads 0, remats 0, frame 80 bytes, helper calls 0
       vector none
     conv, batch norm, relu to C=32, scalar:
-      instructions 336, configurations 0, spills 1, reloads 1, remats 5, frame 144 bytes, helper calls 0
+      instructions 308, configurations 0, spills 2, reloads 2, remats 6, frame 192 bytes, helper calls 0
       vector none
     conv, batch norm, relu to C=32, zve32f128:
-      instructions 877, configurations 27, spills 11, reloads 11, remats 6, frame 208 bytes, helper calls 0
+      instructions 817, configurations 27, spills 13, reloads 13, remats 8, frame 240 bytes, helper calls 0
       vector vfadd.vv 56, vfdiv.vv 4, vfmul.vv 20, vfmv.v.f 19, vfsqrt.v 4, vfsub.vv 4, vle32.v 40, vlse32.v 12, vmerge.vim 4, vmerge.vvm 4, vmflt.vv 4, vmsne.vi 4, vmv.v.i 4, vmv.v.v 82, vse32.v 20 |}]
 
 let%expect_test "forms of the matrix products" =
@@ -114,34 +114,34 @@ let%expect_test "forms of the matrix products" =
   [%expect
     {|
     linear 9x32 k64, scalar:
-      instructions 95, configurations 0, spills 0, reloads 0, remats 0, frame 32 bytes, helper calls 0
+      instructions 81, configurations 0, spills 0, reloads 0, remats 0, frame 32 bytes, helper calls 0
       vector none
     linear 9x32 k64, zve32f128:
-      instructions 263, configurations 7, spills 0, reloads 0, remats 0, frame 64 bytes, helper calls 0
+      instructions 243, configurations 7, spills 0, reloads 0, remats 0, frame 64 bytes, helper calls 0
       vector vfadd.vv 24, vfmul.vv 12, vfmv.v.f 7, vlse32.v 12, vmv.v.v 12, vse32.v 12
     linear 9x32 k64 bias, scalar:
-      instructions 118, configurations 0, spills 0, reloads 0, remats 0, frame 48 bytes, helper calls 0
+      instructions 90, configurations 0, spills 0, reloads 0, remats 0, frame 48 bytes, helper calls 0
       vector none
     linear 9x32 k64 bias, zve32f128:
-      instructions 288, configurations 7, spills 0, reloads 0, remats 0, frame 64 bytes, helper calls 0
+      instructions 267, configurations 7, spills 0, reloads 0, remats 0, frame 80 bytes, helper calls 0
       vector vfadd.vv 24, vfmul.vv 12, vfmv.v.f 7, vle32.v 12, vlse32.v 12, vmv.v.v 12, vse32.v 12
     linear 7x29 k63 bias, scalar:
-      instructions 165, configurations 0, spills 0, reloads 0, remats 0, frame 64 bytes, helper calls 0
+      instructions 133, configurations 0, spills 0, reloads 0, remats 0, frame 48 bytes, helper calls 0
       vector none
     linear 7x29 k63 bias, zve32f128:
-      instructions 253, configurations 4, spills 0, reloads 0, remats 0, frame 64 bytes, helper calls 0
+      instructions 229, configurations 4, spills 0, reloads 0, remats 0, frame 64 bytes, helper calls 0
       vector vfadd.vv 8, vfmul.vv 4, vfmv.v.f 5, vle32.v 4, vlse32.v 4, vmv.v.v 4, vse32.v 4
     bmm 1x9x32 k64, scalar:
-      instructions 92, configurations 0, spills 0, reloads 0, remats 0, frame 32 bytes, helper calls 0
+      instructions 77, configurations 0, spills 0, reloads 0, remats 0, frame 32 bytes, helper calls 0
       vector none
     bmm 1x9x32 k64, zve32f128:
-      instructions 240, configurations 7, spills 0, reloads 0, remats 0, frame 48 bytes, helper calls 0
+      instructions 207, configurations 7, spills 0, reloads 0, remats 0, frame 48 bytes, helper calls 0
       vector vfadd.vv 12, vfmul.vv 12, vfmv.v.f 7, vle32.v 12, vmv.v.v 12, vse32.v 12
     bmm 3x7x29 k63, scalar:
-      instructions 169, configurations 0, spills 0, reloads 0, remats 0, frame 64 bytes, helper calls 0
+      instructions 138, configurations 0, spills 0, reloads 0, remats 0, frame 64 bytes, helper calls 0
       vector none
     bmm 3x7x29 k63, zve32f128:
-      instructions 246, configurations 4, spills 0, reloads 0, remats 0, frame 80 bytes, helper calls 0
+      instructions 205, configurations 4, spills 0, reloads 0, remats 0, frame 80 bytes, helper calls 0
       vector vfadd.vv 4, vfmul.vv 4, vfmv.v.f 5, vle32.v 4, vmv.v.v 4, vse32.v 4 |}]
 
 (* The fused vector multiply-add under each binary32 policy, on the Zve32f
@@ -192,31 +192,31 @@ let%expect_test "forms with register groups" =
   [%expect
     {|
     relu then add over C=32:
-      instructions 151, configurations 3 (m4 3), spills 0, reloads 0, remats 0, frame 64 bytes, helper calls 0
-      vector vfadd.vv 1, vfmv.v.f 1, vle32.v 4, vmerge.vim 1, vmerge.vvm 1, vmflt.vv 1, vmsne.vi 1, vmv.v.i 1, vse32.v 2
+      instructions 92, configurations 3 (m4 3), spills 0, reloads 0, remats 0, frame 16 bytes, helper calls 0
+      vector vfadd.vv 2, vfmv.v.f 1, vle32.v 6, vmerge.vim 1, vmerge.vvm 1, vmflt.vv 1, vmsne.vi 1, vmv.v.i 1, vse32.v 3
     softmax over H, W=32:
-      instructions 840, configurations 0, spills 0, reloads 0, remats 0, frame 64 bytes, helper calls 0
+      instructions 838, configurations 0, spills 0, reloads 0, remats 0, frame 80 bytes, helper calls 0
       vector none
     layer_norm over H, W=32:
-      instructions 602, configurations 0, spills 0, reloads 0, remats 0, frame 64 bytes, helper calls 0
+      instructions 609, configurations 0, spills 0, reloads 0, remats 0, frame 80 bytes, helper calls 0
       vector none
     conv, batch norm, relu to C=32:
-      instructions 583, configurations 19 (m4 19), spills 16, reloads 16, remats 6, frame 336 bytes, helper calls 0
+      instructions 526, configurations 19 (m4 19), spills 20, reloads 20, remats 7, frame 352 bytes, helper calls 0
       vector vfadd.vv 14, vfdiv.vv 1, vfmul.vv 5, vfmv.v.f 7, vfsqrt.v 1, vfsub.vv 1, vle32.v 18, vlse32.v 3, vmerge.vim 1, vmerge.vvm 1, vmflt.vv 1, vmsne.vi 1, vmv.v.i 1, vmv4r.v 16, vse32.v 13
     linear 9x32 k64:
-      instructions 162, configurations 5 (m4 5), spills 1, reloads 1, remats 0, frame 112 bytes, helper calls 0
+      instructions 145, configurations 5 (m4 5), spills 1, reloads 1, remats 0, frame 112 bytes, helper calls 0
       vector vfadd.vv 6, vfmul.vv 3, vfmv.v.f 4, vle32.v 1, vlse32.v 3, vmv4r.v 4, vse32.v 4
     linear 9x32 k64 bias:
-      instructions 182, configurations 6 (m4 6), spills 1, reloads 1, remats 0, frame 112 bytes, helper calls 0
+      instructions 159, configurations 6 (m4 6), spills 1, reloads 1, remats 0, frame 128 bytes, helper calls 0
       vector vfadd.vv 6, vfmul.vv 3, vfmv.v.f 4, vle32.v 4, vlse32.v 3, vmv4r.v 4, vse32.v 4
     linear 7x29 k63 bias:
-      instructions 217, configurations 3 (m4 3), spills 0, reloads 0, remats 0, frame 64 bytes, helper calls 0
+      instructions 182, configurations 3 (m4 3), spills 0, reloads 0, remats 0, frame 64 bytes, helper calls 0
       vector vfadd.vv 2, vfmul.vv 1, vfmv.v.f 2, vle32.v 1, vlse32.v 1, vmv4r.v 1, vse32.v 1
     bmm 1x9x32 k64:
-      instructions 162, configurations 6 (m4 6), spills 1, reloads 1, remats 0, frame 112 bytes, helper calls 0
+      instructions 138, configurations 6 (m4 6), spills 1, reloads 1, remats 0, frame 112 bytes, helper calls 0
       vector vfadd.vv 3, vfmul.vv 3, vfmv.v.f 4, vle32.v 4, vmv4r.v 4, vse32.v 4
     bmm 3x7x29 k63:
-      instructions 213, configurations 3 (m4 3), spills 0, reloads 0, remats 0, frame 80 bytes, helper calls 0
+      instructions 173, configurations 3 (m4 3), spills 0, reloads 0, remats 0, frame 80 bytes, helper calls 0
       vector vfadd.vv 1, vfmul.vv 1, vfmv.v.f 2, vle32.v 1, vmv4r.v 1, vse32.v 1 |}]
 
 (* Where a block's items get a configuration: before the first that needs

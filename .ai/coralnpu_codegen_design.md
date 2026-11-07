@@ -897,7 +897,7 @@ cycles of the generated code against the release's hand-written RVV kernels
 | op | generated f32 | Gemma f32 | generated bf16 | Gemma bf16 |
 | --- | --- | --- | --- | --- |
 | residual add | 1,611 | 527 | 2,281 | 701 |
-| RMS norm | 26,754 | 1,464 | 30,966 | 1,624 |
+| RMS norm | 9,128 | 1,464 | 10,682 | 1,624 |
 | tanh GELU mul | 73,260 | 3,192 | 75,791 | 3,314 |
 
 The bf16 fixtures (`Model_test.transformer_bf16_fixtures`) take bfloat16 operands;
@@ -917,25 +917,45 @@ hardware instructions for a correct scalar implementation.
 The RMSNorm fixture scales by its weight directly, while the released kernel
 scales by `1 + weight` and uses fused arithmetic. These measurements compare
 different numerical/storage contracts, not interchangeable implementations.
-Residual add vectorizes (about 5x over scalar). RMS norm does not: its
-reduction plans no vector loop, so Zve32f runs the scalar code (1.00x), as
-softmax and layer norm do. The generated GELU's tanh is a bitwise match to the
+Residual add vectorizes (about 5x over scalar). RMS norm vectorizes its
+pointwise loop (about 2.1x over scalar, 2x160 13,757 to 6,150); its ordered
+sum stays a scalar chain. Softmax and layer norm over H, W=32 still run scalar
+(1.00x): they hold a local array indexed by a varying position. The generated GELU's tanh is a bitwise match to the
 oracle, while Gemma's is a rational approximation clamped to [-3, 3]; the two
 do not compute the same bits. Generated entry calls and reference kernel calls
 also have different timing boundaries, so these ratios do not isolate compiler
 overhead or establish a numerical upper bound on it.
 
-A planner probe resolves the scalar RMSNorm emitter: its ordered reduction and
-pointwise loop are already separate, but the emitter reads an invariant scalar
-local. `Ssa_vector_body.classify_instr` rejects `Local_read`, producing
-`no_vector_form:local.read` for all three shapes, both input formats, on NEON and
-Zve32f. Scalar-local promotion or safe read hoisting can address that obstacle
-without relaxing the reduction. RVV ordered reduction (`vfredosum.vs`) is a
-separate possible strict lowering; the reference instead uses lane FMA and
-unordered reduction.
+RMSNorm's ordered reduction and pointwise loop were always separate, but the
+pointwise emitter read the reduction's result from a one-cell local on every
+trip, and `Ssa_vector_body` has no vector form for `local.read`
+(`no_vector_form:local.read` on every shape and format). Hoisting a proven
+invariant local read (see the SSA design record) removes the obstacle without
+relaxing the reduction: RMS norm went from 26,754 to 9,128 cycles at m1 and
+the scalar code from 26,754 to 19,997, bitwise. The same hoist made scalar
+layer norm over H, W=32 33% cheaper (84,166 to 56,608) and softmax 4%. RVV
+ordered reduction (`vfredosum.vs`) is a separate possible strict lowering of
+the remaining sum; the reference instead uses lane FMA and unordered
+reduction.
+
+Under `Mir_lower.Sequence.Fast` (the same bits, see the Machine IR design
+record) tanh GELU mul takes 223,410 / 73,260 / 48,746 cycles (scalar, m1, m4,
+three shapes summed) to 109,627 / 30,056 / 19,831: `exp`'s two power-of-two
+ladders and its add-and-subtract truncations were most of the kernel. The
+golden is `rtl_test.ml`'s "tanh gelu, fast sequences"; MPACT m3 runs the same
+fixtures bitwise in `coral_test.ml`.
+
+Residual add 2x160 at LMUL 4 after the addressing and loop work: 612 cycles
+at the start; carrying pointers in one-loop kernels and folding their start
+(`Mir_offsets`), 593; one 320-element loop (`Ssa_opt_collapse`), 568;
+two interleaved copies a trip (`Ssa_opt_unroll`), 448, a kernel window of 397
+against the reference's 350, 38 cycles per 32 elements with the memory port
+63% busy (48% before). `coralview disasm` shows the interleave kept by
+allocation and emission (load, load, load, add, load, store, add, store), so
+no Machine IR scheduler was needed. Four copies measured 478.
 
 Register groups (LMUL 4) take binary32 residual add from 1,611 to 1,120
-cycles, RMS norm not at all (no vector loop), tanh GELU mul from 73,260 to
+cycles, RMS norm from 9,128 to 8,601, tanh GELU mul from 73,260 to
 48,746. The bfloat16 variants are refused under groups (a 16-lane bfloat16
 vector fills no whole number of registers).
 

@@ -30,7 +30,7 @@ let%expect_test "Wasm sweep of vector and numerical plans, slice 52 of 73" =
   report ~config:"fp32-vectors";
   [%expect
     {|
-    strict-vectors: disagreements 0, agree 12, failed alike 0, refused 0; with vectors 0, relaxed 0
-    ordered-binary32: disagreements 0, agree 12, failed alike 0, refused 0; with vectors 0, relaxed 0
-    relaxed-binary32: disagreements 0, agree 12, failed alike 0, refused 0; with vectors 0, relaxed 0
+    strict-vectors: disagreements 0, agree 12, failed alike 0, refused 0; with vectors 6, relaxed 0
+    ordered-binary32: disagreements 0, agree 12, failed alike 0, refused 0; with vectors 6, relaxed 0
+    relaxed-binary32: disagreements 0, agree 12, failed alike 0, refused 0; with vectors 6, relaxed 0
     fp32-vectors: disagreements 0, agree 12, failed alike 0, refused 0; with vectors 0, relaxed 0 |}]

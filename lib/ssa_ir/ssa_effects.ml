@@ -103,6 +103,21 @@ let rec of_stmt : Ssa_region.t Ssa_stmt.t -> summary = function
 and of_region (r : Ssa_region.t) =
   List.fold_left (fun acc s -> union acc (of_stmt s)) empty r.Ssa_region.body
 
+(* Whether any statement of [r], however deeply nested, writes the scratch
+   object [local]. Only [Local_write] writes one. *)
+let rec writes_local (r : Ssa_region.t) (local : Ssa_value.t) =
+  List.exists
+    (function
+      | Ssa_stmt.Instr { Ssa_instr.op = Ssa_op.Local_write { local = l; _ }; _ }
+        ->
+          Ssa_value.equal l local
+      | Ssa_stmt.Instr _ -> false
+      | Ssa_stmt.For { body; _ } | Ssa_stmt.Ordered_sum { body; _ } ->
+          writes_local body local
+      | Ssa_stmt.If { then_; else_; _ } ->
+          writes_local then_ local || writes_local else_ local)
+    r.Ssa_region.body
+
 (* Whether anything a statement does may change what a read of [buffer] sees. *)
 let may_write policy (s : summary) buffer =
   Ssa_id.Buffer.Set.exists (fun w -> may_overlap policy w buffer) s.writes

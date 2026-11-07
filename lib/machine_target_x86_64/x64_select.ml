@@ -45,6 +45,7 @@ module Mutation = struct
     | Pruned_live
     | Scaled_address
     | Signed_compare
+    | Unguarded_trunc
 end
 
 type result = { selected : S.Verified.t; record : Mir_id.View.t }
@@ -413,6 +414,35 @@ let vector st (i : Mir_op.t Mir_instr.t) =
       let signs = emit st (Pk.ty p) (Pshufd_splat (p, sign)) in
       def (Plogic (Flogic.Xor, p, signs, a))
   | Mir_op.Funary (Mir_op.Funary.Sqrt, a) -> def (Psqrt (pk a, a))
+  | Mir_op.Funary (Mir_op.Funary.Trunc, a) when pk a = Pk.Ps ->
+      (* below 2^23 in magnitude through int32 lanes and back, the sign put
+         back (a -0 for a lane in (-1, 0)); else, a NaN included, the lane
+         itself: SSE2 has no packed round *)
+      let p = Pk.Ps in
+      let ty = Pk.ty p and mty = Pk.mask_ty p in
+      let splat x = emit st ty (Pshufd_splat (p, const st (Mir_const.f32 x))) in
+      let back = emit st ty (Cvtdq2ps (emit st X64_op.int32x4 (Cvttps2dq a))) in
+      let signs = splat (-0.) in
+      let tr =
+        emit st ty
+          (Plogic
+             (Flogic.Or, p, back, emit st ty (Plogic (Flogic.And, p, signs, a))))
+      in
+      let mag = emit st ty (Plogic (Flogic.Andn, p, signs, a)) in
+      let small =
+        emit st mty
+          (Pcmp
+             ( Cmp_pred.Lt,
+               p,
+               emit st mty (Movap_to_mask (p, mag)),
+               splat 8388608. ))
+      in
+      (* [a ^ ((tr ^ a) & small)]: [tr] where the lane is small *)
+      if mutated st Mutation.Unguarded_trunc then def (Movap tr)
+      else
+        let d = emit st ty (Plogic (Flogic.Xor, p, tr, a)) in
+        let u = emit st ty (Plogic (Flogic.And, p, d, small)) in
+        def (Plogic (Flogic.Xor, p, u, a))
   | Mir_op.Vconcat [ a; b ] ->
       half a;
       half b;
@@ -664,9 +694,39 @@ let instr st (i : Mir_op.t Mir_instr.t) =
         let m = emit st (ty a) (Movq_from_gpr (fsz, g)) in
         def (Flogic (Flogic.Xor, fsz, a, m))
     | Mir_op.Funary (Mir_op.Funary.Sqrt, a) -> def (Sqrt (fsz_of st (ty a), a))
-    | Mir_op.Funary (Mir_op.Funary.Trunc, a) ->
-        need_feature st Mir_target.Feature.Sse41;
+    | Mir_op.Funary (Mir_op.Funary.Trunc, a)
+      when List.mem Mir_target.Feature.Sse41 st.features ->
         def (Round_trunc (fsz_of st (ty a), a))
+    | Mir_op.Funary (Mir_op.Funary.Trunc, a) ->
+        (* SSE2: below 2^23 (2^52) in magnitude through a 64-bit integer and
+           back, the sign put back (a -0 for an argument in (-1, 0)); else,
+           a NaN included, the value itself *)
+        let fsz = fsz_of st (ty a) in
+        let t = ty a in
+        let it, sign, limit =
+          match fsz with
+          | Fsz.D -> (Mir_type.i64, Int64.min_int, 0x4330_0000_0000_0000L)
+          | Fsz.S -> (Mir_type.i32, 0x8000_0000L, 0x4B00_0000L)
+        in
+        let bits k =
+          emit st t (Movq_from_gpr (fsz, emit st it (Mov_imm (it, k))))
+        in
+        let back =
+          emit st t (Cvtsi2s (fsz, emit st Mir_type.i64 (Cvtts2si (fsz, a))))
+        in
+        let m = bits sign in
+        let tr =
+          emit st t
+            (Flogic
+               (Flogic.Or, fsz, back, emit st t (Flogic (Flogic.And, fsz, m, a))))
+        in
+        let mag = emit st t (Flogic (Flogic.Andn, fsz, m, a)) in
+        let small = emit st t (Cmps (Cmp_pred.Lt, fsz, mag, bits limit)) in
+        if mutated st Mutation.Unguarded_trunc then def (Movap tr)
+        else
+          let x = emit st t (Flogic (Flogic.And, fsz, small, tr)) in
+          let y = emit st t (Flogic (Flogic.Andn, fsz, small, a)) in
+          def (Flogic (Flogic.Or, fsz, x, y))
     | Mir_op.Iarith (o, a, c) -> (
         let sz = sz_of st (ty a) in
         let shift k =

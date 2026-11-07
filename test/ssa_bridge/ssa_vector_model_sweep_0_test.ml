@@ -24,13 +24,14 @@ let%expect_test "vector sweep (model), slice 0 of 4" =
     split_with_sizes_i64         agree=12 failed-alike=0
     sum                          agree=12 failed-alike=0
     upsample_bicubic2d           agree=12 failed-alike=0
-      branch                             loops=86 work=11602
+      branch                             loops=98 work=12112
       carries_values                     loops=74 work=0
       no_vector_form:load.in_bounds      loops=60 work=2464
-      no_vector_form:local.alloc         loops=32 work=9770
-      no_vector_form:local.read          loops=22 work=2782
+      no_vector_form:local.alloc         loops=20 work=9090
+      no_vector_form:local.read          loops=2 work=48
+      no_vector_form:local.write         loops=2 work=48
       no_vector_form:select              loops=24 work=1072
       non_affine_access                  loops=70 work=6504
-      too_short                          loops=174 work=8610
+      too_short                          loops=168 work=8598
       unprofitable                       loops=86 work=4740
-      vectorized                         loops=100 work=11564 |}]
+      vectorized                         loops=106 work=13740 |}]

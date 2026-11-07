@@ -27,11 +27,9 @@ let%expect_test "vector sweep (model), slice 3 of 4" =
       carries_values                     loops=24 work=0
       no_vector_form:float.to_i64        loops=32 work=9208
       no_vector_form:load.in_bounds      loops=60 work=6564
-      no_vector_form:local.alloc         loops=12 work=72
-      no_vector_form:local.read          loops=34 work=1900
       no_vector_form:select              loops=12 work=576
       non_affine_access                  loops=14 work=144
-      too_short                          loops=160 work=9472
+      too_short                          loops=126 work=9072
       unprofitable                       loops=122 work=4392
       varying_bounds                     loops=6 work=1088
-      vectorized                         loops=110 work=6400 |}]
+      vectorized                         loops=134 work=8260 |}]

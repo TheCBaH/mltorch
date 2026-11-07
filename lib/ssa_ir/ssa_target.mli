@@ -75,6 +75,10 @@ type t = {
       (** how many consecutive iterations of a scalar loop around a vector loop
           one blocked iteration covers (see {!Ssa_opt_block}); 1 is no blocking.
           Registers, not lanes, bound it: each row holds its own accumulators *)
+  unroll : int;
+      (** how many consecutive trips of a vector loop one unrolled trip covers,
+          its copies interleaved ({!Ssa_opt_unroll}); 1 is no unrolling. A
+          parameter chosen by measurement per target and register shape *)
   support : Op.t -> support;
   cost : Op.t -> float;
       (** relative cost of one vector operation across [lanes], against [lanes]
@@ -101,7 +105,9 @@ val neon128 : t
 val zve32f128 : t
 (** RISC-V Zve32f at VLEN 128 (Coral NPU's vector core): binary32 lanes only,
     sixteen logical lanes, strided accesses native, no binary64 vectors. Its
-    costs are unmeasured. *)
+    costs are unmeasured. Vector loops unroll twice: on Coral's RVV core a
+    residual add at LMUL 4 measured 568, 448 and 478 cycles at one, two and four
+    copies (LMUL 1: 909, 869, 879). *)
 
 val scalar : t
 (** A target with no vector unit: every operation [Expanded] at the scalar cost,
@@ -118,6 +124,10 @@ val with_inner_loops : bool -> t -> t
 
 val with_row_block : int -> t -> t
 (** The same target with another row-block factor, at every precision. *)
+
+val with_unroll : int -> t -> t
+(** The same target unrolling its vector loops [n] times (the [unroll] field),
+    at every precision. *)
 
 val f32 : t -> t
 (** [f32 t] is [t.at F32]: the target a binary32 kernel is planned against. *)

@@ -64,6 +64,13 @@ module Mutation = struct
     | Zero_extend
 end
 
+(* Which form of the binary32 sequences ({!F32_math}) a lowering emits. Both
+   compute the same bits for every input; [Fast] takes [exp]'s power of two
+   from its bits and its truncation from [Funary.Trunc]. Alphabetical. *)
+module Sequence = struct
+  type t = Fast | Reference
+end
+
 (* A local allocation site's object: its cell count and variable. *)
 module Local_object = struct
   type t = { slots : int64; var : Expr.Local_var.t option }
@@ -94,6 +101,7 @@ type st = {
   mutable cur : B.block;
   mutable origin : Mir_origin.t;
   mutation : Mutation.t option;
+  sequence : Sequence.t;
 }
 
 let mutated st m = st.mutation = Some m

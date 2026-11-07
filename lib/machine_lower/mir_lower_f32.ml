@@ -20,6 +20,42 @@ module type F32_fns = sig
   val sin : Mir_value.t -> Mir_value.t
 end
 
+(* [exp]'s exact pieces ({!F32_math.FAST}) in generic instructions, on a
+   scalar or on lanes: [2^n] as [(bits (n + 1.5 * 2^23 + 127)) << 23]
+   ({!F32_math.pow2_int32}) and truncation as [Funary.Trunc], whose [-0] for
+   an argument in (-1, 0) the contract allows. [splat] makes a constant of the
+   operand's shape, [ints] is its i32 counterpart. *)
+let fast_pieces st ~splat ~floats ~ints :
+    (module F32_math.FAST with type t = Mir_value.t) =
+  (module struct
+    type t = Mir_value.t
+
+    let pow2_int n =
+      let biased =
+        emit st
+          (Mir_op.Fbinary
+             (Mir_op.Fbinary.Add, n, splat (const st (Mir_const.f32 12583039.))))
+      in
+      emit st
+        (Mir_op.Bitcast
+           ( floats,
+             emit st
+               (Mir_op.Iarith
+                  ( Mir_op.Iarith.Shl,
+                    emit st (Mir_op.Bitcast (ints, biased)),
+                    splat (i32k st 23L) )) ))
+
+    let trunc_small x = emit st (Mir_op.Funary (Mir_op.Funary.Trunc, x))
+  end)
+
+let instance st (module O : F32_math.OPS with type t = Mir_value.t) ~fast :
+    (module F32_fns) =
+  match st.sequence with
+  | Sequence.Reference -> (module F32_math.Make (O) : F32_fns)
+  | Sequence.Fast ->
+      let module F = (val fast () : F32_math.FAST with type t = Mir_value.t) in
+      (module F32_math.Make_fast (O) (F) : F32_fns)
+
 let f32_math st : (module F32_fns) =
   let module O = struct
     type t = Mir_value.t
@@ -39,7 +75,10 @@ let f32_math st : (module F32_fns) =
 
     let share x = x
   end in
-  (module F32_math.Make (O) : F32_fns)
+  instance st
+    (module O)
+    ~fast:(fun () ->
+      fast_pieces st ~splat:Fun.id ~floats:Mir_type.F32 ~ints:Mir_type.i32)
 
 (* The same sequences on a binary32 vector of [lanes]: a constant is the
    binary32 constant splat to the lanes, every operation lanewise and a select
@@ -67,7 +106,13 @@ let f32_math_vector st ~lanes : (module F32_fns) =
 
     let share x = x
   end in
-  (module F32_math.Make (O) : F32_fns)
+  instance st
+    (module O)
+    ~fast:(fun () ->
+      fast_pieces st
+        ~splat:(fun x -> emit st (Mir_op.Vsplat (lanes, x)))
+        ~floats:(Mir_type.Vec (Mir_type.Elem.F32, lanes))
+        ~ints:(Mir_type.Vec (Mir_type.Elem.Int Mir_width.W32, lanes)))
 
 (* [scale * (q - zero_point)] as the explicit operations: [q] to float, minus
    the zero point, times the scale, each rounded once, in binary32 ([f32]) or

@@ -335,3 +335,169 @@ let%expect_test
     {|
     right-hand product fused: true
     scalar fused operation: 2; vector-only madd: 1 |}]
+
+(* ---- a sum beside a vector loop -------------------------------------------- *)
+
+(* Two rows, each a sum of squares then a pointwise scale by it: out[r, w] =
+   x[r, w] * sum_w' x[r, w']^2. The row loop is scalar; its body holds the sum
+   and the vectorized pointwise loop side by side, so the sum is under no
+   vector loop and the relaxed policy schedules it. *)
+let rows_w = 160
+
+let reduce_then_pointwise =
+  let bufs =
+    [
+      Fx.buffer 0 ~h:2L ~w:(Int64.of_int rows_w) Ssa_format.F32 Ssa_buffer.Input;
+      Fx.buffer 1 ~h:2L ~w:(Int64.of_int rows_w) Ssa_format.F32
+        Ssa_buffer.Output;
+    ]
+  in
+  let load bld h w =
+    B.load_f64 bld (Fx.buf 0) ~decode:Ssa_op.Decode.F32_to_f64 (Fx.at bld ~h ~w)
+  in
+  Err.or_raise ~pp_error:Ssa_verify.pp_error
+    (B.program ~buffers:bufs (fun bld ->
+         let B.Nil =
+           B.for_ bld ~lo:(idx bld 0) ~hi:(idx bld 2) ~init:B.Nil
+             (fun bld r B.Nil ->
+               let s =
+                 B.ordered_sum bld ~lo:(idx bld 0) ~hi:(idx bld rows_w)
+                   ~seed:(B.f64 bld 0.) (fun bld w ->
+                     let x = load bld r w in
+                     mul bld x x)
+               in
+               let B.Nil =
+                 B.for_ bld ~lo:(idx bld 0) ~hi:(idx bld rows_w) ~init:B.Nil
+                   (fun bld w B.Nil ->
+                     B.store_f64 bld (Fx.buf 1) ~encode:Ssa_op.Encode.F32_round
+                       (Fx.at bld ~h:r ~w)
+                       (mul bld (load bld r w) s);
+                     B.Nil)
+               in
+               B.Nil)
+         in
+         ()))
+
+let%expect_test "a sum beside a vector loop is scheduled" =
+  let input =
+    Array.init (2 * rows_w) (fun i ->
+        r32 (Float.sin (float_of_int i *. 0.37) *. 1.5))
+  in
+  List.iter
+    (fun (name, target) ->
+      let r =
+        Ssa_plan.resolve ~target ~alias:Ssa_effects.Distinct_buffers
+          ~numerics:relaxed reduce_then_pointwise
+      in
+      let out = Array.make (2 * rows_w) 0. in
+      let memory =
+        Fx.memory [ (0, Fx.floats (Array.copy input)); (1, Fx.floats out) ]
+      in
+      (match Err.payload (Ssa_interp.run r.Ssa_plan.program ~memory) with
+      | Ok () -> ()
+      | Error e -> Fmt.failwith "%a" Ssa_interp.pp_error e);
+      let lanes =
+        Ssa_type.Lanes.to_int (Ssa_target.f32 target).Ssa_target.lanes
+      in
+      let expected =
+        Array.init (2 * rows_w) (fun i ->
+            let row = i / rows_w in
+            let terms =
+              Array.init rows_w (fun w ->
+                  let x = input.((row * rows_w) + w) in
+                  r32 (x *. x))
+            in
+            let s =
+              match parts_of r with
+              | p :: _ -> scheduled_sum ~lanes ~parts:p ~seed:0. terms
+              | [] -> sequential_sum terms
+            in
+            r32 (input.(i) *. s))
+      in
+      Fmt.pr "%s: %s, vector loops %d, scheduled parts [%s]; the schedule: %b@."
+        name
+        (Ssa_numerics.Precision.name r.Ssa_plan.precision)
+        (List.length
+           (List.filter
+              (fun (d : Ssa_vectorize.Decision.t) ->
+                d.Ssa_vectorize.Decision.outcome
+                = Ssa_vectorize.Decision.Vectorized)
+              r.Ssa_plan.vectorized))
+        (String.concat "," (List.map string_of_int (parts_of r)))
+        (Array.for_all2 Core.Float_bits.equal_portable out expected))
+    [ ("neon128", Ssa_target.neon128); ("zve32f128", Ssa_target.zve32f128) ];
+  [%expect
+    {|
+    neon128: f32, vector loops 1, scheduled parts [4]; the schedule: true
+    zve32f128: f32, vector loops 1, scheduled parts [4]; the schedule: true |}]
+
+(* A scalar sum in a vector loop's own body is left alone: the loop's lanes
+   already took what they could. The builder makes only unit-step loops, so
+   the outer loop is given the vector step afterwards; its body splats the sum
+   (a vector operation in its own body). *)
+let%expect_test "a sum inside a vector loop is not scheduled" =
+  let p =
+    Err.or_raise ~pp_error:Ssa_verify.pp_error
+      (B.program
+         ~buffers:
+           [
+             Fx.buffer 0 ~h:1L ~w:160L Ssa_format.F32 Ssa_buffer.Input;
+             Fx.buffer 1 ~h:1L ~w:32L Ssa_format.F32 Ssa_buffer.Output;
+           ]
+         (fun bld ->
+           let B.Nil =
+             B.for_ bld ~lo:(idx bld 0) ~hi:(idx bld 32) ~init:B.Nil
+               (fun bld w B.Nil ->
+                 let s =
+                   B.ordered_sum bld ~lo:(idx bld 0) ~hi:(idx bld 160)
+                     ~seed:(B.f64 bld 0.) (fun bld k ->
+                       B.load_f64 bld (Fx.buf 0)
+                         ~decode:Ssa_op.Decode.F32_to_f64
+                         (Fx.at bld ~h:(idx bld 0) ~w:k))
+                 in
+                 let v =
+                   B.vec_splat bld ~lanes:(Ssa_type.Lanes.of_int 16)
+                     (s :> Ssa_value.t)
+                 in
+                 B.store_f64 bld (Fx.buf 1) ~encode:Ssa_op.Encode.F32_round
+                   (Fx.at bld ~h:(idx bld 0) ~w)
+                   (B.as_f64
+                      (B.vec_extract bld ~lane:(Ssa_type.Lane.of_int 0) v));
+                 B.Nil)
+           in
+           ()))
+  in
+  let stepped step (p : Ssa_program.t) =
+    let entry = p.Ssa_program.entry in
+    {
+      p with
+      Ssa_program.entry =
+        {
+          entry with
+          Ssa_region.body =
+            List.map
+              (function
+                | Ssa_stmt.For f -> Ssa_stmt.For { f with step } | s -> s)
+              entry.Ssa_region.body;
+        };
+    }
+  in
+  List.iter
+    (fun step ->
+      let _, decisions =
+        Ssa_vector_sum.program ~target:(Ssa_target.f32 neon) (stepped step p)
+      in
+      Fmt.pr "outer step %Ld: %d sums considered, %d scheduled@." step
+        (List.length decisions)
+        (List.length
+           (List.filter
+              (fun (d : Ssa_vector_sum.Decision.t) ->
+                match d.Ssa_vector_sum.Decision.outcome with
+                | Ssa_vector_sum.Decision.Scheduled _ -> true
+                | Ssa_vector_sum.Decision.Kept_sequential _ -> false)
+              decisions)))
+    [ 16L; 1L ];
+  [%expect
+    {|
+    outer step 16: 0 sums considered, 0 scheduled
+    outer step 1: 1 sums considered, 0 scheduled |}]

@@ -188,6 +188,9 @@ type t =
   | Cvt of Fsz.t * v  (** CVTSS2SD or CVTSD2SS, to the given precision *)
   | Cvtdq2ps of v
       (** CVTDQ2PS: four int32 lanes to binary32, one rounding each *)
+  | Cvttps2dq of v
+      (** CVTTPS2DQ: four binary32 lanes to int32, truncating; a NaN or a lane
+          outside the int32 range gives 0x80000000 *)
   | Cvtpd2ps of v  (** CVTPD2PS: two binary64 lanes to a low binary32 half *)
   | Cvtps2pd of v  (** CVTPS2PD: a low binary32 half to two binary64 lanes *)
   | Cvtsi2s of Fsz.t * v  (** from a 64-bit integer *)
@@ -285,6 +288,7 @@ let uses = function
   | Cvtpd2ps a
   | Cvtps2pd a
   | Cvtdq2ps a
+  | Cvttps2dq a
   | Xt_lanes { src = a; _ }
   | Pshift (_, _, a)
   | Movap_cast (_, a)
@@ -425,11 +429,12 @@ let op_features = function
   | Fmadd231 _ | Pfmadd231 _ -> [ Mir_target.Feature.Fma ]
   | Round_trunc _ -> [ Mir_target.Feature.Sse41 ]
   | Cmps _ | Cvt _ | Cvtdq2ps _ | Cvtpd2ps _ | Cvtps2pd _ | Cvtsi2s _
-  | Cvtts2si _ | Fbin _ | Movup_iload _ | Flogic _ | Movap _ | Movap_cast _
-  | Movap_to_mask _ | Movlhps _ | Movq_from_gpr _ | Movq_low _ | Movq_to_gpr _
-  | Movq_widen _ | Movup_load _ | Movup_store _ | Pbin _ | Pcmp _ | Plogic _
-  | Pones _ | Pshuf _ | Pshufd_half _ | Pshufd_lane _ | Pshufd_splat _
-  | Pshufd_splat_mask _ | Pshift _ | Psqrt _ | Sqrt _ | Ucomis _ | Xt_lanes _ ->
+  | Cvttps2dq _ | Cvtts2si _ | Fbin _ | Movup_iload _ | Flogic _ | Movap _
+  | Movap_cast _ | Movap_to_mask _ | Movlhps _ | Movq_from_gpr _ | Movq_low _
+  | Movq_to_gpr _ | Movq_widen _ | Movup_load _ | Movup_store _ | Pbin _
+  | Pcmp _ | Plogic _ | Pones _ | Pshuf _ | Pshufd_half _ | Pshufd_lane _
+  | Pshufd_splat _ | Pshufd_splat_mask _ | Pshift _ | Psqrt _ | Sqrt _
+  | Ucomis _ | Xt_lanes _ ->
       [ Mir_target.Feature.Sse2 ]
   | Load ((Msz.S | Msz.D), _) | Store ((Msz.S | Msz.D), _, _) ->
       [ Mir_target.Feature.Sse2 ]
@@ -586,6 +591,9 @@ let typing op =
   | Cvtdq2ps a ->
       let* () = need (Mir_type.equal (ty a) int32x4) "cvtdq2ps operand" in
       Ok [ Pk.ty Pk.Ps ]
+  | Cvttps2dq a ->
+      let* () = need (is_pk Pk.Ps (ty a)) "cvttps2dq operand" in
+      Ok [ int32x4 ]
   | Movup_iload (t, a) ->
       let* () = addr_ok a in
       let* () = need (Option.is_some (int_register t)) "integer register" in
@@ -834,6 +842,7 @@ let pp_op pv fmt op =
   | Cvtpd2ps a -> Fmt.pf fmt "cvtpd2ps %a" pv a
   | Cvtps2pd a -> Fmt.pf fmt "cvtps2pd %a" pv a
   | Cvtdq2ps a -> Fmt.pf fmt "cvtdq2ps %a" pv a
+  | Cvttps2dq a -> Fmt.pf fmt "cvttps2dq %a" pv a
   | Movup_iload (t, a) -> Fmt.pf fmt "movups %a %a" Mir_type.pp t (pp_addr pv) a
   | Xt_lanes { signed; from; first; src } ->
       Fmt.pf fmt "%cext.4s.%s[%d] %a"

@@ -36,6 +36,7 @@ let before ?target ~alias () =
     | Some _ -> [ Ssa_opt.convert_ifs; Ssa_opt.simplify ]
     | None -> [])
   @ [ Ssa_opt.hoist ~alias ]
+  @ match target with Some _ -> [ Ssa_opt.collapse ] | None -> []
 
 let after ~alias =
   [
@@ -91,6 +92,11 @@ let fp32_vector ?(alias = Ssa_effects.Conservative) ?contract ?bf16 ~target
         fp32_scalar ?contract ?bf16 ~alias ~vectorized
           (run ~alias (before ~alias ()) p)
       else
+        let q =
+          fst
+            (Ssa_opt_unroll.pass
+               ~unroll:(Ssa_target.f32 target).Ssa_target.unroll ~alias q)
+        in
         let q, blocked =
           Ssa_opt_rows.program
             ~rows:(Ssa_target.f32 target).Ssa_target.row_block ~policy:alias q
@@ -142,6 +148,9 @@ let reference ~alias ~numerics ~refusal ?target (p : Ssa_program.t) =
       }
   | Some target ->
       let q, vectorized = Ssa_vectorize.program ~alias ~target scalar in
+      let q =
+        fst (Ssa_opt_unroll.pass ~unroll:target.Ssa_target.unroll ~alias q)
+      in
       let q, blocked =
         Ssa_opt_rows.program ~rows:target.Ssa_target.row_block ~policy:alias q
       in
@@ -188,6 +197,10 @@ let simd_fp32 ~alias ~numerics ~target (p : Ssa_program.t) =
         else (q, [])
       in
       if count_vector_loops vectorized > 0 || scheduled sums then
+        let q =
+          fst
+            (Ssa_opt_unroll.pass ~unroll:f32_target.Ssa_target.unroll ~alias q)
+        in
         let q, blocked =
           Ssa_opt_rows.program ~rows:f32_target.Ssa_target.row_block
             ~policy:alias q

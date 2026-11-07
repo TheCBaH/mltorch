@@ -36,13 +36,41 @@ module type OPS = sig
       returns it. Called on every intermediate the sequences reuse. *)
 end
 
-module Make (O : OPS) : sig
-  val cos : O.t -> O.t
-  val erf : O.t -> O.t
-  val exp : O.t -> O.t
-  val log : O.t -> O.t
-  val sin : O.t -> O.t
+(** Two exact pieces an instance may compute faster than the sequences do, each
+    defined only on the inputs its call sites prove. Outside its contract a
+    piece may return any value, but must not fail. *)
+module type FAST = sig
+  type t
+
+  val pow2_int : t -> t
+  (** [2^n] for an integer-valued [n] with [|n| <= 126], so a normal binary32
+      value. *)
+
+  val trunc_small : t -> t
+  (** [x] truncated toward zero for [|x| < 2^23], except that a zero result may
+      be [-0] where truncation gives [+0]. *)
 end
+
+module type FNS = sig
+  type t
+
+  val cos : t -> t
+  val erf : t -> t
+  val exp : t -> t
+  val log : t -> t
+  val sin : t -> t
+end
+
+(** The reference sequences. *)
+module Make (O : OPS) : FNS with type t := O.t
+
+(** The same functions with [exp] (so [erf]) taking its integer part and its
+    power of two from [F]: [exp] then clamps once more, with a NaN sent to a
+    bound, to keep both pieces inside their contracts, and its result has the
+    reference's bits for every input (the proof is at [exp]). [log], [sin] and
+    [cos] are the reference sequences: their truncations take arguments no clamp
+    bounds. *)
+module Make_fast (O : OPS) (_ : FAST with type t = O.t) : FNS with type t := O.t
 
 val round32 : float -> float
 (** The binary32 value nearest [x], as a binary64. *)
@@ -57,13 +85,16 @@ val add_odd32 : float -> float -> float
     from it whose last bit is odd. The matrix engine's bfloat16 pair: [a], [b]
     are products of two bfloat16 values each, exact in binary64. *)
 
+module Value : FNS with type t := float
 (** The instance over binary64 numbers that each operation rounds to binary32:
     the oracle's meaning of the five functions. Arguments need not be binary32
     values; they are rounded first. *)
-module Value : sig
-  val cos : float -> float
-  val erf : float -> float
-  val exp : float -> float
-  val log : float -> float
-  val sin : float -> float
-end
+
+val pow2_int32 : float -> float
+(** [2^n] from its bits, for an integer-valued binary32 [n] with [|n| <= 126]:
+    [n + 1.5 * 2^23 + 127] holds [n + 127] in its low nine bits, shifted into
+    the exponent field. The construction an instance's [pow2_int] follows. *)
+
+module Value_fast : FNS with type t := float
+(** {!Value} with the fast pieces: [pow2_int32] and [Float.trunc] (which returns
+    [-0] for an argument in (-1, 0)). Equal to {!Value} bit for bit. *)

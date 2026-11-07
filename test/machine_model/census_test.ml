@@ -71,15 +71,15 @@ let%expect_test "baseline census of the fixtures" =
   [%expect
     {|
     chain exact: arithmetic 13, conversion 18, helper_call 0, memory_move 4, helpers []
-    chain simd_fp32_ordered neon128: arithmetic 13, conversion 18, helper_call 0, memory_move 5, helpers []
+    chain simd_fp32_ordered neon128: arithmetic 14, conversion 23, helper_call 0, memory_move 7, helpers []
     chain simd_fp32_ordered scalar: arithmetic 13, conversion 18, helper_call 0, memory_move 5, helpers []
     chain fp32_ordered scalar: arithmetic 0, conversion 0, helper_call 0, memory_move 0, helpers []
     softmax exact: arithmetic 5, conversion 6, helper_call 2, memory_move 7, helpers [exp]
-    softmax simd_fp32_ordered neon128: arithmetic 5, conversion 6, helper_call 2, memory_move 7, helpers [exp]
+    softmax simd_fp32_ordered neon128: arithmetic 7, conversion 10, helper_call 6, memory_move 17, helpers [exp]
     softmax simd_fp32_ordered scalar: arithmetic 5, conversion 6, helper_call 2, memory_move 7, helpers [exp]
     softmax fp32_ordered scalar: arithmetic 0, conversion 0, helper_call 0, memory_move 0, helpers []
     layer_norm exact: arithmetic 16, conversion 8, helper_call 0, memory_move 14, helpers []
-    layer_norm simd_fp32_ordered neon128: arithmetic 16, conversion 8, helper_call 0, memory_move 14, helpers []
+    layer_norm simd_fp32_ordered neon128: arithmetic 20, conversion 14, helper_call 0, memory_move 16, helpers []
     layer_norm simd_fp32_ordered scalar: arithmetic 16, conversion 8, helper_call 0, memory_move 14, helpers []
     layer_norm fp32_ordered scalar: arithmetic 0, conversion 0, helper_call 0, memory_move 0, helpers [] |}]
 
@@ -140,15 +140,15 @@ let%expect_test "vector coverage of the fixtures" =
     [ ("chain", F.chain); ("wide", wide) ];
   [%expect
     {|
-    chain ssa narrowed neon128 (0 refused): too_short 9/117
-    chain ssa exact neon128 (0 refused): too_short 9/117
+    chain ssa narrowed neon128 (0 refused): too_short 7/105
+    chain ssa exact neon128 (0 refused): too_short 7/105
     chain loop fp32_ordered neon128 (0 refused): too_short 8/453, vectorized 1/27
-    chain ssa narrowed wasm128 (0 refused): too_short 9/117
-    chain ssa exact wasm128 (0 refused): too_short 9/117
+    chain ssa narrowed wasm128 (0 refused): too_short 7/105
+    chain ssa exact wasm128 (0 refused): too_short 7/105
     chain loop fp32_ordered wasm128 (0 refused): too_short 8/453, vectorized 1/27
-    wide ssa narrowed neon128 (0 refused): carries_values 1/0, no_vector_form:local.read 1/512, too_short 2/20, vectorized 1/512
-    wide ssa exact neon128 (0 refused): carries_values 1/0, no_vector_form:local.read 1/512, too_short 2/20, vectorized 1/512
+    wide ssa narrowed neon128 (0 refused): carries_values 1/0, vectorized 2/1024
+    wide ssa exact neon128 (0 refused): carries_values 1/0, vectorized 2/1024
     wide loop fp32_ordered neon128 (0 refused): loop_carried 2/1024, vectorized 2/1024
-    wide ssa narrowed wasm128 (0 refused): carries_values 1/0, no_vector_form:local.read 1/512, too_short 2/20, vectorized 1/512
-    wide ssa exact wasm128 (0 refused): carries_values 1/0, no_vector_form:local.read 1/512, too_short 2/20, vectorized 1/512
+    wide ssa narrowed wasm128 (0 refused): carries_values 1/0, vectorized 2/1024
+    wide ssa exact wasm128 (0 refused): carries_values 1/0, vectorized 2/1024
     wide loop fp32_ordered wasm128 (0 refused): loop_carried 2/1024, vectorized 2/1024 |}]

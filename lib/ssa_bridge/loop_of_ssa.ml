@@ -49,6 +49,26 @@ let loop_buffer (b : Ssa_buffer.t) =
   in
   { Loop_buffer.id = sg.Tensor_sig.id; sg; role }
 
+(* The Loop program's own buffer of an SSA buffer's id, when it has one: its
+   shape is the tensor's, which an SSA buffer whose axes were merged
+   ({!Ssa_ir.Ssa_opt_collapse}) no longer spells; else the SSA declaration's. *)
+let loop_buffer_in (loop : Loop_program.t) (b : Ssa_buffer.t) =
+  match
+    List.find_opt
+      (fun (l : Loop_buffer.t) ->
+        Tensor_id.to_int l.Loop_buffer.id = (b.Ssa_buffer.id :> int))
+      loop.Loop_program.buffers
+  with
+  | Some l -> l
+  | None -> loop_buffer b
+
+(* The same, from the declaration of the id in [source]: the program before
+   planning merged any axes. *)
+let loop_buffer_of (source : Ssa_program.t) (b : Ssa_buffer.t) =
+  match Ssa_program.find_buffer source b.Ssa_buffer.id with
+  | Some d -> loop_buffer d
+  | None -> loop_buffer b
+
 let buffer_of (p : Ssa_program.t) =
   let table =
     List.map

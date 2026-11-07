@@ -33,7 +33,7 @@ let loop_of plan p =
         {
           loop with
           Loop_ir.Loop_program.buffers =
-            List.map Loop_of_ssa.loop_buffer (Ssa_wasm.arguments p);
+            List.map (Loop_of_ssa.loop_buffer_in loop) (Ssa_wasm.arguments p);
         }
 
 let run_program ~relaxed ~prepare ~against (plan : Fusion_plan.t) ~bind =

@@ -2051,6 +2051,15 @@ fp32.bench:
 	mkdir -p _build
 	opam exec -- dune exec bin/loop_fp32_bench.exe -- --selftest --json=$(CURDIR)/_build/fp32-bench-c.jsonl
 
+# The fast binary32 exp (F32_math.Make_fast) against the reference over all 2^32
+# inputs, as native C (about a minute), then the same with a wrong exponent bias,
+# which must fail: the check is shown able to fail on every run.
+.PHONY: f32.exhaustive
+f32.exhaustive:
+	opam exec -- dune build ./test/f32_math/exhaustive_c.exe
+	./_build/default/test/f32_math/exhaustive_c.exe
+	! ./_build/default/test/f32_math/exhaustive_c.exe --bias 128
+
 # The same programs through the direct Wasm backend under node: modules lowered for
 # standard SIMD (and relaxed SIMD where node validates it), instantiated once,
 # warmed past the engine's baseline tier, timed in nine batches inside node.

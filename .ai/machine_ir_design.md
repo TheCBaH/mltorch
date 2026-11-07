@@ -338,7 +338,16 @@ census slice that will admit it.
   transcendental (`exp`, `log`, `sin`, `cos`, `erf`) is the `F32_math`
   sequence on the vector itself (`Mir_lower_f32.f32_math_vector`: a constant
   splat to the lanes, every operation lanewise, a select on the lanewise
-  mask), so each lane is exactly the scalar sequence; a binary64 one has no
+  mask), so each lane is exactly the scalar sequence. `Mir_lower.program
+  ~sequence:Fast` (through `Mir_model.prepare` and `Model_test.check`; the
+  default is `Reference`) emits `F32_math.Make_fast` instead: `exp`'s powers
+  of two from their bits (a float add, a bitcast to i32, a shift by 23, a
+  bitcast back) and its truncations as `ftrunc`, the same bits for every input
+  (the exhaustive check is in `test/f32_math`, `make f32.exhaustive`).
+  Every Machine IR route selects it: generic, aarch64, x86_64 (SSE2 included,
+  through the integer truncation) and RV32 scalar and Zve32f, each bitwise
+  against the oracle in its own suite on operands across `exp`'s range and
+  the non-finite values. C, Wasm and JavaScript keep the reference. A binary64 one has no
   vector form and is expanded a lane at a time: the lane extracted, the scalar
   function (a helper call) applied, the result inserted into the vector the
   lanes build.
@@ -598,7 +607,10 @@ stores with `[base + index*scale + disp32]` (selection folds a pointer plus an
 index times 1, 2, 4 or 8); legacy-SSE scalar arithmetic, conversions and SQRT
 merging the destination's upper bits; whole-register ANDP/ANDNP/ORP/XORP and
 MOVAP leaving them untracked (`undefined_upper`); CMPSD/CMPSS equal and
-unordered masks; ROUNDSD/SS only under SSE4.1 and VFMADD231SD/SS only under
+unordered masks; ROUNDSD/SS under SSE4.1, else `ftrunc` is CVTTS2SI and
+CVTSI2S back with the sign ORed in (a `-0` for an argument in (-1, 0)) where
+the magnitude is below 2^23 (2^52), the operand itself otherwise (a NaN
+included); VFMADD231SD/SS only under
 FMA, else a typed refusal for a vector one — never a rounded multiply and add;
 a scalar binary32 `Ffma` without the feature is the exact sequence below.
 Compares:
@@ -987,7 +999,13 @@ shared by every access with the same base and terms; inside, an address adds
 the varying terms, their common factor last so a scaled address form takes it
 (once per block for accesses sharing them), then its constant, which both
 selectors fold as a displacement (x86-64 `[base + index*scale + disp32]`,
-AArch64's unsigned scaled immediate). Pure instructions and narrowings nothing
+AArch64's unsigned scaled immediate). A view's address counts as a term
+defined outside: a loop at function level whose accesses' only term is its own
+counter (every one-row kernel, and every loop `Ssa_opt_collapse` makes) still
+moves each base out of the loop and carries one pointer advanced by the
+counter's step. Before that rule such a loop re-read every base from the table
+and multiplied the counter on each trip: residual add 1x67 at m4 on Coral's
+RVV core went from 329 to 252 cycles, 40 to 25 a trip. Pure instructions and narrowings nothing
 reads are then deleted, and the result is verified again.
 
 Only the innermost loop, measured. Moving each pointer's own offset out

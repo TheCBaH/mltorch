@@ -22,4 +22,4 @@ let%expect_test "binary32 vector sweep, slice 3 of 4" =
     to_copy_long                 agree=12 failed-alike=0
     unbind                       agree=12 failed-alike=0
     vector_norm                  agree=12 failed-alike=0
-      plans=864 vector-loops=12 forced-vector-loops=12 wide-vectors=0 inherited-from-scalar=0 |}]
+      plans=864 vector-loops=40 forced-vector-loops=60 wide-vectors=0 inherited-from-scalar=0 |}]

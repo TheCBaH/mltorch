@@ -532,9 +532,9 @@ let%expect_test "dequantization as vectors" =
     ];
   [%expect
     {|
-    i8 per tensor, integer zero point: too_short 1, vectorized 1; binary64 0; = scalar true; MIR: ok
-    i8 per tensor, fractional zero point: too_short 1, vectorized 1; binary64 0; = scalar true; MIR: ok
-    i16 per tensor: too_short 1, vectorized 1; binary64 0; = scalar true; MIR: ok
+    i8 per tensor, integer zero point: vectorized 1; binary64 0; = scalar true; MIR: ok
+    i8 per tensor, fractional zero point: vectorized 1; binary64 0; = scalar true; MIR: ok
+    i16 per tensor: vectorized 1; binary64 0; = scalar true; MIR: ok
     i8 per tensor, contiguous lanes along C: vectorized 1; binary64 0; = scalar true; MIR: ok
     i8 per tensor, contiguous, fractional zero point: vectorized 1; binary64 0; = scalar true; MIR: ok
     i16 per tensor, contiguous lanes along C: vectorized 1; binary64 0; = scalar true; MIR: ok

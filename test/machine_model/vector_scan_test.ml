@@ -192,18 +192,18 @@ let%expect_test "vector kernels through linear scan" =
   X64_small.all ();
   [%expect
     {|
-    aarch64 x * x + x, w=37: ok; 47 instructions; 1 register moves, 0 stores, 0 loads, 0 slot moves, 0 rematerialized; 0 slots (0 bytes); executed 123 instructions, 1 register moves, 0 stores, 0 reloads, 0 rematerialized
-    aarch64 matmul 2x3x16: ok; 80 instructions; 23 register moves, 0 stores, 0 loads, 0 slot moves, 0 rematerialized; 0 slots (0 bytes); executed 151 instructions, 23 register moves, 0 stores, 0 reloads, 0 rematerialized
-    aarch64 matmul 5x7x33: ok; 87 instructions; 28 register moves, 0 stores, 0 loads, 0 slot moves, 0 rematerialized; 0 slots (0 bytes); executed 1948 instructions, 165 register moves, 0 stores, 0 reloads, 0 rematerialized
-    x86_64 x * x + x, w=37: ok; 49 instructions; 2 register moves, 0 stores, 0 loads, 0 slot moves, 0 rematerialized; 0 slots (0 bytes); executed 133 instructions, 6 register moves, 0 stores, 0 reloads, 0 rematerialized
-    x86_64 matmul 2x3x16: ok; 88 instructions; 36 register moves, 10 stores, 10 loads, 0 slot moves, 2 rematerialized; 10 slots (160 bytes); executed 175 instructions, 50 register moves, 22 stores, 22 reloads, 2 rematerialized
-    x86_64 matmul 5x7x33: ok; 94 instructions; 43 register moves, 5 stores, 5 loads, 0 slot moves, 4 rematerialized; 4 slots (44 bytes); executed 2319 instructions, 310 register moves, 45 stores, 45 reloads, 30 rematerialized
-    aarch64, 3 registers x * x + x, w=37: ok; 47 instructions; 2 register moves, 13 stores, 13 loads, 0 slot moves, 1 rematerialized; 5 slots (80 bytes); executed 123 instructions, 3 register moves, 26 stores, 26 reloads, 2 rematerialized
-    aarch64, 3 registers matmul 2x3x16: ok; 80 instructions; 16 register moves, 60 stores, 56 loads, 0 slot moves, 5 rematerialized; 26 slots (340 bytes); executed 151 instructions, 26 register moves, 114 stores, 111 reloads, 5 rematerialized
-    aarch64, 3 registers matmul 5x7x33: ok; 87 instructions; 24 register moves, 53 stores, 45 loads, 0 slot moves, 10 rematerialized; 19 slots (216 bytes); executed 1948 instructions, 523 register moves, 1139 stores, 1133 reloads, 61 rematerialized
-    x86_64, 3 registers x * x + x, w=37: ok; 49 instructions; 3 register moves, 14 stores, 14 loads, 0 slot moves, 1 rematerialized; 6 slots (84 bytes); executed 133 instructions, 8 register moves, 31 stores, 31 reloads, 2 rematerialized
-    x86_64, 3 registers matmul 2x3x16: ok; 88 instructions; 20 register moves, 66 stores, 66 loads, 0 slot moves, 9 rematerialized; 28 slots (380 bytes); executed 175 instructions, 36 register moves, 136 stores, 137 reloads, 9 rematerialized
-    x86_64, 3 registers matmul 5x7x33: ok; 94 instructions; 20 register moves, 53 stores, 55 loads, 0 slot moves, 17 rematerialized; 21 slots (256 bytes); executed 2319 instructions, 451 register moves, 1506 stores, 1561 reloads, 96 rematerialized |}]
+    aarch64 x * x + x, w=37: ok; 49 instructions; 3 register moves, 0 stores, 0 loads, 0 slot moves, 0 rematerialized; 0 slots (0 bytes); executed 111 instructions, 3 register moves, 0 stores, 0 reloads, 0 rematerialized
+    aarch64 matmul 2x3x16: ok; 65 instructions; 22 register moves, 0 stores, 0 loads, 0 slot moves, 0 rematerialized; 0 slots (0 bytes); executed 136 instructions, 22 register moves, 0 stores, 0 reloads, 0 rematerialized
+    aarch64 matmul 5x7x33: ok; 62 instructions; 26 register moves, 0 stores, 0 loads, 0 slot moves, 0 rematerialized; 0 slots (0 bytes); executed 1821 instructions, 172 register moves, 0 stores, 0 reloads, 0 rematerialized
+    x86_64 x * x + x, w=37: ok; 47 instructions; 4 register moves, 0 stores, 0 loads, 0 slot moves, 0 rematerialized; 0 slots (0 bytes); executed 117 instructions, 8 register moves, 0 stores, 0 reloads, 0 rematerialized
+    x86_64 matmul 2x3x16: ok; 70 instructions; 30 register moves, 11 stores, 11 loads, 0 slot moves, 1 rematerialized; 11 slots (168 bytes); executed 157 instructions, 42 register moves, 23 stores, 23 reloads, 1 rematerialized
+    x86_64 matmul 5x7x33: ok; 66 instructions; 29 register moves, 5 stores, 5 loads, 0 slot moves, 4 rematerialized; 4 slots (44 bytes); executed 2173 instructions, 192 register moves, 45 stores, 45 reloads, 30 rematerialized
+    aarch64, 3 registers x * x + x, w=37: ok; 49 instructions; 8 register moves, 13 stores, 13 loads, 0 slot moves, 1 rematerialized; 5 slots (80 bytes); executed 111 instructions, 9 register moves, 26 stores, 26 reloads, 1 rematerialized
+    aarch64, 3 registers matmul 2x3x16: ok; 65 instructions; 17 register moves, 57 stores, 53 loads, 0 slot moves, 3 rematerialized; 25 slots (336 bytes); executed 136 instructions, 27 register moves, 111 stores, 108 reloads, 3 rematerialized
+    aarch64, 3 registers matmul 5x7x33: ok; 62 instructions; 18 register moves, 43 stores, 37 loads, 0 slot moves, 5 rematerialized; 19 slots (216 bytes); executed 1821 instructions, 505 register moves, 1095 stores, 1095 reloads, 26 rematerialized
+    x86_64, 3 registers x * x + x, w=37: ok; 47 instructions; 9 register moves, 14 stores, 14 loads, 0 slot moves, 1 rematerialized; 6 slots (84 bytes); executed 117 instructions, 14 register moves, 31 stores, 31 reloads, 1 rematerialized
+    x86_64, 3 registers matmul 2x3x16: ok; 70 instructions; 18 register moves, 62 stores, 61 loads, 0 slot moves, 4 rematerialized; 28 slots (380 bytes); executed 157 instructions, 34 register moves, 132 stores, 132 reloads, 4 rematerialized
+    x86_64, 3 registers matmul 5x7x33: ok; 66 instructions; 19 register moves, 50 stores, 46 loads, 0 slot moves, 7 rematerialized; 21 slots (256 bytes); executed 2173 instructions, 437 register moves, 1495 stores, 1510 reloads, 36 rematerialized |}]
 
 (* What a run executed, by origin role and mnemonic: every executed
    instruction once. *)
@@ -234,11 +234,8 @@ let%expect_test "executed instructions by role and operation" =
       Tr.Ops.iter (fun k n -> Fmt.pr "  %s: %Ld@." k n) t.Tr.ops;
       [%expect
         {|
-        2319 instructions, 2319 profiled
-          address addq: 52
-          address imulq: 52
-          address leaq: 253
-          address movslq: 52
+        2173 instructions, 2173 profiled
+          address leaq: 263
           compute addl: 125
           compute addps: 280
           compute addss: 35
@@ -297,9 +294,9 @@ let%expect_test "row blocking under production allocation" =
     [ 1; 2; 4 ];
   [%expect
     {|
-    rows 1: aarch64 peak fpr 13, gpr 11; hot stores none, loads none; 0 helper calls; frame unrealized; hot spills none; ok; 59 instructions; 20 register moves, 0 stores, 0 loads, 0 slot moves, 0 rematerialized; 0 slots (0 bytes); executed 1384 instructions, 101 register moves, 0 stores, 0 reloads, 0 rematerialized
-      x86_64 peak fpr 16, gpr 12; hot stores fpr 2, loads fpr 2; 0 helper calls; frame unrealized; hot spills depth 2: 4; innermost 0; ok; 64 instructions; 30 register moves, 2 stores, 2 loads, 0 slot moves, 2 rematerialized; 2 slots (32 bytes); executed 1654 instructions, 277 register moves, 16 stores, 16 reloads, 12 rematerialized
-    rows 2: aarch64 peak fpr 21, gpr 11; hot stores none, loads none; 0 helper calls; frame unrealized; hot spills none; ok; 79 instructions; 23 register moves, 0 stores, 0 loads, 0 slot moves, 0 rematerialized; 0 slots (0 bytes); executed 1202 instructions, 67 register moves, 0 stores, 0 reloads, 0 rematerialized
-      x86_64 peak fpr 24, gpr 12; hot stores fpr 10, loads fpr 10; 0 helper calls; frame unrealized; hot spills depth 2: 8, depth 3: 12; innermost 12; ok; 88 instructions; 36 register moves, 10 stores, 10 loads, 0 slot moves, 2 rematerialized; 10 slots (160 bytes); executed 1464 instructions, 311 register moves, 208 stores, 208 reloads, 6 rematerialized
-    rows 4: aarch64 peak fpr 37, gpr 11; hot stores fpr 7, loads fpr 7; 0 helper calls; frame unrealized; hot spills depth 2: 8, depth 3: 6; innermost 6; ok; 119 instructions; 38 register moves, 7 stores, 7 loads, 0 slot moves, 0 rematerialized; 7 slots (112 bytes); executed 1111 instructions, 164 register moves, 56 stores, 56 reloads, 0 rematerialized
-      x86_64 peak fpr 40, gpr 12; hot stores fpr 35, loads fpr 34; 0 helper calls; frame unrealized; hot spills depth 2: 17, depth 3: 52; innermost 52; ok; 136 instructions; 64 register moves, 35 stores, 34 loads, 0 slot moves, 2 rematerialized; 26 slots (416 bytes); executed 1369 instructions, 282 register moves, 434 stores, 434 reloads, 3 rematerialized |}]
+    rows 1: aarch64 peak fpr 13, gpr 11; hot stores none, loads none; 0 helper calls; frame unrealized; hot spills none; ok; 45 instructions; 18 register moves, 0 stores, 0 loads, 0 slot moves, 0 rematerialized; 0 slots (0 bytes); executed 1323 instructions, 106 register moves, 0 stores, 0 reloads, 0 rematerialized
+      x86_64 peak fpr 16, gpr 12; hot stores fpr 2, gpr 1, loads fpr 2, gpr 1; 0 helper calls; frame unrealized; hot spills depth 2: 6; innermost 0; ok; 46 instructions; 21 register moves, 3 stores, 3 loads, 0 slot moves, 1 rematerialized; 3 slots (40 bytes); executed 1576 instructions, 182 register moves, 24 stores, 24 reloads, 8 rematerialized
+    rows 2: aarch64 peak fpr 21, gpr 11; hot stores none, loads none; 0 helper calls; frame unrealized; hot spills none; ok; 65 instructions; 22 register moves, 0 stores, 0 loads, 0 slot moves, 0 rematerialized; 0 slots (0 bytes); executed 1169 instructions, 70 register moves, 0 stores, 0 reloads, 0 rematerialized
+      x86_64 peak fpr 24, gpr 12; hot stores fpr 10, gpr 1, loads fpr 10, gpr 1; 0 helper calls; frame unrealized; hot spills depth 2: 10, depth 3: 12; innermost 12; ok; 70 instructions; 30 register moves, 11 stores, 11 loads, 0 slot moves, 1 rematerialized; 11 slots (168 bytes); executed 1422 instructions, 268 register moves, 212 stores, 212 reloads, 4 rematerialized
+    rows 4: aarch64 peak fpr 37, gpr 11; hot stores fpr 7, loads fpr 7; 0 helper calls; frame unrealized; hot spills depth 2: 8, depth 3: 6; innermost 6; ok; 105 instructions; 40 register moves, 7 stores, 7 loads, 0 slot moves, 0 rematerialized; 7 slots (112 bytes); executed 1092 instructions, 167 register moves, 56 stores, 56 reloads, 0 rematerialized
+      x86_64 peak fpr 40, gpr 12; hot stores fpr 35, gpr 1, loads fpr 34, gpr 1; 0 helper calls; frame unrealized; hot spills depth 2: 19, depth 3: 52; innermost 52; ok; 118 instructions; 56 register moves, 36 stores, 35 loads, 0 slot moves, 1 rematerialized; 27 slots (424 bytes); executed 1345 instructions, 257 register moves, 436 stores, 436 reloads, 2 rematerialized |}]

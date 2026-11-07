@@ -4,7 +4,7 @@
 
 (library
  (name f32_math_test)
- (modules f32_math_test)
+ (modules f32_math_fast_erf_test f32_math_fast_test f32_math_test)
  (libraries f32_math fmt)
  (inline_tests)
  (preprocess
@@ -36,3 +36,11 @@
  (inline_tests)
  (preprocess
   (pps ppx_expect)))
+
+; The fast exp against the reference over all 2^32 inputs, as native C (a
+; minute or so): make f32.exhaustive. Not in runtest.
+
+(executable
+ (name exhaustive_c)
+ (modules exhaustive_c)
+ (libraries f32_math unix))

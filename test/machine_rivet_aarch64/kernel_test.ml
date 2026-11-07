@@ -146,10 +146,10 @@ let%expect_test "GNU assembles what Rivet encodes" =
     ~bind:(data_bind [| 1.; 2.; 3.; 4. |]);
   [%expect
     {|
-    agree (2 segments, 256 bytes, 4 symbols)
-    agree (2 segments, 2704 bytes, 4 symbols)
-    agree (2 segments, 824 bytes, 5 symbols)
-    agree (2 segments, 264 bytes, 5 symbols) |}]
+    agree (2 segments, 304 bytes, 4 symbols)
+    agree (2 segments, 2752 bytes, 4 symbols)
+    agree (2 segments, 596 bytes, 5 symbols)
+    agree (2 segments, 312 bytes, 5 symbols) |}]
 
 (* Selection folds an index extension, scale and addition into the access, and
    a float load or store into a floating-point access with no move between
@@ -200,9 +200,9 @@ let%expect_test "register-offset and floating-point accesses" =
     matmul: ok [native: agree]
       register-offset accesses: false; float loads: true, moves from a general register: 0
     shifted: coord_out_of_range(t0, W) [native: agree]
-      register-offset accesses: true; float loads: true, moves from a general register: 0
+      register-offset accesses: false; float loads: true, moves from a general register: 0
     pointwise: ok [native: agree]
-      register-offset accesses: true; float loads: true, moves from a general register: 0 |}]
+      register-offset accesses: false; float loads: true, moves from a general register: 0 |}]
 
 (* A difference between the two is seen: GNU is handed source with one
    instruction changed. *)
@@ -230,9 +230,9 @@ let%expect_test "a tampered GNU source disagrees" =
     ~bind:(data_bind [| 7.; -0.; 1e-40; 3.4e38 |]);
   [%expect
     {|
-    .text+189: rivet 3a, gnu 2a
-    .text+92: rivet c0, gnu 1f
-    reparsed .text+189: typed 3a, text 2a |}]
+    .text+221: rivet 3a, gnu 2a
+    .text+148: rivet c0, gnu 1f
+    reparsed .text+221: typed 3a, text 2a |}]
 
 (* AAPCS64 around the kernel: the callee-saved registers, FPCR and the stack
    pointer come back as they went in, whichever way the kernel exits, and its
@@ -303,8 +303,8 @@ let%expect_test "large frames, run and encoded" =
     ok [native: agree]
     ok [native: agree]
     ok [native: agree]
-    agree (2 segments, 416 bytes, 4 symbols)
-    agree (2 segments, 416 bytes, 4 symbols)
+    agree (2 segments, 504 bytes, 4 symbols)
+    agree (2 segments, 504 bytes, 4 symbols)
     not built: frame: fn0: a frame beyond the supported code model
     not built: frame: fn0: a frame beyond the supported code model |}]
 
@@ -394,9 +394,9 @@ let%expect_test "vector kernels: the forms they use, and GNU's reading of them"
     ~bind:(bind_data ~shape (vdata 37));
   [%expect
     {|
-    82 vector instructions, 0 fmla, 0 fmadd, 0 ld1r; agree (2 segments, 1508 bytes, 5 symbols)
-    82 vector instructions, 0 fmla, 0 fmadd, 0 ld1r; agree (2 segments, 1508 bytes, 5 symbols)
-    28 vector instructions, 0 fmla, 0 fmadd, 0 ld1r; agree (2 segments, 476 bytes, 4 symbols) |}]
+    82 vector instructions, 0 fmla, 0 fmadd, 0 ld1r; agree (2 segments, 1168 bytes, 5 symbols)
+    82 vector instructions, 0 fmla, 0 fmadd, 0 ld1r; agree (2 segments, 1168 bytes, 5 symbols)
+    28 vector instructions, 0 fmla, 0 fmadd, 0 ld1r; agree (2 segments, 548 bytes, 4 symbols) |}]
 
 let%expect_test "contracted vector kernels, natively and with the ABI probe" =
   let relaxed = Ssa_ir.Ssa_numerics.Simd_fp32_relaxed in
@@ -441,7 +441,7 @@ let%expect_test "fmla on the CPU" =
     {|
     w=16: 52 vector instructions, 4 fmla, 0 fmadd, 0 ld1r; agree (2 segments, 468 bytes, 4 symbols)
     w=16: ok [native: agree]
-    w=37: 52 vector instructions, 4 fmla, 1 fmadd, 0 ld1r; agree (2 segments, 604 bytes, 4 symbols)
+    w=37: 52 vector instructions, 4 fmla, 1 fmadd, 0 ld1r; agree (2 segments, 676 bytes, 4 symbols)
     w=37: ok [native: agree] |}]
 
 (* Strided lane expansion: the input read transposed, so a vector of outputs
@@ -479,7 +479,7 @@ let%expect_test "lane gathers and every legal loop vectorized, natively" =
         {|
         ld1 12, st1 0, ins 0, ld1r 4, dup 0
         ok [native: agree]
-        agree (2 segments, 1136 bytes, 4 symbols) |}]
+        agree (2 segments, 920 bytes, 4 symbols) |}]
 
 (* A call per lane: exp has no vector form, so the lanes go out one at a time,
    with the vector held across each call in a full-width spill. *)
@@ -580,10 +580,10 @@ let%expect_test "call-frame information" =
     ~bind:(data_bind [| -0.; 1.5; nan; 3. |]);
   [%expect
     {|
-    ok (1 functions, 64 instructions); ok (2 functions, 73 instructions)
-    ok (1 functions, 676 instructions); ok (2 functions, 685 instructions)
-    ok (1 functions, 206 instructions); ok (2 functions, 215 instructions)
-    ok (1 functions, 104 instructions); ok (2 functions, 113 instructions) |}]
+    ok (1 functions, 76 instructions); ok (2 functions, 85 instructions)
+    ok (1 functions, 688 instructions); ok (2 functions, 697 instructions)
+    ok (1 functions, 149 instructions); ok (2 functions, 158 instructions)
+    ok (1 functions, 126 instructions); ok (2 functions, 135 instructions) |}]
 
 (* A wrong description is seen: the first stack adjustment says 8 more bytes. *)
 let%expect_test "wrong call-frame information is seen" =
@@ -600,7 +600,7 @@ let%expect_test "wrong call-frame information is seen" =
   | Ok case -> Fmt.pr "%s@." (H.cfi ~tamper case)
   | Error e -> Fmt.pr "%s@." e);
   [%expect
-    {| 4 mrs x17, fpcr: CFA offset 1000, instructions say 112; 4 mrs x17, fpcr: CFA offset 1000, instructions say 112 |}]
+    {| 4 mrs x17, fpcr: CFA offset 1000, instructions say 144; 4 mrs x17, fpcr: CFA offset 1000, instructions say 144 |}]
 
 (* Binary32 dequantization as integer lanes on NEON: contiguous i8 and i16
    cells loaded a Q register at a time, sign-extended to int32 by SXTL/SXTL2
@@ -641,11 +641,11 @@ let%expect_test "binary32 dequantization as integer lanes, natively" =
   [%expect
     {|
     i8 per tensor, 32 lanes: ok [native: agree]
-      62 vector instructions, 0 fmla, 0 fmadd, 0 ld1r; agree (2 segments, 584 bytes, 4 symbols)
+      62 vector instructions, 0 fmla, 0 fmadd, 0 ld1r; agree (2 segments, 572 bytes, 4 symbols)
     i8 per tensor, 37 lanes: ok [native: agree]
-      62 vector instructions, 0 fmla, 0 fmadd, 0 ld1r; agree (2 segments, 828 bytes, 4 symbols)
+      62 vector instructions, 0 fmla, 0 fmadd, 0 ld1r; agree (2 segments, 888 bytes, 4 symbols)
     i16 per tensor, 32 lanes: ok [native: agree]
-      64 vector instructions, 0 fmla, 0 fmadd, 0 ld1r; agree (2 segments, 580 bytes, 4 symbols) |}]
+      64 vector instructions, 0 fmla, 0 fmadd, 0 ld1r; agree (2 segments, 568 bytes, 4 symbols) |}]
 
 (* Binary16 and bfloat16 cells read straight to binary32 as integer lanes on
    NEON (UXTL, SHL/USHR, FMUL by 2^112, the infinity and NaN fix-up, the sign),
@@ -669,6 +669,6 @@ let%expect_test "binary16 and bfloat16 as integer lanes, natively" =
   [%expect
     {|
     f16: ok [native: agree]
-      205 vector instructions, 0 fmla, 0 fmadd, 0 ld1r; agree (2 segments, 1204 bytes, 4 symbols)
+      205 vector instructions, 0 fmla, 0 fmadd, 0 ld1r; agree (2 segments, 1192 bytes, 4 symbols)
     bf16: ok [native: agree]
-      40 vector instructions, 0 fmla, 0 fmadd, 0 ld1r; agree (2 segments, 424 bytes, 4 symbols) |}]
+      40 vector instructions, 0 fmla, 0 fmadd, 0 ld1r; agree (2 segments, 412 bytes, 4 symbols) |}]

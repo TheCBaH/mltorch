@@ -101,8 +101,8 @@ let%expect_test "liveness sets equal the path definition" =
     cases;
   [%expect
     {|
-    11 blocks, 57 values, 627 checks, 0 wrong
-    17 blocks, 147 values, 2499 checks, 0 wrong
+    11 blocks, 42 values, 462 checks, 0 wrong
+    17 blocks, 151 values, 2567 checks, 0 wrong
     8 blocks, 40 values, 320 checks, 0 wrong |}]
 
 let%expect_test "intervals of a loop, with holes" =
@@ -193,4 +193,4 @@ let%expect_test "intervals cover the sets" =
         spans)
     (L.intervals f);
   Fmt.pr "%d checks: %d unsound, %d imprecise@." !checks !unsound !imprecise;
-  [%expect {| 702 checks: 0 unsound, 3 imprecise |}]
+  [%expect {| 516 checks: 0 unsound, 3 imprecise |}]

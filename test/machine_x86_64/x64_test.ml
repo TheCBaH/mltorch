@@ -167,6 +167,15 @@ let%expect_test "baseline refusals and extensions" =
        ~fma:Mir_planning.Fma.Exact fma ~inputs:fma_inputs);
   Fmt.pr "trunc, SSE2: %s@."
     (H.program trunc_program ~inputs:[ (0, floats [ -2.75 ]) ]);
+  List.iter
+    (fun x ->
+      Fmt.pr "trunc %h, SSE2: %s; unguarded: %s@." x
+        (H.program trunc_program ~inputs:[ (0, floats [ x ]) ])
+        (H.program
+           ~mutation:Machine_target_x86_64.X64_select.Mutation.Unguarded_trunc
+           trunc_program
+           ~inputs:[ (0, floats [ x ]) ]))
+    [ Float.nan; 1e300; -0.5 ];
   Fmt.pr "trunc, SSE4.1: %s@."
     (H.program
        ~features:Mir_target.Feature.[ Sse2; Sse41 ]
@@ -176,7 +185,10 @@ let%expect_test "baseline refusals and extensions" =
     {|
     fma, SSE2: refused: needs fma, which the program's features do not include
     fma, FMA: ok
-    trunc, SSE2: refused: needs sse4.1, which the program's features do not include
+    trunc, SSE2: ok
+    trunc nan, SSE2: ok; unguarded: ok DISAGREE generic vs x86_64: output t1[0]: nan:f32 vs -0x1p+63:f32; structured vs x86_64: output t1[0]: nan:f32 vs -0x1p+63:f32
+    trunc 0x1.7e43c8800759cp+996, SSE2: ok; unguarded: ok DISAGREE generic vs x86_64: output t1[0]: infinity:f32 vs -0x1p+63:f32; structured vs x86_64: output t1[0]: infinity:f32 vs -0x1p+63:f32
+    trunc -0x1p-1, SSE2: ok; unguarded: ok
     trunc, SSE4.1: ok |}]
 
 (* (x == y) as 1 or 0, stored as binary32 *)
@@ -203,9 +215,16 @@ let%expect_test "x86-64 selection mutations are detected" =
   let div = A64T.i64_program (fun bld x y -> B.i64_div bld x y) in
   Fmt.pr "division operand swap: %s@."
     (H.program ~mutation:Division_swap div ~inputs:[ (0, i64s [ 7L; -2L ]) ]);
+  (* a gather's index comes from memory, so its address keeps the scaled
+     index that a plain loop's carried pointer replaces *)
+  let gather_bind =
+    Loop_programs.i64_bind ~floats:[| 10.; 20.; 30.; 40. |]
+      ~cells:[| 3L; 0L; 2L; 1L |]
+  in
+  Fmt.pr "gather: %s@." (H.plan Loop_programs.gather_kernel ~bind:gather_bind);
   Fmt.pr "scaled address: %s@."
-    (H.plan ~mutation:Scaled_address Loop_programs.kernel
-       ~bind:(data_bind [| 1.; 2.; 3.; 4. |]));
+    (H.plan ~mutation:Scaled_address Loop_programs.gather_kernel
+       ~bind:gather_bind);
   Fmt.pr "equality without parity: %s@."
     (H.program ~mutation:No_parity equal_program
        ~inputs:[ (0, floats [ Float.nan; Float.nan ]) ]);
@@ -232,6 +251,7 @@ let%expect_test "x86-64 selection mutations are detected" =
   [%expect
     {|
     division operand swap: ok DISAGREE generic vs x86_64: output t1[0]: -3:i64 vs 0:i64; structured vs x86_64: output t1[0]: -3:i64 vs 0:i64
+    gather: ok
     scaled address: defect(bad_access) DISAGREE generic vs x86_64: inconclusive: success vs defect(bad_access); structured vs x86_64: inconclusive: success vs defect(bad_access)
     equality without parity: ok DISAGREE generic vs x86_64: output t1[0]: 0x0p+0:f32 vs 0x1p+0:f32; structured vs x86_64: output t1[0]: 0x0p+0:f32 vs 0x1p+0:f32
     fused float equality: ok DISAGREE generic vs x86_64: output t1[0]: 0x0p+0:f32 vs 0x1p+0:f32; structured vs x86_64: output t1[0]: 0x0p+0:f32 vs 0x1p+0:f32
@@ -257,6 +277,6 @@ let%expect_test "allocation and frame mutations on x86-64" =
        ~frame_mutation:Machine_alloc.Mir_frame.Mutation.Misalign mm ~bind);
   [%expect
     {|
-    two-address tie broken: rejected: physical verifier: allocated fn0 bb1 i111: target constraint: a tied result not in its use's register
+    two-address tie broken: rejected: physical verifier: allocated fn0 bb6 i94: target constraint: a tied result not in its use's register
     cycle scratch: rejected: checker: fn0 bb5: [slot13:8] does not hold %13
     misaligned frame: rejected: physical verifier: allocated fn0: target constraint: a frame size that breaks stack alignment |}]

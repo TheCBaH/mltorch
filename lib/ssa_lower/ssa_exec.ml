@@ -25,10 +25,14 @@ let elements (b : Ssa_buffer.t) =
   | None -> invalid_arg "Ssa_exec: a buffer larger than an index"
 
 (* A bound input's cells, in the row-major order [Vec6.iter] visits, which is
-   also the order of the tensor's dense storage. *)
+   also the order of the tensor's dense storage. The walk is over the tensor's
+   own shape: a buffer may declare the same dense cells with axes merged
+   ({!Ssa_ir.Ssa_opt_collapse}), and only the count must agree. *)
 let cells_of (b : Ssa_buffer.t) (Tensor.Tensor t as packed) =
-  let shape = shape_of b in
+  let shape = t.Tensor.shape in
   let n = elements b in
+  if Dim.to_int (Vec6.numel shape) <> n then
+    invalid_arg "Ssa_exec: a bound input's size is not its buffer's";
   match Ssa_format.cells b.Ssa_buffer.format with
   | Ssa_format.Float_cells ->
       (* a Bool cell of any nonzero byte reads as 1, a decoded float exactly *)
@@ -69,9 +73,9 @@ let cells_of (b : Ssa_buffer.t) (Tensor.Tensor t as packed) =
       | Payload.Bool | Payload.F32 | Payload.F64 | Payload.I64 ->
           invalid_arg "Ssa_exec: cells do not match the input's format")
 
-(* An output's cells as the tensor a caller receives. *)
-let tensor_of (b : Ssa_buffer.t) cells =
-  let shape = shape_of b in
+(* An output's cells as the tensor a caller receives, in [shape]: the kernel's
+   own signature, which a buffer with merged axes no longer spells. *)
+let tensor_of ~shape (b : Ssa_buffer.t) cells =
   let at c = (Vec6.offset shape c :> int) in
   match (b.Ssa_buffer.format, cells) with
   | Ssa_format.F32, Ssa_memory.Floats a ->
@@ -137,8 +141,17 @@ let run ?counters ?fused ?(engine = Structured) (plan : Fusion_plan.t)
       match b.Ssa_buffer.role with
       | Ssa_buffer.Output ->
           let cells = Ssa_id.Buffer.Map.find b.Ssa_buffer.id memory in
-          Tensor_id.Map.add
-            (Tensor_id.of_int (b.Ssa_buffer.id :> int))
-            (tensor_of b cells) acc
+          let id = Tensor_id.of_int (b.Ssa_buffer.id :> int) in
+          let shape =
+            match
+              List.find_opt
+                (fun (o : Kernel.Output.t) ->
+                  Tensor_id.equal o.Kernel.Output.value id)
+                plan.Fusion_plan.kernel.Kernel.outputs
+            with
+            | Some o -> o.Kernel.Output.sg.Tensor_sig.shape
+            | None -> shape_of b
+          in
+          Tensor_id.Map.add id (tensor_of ~shape b cells) acc
       | Ssa_buffer.Input | Ssa_buffer.Scratch -> acc)
     Tensor_id.Map.empty p.Ssa_program.buffers

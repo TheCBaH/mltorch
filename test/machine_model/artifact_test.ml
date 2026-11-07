@@ -80,7 +80,7 @@ let%expect_test "an exp kernel's artifact" =
               (Art.origins a))));
   [%expect
     {|
-    aarch64 (Arm ARM DDI 0487 K.a) features [fp], reference_f64/scalar/forbidden; symbols: 2 bound, 1 bss, 0 rodata, 1 external [exp], 1 function; 21 relocations
+    aarch64 (Arm ARM DDI 0487 K.a) features [fp], reference_f64/scalar/forbidden; symbols: 2 bound, 1 bss, 0 rodata, 1 external [exp], 1 function; 17 relocations
       mir_region_0: bound, 16 bytes, align 16
       mir_region_1: bound, 24 bytes, align 16
       mir_region_1000000: bss, 104 bytes, align 16
@@ -88,12 +88,12 @@ let%expect_test "an exp kernel's artifact" =
       exp: external exp
       1x call helper1 -> exp+0
       1x page view0 -> mir_region_0+0
-      3x page view1 -> mir_region_1+0
+      1x page view1 -> mir_region_1+0
       6x page view1000000 -> mir_region_1000000+0
       1x page_offset view0 -> mir_region_0+0
-      3x page_offset view1 -> mir_region_1+0
+      1x page_offset view1 -> mir_region_1+0
       6x page_offset view1000000 -> mir_region_1000000+0
-      origins: 287, 286 at a CFG site |}]
+      origins: 284, 283 at a CFG site |}]
 
 let%expect_test "what publication refuses" =
   let p = Machine_source_test.Mir_math_test.program Expr.Value.Exp [| 1. |] in

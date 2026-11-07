@@ -12,6 +12,7 @@
   coralnpu_kernels
   coralnpu_kernels_zvt
   fmt
+  machine_lower
   machine_model
   machine_model_test
   machine_rivet_riscv32

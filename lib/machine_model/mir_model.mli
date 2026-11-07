@@ -56,6 +56,7 @@ val prepare :
   ?bf16_pairs:bool ->
   ?attention:(Node_id.t -> Attention_site.t option) ->
   ?layer:(Node_id.t -> Layer_site.t option) ->
+  ?sequence:Machine_lower.Mir_lower.Sequence.t ->
   ?prepack:bool ->
   ?on_program:
     (Loop_ir.Loop_bundle.invocation ->
@@ -73,6 +74,8 @@ val prepare :
     (default [false]) says so ({!Ssa_ir.Ssa_plan.resolve}); [prepack] (default
     [false]) makes each one whose B is a constant with strided columns read a
     packed copy, built once when a context is created ({!Ssa_ir.Ssa_prepack});
+    [sequence] (default [Reference]) is the form of the binary32 transcendentals
+    ({!Machine_lower.Mir_lower.Sequence}), the same bits either way;
     [on_program] sees each planned invocation's SSA program, exactly the one
     lowered (what a cost estimate counts), with the Machine IR region of each of
     its buffers, once the route has made the invocation executable. A [Planned]

@@ -215,6 +215,17 @@ let exec env op =
       ]
   | Cvtpd2ps x ->
       [ vec (Array.map (fun l -> N.round32 (N.f64 l)) (lanes env x)) ]
+  | Cvttps2dq x ->
+      [
+        vec
+          (Array.map
+             (fun l ->
+               let f = N.f32 l in
+               if Float.is_nan f || f >= 2147483648. || f < -2147483648. then
+                 0x8000_0000L
+               else Int64.logand (Int64.of_float f) 0xFFFF_FFFFL)
+             (lanes env x));
+      ]
   | Cvtdq2ps x ->
       [
         vec

@@ -71,3 +71,20 @@ let%expect_test "special values" =
     sin: 0x0p+0 0x0p+0 0x1.aed548p-1 nan
     cos: 0x1p+0 0x1p+0 0x1.14a28p-1 nan
     erf: 0x0p+0 0x0p+0 0x1.af7678p-1 -0x1.af7678p-1 0x1.fffd1ap-1 nan |}]
+
+(* ---- the fast pieces ---------------------------------------------------------- *)
+
+let bits32 x = Int32.bits_of_float x
+
+(* [pow2_int32] is the power it claims for every integer of its contract. *)
+let%expect_test "pow2_int32 over its whole contract" =
+  let wrong = ref [] in
+  for n = -126 to 126 do
+    let got = F32_math.pow2_int32 (float_of_int n) in
+    if not (Int32.equal (bits32 got) (bits32 (Float.ldexp 1. n))) then
+      wrong := n :: !wrong
+  done;
+  Fmt.pr "253 integers, wrong at: [%a]@."
+    Fmt.(list ~sep:(any " ") int)
+    (List.rev !wrong);
+  [%expect {| 253 integers, wrong at: [] |}]

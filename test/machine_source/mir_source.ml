@@ -77,7 +77,9 @@ let ssa_route name ?engine plan p ~bind =
 (* The bytes of a bound binary32 input, packed little-endian in row-major
    order. *)
 let pack (b : Ssa_buffer.t) (Tensor.Tensor tr as t) =
-  let shape = Ssa_lower.Ssa_sig.shape b in
+  (* the tensor's own shape, in row-major order: a buffer may declare the same
+     dense cells with axes merged *)
+  let shape = tr.Tensor.shape in
   let n =
     Int64.to_int (Option.get (Ssa_buffer.elements b.Ssa_buffer.extents))
   in
@@ -98,6 +100,16 @@ let pack (b : Ssa_buffer.t) (Tensor.Tensor tr as t) =
   | Ssa_format.I16 _, Payload.I16 -> cells 2 (fun i -> data.{i})
   | Ssa_format.F16, Payload.F16 -> cells 2 (fun i -> data.{i})
   | Ssa_format.Bf16, Payload.BF16 -> cells 2 (fun i -> data.{i})
+  | Ssa_format.I64, Payload.I64 ->
+      let bytes = Bytes.make (8 * n) '\000' in
+      Vec6.iter shape (fun c ->
+          match
+            Tensor.read_i64_at6 t (fun axis -> Dim.to_int (Vec6.get c axis))
+          with
+          | Ok v ->
+              Bytes.set_int64_le bytes (8 * (Vec6.offset shape c :> int)) v
+          | Error _ -> invalid_arg "Mir_source.pack: an i64 input is not i64");
+      Bytes.to_string bytes
   | _ ->
       let bytes = Bytes.make (4 * n) '\000' in
       Vec6.iter shape (fun c ->

@@ -472,3 +472,35 @@ let%expect_test "an attention under qemu is refused" =
     (fun () -> g);
   [%expect
     {| sdpa bf16 16x32 d32: refused: invocation 0 (n0): attention attend.b1.h1.q16.k32.d32.sq0_0_32_1.sk0_0_32_1.sv0_0_32_1.so0_0_32_1.nomask.x3e3504f3.n32: an attention has no realization on this route |}]
+
+(* The fast binary32 sequences as RV32 processes, scalar and Zve32f at VLEN 128
+   and 1024: the reference's bits. *)
+let%expect_test "fast sequences under qemu" =
+  let module S = Machine_model_test.Sequence_test in
+  S.each ~route:(R.route ()) ~pipeline:fp32_scalar "scalar";
+  List.iter
+    (fun vlen ->
+      S.each
+        ~route:(R.route ~cpu:(cpu vlen) ())
+        ~pipeline:zve32f
+        (Fmt.str "zve32f vlen %d" vlen))
+    [ 128; 1024 ];
+  [%expect {|
+    exp, scalar (1 invocations): bitwise
+    erf, scalar (1 invocations): bitwise
+    exact gelu, scalar (1 invocations): bitwise
+    softmax over H, W=32, scalar (1 invocations): bitwise
+    tanh gelu mul 1x67, scalar (2 invocations): bitwise
+    tanh gelu mul bf16 1x33, scalar (2 invocations): bitwise
+    exp, zve32f vlen 128 (1 invocations): bitwise
+    erf, zve32f vlen 128 (1 invocations): bitwise
+    exact gelu, zve32f vlen 128 (1 invocations): bitwise
+    softmax over H, W=32, zve32f vlen 128 (1 invocations): bitwise
+    tanh gelu mul 1x67, zve32f vlen 128 (2 invocations): bitwise
+    tanh gelu mul bf16 1x33, zve32f vlen 128 (2 invocations): bitwise
+    exp, zve32f vlen 1024 (1 invocations): bitwise
+    erf, zve32f vlen 1024 (1 invocations): bitwise
+    exact gelu, zve32f vlen 1024 (1 invocations): bitwise
+    softmax over H, W=32, zve32f vlen 1024 (1 invocations): bitwise
+    tanh gelu mul 1x67, zve32f vlen 1024 (2 invocations): bitwise
+    tanh gelu mul bf16 1x33, zve32f vlen 1024 (2 invocations): bitwise |}]

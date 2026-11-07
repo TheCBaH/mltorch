@@ -138,3 +138,40 @@ let%expect_test "binary32 transcendentals as SSE2 vectors" =
     sin (1 invocations): bitwise
     cos (1 invocations): bitwise
     gelu (erf) (1 invocations): bitwise |}]
+
+(* The fast binary32 sequences as x86_64 processes (SSE2: the truncations are
+   the integer round trip), both allocators, scalar and vector. *)
+let%expect_test "fast sequences as processes" =
+  let module S = Machine_model_test.Sequence_test in
+  List.iter
+    (fun allocation ->
+      let route = Rt.route ~allocation () in
+      let a = Rt.Allocation.name allocation in
+      S.each ~route ~pipeline:T.fp32_ordered ("scalar " ^ a);
+      S.each ~route ~pipeline:T.fp32_vector ("vector " ^ a))
+    Rt.Allocation.[ Reference; Scanned ];
+  [%expect {|
+    exp, scalar reference (1 invocations): bitwise
+    erf, scalar reference (1 invocations): bitwise
+    exact gelu, scalar reference (1 invocations): bitwise
+    softmax over H, W=32, scalar reference (1 invocations): bitwise
+    tanh gelu mul 1x67, scalar reference (2 invocations): bitwise
+    tanh gelu mul bf16 1x33, scalar reference (2 invocations): bitwise
+    exp, vector reference (1 invocations): bitwise
+    erf, vector reference (1 invocations): bitwise
+    exact gelu, vector reference (1 invocations): bitwise
+    softmax over H, W=32, vector reference (1 invocations): bitwise
+    tanh gelu mul 1x67, vector reference (2 invocations): bitwise
+    tanh gelu mul bf16 1x33, vector reference (2 invocations): bitwise
+    exp, scalar scanned (1 invocations): bitwise
+    erf, scalar scanned (1 invocations): bitwise
+    exact gelu, scalar scanned (1 invocations): bitwise
+    softmax over H, W=32, scalar scanned (1 invocations): bitwise
+    tanh gelu mul 1x67, scalar scanned (2 invocations): bitwise
+    tanh gelu mul bf16 1x33, scalar scanned (2 invocations): bitwise
+    exp, vector scanned (1 invocations): bitwise
+    erf, vector scanned (1 invocations): bitwise
+    exact gelu, vector scanned (1 invocations): bitwise
+    softmax over H, W=32, vector scanned (1 invocations): bitwise
+    tanh gelu mul 1x67, vector scanned (2 invocations): bitwise
+    tanh gelu mul bf16 1x33, vector scanned (2 invocations): bitwise |}]

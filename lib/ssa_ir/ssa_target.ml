@@ -96,6 +96,7 @@ type t = {
   fma : bool;
   relaxed_madd : bool;
   row_block : int;
+  unroll : int;
   support : Op.t -> support;
   cost : Op.t -> float;
   at : Ssa_numerics.Precision.t -> t;
@@ -140,8 +141,8 @@ let expansion_overhead = 1.
    scalar binary64 on a dense matvec and sixteen 2.9x (see the fp32 design
    record). *)
 let rec make ?(inner_loops = fun _ -> true) ?(fma = false)
-    ?(relaxed_madd = false) ?(row_block = 1) ~name ~vector_bits ~f64_lanes
-    ~f32_lanes ~native ~native_cost precision =
+    ?(relaxed_madd = false) ?(row_block = 1) ?(unroll = 1) ~name ~vector_bits
+    ~f64_lanes ~f32_lanes ~native ~native_cost precision =
   let lanes =
     match precision with
     | Ssa_numerics.Precision.F32 -> f32_lanes
@@ -168,11 +169,12 @@ let rec make ?(inner_loops = fun _ -> true) ?(fma = false)
     fma;
     relaxed_madd;
     row_block;
+    unroll;
     support;
     cost;
     at =
       (fun p ->
-        make ~inner_loops ~fma ~relaxed_madd ~row_block
+        make ~inner_loops ~fma ~relaxed_madd ~row_block ~unroll
           ~name:
             (match precision with
             | Ssa_numerics.Precision.F32 ->
@@ -288,8 +290,9 @@ let zve32f128 =
        ~inner_loops:(function
          | Ssa_numerics.Precision.F32 -> true
          | Ssa_numerics.Precision.F64 -> false)
-       ~fma:true ~row_block:2 ~name:"zve32f128" ~vector_bits ~f64_lanes:4
-       ~f32_lanes:16 ~native ~native_cost Ssa_numerics.Precision.F64)
+       ~fma:true ~row_block:2 ~unroll:2 ~name:"zve32f128" ~vector_bits
+       ~f64_lanes:4 ~f32_lanes:16 ~native ~native_cost
+       Ssa_numerics.Precision.F64)
 
 let rec scalar =
   {
@@ -301,6 +304,7 @@ let rec scalar =
     fma = false;
     relaxed_madd = false;
     row_block = 1;
+    unroll = 1;
     support = (fun _ -> Expanded);
     cost =
       (fun op ->
@@ -322,6 +326,9 @@ let rec with_inner_loops inner_loops t =
 
 let rec with_row_block row_block t =
   { t with row_block; at = (fun p -> with_row_block row_block (t.at p)) }
+
+let rec with_unroll unroll t =
+  { t with unroll; at = (fun p -> with_unroll unroll (t.at p)) }
 
 let f32 t = t.at Ssa_numerics.Precision.F32
 let all = [ neon128; scalar; wasm128; wasm128_relaxed; zve32f128 ]

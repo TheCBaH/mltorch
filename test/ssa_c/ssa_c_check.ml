@@ -49,7 +49,9 @@ let run_program ?(prepare = Fun.id) (plan : Fusion_plan.t) ~bind =
                  {
                    loop with
                    Loop_ir.Loop_program.buffers =
-                     List.map Loop_of_ssa.loop_buffer (Ssa_c.arguments p);
+                     List.map
+                       (Loop_of_ssa.loop_buffer_in loop)
+                       (Ssa_c.arguments p);
                  }
                  ~bind)
           in
@@ -90,7 +92,9 @@ let run_against_interpreter ~prepare (plan : Fusion_plan.t) ~bind =
                  {
                    loop with
                    Loop_ir.Loop_program.buffers =
-                     List.map Loop_of_ssa.loop_buffer (Ssa_c.arguments p);
+                     List.map
+                       (Loop_of_ssa.loop_buffer_in loop)
+                       (Ssa_c.arguments p);
                  }
                  ~bind)
           in

@@ -66,6 +66,15 @@ module Mutation : sig
     | Zero_extend  (** index widening by zero- instead of sign-extension *)
 end
 
+(** Which form of the binary32 sequences ({!F32_math}) the lowering emits for
+    [exp] and [erf]: both compute the same bits for every input. [Fast] takes
+    [exp]'s powers of two from their bits ({!F32_math.pow2_int32}) and its
+    truncations from [Funary.Trunc] ({!F32_math.Make_fast}); [Reference] is the
+    sequence every other backend runs. Alphabetical. *)
+module Sequence : sig
+  type t = Fast | Reference
+end
+
 type result = {
   program : Mir_verify.Generic.t;
   layout : Mir_layout_map.Entry.t list;
@@ -88,8 +97,10 @@ val summary :
 
 val program :
   ?mutation:Mutation.t ->
+  ?sequence:Sequence.t ->
   planning:Mir_planning.t option ->
   Ssa_ir.Ssa_program.t ->
   (result, Refusal.t) Err.t
 (** Verifies the structured program, admits the summary against its subject,
-    lowers it to a CFG and the CFG to generic Machine IR, and verifies that. *)
+    lowers it to a CFG and the CFG to generic Machine IR, and verifies that.
+    [sequence] defaults to [Reference]. *)

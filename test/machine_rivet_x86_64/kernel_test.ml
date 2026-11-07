@@ -76,9 +76,9 @@ let%expect_test "GNU assembles what Rivet encodes" =
   gnu (matmul_kernel ~m:5 ~k:7 ~n:3) ~bind:(matmul_bind ~m:5 ~k:7 ~n:3 ~a ~b);
   [%expect
     {|
-    agree (2 segments, 328 bytes, 4 symbols)
-    agree (2 segments, 4148 bytes, 4 symbols)
-    agree (2 segments, 1320 bytes, 5 symbols) |}]
+    agree (2 segments, 365 bytes, 4 symbols)
+    agree (2 segments, 4190 bytes, 4 symbols)
+    agree (2 segments, 894 bytes, 5 symbols) |}]
 
 (* A difference between the two is seen: GNU is handed source with one
    instruction changed. *)
@@ -106,9 +106,9 @@ let%expect_test "a tampered GNU source disagrees" =
     ~bind:(data_bind [| 7.; -0.; 1e-40; 3.4e38 |]);
   [%expect
     {|
-    .text+240: rivet 5c, gnu 58
-    .text+79: rivet c3, gnu 90
-    reparsed .text+240: typed 5c, text 58 |}]
+    .text+259: rivet 5c, gnu 58
+    .text+129: rivet c3, gnu 90
+    reparsed .text+259: typed 5c, text 58 |}]
 
 (* System V around the kernel: the callee-saved registers, MXCSR and the stack
    pointer come back as they went in, whichever way the kernel exits; its
@@ -204,10 +204,10 @@ let%expect_test "call-frame information" =
     ~bind:(data_bind [| -0.; 1.5; nan; 3. |]);
   [%expect
     {|
-    ok (1 functions, 64 instructions); ok (2 functions, 75 instructions)
-    ok (1 functions, 664 instructions); ok (2 functions, 675 instructions)
-    ok (1 functions, 203 instructions); ok (2 functions, 214 instructions)
-    ok (1 functions, 66 instructions); ok (2 functions, 77 instructions) |}]
+    ok (1 functions, 70 instructions); ok (2 functions, 81 instructions)
+    ok (1 functions, 670 instructions); ok (2 functions, 681 instructions)
+    ok (1 functions, 143 instructions); ok (2 functions, 154 instructions)
+    ok (1 functions, 72 instructions); ok (2 functions, 83 instructions) |}]
 
 (* A wrong description is seen: the first stack adjustment says 8 more bytes. *)
 let%expect_test "wrong call-frame information is seen" =
@@ -224,4 +224,4 @@ let%expect_test "wrong call-frame information is seen" =
   | Ok case -> Fmt.pr "%s@." (H.cfi ~tamper case)
   | Error e -> Fmt.pr "%s@." e);
   [%expect
-    {| 4 mov $0x0,%edi: CFA offset 120008, instructions say 128; 4 mov $0x0,%edi: CFA offset 120008, instructions say 128 |}]
+    {| 7 mov $0x0,%edi: CFA offset 136008, instructions say 144; 7 mov $0x0,%edi: CFA offset 136008, instructions say 144 |}]
