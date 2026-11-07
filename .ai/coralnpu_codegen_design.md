@@ -894,12 +894,15 @@ On the RVV RTL core (`rvv-core-mini-highmem-axi`, release v0.0.9), whole-run
 cycles of the generated code against the release's hand-written RVV kernels
 (cycles around the kernel call), 2x160 + 1x67 + 1x33 summed:
 
-| op | generated | Gemma kernel |
-| --- | --- | --- |
-| residual add | 1,611 | 527 |
-| RMS norm | 26,754 | 1,464 |
-| tanh GELU mul | 73,260 | 3,192 |
+| op | generated f32 | Gemma f32 | generated bf16 | Gemma bf16 |
+| --- | --- | --- | --- | --- |
+| residual add | 1,611 | 527 | 2,281 | 701 |
+| RMS norm | 26,754 | 1,464 | 30,966 | 1,624 |
+| tanh GELU mul | 73,260 | 3,192 | 75,791 | 3,314 |
 
+The bf16 fixtures (`Model_test.gemma_bf16_fixtures`) take bfloat16 operands;
+`Model_test.check` stores generated tensors in each signature's format, so a
+bf16 fixture needs no per-suite wrapping.
 Residual add vectorizes (about 5x over scalar). RMS norm does not: its
 reduction plans no vector loop, so Zve32f runs the scalar code (1.00x), as
 softmax and layer norm do. The generated GELU's tanh is a bitwise match to the

@@ -37,7 +37,9 @@ let check ?(allocation = Rt.Allocation.Reference)
   let constant = Option.value constant ~default:(T.values ~salt:3) in
   let constants =
     List.map
-      (fun id -> (id, constant (T.sig_of g id)))
+      (fun id ->
+        let sg = T.sig_of g id in
+        (id, T.in_format sg (constant sg)))
       b.Loop_ir.Loop_bundle.constants
   in
   let pipeline = planned ~numerics () in
@@ -61,7 +63,9 @@ let check ?(allocation = Rt.Allocation.Reference)
             List.init calls (fun call ->
                 let inputs =
                   List.mapi
-                    (fun i id -> (id, input ~salt:(call + i) i (T.sig_of g id)))
+                    (fun i id ->
+                      let sg = T.sig_of g id in
+                      (id, T.in_format sg (input ~salt:(call + i) i sg)))
                     b.Loop_ir.Loop_bundle.inputs
                 in
                 let lookup id = List.assoc_opt id inputs in
@@ -112,7 +116,9 @@ let table_check ?(allocation = Rt.Allocation.Reference)
   let constant = Option.value constant ~default:T.positive in
   let constants =
     List.map
-      (fun id -> (id, constant (T.sig_of g id)))
+      (fun id ->
+        let sg = T.sig_of g id in
+        (id, T.in_format sg (constant sg)))
       b.Loop_ir.Loop_bundle.constants
   in
   match H.prepare ~allocation ~pipeline b with
@@ -130,7 +136,9 @@ let table_check ?(allocation = Rt.Allocation.Reference)
             List.init calls (fun call ->
                 let inputs =
                   List.mapi
-                    (fun i id -> (id, input ~salt:(call + i) i (T.sig_of g id)))
+                    (fun i id ->
+                      let sg = T.sig_of g id in
+                      (id, T.in_format sg (input ~salt:(call + i) i sg)))
                     b.Loop_ir.Loop_bundle.inputs
                 in
                 let oracle = T.expected T.Fp32 g b ~constants ~inputs in
@@ -181,7 +189,7 @@ let%expect_test "Fp32_ordered vectors on this CPU" =
             (Fmt.str "table %s %s" (Rt.Allocation.name allocation) name)
             g)
         Rt.Allocation.[ Reference; Scanned ])
-    (T.vector_fixtures @ T.gemma_fixtures);
+    (T.vector_fixtures @ T.gemma_fixtures @ T.gemma_bf16_fixtures);
   [%expect
     {|
     image relu then add over C=32 (2 invocations): bitwise as interpreted, within 1e-4 of binary64: true; bitwise as interpreted, within 1e-4 of binary64: true
@@ -222,7 +230,34 @@ let%expect_test "Fp32_ordered vectors on this CPU" =
     table scanned tanh gelu mul 1x67 (2 invocations): bitwise, bitwise
     image tanh gelu mul 1x33 (2 invocations): bitwise as interpreted, within 1e-4 of binary64: true; bitwise as interpreted, within 1e-4 of binary64: true
     table reference tanh gelu mul 1x33 (2 invocations): bitwise, bitwise
-    table scanned tanh gelu mul 1x33 (2 invocations): bitwise, bitwise |}]
+    table scanned tanh gelu mul 1x33 (2 invocations): bitwise, bitwise
+    image residual add bf16 2x160 (1 invocations): bitwise as interpreted, within 1e-4 of binary64: true; bitwise as interpreted, within 1e-4 of binary64: true
+    table reference residual add bf16 2x160 (1 invocations): bitwise, bitwise
+    table scanned residual add bf16 2x160 (1 invocations): bitwise, bitwise
+    image residual add bf16 1x67 (1 invocations): bitwise as interpreted, within 1e-4 of binary64: true; bitwise as interpreted, within 1e-4 of binary64: true
+    table reference residual add bf16 1x67 (1 invocations): bitwise, bitwise
+    table scanned residual add bf16 1x67 (1 invocations): bitwise, bitwise
+    image residual add bf16 1x33 (1 invocations): bitwise as interpreted, within 1e-4 of binary64: true; bitwise as interpreted, within 1e-4 of binary64: true
+    table reference residual add bf16 1x33 (1 invocations): bitwise, bitwise
+    table scanned residual add bf16 1x33 (1 invocations): bitwise, bitwise
+    image rms norm bf16 2x160 (1 invocations): bitwise as interpreted, within 1e-4 of binary64: true; bitwise as interpreted, within 1e-4 of binary64: true
+    table reference rms norm bf16 2x160 (1 invocations): bitwise, bitwise
+    table scanned rms norm bf16 2x160 (1 invocations): bitwise, bitwise
+    image rms norm bf16 1x67 (1 invocations): bitwise as interpreted, within 1e-4 of binary64: true; bitwise as interpreted, within 1e-4 of binary64: true
+    table reference rms norm bf16 1x67 (1 invocations): bitwise, bitwise
+    table scanned rms norm bf16 1x67 (1 invocations): bitwise, bitwise
+    image rms norm bf16 1x33 (1 invocations): bitwise as interpreted, within 1e-4 of binary64: true; bitwise as interpreted, within 1e-4 of binary64: true
+    table reference rms norm bf16 1x33 (1 invocations): bitwise, bitwise
+    table scanned rms norm bf16 1x33 (1 invocations): bitwise, bitwise
+    image tanh gelu mul bf16 2x160 (2 invocations): bitwise as interpreted, within 1e-4 of binary64: true; bitwise as interpreted, within 1e-4 of binary64: true
+    table reference tanh gelu mul bf16 2x160 (2 invocations): bitwise, bitwise
+    table scanned tanh gelu mul bf16 2x160 (2 invocations): bitwise, bitwise
+    image tanh gelu mul bf16 1x67 (2 invocations): bitwise as interpreted, within 1e-4 of binary64: true; bitwise as interpreted, within 1e-4 of binary64: true
+    table reference tanh gelu mul bf16 1x67 (2 invocations): bitwise, bitwise
+    table scanned tanh gelu mul bf16 1x67 (2 invocations): bitwise, bitwise
+    image tanh gelu mul bf16 1x33 (2 invocations): bitwise as interpreted, within 1e-4 of binary64: true; bitwise as interpreted, within 1e-4 of binary64: true
+    table reference tanh gelu mul bf16 1x33 (2 invocations): bitwise, bitwise
+    table scanned tanh gelu mul bf16 1x33 (2 invocations): bitwise, bitwise |}]
 
 (* The binary32 transcendentals as NEON vector sequences, over the F32_math
    sample set, against the binary32 oracle. *)

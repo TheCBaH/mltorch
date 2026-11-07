@@ -19,7 +19,7 @@ let%expect_test "binary32 bundles under qemu" =
     (fun (name, g) ->
       T.check ~route:(R.route ()) ~pipeline:fp32_scalar ~oracle:T.Fp32
         ~constant:T.positive name g)
-    (T.vector_fixtures @ T.gemma_fixtures);
+    (T.vector_fixtures @ T.gemma_fixtures @ T.gemma_bf16_fixtures);
   [%expect
     {|
     relu then add over C=32 (2 invocations): bitwise, bitwise
@@ -34,7 +34,16 @@ let%expect_test "binary32 bundles under qemu" =
     rms norm 1x33 (1 invocations): bitwise, bitwise
     tanh gelu mul 2x160 (2 invocations): bitwise, bitwise
     tanh gelu mul 1x67 (2 invocations): bitwise, bitwise
-    tanh gelu mul 1x33 (2 invocations): bitwise, bitwise |}]
+    tanh gelu mul 1x33 (2 invocations): bitwise, bitwise
+    residual add bf16 2x160 (1 invocations): bitwise, bitwise
+    residual add bf16 1x67 (1 invocations): bitwise, bitwise
+    residual add bf16 1x33 (1 invocations): bitwise, bitwise
+    rms norm bf16 2x160 (1 invocations): bitwise, bitwise
+    rms norm bf16 1x67 (1 invocations): bitwise, bitwise
+    rms norm bf16 1x33 (1 invocations): bitwise, bitwise
+    tanh gelu mul bf16 2x160 (2 invocations): bitwise, bitwise
+    tanh gelu mul bf16 1x67 (2 invocations): bitwise, bitwise
+    tanh gelu mul bf16 1x33 (2 invocations): bitwise, bitwise |}]
 
 (* A NaN compares equal to any NaN: the oracle runs on the host, whose default
    NaN is signed by the host (x86-64 sets the sign, AArch64 and RISC-V clear

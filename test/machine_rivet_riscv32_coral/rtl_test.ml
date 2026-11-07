@@ -40,7 +40,7 @@ let%expect_test "scalar and Zve32f on the RTL vector core" =
         (Int64.to_float sc /. Int64.to_float vc)
         si vi
         (Int64.to_float si /. Int64.to_float vi))
-    (T.vector_fixtures @ T.gemma_fixtures);
+    (T.vector_fixtures @ T.gemma_fixtures @ T.gemma_bf16_fixtures);
   [%expect
     {|
     relu then add over C=32, scalar (2 invocations): bitwise
@@ -81,7 +81,34 @@ let%expect_test "scalar and Zve32f on the RTL vector core" =
       cycles 37132 -> 12782 (2.91x), instructions 16894 -> 6117 (2.76x)
     tanh gelu mul 1x33, scalar (2 invocations): bitwise
     tanh gelu mul 1x33, zve32f128 (2 invocations): bitwise
-      cycles 18364 -> 6225 (2.95x), instructions 8368 -> 3005 (2.78x) |}]
+      cycles 18364 -> 6225 (2.95x), instructions 8368 -> 3005 (2.78x)
+    residual add bf16 2x160, scalar (1 invocations): bitwise
+    residual add bf16 2x160, zve32f128 (1 invocations): bitwise
+      cycles 7798 -> 1513 (5.15x), instructions 5219 -> 1402 (3.72x)
+    residual add bf16 1x67, scalar (1 invocations): bitwise
+    residual add bf16 1x67, zve32f128 (1 invocations): bitwise
+      cycles 2809 -> 504 (5.57x), instructions 1443 -> 386 (3.74x)
+    residual add bf16 1x33, scalar (1 invocations): bitwise
+    residual add bf16 1x33, zve32f128 (1 invocations): bitwise
+      cycles 1415 -> 264 (5.36x), instructions 729 -> 202 (3.61x)
+    rms norm bf16 2x160, scalar (1 invocations): bitwise
+    rms norm bf16 2x160, zve32f128 (1 invocations): bitwise
+      cycles 22058 -> 22058 (1.00x), instructions 12967 -> 12967 (1.00x)
+    rms norm bf16 1x67, scalar (1 invocations): bitwise
+    rms norm bf16 1x67, zve32f128 (1 invocations): bitwise
+      cycles 5916 -> 5916 (1.00x), instructions 3222 -> 3222 (1.00x)
+    rms norm bf16 1x33, scalar (1 invocations): bitwise
+    rms norm bf16 1x33, zve32f128 (1 invocations): bitwise
+      cycles 2992 -> 2992 (1.00x), instructions 1624 -> 1624 (1.00x)
+    tanh gelu mul bf16 2x160, scalar (2 invocations): bitwise
+    tanh gelu mul bf16 2x160, zve32f128 (2 invocations): bitwise
+      cycles 169852 -> 56196 (3.02x), instructions 80105 -> 28572 (2.80x)
+    tanh gelu mul bf16 1x67, scalar (2 invocations): bitwise
+    tanh gelu mul bf16 1x67, zve32f128 (2 invocations): bitwise
+      cycles 37467 -> 13173 (2.84x), instructions 17430 -> 6625 (2.63x)
+    tanh gelu mul bf16 1x33, scalar (2 invocations): bitwise
+    tanh gelu mul bf16 1x33, zve32f128 (2 invocations): bitwise
+      cycles 18529 -> 6422 (2.89x), instructions 8632 -> 3257 (2.65x) |}]
 
 (* The matrix products on the same core: whole-invocation cycles, and the
    rate in operations a cycle (a multiply-add is two) against the peak
