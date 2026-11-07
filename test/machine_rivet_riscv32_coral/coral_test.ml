@@ -25,7 +25,8 @@ let%expect_test "binary32 bundles on MPACT" =
             ~calls:1
             (Fmt.str "%s, %s, %s" cname tname name)
             g)
-        T.vector_fixtures)
+        (T.vector_fixtures @ T.transformer_fixtures
+       @ T.transformer_bf16_fixtures))
     [
       ("mpact-v2", "scalar", Ssa_ir.Ssa_target.scalar);
       ("mpact-m3", "scalar", Ssa_ir.Ssa_target.scalar);
@@ -38,18 +39,90 @@ let%expect_test "binary32 bundles on MPACT" =
     mpact-v2, scalar, softmax over H, W=32 (1 invocations): bitwise
     mpact-v2, scalar, layer_norm over H, W=32 (1 invocations): bitwise
     mpact-v2, scalar, conv, batch norm, relu to C=32 (3 invocations): bitwise
+    mpact-v2, scalar, residual add 2x160 (1 invocations): bitwise
+    mpact-v2, scalar, residual add 1x67 (1 invocations): bitwise
+    mpact-v2, scalar, residual add 1x33 (1 invocations): bitwise
+    mpact-v2, scalar, rms norm 2x160 (1 invocations): bitwise
+    mpact-v2, scalar, rms norm 1x67 (1 invocations): bitwise
+    mpact-v2, scalar, rms norm 1x33 (1 invocations): bitwise
+    mpact-v2, scalar, tanh gelu mul 2x160 (2 invocations): bitwise
+    mpact-v2, scalar, tanh gelu mul 1x67 (2 invocations): bitwise
+    mpact-v2, scalar, tanh gelu mul 1x33 (2 invocations): bitwise
+    mpact-v2, scalar, residual add bf16 2x160 (1 invocations): bitwise
+    mpact-v2, scalar, residual add bf16 1x67 (1 invocations): bitwise
+    mpact-v2, scalar, residual add bf16 1x33 (1 invocations): bitwise
+    mpact-v2, scalar, rms norm bf16 2x160 (1 invocations): bitwise
+    mpact-v2, scalar, rms norm bf16 1x67 (1 invocations): bitwise
+    mpact-v2, scalar, rms norm bf16 1x33 (1 invocations): bitwise
+    mpact-v2, scalar, tanh gelu mul bf16 2x160 (2 invocations): bitwise
+    mpact-v2, scalar, tanh gelu mul bf16 1x67 (2 invocations): bitwise
+    mpact-v2, scalar, tanh gelu mul bf16 1x33 (2 invocations): bitwise
     mpact-m3, scalar, relu then add over C=32 (2 invocations): bitwise
     mpact-m3, scalar, softmax over H, W=32 (1 invocations): bitwise
     mpact-m3, scalar, layer_norm over H, W=32 (1 invocations): bitwise
     mpact-m3, scalar, conv, batch norm, relu to C=32 (3 invocations): bitwise
+    mpact-m3, scalar, residual add 2x160 (1 invocations): bitwise
+    mpact-m3, scalar, residual add 1x67 (1 invocations): bitwise
+    mpact-m3, scalar, residual add 1x33 (1 invocations): bitwise
+    mpact-m3, scalar, rms norm 2x160 (1 invocations): bitwise
+    mpact-m3, scalar, rms norm 1x67 (1 invocations): bitwise
+    mpact-m3, scalar, rms norm 1x33 (1 invocations): bitwise
+    mpact-m3, scalar, tanh gelu mul 2x160 (2 invocations): bitwise
+    mpact-m3, scalar, tanh gelu mul 1x67 (2 invocations): bitwise
+    mpact-m3, scalar, tanh gelu mul 1x33 (2 invocations): bitwise
+    mpact-m3, scalar, residual add bf16 2x160 (1 invocations): bitwise
+    mpact-m3, scalar, residual add bf16 1x67 (1 invocations): bitwise
+    mpact-m3, scalar, residual add bf16 1x33 (1 invocations): bitwise
+    mpact-m3, scalar, rms norm bf16 2x160 (1 invocations): bitwise
+    mpact-m3, scalar, rms norm bf16 1x67 (1 invocations): bitwise
+    mpact-m3, scalar, rms norm bf16 1x33 (1 invocations): bitwise
+    mpact-m3, scalar, tanh gelu mul bf16 2x160 (2 invocations): bitwise
+    mpact-m3, scalar, tanh gelu mul bf16 1x67 (2 invocations): bitwise
+    mpact-m3, scalar, tanh gelu mul bf16 1x33 (2 invocations): bitwise
     mpact-m3, zve32f128, relu then add over C=32 (2 invocations): bitwise
     mpact-m3, zve32f128, softmax over H, W=32 (1 invocations): bitwise
     mpact-m3, zve32f128, layer_norm over H, W=32 (1 invocations): bitwise
     mpact-m3, zve32f128, conv, batch norm, relu to C=32 (3 invocations): bitwise
+    mpact-m3, zve32f128, residual add 2x160 (1 invocations): bitwise
+    mpact-m3, zve32f128, residual add 1x67 (1 invocations): bitwise
+    mpact-m3, zve32f128, residual add 1x33 (1 invocations): bitwise
+    mpact-m3, zve32f128, rms norm 2x160 (1 invocations): bitwise
+    mpact-m3, zve32f128, rms norm 1x67 (1 invocations): bitwise
+    mpact-m3, zve32f128, rms norm 1x33 (1 invocations): bitwise
+    mpact-m3, zve32f128, tanh gelu mul 2x160 (2 invocations): bitwise
+    mpact-m3, zve32f128, tanh gelu mul 1x67 (2 invocations): bitwise
+    mpact-m3, zve32f128, tanh gelu mul 1x33 (2 invocations): bitwise
+    mpact-m3, zve32f128, residual add bf16 2x160 (1 invocations): bitwise
+    mpact-m3, zve32f128, residual add bf16 1x67 (1 invocations): bitwise
+    mpact-m3, zve32f128, residual add bf16 1x33 (1 invocations): bitwise
+    mpact-m3, zve32f128, rms norm bf16 2x160 (1 invocations): bitwise
+    mpact-m3, zve32f128, rms norm bf16 1x67 (1 invocations): bitwise
+    mpact-m3, zve32f128, rms norm bf16 1x33 (1 invocations): bitwise
+    mpact-m3, zve32f128, tanh gelu mul bf16 2x160 (2 invocations): bitwise
+    mpact-m3, zve32f128, tanh gelu mul bf16 1x67 (2 invocations): bitwise
+    mpact-m3, zve32f128, tanh gelu mul bf16 1x33 (2 invocations): bitwise
     mpact-v2, zve32f128, relu then add over C=32: refused: invocation 0 (n0): configuration mpact-v2 has no Zve32f, which the kernel uses; invocation 1 (n1): configuration mpact-v2 has no Zve32f, which the kernel uses
     mpact-v2, zve32f128, softmax over H, W=32 (1 invocations): bitwise
     mpact-v2, zve32f128, layer_norm over H, W=32 (1 invocations): bitwise
-    mpact-v2, zve32f128, conv, batch norm, relu to C=32: refused: invocation 0 (n0): configuration mpact-v2 has no Zve32f, which the kernel uses; invocation 1 (n1): configuration mpact-v2 has no Zve32f, which the kernel uses; invocation 2 (n2): configuration mpact-v2 has no Zve32f, which the kernel uses |}]
+    mpact-v2, zve32f128, conv, batch norm, relu to C=32: refused: invocation 0 (n0): configuration mpact-v2 has no Zve32f, which the kernel uses; invocation 1 (n1): configuration mpact-v2 has no Zve32f, which the kernel uses; invocation 2 (n2): configuration mpact-v2 has no Zve32f, which the kernel uses
+    mpact-v2, zve32f128, residual add 2x160: refused: invocation 0 (n0): configuration mpact-v2 has no Zve32f, which the kernel uses
+    mpact-v2, zve32f128, residual add 1x67: refused: invocation 0 (n0): configuration mpact-v2 has no Zve32f, which the kernel uses
+    mpact-v2, zve32f128, residual add 1x33: refused: invocation 0 (n0): configuration mpact-v2 has no Zve32f, which the kernel uses
+    mpact-v2, zve32f128, rms norm 2x160 (1 invocations): bitwise
+    mpact-v2, zve32f128, rms norm 1x67 (1 invocations): bitwise
+    mpact-v2, zve32f128, rms norm 1x33 (1 invocations): bitwise
+    mpact-v2, zve32f128, tanh gelu mul 2x160: refused: invocation 0 (n0): configuration mpact-v2 has no Zve32f, which the kernel uses; invocation 1 (n1): configuration mpact-v2 has no Zve32f, which the kernel uses
+    mpact-v2, zve32f128, tanh gelu mul 1x67: refused: invocation 0 (n0): configuration mpact-v2 has no Zve32f, which the kernel uses; invocation 1 (n1): configuration mpact-v2 has no Zve32f, which the kernel uses
+    mpact-v2, zve32f128, tanh gelu mul 1x33: refused: invocation 0 (n0): configuration mpact-v2 has no Zve32f, which the kernel uses; invocation 1 (n1): configuration mpact-v2 has no Zve32f, which the kernel uses
+    mpact-v2, zve32f128, residual add bf16 2x160: refused: invocation 0 (n0): configuration mpact-v2 has no Zve32f, which the kernel uses
+    mpact-v2, zve32f128, residual add bf16 1x67: refused: invocation 0 (n0): configuration mpact-v2 has no Zve32f, which the kernel uses
+    mpact-v2, zve32f128, residual add bf16 1x33: refused: invocation 0 (n0): configuration mpact-v2 has no Zve32f, which the kernel uses
+    mpact-v2, zve32f128, rms norm bf16 2x160 (1 invocations): bitwise
+    mpact-v2, zve32f128, rms norm bf16 1x67 (1 invocations): bitwise
+    mpact-v2, zve32f128, rms norm bf16 1x33 (1 invocations): bitwise
+    mpact-v2, zve32f128, tanh gelu mul bf16 2x160: refused: invocation 0 (n0): configuration mpact-v2 has no Zve32f, which the kernel uses; invocation 1 (n1): configuration mpact-v2 has no Zve32f, which the kernel uses
+    mpact-v2, zve32f128, tanh gelu mul bf16 1x67: refused: invocation 0 (n0): configuration mpact-v2 has no Zve32f, which the kernel uses; invocation 1 (n1): configuration mpact-v2 has no Zve32f, which the kernel uses
+    mpact-v2, zve32f128, tanh gelu mul bf16 1x33: refused: invocation 0 (n0): configuration mpact-v2 has no Zve32f, which the kernel uses; invocation 1 (n1): configuration mpact-v2 has no Zve32f, which the kernel uses |}]
 
 (* The same Zve32f plans with sixteen-lane vectors in groups of four
    registers (LMUL 4) on MPACT. *)
@@ -78,6 +151,29 @@ let%expect_test "register groups on MPACT" =
     mpact-m3, grouped, linear 7x29 k63 bias (1 invocations): bitwise
     mpact-m3, grouped, bmm 1x9x32 k64 (1 invocations): bitwise
     mpact-m3, grouped, bmm 3x7x29 k63 (1 invocations): bitwise |}]
+
+(* [on_elf] hands over the image each run loads, once per run: a two-node
+   bundle runs twice. *)
+let%expect_test "the ELF each run loads" =
+  List.iter
+    (fun name ->
+      let elves = ref [] in
+      T.check
+        ~route:
+          (C.route ~on_elf:(fun e -> elves := e :: !elves) (config "mpact-m3"))
+        ~pipeline:(planned Ssa_ir.Ssa_target.zve32f128)
+        ~oracle:T.Fp32 ~constant:T.positive ~calls:1 name
+        (List.assoc name (T.vector_fixtures @ T.transformer_fixtures));
+      Fmt.pr "  %d ELF images, all starting with \\x7fELF: %b@."
+        (List.length !elves)
+        (List.for_all (String.starts_with ~prefix:"\x7fELF") !elves))
+    [ "relu then add over C=32"; "residual add 1x33" ];
+  [%expect
+    {|
+    relu then add over C=32 (2 invocations): bitwise
+      2 ELF images, all starting with \x7fELF: true
+    residual add 1x33 (1 invocations): bitwise
+      1 ELF images, all starting with \x7fELF: true |}]
 
 (* The DMA engine is the subsystem's: a core without one refuses [~dma:Allowed]
    before running, and [Forbidden] is the in-place route it always was. *)

@@ -414,9 +414,9 @@ let misplace outputs =
       next 1)
     outputs
 
-let run_once ?(on_run = fun _ -> ()) ?route_mutation ?budget ?label
-    ?expect_cycles (c : Config.t) image ~(published : Q.published) memory
-    binding =
+let run_once ?(on_run = fun _ -> ()) ?(on_elf = fun _ -> ()) ?route_mutation
+    ?budget ?label ?expect_cycles (c : Config.t) image
+    ~(published : Q.published) memory binding =
   let table =
     Machine_rivet_riscv32_mir.Rv32_mir_module.slots published.Q.artifact
   in
@@ -435,6 +435,7 @@ let run_once ?(on_run = fun _ -> ()) ?route_mutation ?budget ?label
       (Ok []) table
   in
   let bound = Array.of_list (List.rev bound) in
+  on_elf image.Coral_image.elf;
   let* outputs, status, measured =
     simulate ?budget ?label ?expect_cycles c image ~bound:(fun k ->
         (* the slots an image adds for its overlays are not the table's *)
@@ -461,8 +462,8 @@ let run_once ?(on_run = fun _ -> ()) ?route_mutation ?budget ?label
   Ok status
 
 let exec_of ?mutation ?kernel_mutation ?route_mutation ?registers ?engine
-    ?engine_mutation ?transfer ?dma ?itcm ?on_run ?(on_image = fun _ -> ())
-    ?home ?budget ?label ?expect_cycles c ~sites g =
+    ?engine_mutation ?transfer ?dma ?itcm ?on_run ?on_elf
+    ?(on_image = fun _ -> ()) ?home ?budget ?label ?expect_cycles c ~sites g =
   let* published =
     Q.publish ?registers ~allocation:Q.Allocation.Scanned ~sites g
   in
@@ -496,8 +497,8 @@ let exec_of ?mutation ?kernel_mutation ?route_mutation ?registers ?engine
   let phys = Art.program published.Q.artifact in
   let run ?fuel:_ memory binding ~invocation:_ =
     match
-      run_once ?on_run ?route_mutation ?budget ?label ?expect_cycles c image
-        ~published memory binding
+      run_once ?on_run ?on_elf ?route_mutation ?budget ?label ?expect_cycles c
+        image ~published memory binding
     with
     | Error e -> Mir_observation.Status.Unsupported e
     | Ok status ->
@@ -519,9 +520,12 @@ let exec_of ?mutation ?kernel_mutation ?route_mutation ?registers ?engine
       traffic = (fun () -> None);
     }
 
-(* [on_run] sees what every run measured; [on_image] each image's placement,
-   when it is built (before any run): every table slot's Machine IR region and
-   the role of the memory it landed in. [home] places each slot (default
+(* [on_run] sees what every run measured; [on_elf] the ELF each run loads,
+   before the simulator starts (the run's own [guest.elf] is removed after it,
+   so this is the supported copy for a disassembler; a trace needs no hook:
+   [--trace_file=PATH] in {!Config.flags} reaches the RTL simulator);
+   [on_image] each image's placement, when it is built (before any run): every
+   table slot's Machine IR region and the role of the memory it landed in. [home] places each slot (default
    [Any]); [budget] bounds the subsystem's read-back bytes (default
    {!read_back_budget}); [label] names each run in the simulator's work
    directory and [expect_cycles] limits an RTL run to twice that (see
@@ -531,14 +535,14 @@ let exec_of ?mutation ?kernel_mutation ?route_mutation ?registers ?engine
    ({!Dma}; default [Forbidden]), where [transfer] is a rule of one's own,
    which excludes it. *)
 let route ?mutation ?kernel_mutation ?route_mutation ?registers ?engine
-    ?engine_mutation ?transfer ?dma ?itcm ?on_run ?on_image ?home ?budget ?label
-    ?expect_cycles (c : Config.t) =
+    ?engine_mutation ?transfer ?dma ?itcm ?on_run ?on_elf ?on_image ?home
+    ?budget ?label ?expect_cycles (c : Config.t) =
   Route.Route.Custom
     {
       Route.Custom.name = "riscv32 coral " ^ c.Config.configuration;
       exec =
         (fun ~sites g ->
           exec_of ?mutation ?kernel_mutation ?route_mutation ?registers ?engine
-            ?engine_mutation ?transfer ?dma ?itcm ?on_run ?on_image ?home
-            ?budget ?label ?expect_cycles c ~sites g);
+            ?engine_mutation ?transfer ?dma ?itcm ?on_run ?on_elf ?on_image
+            ?home ?budget ?label ?expect_cycles c ~sites g);
     }

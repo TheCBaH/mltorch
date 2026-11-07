@@ -881,6 +881,128 @@ the function what the contractions before it left of the DTCM allowance;
 `Mir_model.prepare ?attention` substitutes the SSA program of a selected node.
 The function's argument order is Q, K, V, O, then the mask.
 
+## Gemma's elementwise kernels as generic fixtures
+
+Residual add, RMS norm and tanh-approximated GELU gated by an up projection
+(`Model_test.transformer_fixtures`, at the 2x160, 1x67 and 1x33 shapes Coral's Gemma
+kernel programs check) are ordinary graphs, not Coral code: every target runs
+them through its regular lowering (generic, aarch64, x86_64, RV32 under qemu,
+MPACT, the RVV RTL core), bitwise against the binary32 oracle. The Gemma
+matmuls are the existing contraction fixtures.
+
+On the RVV RTL core (`rvv-core-mini-highmem-axi`, release v0.0.9), whole-run
+cycles of the generated code against the release's hand-written RVV kernels
+(cycles around the kernel call), 2x160 + 1x67 + 1x33 summed:
+
+| op | generated f32 | Gemma f32 | generated bf16 | Gemma bf16 |
+| --- | --- | --- | --- | --- |
+| residual add | 1,611 | 527 | 2,281 | 701 |
+| RMS norm | 26,754 | 1,464 | 30,966 | 1,624 |
+| tanh GELU mul | 73,260 | 3,192 | 75,791 | 3,314 |
+
+The bf16 fixtures (`Model_test.transformer_bf16_fixtures`) take bfloat16 operands;
+`Model_test.check` stores generated tensors in each signature's format, so a
+bf16 fixture needs no per-suite wrapping. Their arithmetic outputs are f32,
+confirmed by the graph signatures; the released bf16 kernels narrow to bf16.
+Generic bf16 arithmetic outputs require an end-to-end storage contract, not
+just a fixture change: `Output_spec.storable` currently allows only F32/Bool on
+the float path, `Kernel.Result_conversion` has no bf16 case, and ordinary/Region
+lowering and Loop output allocation do not support such results. SSA already
+has `Encode.Bf16_round`, and scalar Machine IR implements integer rounding and
+a 16-bit store, but vector store lowering rejects that encoding. Graph API,
+admission, conversion/fusion semantics, materialization/oracles and lowering
+must agree before generic bf16-result fixtures can be added. This is independent
+of the grouped-register bf16 load issue and does not require dedicated bf16
+hardware instructions for a correct scalar implementation.
+The RMSNorm fixture scales by its weight directly, while the released kernel
+scales by `1 + weight` and uses fused arithmetic. These measurements compare
+different numerical/storage contracts, not interchangeable implementations.
+Residual add vectorizes (about 5x over scalar). RMS norm does not: its
+reduction plans no vector loop, so Zve32f runs the scalar code (1.00x), as
+softmax and layer norm do. The generated GELU's tanh is a bitwise match to the
+oracle, while Gemma's is a rational approximation clamped to [-3, 3]; the two
+do not compute the same bits. Generated entry calls and reference kernel calls
+also have different timing boundaries, so these ratios do not isolate compiler
+overhead or establish a numerical upper bound on it.
+
+A planner probe resolves the scalar RMSNorm emitter: its ordered reduction and
+pointwise loop are already separate, but the emitter reads an invariant scalar
+local. `Ssa_vector_body.classify_instr` rejects `Local_read`, producing
+`no_vector_form:local.read` for all three shapes, both input formats, on NEON and
+Zve32f. Scalar-local promotion or safe read hoisting can address that obstacle
+without relaxing the reduction. RVV ordered reduction (`vfredosum.vs`) is a
+separate possible strict lowering; the reference instead uses lane FMA and
+unordered reduction.
+
+Register groups (LMUL 4) take binary32 residual add from 1,611 to 1,120
+cycles, RMS norm not at all (no vector loop), tanh GELU mul from 73,260 to
+48,746. The bfloat16 variants are refused under groups (a 16-lane bfloat16
+vector fills no whole number of registers).
+
+Where the residual add's cycles go (a `coralview commits` trace of the RTL run,
+2x160 at LMUL 4): 25 cycles a 16-lane trip, a serial chain of `vsetivli`, a
+first `vle32` (about 11 cycles to retire), a second (about 6), `vfadd` (about
+7, waiting for the loads) and `vse32`. The scalar instructions (counter, three
+pointer bumps, branches) retire in zero to one cycle beside it, and `Mir_offsets`
+has already hoisted the address terms, so the loop body is only the vector work
+and the bumps. The buffers are in DTCM. Gemma's hand kernel runs at LMUL 8,
+about 17 cycles per 16 elements in a fresh trace. What it has that the generated loop lacks is
+a longer vector per trip or loads overlapped across trips, not cheaper
+addressing. LMUL 8 needs a 32-lane target, a register pool whose groups do not
+meet the group scratch (v24-v31), and `vsetvli` in place of `vsetivli` (its
+immediate stops at 31).
+
+Reading Gemma's own kernel with `coralview disasm` (since coralview `cdefe1be`:
+Rivet disassembly of an RV32 ELF, Zvt included, labelled by symbol, branch
+targets as `<symbol+off>`, `--function`/`--range`/`--format jsonl`) shows it does
+two things: `vsetvli x15, x0, e32, m8` (32 lanes), and a main loop unrolled by two.
+The compiled f32 loop issues three loads, the first add, then the fourth load
+reusing a dead source group; the source's four-load-first ordering is not the
+binary's schedule. A fresh trace gives 68 cycles per 64-element steady-state
+iteration. The bf16 residual-add binary spills/reloads an m8 temporary each bulk
+iteration; wider groups need a register-pressure cost check. Its tail is a vector
+strip-mine, `vsetvli` with the remaining count in a
+register, not a scalar loop. The generated loop has none of the three. The same
+tool lists the generated kernel: `coralview disasm --function kernel guest.elf`;
+the ELF is a guest image of the route. `Coral_run` removes its own copy after a
+run; `Rv32_mir_coral.route ~on_elf` hands each run's ELF bytes to the caller
+before the simulator starts, once per run, which is the supported way to keep
+one. A trace needs no hook: `--trace_file=PATH` in `Config.flags` reaches the RTL
+simulator (and makes the profile load the traced build).
+
+Since coralview `a746f9ae` (the devcontainer pin) the loop measurement needs no
+hand arithmetic. `coralview loops -p rvv-core-mini-highmem-axi --elf guest.elf
+--around-symbol kernel TRACE` reports the generated residual add's vector loop as
+12 instructions and 25 cycles a trip (21 to 35; the first trip of each row is the
+slow one), the figure derived earlier by differencing retire cycles. Also used:
+`disasm --vconfig` (each vector instruction's SEW, LMUL and AVL),
+`commits --vector` (the traced `vl`, `# e32,m4 vl 16`), `--annotate` (a sidecar of
+`symbol+off-off label` lines), `summary` and `compare` (windows side by side; run
+only against one trace twice here, so the per-instruction differences are
+unchecked), and `--entry NAME` as the window start. `--entry` has no end, so the
+window includes the runtime's copy-out loop after the kernel; `--around-symbol`
+is the bounded form.
+
+The 2026-11-07 review disassembled all nine released programs with coralview
+`cdefe1be` (upstream HEAD when checked), finding no nonzero undecoded words, and
+reran all nine on the RVV RTL successfully. The six elementwise cycle totals
+above reproduced exactly. MPACT v2's RMSNorm f32 failure is an illegal
+`vfmacc.vv` at `0x27d8`; the released bf16 RMSNorm traps on both m3 and m4 at
+`vfwcvtbf16.f.f.v`, `0x2814`, despite their manifest advertising conversion.
+Those emulator capabilities need investigation. Generic source fixtures and
+tests retain no upstream-kernel references, dependencies or side-by-side
+comparisons; comparison measurements belong in research records.
+
+The wrapper's successful v0.0.9 release workflow
+(`TheCBaH/devcontainer.coralnpu`, Actions run `41418885490`, wrapper `9210842`)
+was also checked using `gh`. Both aarch64 and x86_64 test-job logs and published
+fixture-result assets contain 27 Gemma reference-program PASS records, all on
+RVV RTL variants, and zero on MPACT. MPACT's `rvv_fp.elf` passes test vector f32
+addition plus scalar bf16 conversion, not the failing vector bf16 conversion.
+The nine local reference ELFs and three local MPACT binaries match the hashes
+in the published aarch64 results. CI verification is real but does not establish
+MPACT support for these reference programs.
+
 ## What is left open
 
 The suite's geometries beyond resident B (B by column panels with A

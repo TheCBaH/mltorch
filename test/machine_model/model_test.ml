@@ -80,6 +80,27 @@ let same_portable a b =
         (Int64.float_of_bits y))
     (bits a) (bits b)
 
+(* [t]'s values stored in [sg]'s format: bfloat16 (each value rounded to
+   it) for a bfloat16 tensor, else [t] itself. *)
+let in_format (sg : Tensor_sig.t) t =
+  match sg.Tensor_sig.fmt with
+  | Payload.Fmt Payload.BF16 ->
+      let shape = sg.Tensor_sig.shape in
+      let data =
+        Bigarray.(
+          Array1.create int16_unsigned c_layout (Vec6.numel shape :> int))
+      in
+      Vec6.iter shape (fun c ->
+          data.{(Vec6.offset shape c :> int)} <-
+            Half.Bf16.of_float (Tensor.read t c));
+      Tensor.Tensor
+        {
+          shape;
+          payload =
+            { Payload.fmt = Payload.BF16; quant = Payload.No_quant; data };
+        }
+  | Payload.Fmt _ -> t
+
 let check ?route ?contractions ?bf16_pairs ?attention ?layer ?prepack
     ?on_program ?(pipeline = Ssa_backends.Pipeline.Exact)
     ?(oracle = Reference_f64) ?(same = fun a b -> bits a = bits b) ?(calls = 2)
@@ -97,7 +118,9 @@ let check ?route ?contractions ?bf16_pairs ?attention ?layer ?prepack
   let constant = Option.value constant ~default:(values ~salt:3) in
   let constants =
     List.map
-      (fun id -> (id, constant (sig_of g id)))
+      (fun id ->
+        let sg = sig_of g id in
+        (id, in_format sg (constant sg)))
       b.Loop_ir.Loop_bundle.constants
   in
   match
@@ -116,7 +139,9 @@ let check ?route ?contractions ?bf16_pairs ?attention ?layer ?prepack
             List.init calls (fun call ->
                 let inputs =
                   List.mapi
-                    (fun i id -> (id, input ~salt:(call + i) i (sig_of g id)))
+                    (fun i id ->
+                      let sg = sig_of g id in
+                      (id, in_format sg (input ~salt:(call + i) i sg)))
                     b.Loop_ir.Loop_bundle.inputs
                 in
                 let reference = expected oracle g b ~constants ~inputs in
@@ -501,6 +526,52 @@ let vector_fixtures =
             relu n) );
   ]
 
+(* Transformer elementwise and normalization graphs: residual add, RMS norm,
+   and tanh-approximated GELU gated by an up projection. The 2x160, 1x67 and
+   1x33 shapes exercise full vectors and tails through each target's regular
+   lowering. *)
+let transformer_fixture ?fmt name build =
+  List.map
+    (fun (rows, hidden) ->
+      (Fmt.str "%s %dx%d" name rows hidden, fun () -> build ?fmt ~rows ~hidden))
+    [ (2, 160); (1, 67); (1, 33) ]
+
+let transformer_residual_add ?fmt ~rows ~hidden () =
+  F.build "residual_add"
+    Graph_builder.(
+      let* a = input ~shape:(F.s 1 1 1 1 rows hidden) ?fmt () in
+      let* b = input ~shape:(F.s 1 1 1 1 rows hidden) ?fmt () in
+      add a b)
+
+let transformer_rms_norm ?fmt ~rows ~hidden () =
+  F.build "rms_norm"
+    Graph_builder.(
+      let* x = input ~shape:(F.s 1 1 1 1 rows hidden) ?fmt () in
+      let* w = constant ~shape:(F.s 1 1 1 1 1 hidden) ?fmt () in
+      rms_norm { Norm.RmsNorm.dims = [ Axis.C ]; eps = 1e-6 } ~x ~weight:w ())
+
+let transformer_tanh_gelu_mul ?fmt ~rows ~hidden () =
+  F.build "tanh_gelu_mul"
+    Graph_builder.(
+      let* gate = input ~shape:(F.s 1 1 1 1 rows hidden) ?fmt () in
+      let* up = input ~shape:(F.s 1 1 1 1 rows hidden) ?fmt () in
+      let* g = gelu Pointwise.Gelu.Tanh gate in
+      mul g up)
+
+let transformer_variants ?fmt suffix =
+  let apply f ?fmt ~rows ~hidden = f ?fmt ~rows ~hidden () in
+  transformer_fixture ?fmt ("residual add" ^ suffix)
+    (apply transformer_residual_add)
+  @ transformer_fixture ?fmt ("rms norm" ^ suffix) (apply transformer_rms_norm)
+  @ transformer_fixture ?fmt ("tanh gelu mul" ^ suffix)
+      (apply transformer_tanh_gelu_mul)
+
+let transformer_fixtures = transformer_variants ""
+
+(* The same three with bfloat16 inputs and float32 outputs. *)
+let transformer_bf16_fixtures =
+  transformer_variants ~fmt:(Payload.Fmt Payload.BF16) " bf16"
+
 let vector_loops b =
   List.fold_left
     (fun n inv ->
@@ -550,7 +621,7 @@ let%expect_test "Fp32_ordered vectors: Machine IR is the binary32 oracle" =
           ("aarch64 scanned", Some (M.Route.Aarch64 M.Stage.Scanned));
           ("x86_64 scanned", Some (M.Route.X86_64 M.Stage.Scanned));
         ])
-    vector_fixtures;
+    (vector_fixtures @ transformer_fixtures @ transformer_bf16_fixtures);
   [%expect
     {|
     relu then add over C=32: 2 vector loops; binary64 arithmetic 0, conversion 0, helper_call 0, memory_move 0
@@ -568,7 +639,79 @@ let%expect_test "Fp32_ordered vectors: Machine IR is the binary32 oracle" =
     conv, batch norm, relu to C=32: 3 vector loops; binary64 arithmetic 0, conversion 0, helper_call 0, memory_move 0
       generic (3 invocations): bitwise, bitwise
       aarch64 scanned (3 invocations): bitwise, bitwise
-      x86_64 scanned (3 invocations): bitwise, bitwise |}]
+      x86_64 scanned (3 invocations): bitwise, bitwise
+    residual add 2x160: 1 vector loops; binary64 arithmetic 0, conversion 0, helper_call 0, memory_move 0
+      generic (1 invocations): bitwise, bitwise
+      aarch64 scanned (1 invocations): bitwise, bitwise
+      x86_64 scanned (1 invocations): bitwise, bitwise
+    residual add 1x67: 1 vector loops; binary64 arithmetic 0, conversion 0, helper_call 0, memory_move 0
+      generic (1 invocations): bitwise, bitwise
+      aarch64 scanned (1 invocations): bitwise, bitwise
+      x86_64 scanned (1 invocations): bitwise, bitwise
+    residual add 1x33: 1 vector loops; binary64 arithmetic 0, conversion 0, helper_call 0, memory_move 0
+      generic (1 invocations): bitwise, bitwise
+      aarch64 scanned (1 invocations): bitwise, bitwise
+      x86_64 scanned (1 invocations): bitwise, bitwise
+    rms norm 2x160: 0 vector loops; binary64 arithmetic 0, conversion 0, helper_call 0, memory_move 0
+      generic (1 invocations): bitwise, bitwise
+      aarch64 scanned (1 invocations): bitwise, bitwise
+      x86_64 scanned (1 invocations): bitwise, bitwise
+    rms norm 1x67: 0 vector loops; binary64 arithmetic 0, conversion 0, helper_call 0, memory_move 0
+      generic (1 invocations): bitwise, bitwise
+      aarch64 scanned (1 invocations): bitwise, bitwise
+      x86_64 scanned (1 invocations): bitwise, bitwise
+    rms norm 1x33: 0 vector loops; binary64 arithmetic 0, conversion 0, helper_call 0, memory_move 0
+      generic (1 invocations): bitwise, bitwise
+      aarch64 scanned (1 invocations): bitwise, bitwise
+      x86_64 scanned (1 invocations): bitwise, bitwise
+    tanh gelu mul 2x160: 2 vector loops; binary64 arithmetic 0, conversion 0, helper_call 0, memory_move 0
+      generic (2 invocations): bitwise, bitwise
+      aarch64 scanned (2 invocations): bitwise, bitwise
+      x86_64 scanned (2 invocations): bitwise, bitwise
+    tanh gelu mul 1x67: 2 vector loops; binary64 arithmetic 0, conversion 0, helper_call 0, memory_move 0
+      generic (2 invocations): bitwise, bitwise
+      aarch64 scanned (2 invocations): bitwise, bitwise
+      x86_64 scanned (2 invocations): bitwise, bitwise
+    tanh gelu mul 1x33: 2 vector loops; binary64 arithmetic 0, conversion 0, helper_call 0, memory_move 0
+      generic (2 invocations): bitwise, bitwise
+      aarch64 scanned (2 invocations): bitwise, bitwise
+      x86_64 scanned (2 invocations): bitwise, bitwise
+    residual add bf16 2x160: 1 vector loops; binary64 arithmetic 0, conversion 0, helper_call 0, memory_move 0
+      generic (1 invocations): bitwise, bitwise
+      aarch64 scanned (1 invocations): bitwise, bitwise
+      x86_64 scanned (1 invocations): bitwise, bitwise
+    residual add bf16 1x67: 1 vector loops; binary64 arithmetic 0, conversion 0, helper_call 0, memory_move 0
+      generic (1 invocations): bitwise, bitwise
+      aarch64 scanned (1 invocations): bitwise, bitwise
+      x86_64 scanned (1 invocations): bitwise, bitwise
+    residual add bf16 1x33: 1 vector loops; binary64 arithmetic 0, conversion 0, helper_call 0, memory_move 0
+      generic (1 invocations): bitwise, bitwise
+      aarch64 scanned (1 invocations): bitwise, bitwise
+      x86_64 scanned (1 invocations): bitwise, bitwise
+    rms norm bf16 2x160: 0 vector loops; binary64 arithmetic 0, conversion 0, helper_call 0, memory_move 0
+      generic (1 invocations): bitwise, bitwise
+      aarch64 scanned (1 invocations): bitwise, bitwise
+      x86_64 scanned (1 invocations): bitwise, bitwise
+    rms norm bf16 1x67: 0 vector loops; binary64 arithmetic 0, conversion 0, helper_call 0, memory_move 0
+      generic (1 invocations): bitwise, bitwise
+      aarch64 scanned (1 invocations): bitwise, bitwise
+      x86_64 scanned (1 invocations): bitwise, bitwise
+    rms norm bf16 1x33: 0 vector loops; binary64 arithmetic 0, conversion 0, helper_call 0, memory_move 0
+      generic (1 invocations): bitwise, bitwise
+      aarch64 scanned (1 invocations): bitwise, bitwise
+      x86_64 scanned (1 invocations): bitwise, bitwise
+    tanh gelu mul bf16 2x160: 2 vector loops; binary64 arithmetic 0, conversion 0, helper_call 0, memory_move 0
+      generic (2 invocations): bitwise, bitwise
+      aarch64 scanned (2 invocations): bitwise, bitwise
+      x86_64 scanned (2 invocations): bitwise, bitwise
+    tanh gelu mul bf16 1x67: 2 vector loops; binary64 arithmetic 0, conversion 0, helper_call 0, memory_move 0
+      generic (2 invocations): bitwise, bitwise
+      aarch64 scanned (2 invocations): bitwise, bitwise
+      x86_64 scanned (2 invocations): bitwise, bitwise
+    tanh gelu mul bf16 1x33: 2 vector loops; binary64 arithmetic 0, conversion 0, helper_call 0, memory_move 0
+      generic (2 invocations): bitwise, bitwise
+      aarch64 scanned (2 invocations): bitwise, bitwise
+      x86_64 scanned (2 invocations): bitwise, bitwise |}]
 
 (* ---- matrix products ---------------------------------------------------------
 
@@ -601,27 +744,6 @@ let linear_bf16_fixture ~m ~n ~k ~bias () =
         let* b = constant ~shape:(F.s1c n) () in
         linear params ~x ~weight ~bias:b ()
       else linear params ~x ~weight ())
-
-(* [t]'s values stored in [sg]'s format: bfloat16 (each value rounded to
-   it) for a bfloat16 tensor, else [t] itself. *)
-let in_format (sg : Tensor_sig.t) t =
-  match sg.Tensor_sig.fmt with
-  | Payload.Fmt Payload.BF16 ->
-      let shape = sg.Tensor_sig.shape in
-      let data =
-        Bigarray.(
-          Array1.create int16_unsigned c_layout (Vec6.numel shape :> int))
-      in
-      Vec6.iter shape (fun c ->
-          data.{(Vec6.offset shape c :> int)} <-
-            Half.Bf16.of_float (Tensor.read t c));
-      Tensor.Tensor
-        {
-          shape;
-          payload =
-            { Payload.fmt = Payload.BF16; quant = Payload.No_quant; data };
-        }
-  | Payload.Fmt _ -> t
 
 let bmm_bf16_fixture ~batch ~m ~n ~k () =
   let bf16 = Payload.Fmt Payload.BF16 in

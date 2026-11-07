@@ -71,7 +71,8 @@ let%expect_test "Fp32_ordered vectors: whole bundles as processes" =
             ~constant:T.positive
             (Fmt.str "%s %s" name (Rt.Allocation.name allocation))
             g)
-        T.vector_fixtures)
+        (T.vector_fixtures @ T.transformer_fixtures
+       @ T.transformer_bf16_fixtures))
     Rt.Allocation.[ Reference; Scanned ];
   [%expect
     {|
@@ -79,10 +80,46 @@ let%expect_test "Fp32_ordered vectors: whole bundles as processes" =
     softmax over H, W=32 reference (1 invocations): bitwise, bitwise
     layer_norm over H, W=32 reference (1 invocations): bitwise, bitwise
     conv, batch norm, relu to C=32 reference (3 invocations): bitwise, bitwise
+    residual add 2x160 reference (1 invocations): bitwise, bitwise
+    residual add 1x67 reference (1 invocations): bitwise, bitwise
+    residual add 1x33 reference (1 invocations): bitwise, bitwise
+    rms norm 2x160 reference (1 invocations): bitwise, bitwise
+    rms norm 1x67 reference (1 invocations): bitwise, bitwise
+    rms norm 1x33 reference (1 invocations): bitwise, bitwise
+    tanh gelu mul 2x160 reference (2 invocations): bitwise, bitwise
+    tanh gelu mul 1x67 reference (2 invocations): bitwise, bitwise
+    tanh gelu mul 1x33 reference (2 invocations): bitwise, bitwise
+    residual add bf16 2x160 reference (1 invocations): bitwise, bitwise
+    residual add bf16 1x67 reference (1 invocations): bitwise, bitwise
+    residual add bf16 1x33 reference (1 invocations): bitwise, bitwise
+    rms norm bf16 2x160 reference (1 invocations): bitwise, bitwise
+    rms norm bf16 1x67 reference (1 invocations): bitwise, bitwise
+    rms norm bf16 1x33 reference (1 invocations): bitwise, bitwise
+    tanh gelu mul bf16 2x160 reference (2 invocations): bitwise, bitwise
+    tanh gelu mul bf16 1x67 reference (2 invocations): bitwise, bitwise
+    tanh gelu mul bf16 1x33 reference (2 invocations): bitwise, bitwise
     relu then add over C=32 scanned (2 invocations): bitwise, bitwise
     softmax over H, W=32 scanned (1 invocations): bitwise, bitwise
     layer_norm over H, W=32 scanned (1 invocations): bitwise, bitwise
-    conv, batch norm, relu to C=32 scanned (3 invocations): bitwise, bitwise |}]
+    conv, batch norm, relu to C=32 scanned (3 invocations): bitwise, bitwise
+    residual add 2x160 scanned (1 invocations): bitwise, bitwise
+    residual add 1x67 scanned (1 invocations): bitwise, bitwise
+    residual add 1x33 scanned (1 invocations): bitwise, bitwise
+    rms norm 2x160 scanned (1 invocations): bitwise, bitwise
+    rms norm 1x67 scanned (1 invocations): bitwise, bitwise
+    rms norm 1x33 scanned (1 invocations): bitwise, bitwise
+    tanh gelu mul 2x160 scanned (2 invocations): bitwise, bitwise
+    tanh gelu mul 1x67 scanned (2 invocations): bitwise, bitwise
+    tanh gelu mul 1x33 scanned (2 invocations): bitwise, bitwise
+    residual add bf16 2x160 scanned (1 invocations): bitwise, bitwise
+    residual add bf16 1x67 scanned (1 invocations): bitwise, bitwise
+    residual add bf16 1x33 scanned (1 invocations): bitwise, bitwise
+    rms norm bf16 2x160 scanned (1 invocations): bitwise, bitwise
+    rms norm bf16 1x67 scanned (1 invocations): bitwise, bitwise
+    rms norm bf16 1x33 scanned (1 invocations): bitwise, bitwise
+    tanh gelu mul bf16 2x160 scanned (2 invocations): bitwise, bitwise
+    tanh gelu mul bf16 1x67 scanned (2 invocations): bitwise, bitwise
+    tanh gelu mul bf16 1x33 scanned (2 invocations): bitwise, bitwise |}]
 
 (* The binary32 transcendentals as SSE2 packed sequences, over the F32_math
    sample set, as processes against the binary32 oracle. A NaN compares equal
