@@ -30,7 +30,7 @@ let%expect_test "binary32 bundles on RV32" =
             (Fmt.str "%s, %s" name rname)
             g)
         routes)
-    T.vector_fixtures;
+    (T.vector_fixtures @ T.gemma_fixtures);
   [%expect
     {|
     relu then add over C=32, riscv32 selected (2 invocations): bitwise, bitwise
@@ -40,7 +40,25 @@ let%expect_test "binary32 bundles on RV32" =
     layer_norm over H, W=32, riscv32 selected (1 invocations): bitwise, bitwise
     layer_norm over H, W=32, riscv32 scanned (1 invocations): bitwise, bitwise
     conv, batch norm, relu to C=32, riscv32 selected (3 invocations): bitwise, bitwise
-    conv, batch norm, relu to C=32, riscv32 scanned (3 invocations): bitwise, bitwise |}]
+    conv, batch norm, relu to C=32, riscv32 scanned (3 invocations): bitwise, bitwise
+    residual add 2x160, riscv32 selected (1 invocations): bitwise, bitwise
+    residual add 2x160, riscv32 scanned (1 invocations): bitwise, bitwise
+    residual add 1x67, riscv32 selected (1 invocations): bitwise, bitwise
+    residual add 1x67, riscv32 scanned (1 invocations): bitwise, bitwise
+    residual add 1x33, riscv32 selected (1 invocations): bitwise, bitwise
+    residual add 1x33, riscv32 scanned (1 invocations): bitwise, bitwise
+    rms norm 2x160, riscv32 selected (1 invocations): bitwise, bitwise
+    rms norm 2x160, riscv32 scanned (1 invocations): bitwise, bitwise
+    rms norm 1x67, riscv32 selected (1 invocations): bitwise, bitwise
+    rms norm 1x67, riscv32 scanned (1 invocations): bitwise, bitwise
+    rms norm 1x33, riscv32 selected (1 invocations): bitwise, bitwise
+    rms norm 1x33, riscv32 scanned (1 invocations): bitwise, bitwise
+    tanh gelu mul 2x160, riscv32 selected (2 invocations): bitwise, bitwise
+    tanh gelu mul 2x160, riscv32 scanned (2 invocations): bitwise, bitwise
+    tanh gelu mul 1x67, riscv32 selected (2 invocations): bitwise, bitwise
+    tanh gelu mul 1x67, riscv32 scanned (2 invocations): bitwise, bitwise
+    tanh gelu mul 1x33, riscv32 selected (2 invocations): bitwise, bitwise
+    tanh gelu mul 1x33, riscv32 scanned (2 invocations): bitwise, bitwise |}]
 
 let%expect_test "binary32 transcendentals on RV32" =
   List.iter

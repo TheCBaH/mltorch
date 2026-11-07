@@ -501,6 +501,40 @@ let vector_fixtures =
             relu n) );
   ]
 
+(* Gemma's elementwise and normalisation kernels (residual add, RMS norm,
+   tanh-approximated GELU gated by an up projection) as graphs, at the shapes
+   the Coral Gemma kernel programs check: rows x hidden of 2x160, 1x67 and
+   1x33, so full vectors and tails. Generic fixtures: every target runs them
+   through its regular lowering. *)
+let gemma_fixture name build =
+  List.map
+    (fun (rows, hidden) ->
+      (Fmt.str "%s %dx%d" name rows hidden, fun () -> build ~rows ~hidden))
+    [ (2, 160); (1, 67); (1, 33) ]
+
+let gemma_fixtures =
+  gemma_fixture "residual add" (fun ~rows ~hidden ->
+      F.build "residual_add"
+        Graph_builder.(
+          let* a = input ~shape:(F.s 1 1 1 1 rows hidden) () in
+          let* b = input ~shape:(F.s 1 1 1 1 rows hidden) () in
+          add a b))
+  @ gemma_fixture "rms norm" (fun ~rows ~hidden ->
+      F.build "rms_norm"
+        Graph_builder.(
+          let* x = input ~shape:(F.s 1 1 1 1 rows hidden) () in
+          let* w = constant ~shape:(F.s 1 1 1 1 1 hidden) () in
+          rms_norm
+            { Norm.RmsNorm.dims = [ Axis.C ]; eps = 1e-6 }
+            ~x ~weight:w ()))
+  @ gemma_fixture "tanh gelu mul" (fun ~rows ~hidden ->
+      F.build "tanh_gelu_mul"
+        Graph_builder.(
+          let* gate = input ~shape:(F.s 1 1 1 1 rows hidden) () in
+          let* up = input ~shape:(F.s 1 1 1 1 rows hidden) () in
+          let* g = gelu Pointwise.Gelu.Tanh gate in
+          mul g up))
+
 let vector_loops b =
   List.fold_left
     (fun n inv ->
@@ -550,7 +584,7 @@ let%expect_test "Fp32_ordered vectors: Machine IR is the binary32 oracle" =
           ("aarch64 scanned", Some (M.Route.Aarch64 M.Stage.Scanned));
           ("x86_64 scanned", Some (M.Route.X86_64 M.Stage.Scanned));
         ])
-    vector_fixtures;
+    (vector_fixtures @ gemma_fixtures);
   [%expect
     {|
     relu then add over C=32: 2 vector loops; binary64 arithmetic 0, conversion 0, helper_call 0, memory_move 0
@@ -568,7 +602,43 @@ let%expect_test "Fp32_ordered vectors: Machine IR is the binary32 oracle" =
     conv, batch norm, relu to C=32: 3 vector loops; binary64 arithmetic 0, conversion 0, helper_call 0, memory_move 0
       generic (3 invocations): bitwise, bitwise
       aarch64 scanned (3 invocations): bitwise, bitwise
-      x86_64 scanned (3 invocations): bitwise, bitwise |}]
+      x86_64 scanned (3 invocations): bitwise, bitwise
+    residual add 2x160: 1 vector loops; binary64 arithmetic 0, conversion 0, helper_call 0, memory_move 0
+      generic (1 invocations): bitwise, bitwise
+      aarch64 scanned (1 invocations): bitwise, bitwise
+      x86_64 scanned (1 invocations): bitwise, bitwise
+    residual add 1x67: 1 vector loops; binary64 arithmetic 0, conversion 0, helper_call 0, memory_move 0
+      generic (1 invocations): bitwise, bitwise
+      aarch64 scanned (1 invocations): bitwise, bitwise
+      x86_64 scanned (1 invocations): bitwise, bitwise
+    residual add 1x33: 1 vector loops; binary64 arithmetic 0, conversion 0, helper_call 0, memory_move 0
+      generic (1 invocations): bitwise, bitwise
+      aarch64 scanned (1 invocations): bitwise, bitwise
+      x86_64 scanned (1 invocations): bitwise, bitwise
+    rms norm 2x160: 0 vector loops; binary64 arithmetic 0, conversion 0, helper_call 0, memory_move 0
+      generic (1 invocations): bitwise, bitwise
+      aarch64 scanned (1 invocations): bitwise, bitwise
+      x86_64 scanned (1 invocations): bitwise, bitwise
+    rms norm 1x67: 0 vector loops; binary64 arithmetic 0, conversion 0, helper_call 0, memory_move 0
+      generic (1 invocations): bitwise, bitwise
+      aarch64 scanned (1 invocations): bitwise, bitwise
+      x86_64 scanned (1 invocations): bitwise, bitwise
+    rms norm 1x33: 0 vector loops; binary64 arithmetic 0, conversion 0, helper_call 0, memory_move 0
+      generic (1 invocations): bitwise, bitwise
+      aarch64 scanned (1 invocations): bitwise, bitwise
+      x86_64 scanned (1 invocations): bitwise, bitwise
+    tanh gelu mul 2x160: 2 vector loops; binary64 arithmetic 0, conversion 0, helper_call 0, memory_move 0
+      generic (2 invocations): bitwise, bitwise
+      aarch64 scanned (2 invocations): bitwise, bitwise
+      x86_64 scanned (2 invocations): bitwise, bitwise
+    tanh gelu mul 1x67: 2 vector loops; binary64 arithmetic 0, conversion 0, helper_call 0, memory_move 0
+      generic (2 invocations): bitwise, bitwise
+      aarch64 scanned (2 invocations): bitwise, bitwise
+      x86_64 scanned (2 invocations): bitwise, bitwise
+    tanh gelu mul 1x33: 2 vector loops; binary64 arithmetic 0, conversion 0, helper_call 0, memory_move 0
+      generic (2 invocations): bitwise, bitwise
+      aarch64 scanned (2 invocations): bitwise, bitwise
+      x86_64 scanned (2 invocations): bitwise, bitwise |}]
 
 (* ---- matrix products ---------------------------------------------------------
 
