@@ -96,7 +96,7 @@ let program ~constant (p : Ssa_program.t) =
   in
   let rewrite (i : Ssa_instr.t) =
     match i.Ssa_instr.op with
-    | Ssa_op.Contract { desc = d; a; b; c }
+    | Ssa_op.Contract { desc = d; a; b; c; _ }
       when constant b
            && Int64.compare d.Contraction.b.Contraction.Operand.outer 1L <> 0
            && Int64.compare d.Contraction.k 0L > 0 -> (
@@ -119,7 +119,8 @@ let program ~constant (p : Ssa_program.t) =
         | Ok desc ->
             {
               i with
-              Ssa_instr.op = Ssa_op.Contract { desc; a; b = q.Pack.target; c };
+              Ssa_instr.op =
+                Ssa_op.Contract { desc; engine = None; a; b = q.Pack.target; c };
             }
         | Error _ -> i)
     | _ -> i

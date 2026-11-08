@@ -1132,3 +1132,19 @@ the C (`-ffp-contract=off`), Wasm and JavaScript evaluations compute — by an
 ulp at 0.5. Still fused on AArch64 and outside this design's scope: the Loop
 reference interpreter's unfused binary64 `Fma` branch and the `arange`
 factory's `start + i * step`.
+
+**Recorded contraction implementations (2026-11-08).** The compilation
+summary now carries typed `Contraction_engine` capabilities (descriptor plus
+engine) copied from final SSA. The canonical codec round-trips them; lowering
+rejects missing/different choices and conflicting engines for one descriptor.
+The source subject also includes SSA's printed engine metadata. Generic helper
+names and their mathematical interpreter models are unchanged.
+
+RV32 helper realization reads the recorded engine from the published summary.
+An explicit vector choice bypasses the matrix-realizer callback; a matrix
+choice without a matrix realization is refused. Legacy unannotated helper
+programs retain their prior realization path. Coral rechecks recorded choices
+against the actual image configuration; it cannot silently replace one.
+Tests catch deliberately discarding the choice in the backend and deliberately
+removing the SSA/summary consistency check. This moves engine selection before
+MIR, rather than adding another independent selector inside the cost model.

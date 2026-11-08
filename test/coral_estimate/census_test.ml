@@ -23,10 +23,29 @@ let censuses ?(ram = fun _ -> []) (c : Cases.t) =
         if List.mem (b :> int) (ram i) then CE.Region.Ram else CE.Region.Dtcm
   in
   let out = ref [] in
+  let route =
+    let module R = Machine_model.Mir_model_route in
+    R.Route.Custom
+      {
+        R.Custom.name = "VME final SSA, generic execution";
+        plan =
+          (fun p ->
+            Err.payload
+              (Ssa_ir.Ssa_contract_plan.program
+                 ~capabilities:
+                   {
+                     Contraction.Select.Capabilities.matrix = true;
+                     vector = true;
+                   }
+                 p)
+            |> Result.map_error (Fmt.str "%a" Ssa_ir.Ssa_contract_plan.pp_error));
+        exec = (fun ~sites:_ g -> Ok (R.generic g));
+      }
+  in
   match
-    M.prepare ~contractions:c.Cases.contractions ~bf16_pairs:c.Cases.bf16_pairs
-      ?attention:c.Cases.attention ?layer:c.Cases.layer
-      ~pipeline:(Cases.pipeline c)
+    M.prepare ~route ~contractions:c.Cases.contractions
+      ~bf16_pairs:c.Cases.bf16_pairs ?attention:c.Cases.attention
+      ?layer:c.Cases.layer ~pipeline:(Cases.pipeline c)
       ~on_program:(fun _ p _ ->
         out := CE.program ~region:(region (List.length !out)) p :: !out)
       b

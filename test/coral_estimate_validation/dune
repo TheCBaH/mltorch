@@ -1,0 +1,24 @@
+; Manual paired experiments: compile and freeze all predictions before any
+; RTL run. This executable is deliberately outside the runtest alias.
+
+(test
+ (name probe)
+ (libraries
+  coral_estimate
+  coralnpu
+  coralnpu_rv32
+  fmt
+  loop_ir
+  machine_lower
+  machine_model
+  machine_model_test
+  machine_rivet_riscv32_coral
+  native
+  ssa_backends
+  ssa_ir
+  unix)
+ (build_if
+  (and
+   %{lib-available:rivet.riscv32_encode}
+   %{lib-available:rivet.driver_direct}))
+ (enabled_if false))

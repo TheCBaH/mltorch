@@ -255,7 +255,7 @@ let instr ctx scope ~live (i : Ssa_instr.t) =
         List.exists (Ssa_id.Buffer.equal o)
           ([ q; k; v ] @ Option.fold ~none:[] ~some:(fun m -> [ m ]) mask)
       then fail ctx scope (Buffer_aliased o)
-  | Ssa_op.Contract { desc; a; b; c } ->
+  | Ssa_op.Contract { desc; a; b; c; _ } ->
       let family = Ssa_op.contract_operands desc in
       check_vector_access ctx scope a ~family ~writes:false;
       check_vector_access ctx scope b ~family ~writes:false;
@@ -485,7 +485,7 @@ let check_proofs ctx scope =
             match (mask, d.mask) with
             | Some m, Some s -> reach m (top s ~rows:d.tq ~cols:d.tk)
             | _ -> ())
-        | Ssa_op.Contract { desc; a; b; c } ->
+        | Ssa_op.Contract { desc; a; b; c; _ } ->
             (* every element each operand names lies inside its buffer *)
             let last count stride =
               Int64.mul (Int64.max 0L (Int64.pred count)) stride

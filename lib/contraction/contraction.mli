@@ -167,6 +167,7 @@ module Select : sig
     type t = Loops | Rvv | Zvt
 
     val name : t -> string
+    val of_name : string -> t option
   end
 
   (** Why the engine was chosen. *)
@@ -193,4 +194,8 @@ module Select : sig
   end
 
   val choose : Capabilities.t -> t -> Engine.t * Reason.t
+
+  val supports : Capabilities.t -> t -> Engine.t -> bool
+  (** Whether an engine preserves the descriptor's numerical contract on these
+      capabilities, independently of which engine [choose] prefers. *)
 end

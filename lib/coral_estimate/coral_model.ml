@@ -23,7 +23,12 @@ let contract (core : Core.t) (call : Coral_census.Contract_call.t) w =
       vector = core.Core.vector;
     }
   in
-  match fst (Contraction.Select.choose caps d) with
+  let engine =
+    match call.Coral_census.Contract_call.engine with
+    | Some e -> e
+    | None -> fst (Contraction.Select.choose caps d)
+  in
+  match engine with
   | Contraction.Select.Engine.Zvt ->
       (* per 16 x 16 output tile: its setup and C's stores (by C's region),
          and each k step's loads of the tile's A rows and B columns (by A's

@@ -158,9 +158,9 @@ let store_i64 b buffer at value =
 
 let mark b m = ignore (instr b (Ssa_op.Mark m))
 
-let contract bld desc ~a ~b ~c =
+let contract ?engine bld desc ~a ~b ~c =
   List.iter (declared bld) [ a; b; c ];
-  ignore (instr bld (Ssa_op.Contract { desc; a; b; c }))
+  ignore (instr bld (Ssa_op.Contract { desc; engine; a; b; c }))
 
 let attend bld desc ~q ~k ~v ~mask ~o =
   List.iter (declared bld) ([ q; k; v; o ] @ Option.to_list mask);

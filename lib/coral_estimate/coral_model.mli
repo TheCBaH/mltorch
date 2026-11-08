@@ -21,7 +21,10 @@ val features :
   Core.t ->
   Coral_census.t ->
   (string * float) list
-(** With [rates] (cycles per unit, as {!Rates.t}), the feature [overlap]: minus
+(** A recorded contraction engine is priced as selected in final SSA; [Core]
+    chooses an engine only for legacy unfinalized contractions.
+
+    With [rates] (cycles per unit, as {!Rates.t}), the feature [overlap]: minus
     the cycles that vector operations and vector loads and stores of one loop
     body share, at those rates, whichever side is shorter (its rate is the
     fraction of them the core hides). The rates a prediction is made with must

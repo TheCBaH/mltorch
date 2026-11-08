@@ -186,6 +186,7 @@ val store_i64 : t -> Ssa_id.Buffer.t -> access -> Ssa_type.i64 value -> unit
 val mark : t -> Ssa_mark.t -> unit
 
 val contract :
+  ?engine:Contraction.Select.Engine.t ->
   t ->
   Contraction.t ->
   a:Ssa_id.Buffer.t ->

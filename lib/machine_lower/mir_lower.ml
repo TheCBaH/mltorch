@@ -12,6 +12,12 @@ type result = {
 
 let subject p = Digest.to_hex (Digest.string (Ssa_pp.to_string p))
 
+let contraction_capabilities p =
+  Ssa_contract_plan.choices p
+  |> List.map (fun (desc, engine) ->
+      Mir_planning.Capability.Contraction_engine { desc; engine })
+  |> List.sort_uniq Mir_planning.Capability.compare
+
 let summary ?target ?fma (plan : Ssa_plan.t) =
   let fma =
     match (fma, Ssa_numerics.contraction plan.Ssa_plan.numerics) with
@@ -53,7 +59,8 @@ let summary ?target ?fma (plan : Ssa_plan.t) =
   Mir_planning.make
     ~subject:(subject plan.Ssa_plan.program)
     ~policy:(Ssa_numerics.identity plan.Ssa_plan.numerics)
-    ~schedule ~precision ~lanes ~fma ~capabilities
+    ~schedule ~precision ~lanes ~fma
+    ~capabilities:(capabilities @ contraction_capabilities plan.program)
 
 (* [0 <= x < extent] for an index [x], in i64 so any extent compares. *)
 let within st x extent =
@@ -290,7 +297,7 @@ let rec instr st (i : Ssa_instr.t) =
       with
       | Ok [] -> ()
       | _ -> invalid_arg "Mir_lower: an attention helper call")
-  | Ssa_op.Contract { desc; a; b; c } -> (
+  | Ssa_op.Contract { desc; a; b; c; _ } -> (
       (* a call to the descriptor's helper with each operand's address *)
       let same d = String.equal (Contraction.name d) (Contraction.name desc) in
       let rec find k = function
@@ -859,6 +866,16 @@ let program ?mutation ?(sequence = Sequence.Reference) ~planning
     | Ok s -> s
     | Error m -> refuse (Refusal.Planning m)
   in
+  let recorded =
+    List.map
+      (fun c -> Mir_planning.Capability.Contraction_engine c)
+      (Mir_planning.contraction_engines planning)
+  in
+  let choices = Ssa_contract_plan.choices p in
+  let descriptors = List.sort_uniq compare (List.map fst choices) in
+  let expected = contraction_capabilities p in
+  if recorded <> expected || List.length descriptors <> List.length expected
+  then refuse (Refusal.Planning `Planning_contraction_mismatch);
   if f32 && planning.Mir_planning.precision = Mir_planning.Precision.F64 then
     refuse (Refusal.Precision planning.Mir_planning.precision);
   let layout =

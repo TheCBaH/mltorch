@@ -150,6 +150,10 @@ let attentions artifact =
           None)
     (Art.symbols artifact)
 
+let contraction_engine artifact d =
+  Mir_planning.contraction_engine (Art.identity artifact).Art.Identity.planning
+    d
+
 (* The profile an artifact needs: the vector one when it uses Zve32f forms or
    calls a generated contraction (an RVV function), else the default. Rivet's
    feature set and qemu's CPU follow it. *)
@@ -189,12 +193,26 @@ let helper_modules ?kernel_mutation ?(plan = fun _ -> Ok None)
         let* m =
           Result.map_error
             (fun why -> Fmt.str "contraction %s: %s" (Contraction.name d) why)
-            (match other d with
-            | Some m -> m
-            | None ->
+            (match contraction_engine artifact d with
+            | Some Contraction.Select.Engine.Loops ->
+                Error
+                  "a planned loop contraction must be expanded before lowering"
+            | Some Contraction.Select.Engine.Zvt -> (
+                match other d with
+                | Some m -> m
+                | None ->
+                    Error "the route cannot realize the planned matrix engine")
+            | Some Contraction.Select.Engine.Rvv ->
                 let* plan = plan d in
                 Coralnpu_kernels.Rvv_contraction.module_
-                  ?mutation:kernel_mutation ?plan d)
+                  ?mutation:kernel_mutation ?plan d
+            | None -> (
+                match other d with
+                | Some m -> m
+                | None ->
+                    let* plan = plan d in
+                    Coralnpu_kernels.Rvv_contraction.module_
+                      ?mutation:kernel_mutation ?plan d))
         in
         Ok (acc @ [ m ]))
       (Ok []) (generated artifact)
@@ -306,6 +324,7 @@ let route ?mutation ?kernel_mutation ?select_mutation ?scan_mutation ?registers
     ?cpu ?(allocation = Allocation.Scanned) () =
   Route.Route.Custom
     {
+      Route.Custom.plan = Result.ok;
       Route.Custom.name =
         Fmt.str "riscv32 qemu %s%s"
           (Allocation.name allocation)

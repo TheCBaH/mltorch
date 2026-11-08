@@ -190,6 +190,9 @@ type t =
   | Const of Ssa_const.t
   | Contract of {
       desc : Contraction.t;
+      engine : Contraction.Select.Engine.t option;
+          (** [None] before implementation planning. A recorded choice must be
+              honored or refused, never silently selected again. *)
       a : Ssa_id.Buffer.t;
       b : Ssa_id.Buffer.t;
       c : Ssa_id.Buffer.t;

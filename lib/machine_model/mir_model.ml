@@ -164,6 +164,11 @@ let source ?contractions ?bf16_pairs ?site ?sequence
     else attend_site p
   in
   let lower ~group p =
+    let* p =
+      Result.map_error
+        (fun s -> Reason.Route s)
+        (Mir_model_route.finalize route p)
+    in
     Result.map_error
       (fun r -> Reason.Lowering r)
       (Err.payload
@@ -244,6 +249,11 @@ let source ?contractions ?bf16_pairs ?site ?sequence
         else attend plan.Ssa_ir.Ssa_plan.program
       in
       let program, packs = Ssa_ir.Ssa_prepack.program ~constant attended in
+      let* program =
+        Result.map_error
+          (fun s -> Reason.Route s)
+          (Mir_model_route.finalize route program)
+      in
       on_program inv program;
       let plan = { plan with Ssa_ir.Ssa_plan.program } in
       let* l =

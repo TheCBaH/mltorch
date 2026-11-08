@@ -98,6 +98,152 @@ which the fit had no case of; with that rule and four plain-function cases
 the prediction is within 0.2%. One of those cases (49 x 512, k 64) shares
 fastvit's rows and columns, so this is an extrapolation in k, not in shape.
 
+Validation strengthened 2026-11-08, after the transformer kernel changes:
+
+- The rates/fit comparison is an inline unit assertion, not an expect snapshot
+  whose promoted output can accept a mismatch. All committed rates were
+  synchronized with the current fit; `class.iteration` had remained 0.948 when
+  its fit was zero. This is consistency repair, not improved model accuracy.
+- The per-case diagnostic reports the committed rates, including their use to
+  calculate the overlap feature, rather than an uncommitted fresh fit.
+- `test/coral_estimate/validation_test.ml` asserts per-case error limits on
+  eight measured held-out cases (2--30%, stated individually). Zeroing the
+  vector-exp cost is caught by the held-out gate. These limits describe coarse
+  cycle estimation; they do not validate ranking close optimization variants.
+- Every calibration/check case must have a positive measurement for each
+  planned invocation or an explicitly inventoried RTL refusal. Three softmax
+  cases exceed the VME core's 8 KiB ITCM (11,352 bytes required). They are not
+  silently missing samples or accuracy successes.
+- The layer/RMS norm cases are outside the accuracy gate: ordered reduction
+  lane extracts remain expensive SSA features although RV32 recognizes their
+  chain as `vfredosum`; committed predictions err by +590.6%/+507.2%.
+  The decomposed layer also stays outside it: 1,024 data-dependent decisions
+  are counted heuristically. Its diagnostic error is -22.2%.
+
+The table above records the original investigation, not current accuracy.
+Current committed-rate held-out errors include -9.6% for SDPA, +25.2% for the
+pre-LayerNorm/RoPE layer, and +0.6% for the separately measured fastvit shape.
+No new RTL measurements or rate tuning to the held-out set were used for this
+validation repair. Next, freeze predictions for matched configuration kernel
+pairs before running RTL; use their discrepancies to identify missing cost
+information rather than immediately refitting rates.
+
+Paired validation added 2026-11-08 (`test/coral_estimate_validation/probe.ml`,
+manual, outside `runtest`). It prepares every image and writes every prediction
+before any simulator run. Each case records the actual placement's census and
+features, rates, configuration/artifact identity, synthetic input bits, and the
+entry-call measurement; each output is checked against the binary32 oracle.
+Existing evidence directories/files are never overwritten. Both pairs use
+`vme-core-mini-axi`, single registers, and ordered f32: the configuration and
+register route the existing rates were calibrated for. No refit is performed.
+
+The first eight runs (two shapes, unroll 1/2 and Reference/Fast sequences) were
+all bitwise. Predictions preceded the measurements:
+
+| pair | predicted speedup | measured speedup | measured cycles |
+|---|---:|---:|---:|
+| add 2x160, unroll 1 -> 2 | 0.847x | 1.046x | 909 -> 869 |
+| add 1x67, unroll 1 -> 2 | 0.879x | 1.026x | 311 -> 303 |
+| GELU/mul 2x160, Reference -> Fast | 1.000x | 2.485x | 54,156 -> 21,796 |
+| GELU/mul 1x67, Reference -> Fast | 1.000x | 2.376x | 12,612 -> 5,308 |
+
+For add 2x160 the two censuses differ by ten extra `int_op` and ten fewer
+iterations; all vector compute/memory counts are identical. The fitted
+iteration cost is zero and int_op is 14.456, so the prediction rises by exactly
+144.56 cycles. This does not account for later pointer simplification or the
+interleave's overlap benefit. Reference/Fast have byte-identical feature files:
+the changed math sequence is a choice made after the counted SSA. Absolute
+errors for Fast are +134.8% (2x160) and +146.0% (1x67). These pairs are evidence
+of model gaps, not new accuracy successes or training samples.
+
+Reproduce with `CORALNPU_DATA=<archive> opam exec -- dune exec
+test/coral_estimate_validation/probe.exe -- --output <new-directory>
+--revision <source-label> --run`. Omit `--run` to freeze predictions without
+simulation. Research artifacts are under
+`ai/coral_estimator_validation/pairs_2026-11-08_vme/`.
+The eight measurements reproduced exactly after improving artifact
+serialization (`pairs_2026-11-08_vme_serialized/`); the replay tests the recorder,
+not independent model accuracy.
+
+bfloat16 storage pairs (`--experiment bf16`, 2026-11-08, after the vector
+bfloat16 store): bf16 inputs with binary32 results, then the same with
+bfloat16 results, residual add and RMS norm at 2x160 and 1x67, all bitwise,
+predictions frozen first:
+
+| case | predicted | measured | error |
+|---|---:|---:|---:|
+| add 2x160, bf16 in | 821 | 1,451 | -43.4% |
+| add 2x160, bf16 in and out | 1,385 | 3,698 | -62.5% |
+| RMS 2x160, bf16 in | 7,738 | 4,751 | +62.9% |
+| RMS 2x160, bf16 in and out | 8,302 | 6,998 | +18.6% |
+| add 1x67, bf16 in | 214 | 439 | -51.1% |
+| add 1x67, bf16 in and out | 352 | 1,041 | -66.2% |
+| RMS 1x67, bf16 in | 1,706 | 1,230 | +38.7% |
+| RMS 1x67, bf16 in and out | 1,844 | 1,832 | +0.6% |
+
+The bfloat16 result adds one invocation (the narrowing `To_copy`), and it
+measures the same for both operations: 2,247 cycles at 2x160 and 602 at 1x67
+(7.0 and 9.0 an element at LMUL 1), against a predicted 564 and 138. The
+census prices a vector access by the binary32 value's register groups and
+ignores the encode and the decode: a bfloat16 store (int32 rounding, the
+canonical-NaN compare and merge through v0, two narrowings joined by a slide,
+and the `vsetivli` changes around each e16 form) counts as one binary32
+store, and a bfloat16 load (an e16 load, `vzext`, `vsll`, with their
+configuration changes) as one binary32 load, which is most of the bf16-input
+add's -43%. RMS norm's overprediction is the ordered-reduction gap above (the
+extract chain priced, one `vfredosum` emitted); its +0.6% at 1x67 is two
+errors cancelling, not accuracy. The repair this asks for is counting, not
+rates: the census should count an access's encode and decode as the vector
+operations and configuration changes they lower to, then be validated on
+held-out shapes (1x33, GELU) rather than these pairs. Evidence:
+`ai/coral_estimator_validation/bf16_2026-11-08_vme/`.
+
+Pipeline audit: the observed SSA is after `Ssa_plan` vectorization, ordered-sum
+scheduling, row collapse, unroll/interleave, and prepacking. There is no separate
+Coral-only loop vectorizer after that observation. Substantial transformations
+do remain after it:
+
+- `Mir_lower.program`: optional generic dot fusion and Reference/Fast math
+  expansion. The public `on_program` callback runs after compilation but its
+  payload is the SSA saved before this lowering, not a later representation.
+- `Rv32_select.program`: generic MIR vector splitting, address hoisting/carried
+  pointers (`Mir_offsets`), index narrowing, CSE, and RV32 recognition of a full
+  ordered extract/add chain as one `Vfredosum`. These also serve the RV32/qemu
+  route; they are target-specific, not Coral-only.
+- `Rv32_mir_route.publish`: selected-instruction sink scheduling, allocation,
+  spill/copy/frame realization. Emission also inserts vector configurations and
+  expands forms and far branches.
+- `Rv32_mir_coral.image`: Coral-specific vector/matrix-engine helper selection,
+  packed/plain and staged-B choices using the shared DTCM budget, optional DMA
+  transfer plans, and subsystem-only ITCM overflow outlining/overlays. The
+  standalone VME experiments above do not enable DMA or subsystem overlays.
+
+An SSA estimator remains viable, but a census alone cannot price all of these
+choices. The existing contraction/attention descriptor models already cover
+some late helper realization. Prefer a shared read-only realization summary
+from the compiler/route for remaining choices over duplicating backend
+recognition logic in the estimator. Moving the census to generic MIR alone
+would still miss RV32 recognition, allocation, and Coral helper selection.
+
+Proposed next boundary: finalize all cost-relevant SSA transformations before
+estimation. Keep generic `Contract`/`Attend` semantics but make their selected
+execution plan explicit at that stage: vector/matrix engine, kernel variant,
+tiles, packing, scratch/staging and transfer decisions. An explicit ordered
+vector-reduction operation and recorded math sequence/grouping would eliminate
+the concrete hidden choices found in the paired experiments. Reuse compiler
+selection rather than duplicate it inside the estimator. Numerical policies
+still constrain which choices are legal; a cheaper implementation cannot
+silently change the contraction or reduction contract.
+
+Backend bookkeeping is deterministic and must be priced systematically:
+allocation's spill/reload traffic, save/restore, offset materialization,
+alignment, stack placement/footprint, vector configuration and final form
+expansion. Frame layout does not justify unexplained error. Use a read-only
+backend cost summary for effects not yet derivable from final SSA. If physical
+resource checks force another high-level implementation, refuse or replan and
+invalidate the old estimate; do not silently replace the selected plan. These
+SSA/API changes are proposed work, not part of the initial validation commits.
+
 ## Emulator model
 
 Per simulator binary: `wall = start + cycles / rate`, and the CPUs one run
@@ -147,3 +293,36 @@ RAM 95. The installed `rivet` must stay pinned to `vendored/rivet`
   15% over, first), then priors or features from the measured costs.
 - Whole-model prediction through the route without simulation (`prepare`
   builds the images, so placements are real) and its emulator hours.
+
+**First SSA planning increment implemented (2026-11-08).** Contraction
+engines are now selected in `Ssa_contract_plan`, after SSA prepacking and before
+MIR lowering, via a custom route's final planning callback. The estimator's
+`Contract_call` census retains the recorded engine; its cost model prices that
+choice and only uses `Core` to choose for legacy unfinalized SSA. Hermetic
+calibration/check planning uses the same final SSA pass with VME capabilities.
+No estimator rates or calibration/held-out datasets were changed for this
+increment.
+
+The selected engine is part of canonical SSA text and the checked compilation
+summary. RV32 helper construction honors it, refusing an unavailable matrix
+realization, and Coral validates it against the image's capabilities. Generic
+SSA/MIR and qemu tests cover the plan; focused VME matrix/vector and MPACT
+vector runs are bitwise. Four mutations were seen red: SSA reselection,
+estimator reselection, backend loss of the selected engine, and omission of
+the SSA/summary agreement check.
+
+This is engine selection, not complete kernel realization planning. Packed
+versus plain, staging and shared DTCM budgets are still late choices. Nor does
+this claim to fix the paired experiments' Fast math and unroll accuracy gaps.
+Those remain recorded validation failures for subsequent increments.
+
+Engine-planning performance check: the retained legacy route (SSA finalizer
+set to identity) and the recorded-choice route were compared on all five
+contraction fixtures with both vector and matrix implementations. All twenty
+RTL runs were bitwise; each of the ten pairs had byte-identical ELFs and
+identical entry-call cycles. This is a hard inline-unit invariant, not a
+promotable cycle snapshot. The old VME fixture golden was stale (for example,
+linear 9x32 k64 recorded 13,694/4,895 while both paths now measure
+13,643/4,844). Five rows in that golden were refreshed after the counterfactual
+comparison. This is baseline maintenance, not a performance gain from moving
+the engine choice. Full repository and JavaScript inline checks also pass.

@@ -667,3 +667,32 @@ generated C (native, part of `runtest`), the direct Wasm emitter (under node,
 `make jsoo.inline-runtest`), against the reference.
 A correctness-sensitive rule is considered tested only after reverting it and
 watching a test go red.
+
+**Contraction engine planning (2026-11-08).** `Contract.engine` is optional
+implementation metadata; the descriptor remains the operation's generic
+semantics. `Ssa_contract_plan.program ~capabilities` uses the shared
+`Contraction.Select.choose` before MIR lowering, preserving an explicitly
+selected legal engine. `Select.supports` separates legality from preference:
+a vector implementation may remain selected on a matrix-capable target, but
+paired arithmetic cannot become a vector operation and a fused sequential
+float dot cannot become an unfused matrix operation. Unsupported choices are
+typed refusals, not fallbacks. The current stage selects vector/matrix helpers;
+a loop implementation must be expanded earlier. Conflicting engines for the
+same descriptor are refused because current helper bindings have one symbol
+per descriptor. Prepacking invalidates a changed descriptor's old engine.
+
+Custom MIR routes now provide a final SSA planning callback, run after
+prepacking and before the observed program is lowered. Coral supplies manifest
+capabilities and its explicit engine-disable option as data. Other custom
+routes initially use the identity callback. The SSA printer includes recorded
+engines, binding a compilation summary's subject to the chosen implementation.
+Generic interpretation and C/JS/Wasm semantic shadows still evaluate the
+mathematical descriptor independently of the implementation hint.
+
+Unit tests cover numerical legality, preservation of explicit choices,
+refusal instead of reselection, conflicting bindings, idempotence, and bitwise
+SSA interpretation before/after selection. Generic MIR and qemu cover the
+lowered path; focused VME RTL and MPACT cases cover actual matrix/vector
+execution. Deliberately replacing an explicit choice with the target's default
+was observed failing the SSA tests. Packing/staging, ordered-reduction ops,
+and math-sequence finalization are subsequent increments.

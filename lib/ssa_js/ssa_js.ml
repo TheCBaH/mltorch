@@ -156,7 +156,7 @@ let instr cx ~(limits : Expr.Scan_limits.t) (i : Ssa_instr.t) : A.Stmt.t list =
   match op with
   | Ssa_op.Mark _ | Ssa_op.Mark_lanes _ -> []
   | Ssa_op.Attend _ -> refuse "an attention"
-  | Ssa_op.Contract { desc = d; a; b; c } -> contract cx d ~a ~b ~c
+  | Ssa_op.Contract { desc = d; a; b; c; _ } -> contract cx d ~a ~b ~c
   | Ssa_op.Check_access { buffer; at } -> (
       let b = find_buffer cx buffer in
       match at with

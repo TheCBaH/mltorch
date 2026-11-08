@@ -475,6 +475,7 @@ let program ~numerics ?bf16 (p : Ssa_program.t) =
                   (Ssa_op.Contract
                      {
                        desc = f.Found.desc;
+                       engine = None;
                        a = f.Found.a;
                        b = f.Found.b;
                        c = s.Ssa_buffer.id;

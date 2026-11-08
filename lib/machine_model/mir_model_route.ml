@@ -52,6 +52,8 @@ end
 module Custom = struct
   type t = {
     name : string;
+    plan : Ssa_ir.Ssa_program.t -> (Ssa_ir.Ssa_program.t, string) result;
+        (** Final implementation decisions, before generic MIR lowering. *)
     exec :
       sites:Mir_failure.Site_entry.t array ->
       Mir_verify.Generic.t ->
@@ -78,6 +80,13 @@ module Route = struct
     | Riscv32_grouped s -> "riscv32 grouped " ^ Stage.name s
     | X86_64 s -> "x86_64 " ^ Stage.name s
 end
+
+let finalize route program =
+  match route with
+  | Route.Custom c -> c.Custom.plan program
+  | Route.Aarch64 _ | Route.Generic | Route.Riscv32 _ | Route.Riscv32_grouped _
+  | Route.X86_64 _ ->
+      Ok program
 
 let instantiate program memory ~shared =
   Mir_interp.instantiate ~shared program memory ~bound:(fun _ -> None)

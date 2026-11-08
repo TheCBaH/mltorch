@@ -81,6 +81,24 @@ let slots ?(home = fun _ -> Coral_layout.Home.Any) ?(slack = 0L) ~record
       })
     (Machine_rivet_riscv32_mir.Rv32_mir_module.slots artifact)
 
+let capabilities ~engine profile =
+  {
+    Contraction.Select.Capabilities.matrix =
+      engine && List.mem "zvt" profile.Coral_profile.extensions;
+    vector = List.mem "zve32f" profile.Coral_profile.extensions;
+  }
+
+let finalize ?(engine = true) c p =
+  match Err.payload (Coral_profile.load ~dir:c.Config.dir c.configuration) with
+  | Error e -> Error (Fmt.str "%a" Coral_profile.pp_error e)
+  | Ok profile ->
+      Result.map_error
+        (Fmt.str "%a" Ssa_ir.Ssa_contract_plan.pp_error)
+        (Err.payload
+           (Ssa_ir.Ssa_contract_plan.program
+              ~capabilities:(capabilities ~engine profile)
+              p))
+
 let image ?mutation ?kernel_mutation ?home ?(engine = true) ?engine_mutation
     ?transfer ?dma ?itcm (c : Config.t) ({ Q.artifact; record } : Q.published) =
   let render pp r = Result.map_error (Fmt.str "%a" pp) (Err.payload r) in
@@ -147,15 +165,25 @@ let image ?mutation ?kernel_mutation ?home ?(engine = true) ?engine_mutation
   in
   (* on a configuration with the matrix engine, an ordered contraction runs
      there; every other one on the vector unit *)
-  let capabilities =
-    {
-      Contraction.Select.Capabilities.matrix =
-        engine && List.mem "zvt" profile.Coral_profile.extensions;
-      vector = List.mem "zve32f" profile.Coral_profile.extensions;
-    }
+  let capabilities = capabilities ~engine profile in
+  let* () =
+    List.fold_left
+      (fun result d ->
+        let* () = result in
+        match Q.contraction_engine artifact d with
+        | Some e when not (Contraction.Select.supports capabilities d e) ->
+            Error
+              (Fmt.str
+                 "configuration %s cannot honor the planned %s contraction"
+                 profile.name
+                 (Contraction.Select.Engine.name e))
+        | Some _ | None -> Ok ())
+      (Ok ()) (Q.generated artifact)
   in
   let on_engine d =
-    fst (Contraction.Select.choose capabilities d)
+    (match Q.contraction_engine artifact d with
+      | Some e -> e
+      | None -> fst (Contraction.Select.choose capabilities d))
     = Contraction.Select.Engine.Zvt
   in
   (* every panel and ring lives in DTCM: the image's functions share five
@@ -539,6 +567,7 @@ let route ?mutation ?kernel_mutation ?route_mutation ?registers ?engine
     ?budget ?label ?expect_cycles (c : Config.t) =
   Route.Route.Custom
     {
+      Route.Custom.plan = finalize ?engine c;
       Route.Custom.name = "riscv32 coral " ^ c.Config.configuration;
       exec =
         (fun ~sites g ->

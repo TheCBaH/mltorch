@@ -253,6 +253,7 @@ let route ?mutation ?check ?(allocation = Allocation.Reference)
     ?(runtime = Rivet_a64_runtime.Dependency_free) () =
   Route.Route.Custom
     {
+      Route.Custom.plan = Result.ok;
       Route.Custom.name =
         Fmt.str "aarch64 native %s %s"
           (Allocation.name allocation)

@@ -69,7 +69,13 @@ end
 module M = Map.Make (Class)
 
 module Contract_call = struct
-  type t = { desc : Contraction.t; a : Region.t; b : Region.t; c : Region.t }
+  type t = {
+    desc : Contraction.t;
+    engine : Contraction.Select.Engine.t option;
+    a : Region.t;
+    b : Region.t;
+    c : Region.t;
+  }
 end
 
 module Attend_call = struct
@@ -164,10 +170,16 @@ let instr ~region acc w (i : Ssa_instr.t) =
         bump_assoc acc.attends
           { Attend_call.desc; q = region q; kv = region k; o = region o }
           w
-  | Ssa_op.Contract { desc; a; b; c } ->
+  | Ssa_op.Contract { desc; engine; a; b; c } ->
       acc.contracts <-
         bump_assoc acc.contracts
-          { Contract_call.desc; a = region a; b = region b; c = region c }
+          {
+            Contract_call.desc;
+            engine;
+            a = region a;
+            b = region b;
+            c = region c;
+          }
           w
   | Ssa_op.Const _ | Ssa_op.Mark _ | Ssa_op.Mark_lanes _ | Ssa_op.Local_alloc _
     ->
@@ -388,7 +400,10 @@ let pp ppf (t : t) =
     t.counts;
   List.iter
     (fun ((c : Contract_call.t), w) ->
-      Fmt.pf ppf "@,contract %s (%s %s %s) x%.0f" (Contraction.name c.desc)
+      Fmt.pf ppf "@,contract %s%s (%s %s %s) x%.0f" (Contraction.name c.desc)
+        (Option.fold ~none:""
+           ~some:(fun e -> " engine=" ^ Contraction.Select.Engine.name e)
+           c.engine)
         (Region.name c.a) (Region.name c.b) (Region.name c.c) w)
     t.contracts;
   List.iter

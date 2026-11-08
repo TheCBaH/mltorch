@@ -176,7 +176,7 @@ let check_buffers ctx block (op : Ssa_op.t) =
         List.exists (Ssa_id.Buffer.equal o)
           ([ q; k; v ] @ Option.fold ~none:[] ~some:(fun m -> [ m ]) mask)
       then fail ctx block (Buffer_aliased o)
-  | Ssa_op.Contract { desc; a; b; c } ->
+  | Ssa_op.Contract { desc; a; b; c; _ } ->
       let family = Ssa_op.contract_operands desc in
       check_access ctx block a ~family ~writes:false ~flat:true;
       check_access ctx block b ~family ~writes:false ~flat:true;

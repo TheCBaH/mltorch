@@ -79,7 +79,7 @@ let program (p : Ssa_program.t) =
     match s with
     | Ssa_stmt.Instr
         {
-          Ssa_instr.op = Ssa_op.Contract { desc; a; b; c };
+          Ssa_instr.op = Ssa_op.Contract { desc; a; b; c; _ };
           token = Some token;
           results = [ after ];
           _;

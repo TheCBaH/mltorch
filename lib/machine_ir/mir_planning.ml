@@ -22,12 +22,24 @@ module Fma = struct
     | _ -> None
 end
 
+module Contraction_engine = struct
+  type t = { desc : Contraction.t; engine : Contraction.Select.Engine.t }
+end
+
 module Capability = struct
-  type t = Fused_multiply_add | Helper of string | Vector_bits of int64
+  type t =
+    | Contraction_engine of Contraction_engine.t
+    | Fused_multiply_add
+    | Helper of string
+    | Vector_bits of int64
 
   let compare = Stdlib.compare
 
   let to_string = function
+    | Contraction_engine c ->
+        "contraction:"
+        ^ Contraction.Select.Engine.name c.engine
+        ^ ":" ^ Contraction.name c.desc
     | Fused_multiply_add -> "fma"
     | Helper h -> "helper:" ^ h
     | Vector_bits b -> "vector_bits:" ^ Int64.to_string b
@@ -41,6 +53,21 @@ module Capability = struct
           let tag = String.sub s 0 i in
           let rest = String.sub s (i + 1) (String.length s - i - 1) in
           match tag with
+          | "contraction" -> (
+              match String.index_opt rest ':' with
+              | None -> None
+              | Some j -> (
+                  let engine =
+                    Contraction.Select.Engine.of_name (String.sub rest 0 j)
+                  in
+                  let desc =
+                    Contraction.of_name
+                      (String.sub rest (j + 1) (String.length rest - j - 1))
+                  in
+                  match (engine, desc) with
+                  | Some engine, Some desc ->
+                      Some (Contraction_engine { desc; engine })
+                  | _ -> None))
           | "helper" when rest <> "" -> Some (Helper rest)
           | "vector_bits" ->
               Option.map (fun b -> Vector_bits b) (Int64.of_string_opt rest)
@@ -69,6 +96,17 @@ let make ~subject ~policy ~schedule ~precision ~lanes ~fma ~capabilities =
   }
 
 let equal (a : t) b = a = b
+
+let contraction_engines t =
+  List.filter_map
+    (function Capability.Contraction_engine c -> Some c | _ -> None)
+    t.capabilities
+
+let contraction_engine t desc =
+  List.find_map
+    (fun (c : Contraction_engine.t) ->
+      if c.desc = desc then Some c.engine else None)
+    (contraction_engines t)
 
 (* A field holds no newline; the serialized form is line-oriented. *)
 let clean s =
@@ -144,11 +182,14 @@ let of_string s =
 
 type mismatch =
   [ `Missing_planning_summary
+  | `Planning_contraction_mismatch
   | `Planning_subject_mismatch of string * string
   | `Unauthorized_contraction of Fma.t ]
 
 let pp_mismatch fmt : [< mismatch ] -> unit = function
   | `Missing_planning_summary -> Fmt.string fmt "no planning summary"
+  | `Planning_contraction_mismatch ->
+      Fmt.string fmt "contraction engines differ from the planned SSA"
   | `Planning_subject_mismatch (e, f) ->
       Fmt.pf fmt "planning summary is for %s, not %s" f e
   | `Unauthorized_contraction f ->

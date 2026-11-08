@@ -37,7 +37,8 @@ let%expect_test "32-lane plans are the binary32 oracle" =
           ("generic", None); ("riscv32", Some (M.Route.Riscv32 M.Stage.Scanned));
         ] );
     ];
-  [%expect {|
+  [%expect
+    {|
     relu then add over C=32, neon128_x32, generic (2 invocations): bitwise
     relu then add over C=32, neon128_x32, aarch64 (2 invocations): bitwise
     relu then add over C=32, neon128_x32, x86_64 (2 invocations): bitwise

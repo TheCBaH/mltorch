@@ -1119,3 +1119,24 @@ are unchanged, bit for bit, and a looped row costs about 0.5% more cycles
 (13694 -> 4895 against 4870 for a 9 x 32 x 64 Linear on the engine). With it
 fastvit's attention layer shape (49 tokens, 512 features, 16 heads) runs on
 the subsystem bitwise in 47,930,016 cycles.
+
+**Contraction engines selected before MIR (2026-11-08).** The Coral route's
+SSA finalizer supplies the manifest's matrix/vector capabilities (respecting
+`~engine:false`) to the generic `Ssa_contract_plan` pass. Its SSA output is what
+`Mir_model.prepare ~on_program` observes. Lowering carries each chosen engine
+in the checked planning summary; image/helper generation honors the recorded
+choice and refuses incompatible capabilities, with no silent engine fallback.
+Legacy direct unannotated helper artifacts keep their previous path. Packing,
+staging/DMA and overlay choices remain downstream and are not yet part of this
+SSA plan. Focused VME RTL matrix/vector and MPACT vector cases are bitwise.
+
+Engine-planning performance check: the retained legacy route (SSA finalizer
+set to identity) and the recorded-choice route were compared on all five
+contraction fixtures with both vector and matrix implementations. All twenty
+RTL runs were bitwise; each of the ten pairs had byte-identical ELFs and
+identical entry-call cycles. This is a hard inline-unit invariant, not a
+promotable cycle snapshot. The old VME fixture golden was stale (for example,
+linear 9x32 k64 recorded 13,694/4,895 while both paths now measure
+13,643/4,844). Five rows in that golden were refreshed after the counterfactual
+comparison. This is baseline maintenance, not a performance gain from moving
+the engine choice. Full repository and JavaScript inline checks also pass.

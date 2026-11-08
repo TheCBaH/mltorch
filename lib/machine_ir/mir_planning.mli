@@ -31,9 +31,16 @@ module Fma : sig
   val name : t -> string
 end
 
+(** A contraction implementation selected in the source plan. *)
+module Contraction_engine : sig
+  type t = { desc : Contraction.t; engine : Contraction.Select.Engine.t }
+end
+
 (** A capability the plan assumed of its executor. Closed and alphabetical. *)
 module Capability : sig
   type t =
+    | Contraction_engine of Contraction_engine.t
+        (** An implementation chosen in final SSA, not a late backend choice. *)
     | Fused_multiply_add
     | Helper of string  (** a named math helper, e.g. ["exp"] *)
     | Vector_bits of int64  (** the physical register width it planned for *)
@@ -64,6 +71,10 @@ val make :
   t
 
 val equal : t -> t -> bool
+val contraction_engines : t -> Contraction_engine.t list
+
+val contraction_engine :
+  t -> Contraction.t -> Contraction.Select.Engine.t option
 
 val to_string : t -> string
 (** Canonical text, one [key=value] line per field: the serialized form. *)
@@ -72,6 +83,7 @@ val of_string : string -> (t, [> `Malformed_summary of string ]) result
 
 type mismatch =
   [ `Missing_planning_summary
+  | `Planning_contraction_mismatch
   | `Planning_subject_mismatch of string * string  (** expected, found *)
   | `Unauthorized_contraction of Fma.t ]
 

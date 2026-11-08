@@ -59,23 +59,23 @@ let%expect_test "matrix products on the matrix engine and the vector unit" =
     {|
     linear 9x32 k64, vector unit (1 invocations): bitwise
     linear 9x32 k64, matrix engine (1 invocations): bitwise
-      cycles 13694 -> 4895 (2.80x); 2.692 -> 7.531 ops/cycle
+      cycles 13643 -> 4844 (2.82x); 2.702 -> 7.610 ops/cycle
     linear 9x32 k64, contracted (vector unit) (1 invocations): bitwise
     linear 9x32 k64 bias, vector unit (1 invocations): bitwise
     linear 9x32 k64 bias, matrix engine (1 invocations): bitwise
-      cycles 14019 -> 5219 (2.69x); 2.630 -> 7.063 ops/cycle
+      cycles 13856 -> 5057 (2.74x); 2.661 -> 7.290 ops/cycle
     linear 9x32 k64 bias, contracted (vector unit) (1 invocations): bitwise
     linear 7x29 k63 bias, vector unit (1 invocations): bitwise
     linear 7x29 k63 bias, matrix engine (1 invocations): bitwise
-      cycles 12035 -> 6347 (1.90x); 2.125 -> 4.030 ops/cycle
+      cycles 11507 -> 5820 (1.98x); 2.223 -> 4.395 ops/cycle
     linear 7x29 k63 bias, contracted (vector unit) (1 invocations): bitwise
     bmm 1x9x32 k64, vector unit (1 invocations): bitwise
     bmm 1x9x32 k64, matrix engine (1 invocations): bitwise
-      cycles 8287 -> 3518 (2.36x); 4.448 -> 10.479 ops/cycle
+      cycles 8240 -> 3472 (2.37x); 4.474 -> 10.618 ops/cycle
     bmm 1x9x32 k64, contracted (vector unit) (1 invocations): bitwise
     bmm 3x7x29 k63, vector unit (1 invocations): bitwise
     bmm 3x7x29 k63, matrix engine (1 invocations): bitwise
-      cycles 35499 -> 16861 (2.11x); 2.162 -> 4.551 ops/cycle
+      cycles 35392 -> 16754 (2.11x); 2.168 -> 4.580 ops/cycle
     bmm 3x7x29 k63, contracted (vector unit) (1 invocations): bitwise
     full tn (1 invocations): DIFFERS
     swapped operands (1 invocations): DIFFERS |}]

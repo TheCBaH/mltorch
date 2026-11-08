@@ -359,7 +359,7 @@ let instr cx depth (i : Ssa_instr.t) =
   | Ssa_op.Mark _ | Ssa_op.Mark_lanes _ -> no_result ()
   | Ssa_op.Attend _ ->
       raise (Ssa_c_ctx.Refused (`Unsupported_operation "an attention"))
-  | Ssa_op.Contract { desc = d; a; b; c } ->
+  | Ssa_op.Contract { desc = d; a; b; c; _ } ->
       (* the descriptor's own loop nest over the three buffers: binary32 only,
          each step as the numerics says (the host compiles with
          [-ffp-contract=off], so [Ordered] stays two roundings) *)

@@ -557,7 +557,7 @@ let exec_op st (i : Ssa_instr.t) =
             ~write:(fun off x ->
               write_cell st o Ssa_op.Encode.F32_exact ~at:(Int64.to_int off)
                 (F x))
-      | Ssa_op.Contract { desc; a; b; c } ->
+      | Ssa_op.Contract { desc; a; b; c; _ } ->
           (* the reference evaluator over the cells, binary32 as they are or
              bfloat16 widened; C is binary32 *)
           let decode id =

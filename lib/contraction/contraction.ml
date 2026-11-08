@@ -306,6 +306,12 @@ module Select = struct
     type t = Loops | Rvv | Zvt
 
     let name = function Loops -> "loops" | Rvv -> "rvv" | Zvt -> "zvt"
+
+    let of_name = function
+      | "loops" -> Some Loops
+      | "rvv" -> Some Rvv
+      | "zvt" -> Some Zvt
+      | _ -> None
   end
 
   module Reason = struct
@@ -333,6 +339,15 @@ module Select = struct
   module Capabilities = struct
     type t = { matrix : bool; vector : bool }
   end
+
+  let supports (c : Capabilities.t) (d : t) = function
+    | Engine.Loops -> d.numerics <> Numerics.Paired
+    | Engine.Rvv -> c.vector && d.numerics <> Numerics.Paired
+    | Engine.Zvt ->
+        c.matrix
+        && (d.numerics = Numerics.Paired
+           || Element.integer d.format
+           || (d.format = Element.F32 && d.numerics = Numerics.Ordered))
 
   let choose (c : Capabilities.t) (d : t) =
     match (c.matrix, d.format, d.numerics, c.vector) with

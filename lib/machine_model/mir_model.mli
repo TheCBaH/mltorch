@@ -75,10 +75,12 @@ val prepare :
     [false]) makes each one whose B is a constant with strided columns read a
     packed copy, built once when a context is created ({!Ssa_ir.Ssa_prepack});
     [sequence] (default [Reference]) is the form of the binary32 transcendentals
-    ({!Machine_lower.Mir_lower.Sequence}), the same bits either way;
-    [on_program] sees each planned invocation's SSA program, exactly the one
-    lowered (what a cost estimate counts), with the Machine IR region of each of
-    its buffers, once the route has made the invocation executable. A [Planned]
+    ({!Machine_lower.Mir_lower.Sequence}), the same bits either way; Custom
+    routes finalize implementation choices after SSA prepacking and before
+    lowering; a recorded contraction engine is carried into the compilation
+    summary. [on_program] sees that final SSA program, exactly the one lowered
+    (what a cost estimate counts), with the Machine IR region of each of its
+    buffers, once the route has made the invocation executable. A [Planned]
     pipeline is admitted unblocked: each invocation is lowered with the plan's
     own summary (its numerics, working precision and target), so its comparison
     oracle is the plan's, not the binary64 reference; a vector form the target

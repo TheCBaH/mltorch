@@ -45,7 +45,15 @@ end
 
 (** A contraction call and where its operands live. *)
 module Contract_call : sig
-  type t = { desc : Contraction.t; a : Region.t; b : Region.t; c : Region.t }
+  type t = {
+    desc : Contraction.t;
+    engine : Contraction.Select.Engine.t option;
+        (** The implementation selected in final SSA. [None] is a legacy,
+            unfinalized program whose engine the cost model still chooses. *)
+    a : Region.t;
+    b : Region.t;
+    c : Region.t;
+  }
 end
 
 (** An attention call and where its operands live ([kv]: K's, V's alike in every

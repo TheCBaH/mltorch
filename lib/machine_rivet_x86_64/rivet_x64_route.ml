@@ -223,6 +223,7 @@ let route ?(allocation = Allocation.Reference)
     ?(runtime = Machine_rivet_common.Rivet_runtime.Dependency_free) () =
   Route.Route.Custom
     {
+      Route.Custom.plan = Result.ok;
       Route.Custom.name =
         Fmt.str "x86_64 process %s %s"
           (Allocation.name allocation)
