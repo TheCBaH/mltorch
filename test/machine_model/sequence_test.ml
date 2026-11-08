@@ -35,7 +35,8 @@ let fixtures =
       (fun (name, _) ->
         String.starts_with ~prefix:"tanh gelu" name
         || String.starts_with ~prefix:"softmax" name)
-      (T.vector_fixtures @ T.transformer_fixtures @ T.transformer_bf16_fixtures)
+      (T.vector_fixtures @ T.transformer_fixtures @ T.transformer_bf16_fixtures
+     @ Transformer_fixtures.bf16_out)
 
 let routes =
   [
@@ -90,6 +91,15 @@ let%expect_test "fast sequences: Machine IR is the binary32 oracle" =
     tanh gelu mul bf16 1x33, scalar, generic (2 invocations): bitwise
     tanh gelu mul bf16 1x33, scalar, aarch64 scanned (2 invocations): bitwise
     tanh gelu mul bf16 1x33, scalar, x86_64 scanned (2 invocations): bitwise
+    tanh gelu mul bf16->bf16 2x160, scalar, generic (3 invocations): bitwise
+    tanh gelu mul bf16->bf16 2x160, scalar, aarch64 scanned (3 invocations): bitwise
+    tanh gelu mul bf16->bf16 2x160, scalar, x86_64 scanned (3 invocations): bitwise
+    tanh gelu mul bf16->bf16 1x67, scalar, generic (3 invocations): bitwise
+    tanh gelu mul bf16->bf16 1x67, scalar, aarch64 scanned (3 invocations): bitwise
+    tanh gelu mul bf16->bf16 1x67, scalar, x86_64 scanned (3 invocations): bitwise
+    tanh gelu mul bf16->bf16 1x33, scalar, generic (3 invocations): bitwise
+    tanh gelu mul bf16->bf16 1x33, scalar, aarch64 scanned (3 invocations): bitwise
+    tanh gelu mul bf16->bf16 1x33, scalar, x86_64 scanned (3 invocations): bitwise
     exp, neon128, generic (1 invocations): bitwise
     exp, neon128, aarch64 scanned (1 invocations): bitwise
     exp, neon128, x86_64 scanned (1 invocations): bitwise
@@ -119,7 +129,16 @@ let%expect_test "fast sequences: Machine IR is the binary32 oracle" =
     tanh gelu mul bf16 1x67, neon128, x86_64 scanned (2 invocations): bitwise
     tanh gelu mul bf16 1x33, neon128, generic (2 invocations): bitwise
     tanh gelu mul bf16 1x33, neon128, aarch64 scanned (2 invocations): bitwise
-    tanh gelu mul bf16 1x33, neon128, x86_64 scanned (2 invocations): bitwise |}]
+    tanh gelu mul bf16 1x33, neon128, x86_64 scanned (2 invocations): bitwise
+    tanh gelu mul bf16->bf16 2x160, neon128, generic (3 invocations): bitwise
+    tanh gelu mul bf16->bf16 2x160, neon128, aarch64 scanned (3 invocations): bitwise
+    tanh gelu mul bf16->bf16 2x160, neon128, x86_64 scanned (3 invocations): bitwise
+    tanh gelu mul bf16->bf16 1x67, neon128, generic (3 invocations): bitwise
+    tanh gelu mul bf16->bf16 1x67, neon128, aarch64 scanned (3 invocations): bitwise
+    tanh gelu mul bf16->bf16 1x67, neon128, x86_64 scanned (3 invocations): bitwise
+    tanh gelu mul bf16->bf16 1x33, neon128, generic (3 invocations): bitwise
+    tanh gelu mul bf16->bf16 1x33, neon128, aarch64 scanned (3 invocations): bitwise
+    tanh gelu mul bf16->bf16 1x33, neon128, x86_64 scanned (3 invocations): bitwise |}]
 
 (* The route suites' share: [exp], [erf] and both GELUs, a tail shape and a
    bfloat16 one. *)

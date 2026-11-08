@@ -20,6 +20,7 @@ module Sgnj = Rv32_kind.Sgnj
 type v = Mir_value.t
 
 type t =
+  | Vadd of v * v  (** [vadd.vv]: int32 lanes, modulo 2^32 *)
   | Vcast of Mir_type.t * v
       (** [vmv.v.v]: the lanes' bits at another lane type (binary32 and int32)
       *)
@@ -63,14 +64,33 @@ type t =
   | Vmv_v_x of Mir_type.t * v
       (** [vmv.v.x]: a word to every lane, as int32 lanes or a mask *)
   | Vnot of v  (** [vxor.vi] with -1: a mask's complement *)
+  | Vnsrl16 of v
+      (** sequence: [vnsrl.wi] by 0 at SEW 16, LMUL 2: a group's sixteen int32
+          lanes each truncated to sixteen bits, into half a group, under their
+          own configuration, which is then restored *)
+  | Vnsrl16_pair of v * v
+      (** sequence: [vnsrl.wi] by 0 at SEW 16, LMUL 1/2, of the first register
+          into the result and of the second into v0, then a tail-undisturbed
+          [vslideup.vi] by 4 at LMUL 1: two registers' int32 lanes truncated to
+          one register of eight 16-bit lanes; the result shares no register with
+          an operand *)
   | Vse32 of v * v  (** [vse32.v]: address, value *)
+  | Vse_int of Mir_width.t * int * v * v
+      (** sequence: [lanes] i16 lanes ([vse16.v]), a whole register or half a
+          group at LMUL 2, under their own configuration, which is then
+          restored: address, value *)
   | Vshift of Rv32_kind.Shift.t * int * v
       (** [vsll.vi], [vsrl.vi], [vsra.vi] on int32 lanes *)
   | Vsgnj of Sgnj.t * v * v
   | Vsse32 of v * v * v  (** [vsse32.v]: address, stride, value *)
 
 let uses = function
-  | Vfbin (_, a, b) | Vfcmp (_, a, b) | Vlogic (_, a, b) | Vsgnj (_, a, b) ->
+  | Vadd (a, b)
+  | Vfbin (_, a, b)
+  | Vfcmp (_, a, b)
+  | Vlogic (_, a, b)
+  | Vnsrl16_pair (a, b)
+  | Vsgnj (_, a, b) ->
       [ a; b ]
   | Vcast (_, a)
   | Vext { src = a; _ }
@@ -84,19 +104,24 @@ let uses = function
   | Vle32 (_, a)
   | Vmv a
   | Vmv_v_x (_, a)
-  | Vnot a ->
+  | Vnot a
+  | Vnsrl16 a ->
       [ a ]
-  | Vfredosum (a, b) | Vinsert (_, a, b) | Vlse32 (_, a, b) | Vse32 (a, b) ->
+  | Vfredosum (a, b)
+  | Vinsert (_, a, b)
+  | Vlse32 (_, a, b)
+  | Vse32 (a, b)
+  | Vse_int (_, _, a, b) ->
       [ a; b ]
   | Vfmacc (a, b, c) | Vmerge (a, b, c) | Vsse32 (a, b, c) -> [ a; b; c ]
 
 let ordered = function
-  | Vle32 _ | Vle_int _ | Vlse32 _ | Vse32 _ | Vsse32 _ -> true
+  | Vle32 _ | Vle_int _ | Vlse32 _ | Vse32 _ | Vse_int _ | Vsse32 _ -> true
   | _ -> false
 
 let constraints = function
   | Vfmacc _ -> [ Mir_target.Constraint.Tied { result = 0; use = 0 } ]
-  | Vext _ -> [ Mir_target.Constraint.Early_clobber 0 ]
+  | Vext _ | Vnsrl16_pair _ -> [ Mir_target.Constraint.Early_clobber 0 ]
   | _ -> []
 
 let lanes4 = Mir_type.Lanes.of_int 4
@@ -104,7 +129,8 @@ let f32x4 = Mir_type.Vec (Mir_type.Elem.F32, lanes4)
 let i32x4 = Mir_type.Vec (Mir_type.Elem.Int Mir_width.W32, lanes4)
 let mask4 = Mir_type.Mask lanes4
 
-(* sixteen 16-bit lanes: half a group, only ever widened *)
+(* sixteen 16-bit lanes: half a group, only ever widened or narrowed into
+   and stored *)
 let i16x16 =
   Mir_type.Vec (Mir_type.Elem.Int Mir_width.W16, Mir_type.Lanes.of_int 16)
 
@@ -152,6 +178,9 @@ let typing op =
   let fv a = is_f32v (ty a) in
   let same a b = is (ty a) (ty b) in
   match op with
+  | Vadd (a, b) ->
+      let* () = need (is_i32v (ty a) && same a b) "int32 lane operands" in
+      Ok [ ty a ]
   | Vcast (t, a) ->
       let q x = is_f32v x || is_i32v x in
       let* () =
@@ -267,6 +296,16 @@ let typing op =
   | Vnot a ->
       let* () = need (is_mask (ty a)) "mask operand" in
       Ok [ ty a ]
+  | Vnsrl16 a ->
+      let* () =
+        need
+          (is (ty a) (i32v (Mir_type.Lanes.of_int 16)))
+          "a group's int32 lanes"
+      in
+      Ok [ i16x16 ]
+  | Vnsrl16_pair (a, b) ->
+      let* () = need (is (ty a) i32x4 && is (ty b) i32x4) "int32 lanes" in
+      Ok [ int_register Mir_width.W16 ]
   | Vshift (o, k, a) ->
       let* () = need (is_i32v (ty a)) "shifted lanes" in
       let* () =
@@ -279,6 +318,15 @@ let typing op =
       let* () = need (is (ty base) Mir_type.Ptr) "vse32 address" in
       let* () = need (fv x || is_i32v (ty x)) "vse32 value" in
       Ok []
+  | Vse_int (w, n, base, x) ->
+      let* () = need (is (ty base) Mir_type.Ptr) "vse address" in
+      let t = Mir_type.Vec (Mir_type.Elem.Int w, Mir_type.Lanes.of_int n) in
+      let* () =
+        need
+          (w = Mir_width.W16 && (is t (int_register w) || n = 16) && is (ty x) t)
+          "stored 16-bit lanes"
+      in
+      Ok []
   | Vsse32 (base, stride, x) ->
       let* () = need (is (ty base) Mir_type.Ptr) "vsse32 address" in
       let* () = need (is (ty stride) Mir_type.i32) "vsse32 stride" in
@@ -288,6 +336,7 @@ let typing op =
 let pp pv fmt op =
   let vs = Fmt.(list ~sep:(any ", ") pv) in
   match op with
+  | Vadd (a, b) -> Fmt.pf fmt "vadd.vv %a" vs [ a; b ]
   | Vcast (t, a) -> Fmt.pf fmt "vmv.v.v.%a %a" Mir_type.pp t pv a
   | Vext { signed; from; first; src } ->
       Fmt.pf fmt "v%cext.%s[%d] %a"
@@ -313,7 +362,11 @@ let pp pv fmt op =
   | Vmv a -> Fmt.pf fmt "vmv.v.v %a" pv a
   | Vmv_v_x (t, a) -> Fmt.pf fmt "vmv.v.x.%a %a" Mir_type.pp t pv a
   | Vnot a -> Fmt.pf fmt "vnot.v %a" pv a
+  | Vnsrl16 a -> Fmt.pf fmt "vnsrl.wi.e16 %a" pv a
+  | Vnsrl16_pair (a, b) -> Fmt.pf fmt "vnsrl.wi.e16.pair %a" vs [ a; b ]
   | Vse32 (base, x) -> Fmt.pf fmt "vse32.v %a, (%a)" pv x pv base
+  | Vse_int (w, n, base, x) ->
+      Fmt.pf fmt "vse%d.v x%d %a, (%a)" (Mir_width.bits w) n pv x pv base
   | Vshift (o, k, a) -> Fmt.pf fmt "%s %a, %d" (Rv32_kind.Shift.name o) pv a k
   | Vsgnj (o, a, b) -> Fmt.pf fmt "%s %a" (Sgnj.vname o) vs [ a; b ]
   | Vsse32 (base, s, x) -> Fmt.pf fmt "vsse32.v %a, (%a), %a" pv x pv base pv s

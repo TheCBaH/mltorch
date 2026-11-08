@@ -15,6 +15,7 @@ type error =
   [ `Arange_i64_overflow of Factory.Arange.Overflow.t
   | `Embedding_index_out_of_range of Embedding.Embedding.Index_out_of_range.t
   | Tensor.dst_error
+  | `Unsupported_to_copy_bfloat16_source of Payload.packed_fmt
   | `Unsupported_to_copy_bool_source of Payload.packed_fmt
   | `Unsupported_to_copy_long_source of Payload.packed_fmt ]
 

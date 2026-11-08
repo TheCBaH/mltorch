@@ -32,16 +32,25 @@ module Result_conversion : sig
      change, not an optimisation. *)
   type t =
     | Nonzero_bool
+    | Round_bf16
     | Round_f32
         (** [Nonzero_bool] is the boundary of a Bool-declared value: the float
             body is mapped to exactly 0. or 1. (NaN and infinities true, both
-            zeros false) and stored as canonical Bool bytes. [Round_f32] is the
-            F32 boundary. *)
+            zeros false) and stored as canonical Bool bytes. [Round_bf16] is the
+            BF16 boundary: rounded to binary32, then to nearest even on the high
+            half, every NaN the canonical quiet [0x7FC0]
+            ([Expr.Value.round_bf16]). [Round_f32] is the F32 boundary. *)
 
   val apply : t -> float Expr.Value.t -> float Expr.Value.t
   (** The ONE place the round is expressed. Every consumer — interpreter and
       elaborator — goes through here, so [Expr.Eval]'s existing [Round_f32] case
       stays the only rounding code and the two cannot disagree. *)
+
+  val before_store : t -> float Expr.Value.t -> float Expr.Value.t
+  (** The value a lowered store's encode receives: [apply], except that
+      [Round_bf16] stops at binary32 and leaves the bfloat16 rounding to the
+      store ([Loop_stored.Bf16], [Ssa_op.Encode.Bf16_round]), so no bfloat16
+      rounding is ever an operation inside a Loop or SSA expression. *)
 
   val name : t -> string
 end

@@ -104,6 +104,9 @@ let unary_js : Expr.Value.unary_op -> B.num B.t -> B.num B.t = function
   | Expr.Value.Erf -> Loop_js_runtime.erf
   | Expr.Value.Exp -> B.Num.exp
   | Expr.Value.Log -> B.Num.log
+  | Expr.Value.Round_bf16 ->
+      invalid_arg
+        "Loop_js: a bfloat16 rounding is a store's encode, never an operation"
   | Expr.Value.Sin -> B.Num.sin
   | Expr.Value.Sqrt -> B.Num.sqrt
   | Expr.Value.Trunc -> B.Num.trunc
@@ -504,6 +507,13 @@ let rec stmt nm ~limits (s : Loop_stmt.t) : Js_ast.stmt list =
 and store nm ~limits:_ b addr value =
   let off = addr_offset nm b addr in
   match value with
+  | Loop_stored.Bf16 e ->
+      [
+        B.store
+          (B.Arr.bits (buffer nm b))
+          off
+          (Loop_js_runtime.float_to_bf16 (num nm e));
+      ]
   | Loop_stored.Bool e ->
       [ B.store (B.Arr.num (buffer nm b)) off (bool_cell (num nm e)) ]
   | Loop_stored.F32 (Loop_expr.Round_f32 e) ->

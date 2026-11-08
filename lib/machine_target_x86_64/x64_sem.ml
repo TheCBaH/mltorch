@@ -268,7 +268,19 @@ let exec env op =
               (Int64.shift_right (Mir_width.signed Mir_width.W32 l) k)
       in
       [ vec (Array.map shift (lanes env x)) ]
-  | Movap_cast (_, x) -> [ vec (lanes env x) ]
+  | Movap_cast (t, x) -> (
+      let l = lanes env x in
+      match X64_op.int_register t with
+      | Some Mir_width.W16 when Array.length l = 4 ->
+          (* the int32 lanes' halves, the low one first *)
+          [
+            vec
+              (Array.init 8 (fun j ->
+                   Int64.logand
+                     (Int64.shift_right_logical l.(j / 2) (16 * (j mod 2)))
+                     0xFFFFL));
+          ]
+      | _ -> [ vec l ])
   | Cvtps2pd x ->
       [ vec (Array.map (fun l -> N.of_f64 (N.f32 l)) (lanes env x)) ]
   | Flogic (o, fsz, x, y) ->
@@ -318,6 +330,38 @@ let exec env op =
                E.load env (lane_at env a pk j)
                  ~bytes:(lane_bytes (Pk.fsz pk))
                  ~align:1L));
+      ]
+  | Movup_istore (t, a, x) ->
+      let size = Mir_width.bytes (Option.get (X64_op.int_register t)) in
+      Array.iteri
+        (fun j l ->
+          match
+            Mir_memory.offset_by (address env a)
+              (Int64.mul (Int64.of_int j) size)
+          with
+          | Some p -> E.store env p ~bytes:size ~align:1L l
+          | None -> env.E.defect Mir_observation.Defect.Bad_access)
+        (lanes env x);
+      []
+  | Packssdw (x, y) ->
+      (* the first operand is int32 lanes typed as the result: rejoin them *)
+      let h = lanes env x in
+      let x =
+        Array.init
+          (Array.length h / 2)
+          (fun j -> Int64.logor h.(2 * j) (Int64.shift_left h.((2 * j) + 1) 16))
+      in
+      let sat l =
+        let s = Mir_width.signed Mir_width.W32 l in
+        Int64.logand (Int64.max (-32768L) (Int64.min 32767L s)) 0xFFFFL
+      in
+      [ vec (Array.map sat (Array.append x (lanes env y))) ]
+  | Paddd (x, y) ->
+      [
+        vec
+          (Array.map2
+             (fun p q -> Mir_width.normalize Mir_width.W32 (Int64.add p q))
+             (lanes env x) (lanes env y));
       ]
   | Movup_store (pk, a, x) ->
       Array.iteri

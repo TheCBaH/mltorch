@@ -116,7 +116,12 @@ contiguous `i8`/`i16` dequantization loads its integer lanes with `MOVUPS`
 `PSRAD` by 24 or 16) and converts with `CVTDQ2PS`. A zero extension
 (`Xt_lanes` unsigned) shifts down with `PSRLD`. The `f16`/`bf16` decodes add
 `PSLLD`/`PSRLD`/`PSRAD` by an immediate (`Pshift`, tied), `ANDPS`/`ORPS`/`XORPS`
-on int32 lanes and `MOVAPS` as a vector bitcast (`Movap_cast`). A process
+on int32 lanes and `MOVAPS` as a vector bitcast (`Movap_cast`). The `bf16`
+encode adds `PADDD` (`Paddd`), an int32 splat as `MOVD` and `PSHUFD`, and the
+narrowing of two registers into eight halfwords: each lane's low half
+sign-extended in place (`PSLLD` then `PSRAD` by 16), so the saturating
+`PACKSSDW` (`Packssdw`, tied to the first operand retyped by `Movap_cast`)
+keeps it exactly, stored with `MOVUPS` (`Movup_istore`). A process
 returns x86's default NaN (sign set) where the binary32 oracle and AArch64
 return a positive one, so checks over NaN-producing inputs compare NaNs as
 NaNs (payloads are not modelled).

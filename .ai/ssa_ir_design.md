@@ -143,9 +143,16 @@ its own name becomes its interface and hides its siblings (the lowering is
   nearest even on the high half of its bits, `Attention_block.bf16_round`) into
   a bfloat16 buffer: the only way a program produces bfloat16. Its operand is
   binary32 (a binary64 working value is converted first, which narrowing makes
-  the identity), so it needs no binary64 register on RV32. The interpreter, C
-  and Machine IR realize it; Wasm and JavaScript refuse it as unreachable, and
-  a vector store of it is lane-expanded (`Bool_store`'s class).
+  the identity), so it needs no binary64 register on RV32. A NaN's pattern
+  stores as the canonical `0x7FC0` (`Expr.Value.bf16_value`, tested on the
+  bits). A kernel value declared BF16 (`Kernel.Result_conversion.Round_bf16`)
+  stores through it too. The interpreter, C, Wasm, JavaScript and Machine IR
+  realize it. The vectorizer prices a vector store of it as an ordinary
+  contiguous or strided store, as it prices a bfloat16 load: Machine IR
+  rounds in int32 lanes and stores 16-bit lanes (the machine IR design
+  record), and the C and Wasm backends store such a vector lane by lane
+  through the scalar encode. A bfloat16 rounding as an operation
+  (`Float_unary Round_bf16`) is ill-typed.
 - **`Ssa_attention_layer`** builds a granted attention layer
   (`Attention_layer_block`) as a sequence of existing operations over its
   buffers and declared scratch (norm output, Q, K, V, attention output, output

@@ -82,7 +82,7 @@ let nest ctx (v : Kernel.Value.t) body =
   nest_with ctx ~id:v.Kernel.Value.id ~sg:v.Kernel.Value.sg (fun ctx ->
       Loop_lower_ctx.stored_of v
         (Loop_lower_value.value ctx
-           (Kernel.Result_conversion.apply v.Kernel.Value.result body)))
+           (Kernel.Result_conversion.before_store v.Kernel.Value.result body)))
 
 (* An int64 value is exact end to end: no conversion, and stored as int64. *)
 let nest_i64 ctx (v : Kernel.Value_i64.t) =

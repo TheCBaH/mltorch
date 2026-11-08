@@ -206,14 +206,8 @@ let lower_nest ctx ~canonical_shape ~canonical_partition ~locals ~emitters =
             in
             B.mark b Ssa_mark.Emitter;
             let x = Ssa_lower_value.value emitter_ctx e.output in
-            B.store_f64 b
-              (Ssa_lower_ctx.buffer_id e.value.Kernel.Value.id)
-              ~encode:
-                (match e.value.Kernel.Value.result with
-                | Kernel.Result_conversion.Nonzero_bool ->
-                    Ssa_op.Encode.Bool_nonzero
-                | Kernel.Result_conversion.Round_f32 -> Ssa_op.Encode.F32_round)
-              (B.Coord coord) x))
+            Ssa_lower_ctx.store_result b e.value.Kernel.Value.id
+              ~result:e.value.Kernel.Value.result (B.Coord coord) x))
       emitters
   in
   let uses_meter =
@@ -248,7 +242,7 @@ let lower ctx (v : Kernel.Value.t) (program : Region_program.t) =
               (fun a -> if singleton partition a then Some (a, a) else None)
               Expr.Axis.all;
           output =
-            Kernel.Result_conversion.apply v.Kernel.Value.result
+            Kernel.Result_conversion.before_store v.Kernel.Value.result
               (Region_program.output program);
         };
       ]
@@ -270,7 +264,7 @@ let lower_group ctx (g : Region_group.t)
              partition = e.Region_group.Emitter.partition;
              key_axes = e.Region_group.Emitter.key_axes;
              output =
-               Kernel.Result_conversion.apply v.Kernel.Value.result
+               Kernel.Result_conversion.before_store v.Kernel.Value.result
                  e.Region_group.Emitter.output;
            })
          members)

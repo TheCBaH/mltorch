@@ -118,9 +118,12 @@ module Big = struct
 end
 
 module Bits = struct
+  let add a b = Binary (Add, a, b)
   let and_ a b = Binary (Bit_and, a, b)
   let const n = lit n
   let eq a b = Binary (Eq_strict, a, b)
+  let hi16 a = Binary (Bit_and, Binary (Shr, a, lit 16), lit 0xFFFF)
+  let lo16 a = Binary (Bit_and, a, lit 0xFFFF)
   let or_ a b = Binary (Bit_or, a, b)
   let shl16 a = Binary (Shl, a, Number 16.)
   let shr a n = Binary (Shr, a, lit n)

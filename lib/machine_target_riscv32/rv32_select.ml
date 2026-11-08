@@ -486,6 +486,7 @@ let program ?mutation ?(register_bytes = 16L) ?(sites = [||])
             float_loads = float_loads f;
             int_slices = Mir_vsplit.widening_slices f;
             shift_counts = Mir_vsplit.shift_counts f;
+            narrowing_halves = Mir_vsplit.narrowing_halves f;
             reductions = fst chains;
             reduced = snd chains;
           }

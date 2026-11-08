@@ -274,6 +274,7 @@ let unary_kernel (op : Expr.Value.unary_op) =
     | Expr.Value.Erf -> Expr.Value.erf
     | Expr.Value.Exp -> Expr.Value.exp
     | Expr.Value.Log -> Expr.Value.log
+    | Expr.Value.Round_bf16 -> Expr.Value.round_bf16
     | Expr.Value.Sin -> Expr.Value.sin
     | Expr.Value.Sqrt -> Expr.Value.sqrt
     | Expr.Value.Trunc -> Expr.Value.trunc

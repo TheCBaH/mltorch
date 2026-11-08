@@ -18,6 +18,7 @@ module Name : sig
         (** [FLT_EVAL_METHOD == 0] asserted: what every fp32 kernel needs *)
     | Float_max
     | Float_max_f32
+    | Float_to_bf16
     | Floor_div
     | I64_div
     | I64_from_float

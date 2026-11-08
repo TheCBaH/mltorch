@@ -84,6 +84,19 @@ let tensor_of ~shape (b : Ssa_buffer.t) cells =
       Tensor.materialize_bool shape (fun c -> a.(at c) <> 0.)
   | Ssa_format.I64, Ssa_memory.Int64s a ->
       Tensor.materialize_i64 shape (fun c -> a.(at c))
+  | Ssa_format.Bf16, Ssa_memory.Ints a ->
+      (* the stored bits as they are: a NaN keeps its pattern *)
+      let data =
+        Bigarray.(
+          Array1.create int16_unsigned c_layout (Vec6.numel shape :> int))
+      in
+      Vec6.iter shape (fun c -> data.{at c} <- a.(at c) land 0xFFFF);
+      Tensor.Tensor
+        {
+          shape;
+          payload =
+            { Payload.fmt = Payload.BF16; quant = Payload.No_quant; data };
+        }
   | _ -> invalid_arg "Ssa_exec: cells do not match the buffer format"
 
 let run ?counters ?fused ?(engine = Structured) (plan : Fusion_plan.t)

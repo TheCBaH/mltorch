@@ -15,7 +15,7 @@ module Input = struct
 end
 
 module Result_conversion = struct
-  type t = Nonzero_bool | Round_f32
+  type t = Nonzero_bool | Round_bf16 | Round_f32
 
   (* [Value_eq] rather than [<>]: NaN is unequal to zero, so it is true. *)
   let apply t e =
@@ -24,10 +24,17 @@ module Result_conversion = struct
         Expr.Value.select
           (Expr.Bool.value_eq e (Expr.Value.const 0.))
           (Expr.Value.const 0.) (Expr.Value.const 1.)
+    | Round_bf16 -> Expr.Value.round_bf16 e
     | Round_f32 -> Expr.Value.round_f32 e
+
+  let before_store t e =
+    match t with
+    | Round_bf16 -> Expr.Value.round_f32 e
+    | Nonzero_bool | Round_f32 -> apply t e
 
   let name = function
     | Nonzero_bool -> "nonzero_bool"
+    | Round_bf16 -> "round_bf16"
     | Round_f32 -> "round_f32"
 end
 
@@ -403,8 +410,9 @@ let materializable id role (sg : Tensor_sig.t) =
 (* A value's conversion must be the one that produces its declared storage. *)
 let conversion_agrees (v : Value.t) =
   match (v.Value.sg.Tensor_sig.fmt, v.Value.result) with
-  | Payload.Fmt Payload.F32, Result_conversion.Round_f32
-  | Payload.Fmt Payload.Bool, Result_conversion.Nonzero_bool ->
+  | Payload.Fmt Payload.BF16, Result_conversion.Round_bf16
+  | Payload.Fmt Payload.Bool, Result_conversion.Nonzero_bool
+  | Payload.Fmt Payload.F32, Result_conversion.Round_f32 ->
       Err.return ()
   | fmt, result ->
       Err.fail

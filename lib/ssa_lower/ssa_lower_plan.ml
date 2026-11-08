@@ -66,10 +66,6 @@ let input_sources (k : Kernel.t) =
     (List.rev bound_buffers, bound_sources)
     fills
 
-let encode_of : Kernel.Result_conversion.t -> Ssa_op.Encode.t = function
-  | Kernel.Result_conversion.Nonzero_bool -> Ssa_op.Encode.Bool_nonzero
-  | Kernel.Result_conversion.Round_f32 -> Ssa_op.Encode.F32_round
-
 (* The consumer's body, with its one virtual producer (if any) inlined by the
    capture-safe elaborator. Lowering never substitutes a producer body itself:
    the proof layer compares that same tree, and [Kernel_eval], which reaches the
@@ -134,13 +130,11 @@ let nest ctx plan (v : Kernel.Value.t) pixel =
   nest_with ctx ~id:v.Kernel.Value.id ~sg:v.Kernel.Value.sg (fun ctx axes ->
       let x =
         Ssa_lower_value.value ctx
-          (Kernel.Result_conversion.apply v.Kernel.Value.result
+          (Kernel.Result_conversion.before_store v.Kernel.Value.result
              (body ctx plan v pixel))
       in
-      Ssa_builder.store_f64 ctx.Ssa_lower_ctx.b
-        (Ssa_lower_ctx.buffer_id v.Kernel.Value.id)
-        ~encode:(encode_of v.Kernel.Value.result)
-        (Ssa_builder.Coord axes) x)
+      Ssa_lower_ctx.store_result ctx.Ssa_lower_ctx.b v.Kernel.Value.id
+        ~result:v.Kernel.Value.result (Ssa_builder.Coord axes) x)
 
 (* An int64 value is exact end to end: no conversion, stored as int64. *)
 let nest_i64 ctx (v : Kernel.Value_i64.t) =

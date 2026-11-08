@@ -142,9 +142,19 @@ end
     The only producer of a bitwise operator. *)
 
 module Bits : sig
+  val add : bits16 t -> bits16 t -> bits16 t
+  (** [a + b], for a sum below 2^31 (a carry out of a 16-bit half). *)
+
   val and_ : bits16 t -> bits16 t -> bits16 t
   val const : int -> bits16 t
   val eq : bits16 t -> bits16 t -> bool_ t
+
+  val hi16 : bits32 t -> bits16 t
+  (** [(a >> 16) & 0xFFFF]: the high half of a 32-bit pattern. *)
+
+  val lo16 : bits32 t -> bits16 t
+  (** [a & 0xFFFF]: the low half. *)
+
   val or_ : bits16 t -> bits16 t -> bits16 t
   val shl16 : bits16 t -> bits32 t
   val shr : bits16 t -> int -> bits16 t

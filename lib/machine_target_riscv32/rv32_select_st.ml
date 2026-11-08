@@ -59,6 +59,9 @@ type st = {
           the first lane and the register *)
   shift_counts : (int, int64) Hashtbl.t;
       (** an integer splat read only as a lane shift count: the count *)
+  narrowing_halves : (int, Mir_value.t) Hashtbl.t;
+      (** an [i16x4] truncation read only by a join into an [i16x8]: its
+          [int32x4] source ({!Mir_vsplit.narrowing_halves}) *)
   reductions : (int, Mir_value.t * Mir_value.t) Hashtbl.t;
       (** the last add of a chain [acc + lane k] over every lane of one vector
           in lane order: its seed and the vector, one [vfredosum.vs] *)

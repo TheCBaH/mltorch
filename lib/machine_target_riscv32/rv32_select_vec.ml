@@ -57,11 +57,17 @@ let vector st (i : Mir_op.t Mir_instr.t) =
   let shift_count (v : Mir_value.t) =
     Hashtbl.find_opt st.shift_counts (key v)
   in
+  let narrowing_half (v : Mir_value.t) =
+    Hashtbl.find_opt st.narrowing_halves (key v)
+  in
   (* a fused slice or count lives in no register: its consumer reads it *)
   let lane_type (v : Mir_value.t) =
     match Rv32.shape (ty v) with
     | Some (Mir_target.Bank.Vector, _) -> ()
-    | _ when Option.is_some (int_slice v) || Option.is_some (shift_count v) ->
+    | _
+      when Option.is_some (int_slice v)
+           || Option.is_some (shift_count v)
+           || Option.is_some (narrowing_half v) ->
         ()
     | _ -> refuse st (Refusal.Width (ty v))
   in
@@ -71,6 +77,21 @@ let vector st (i : Mir_op.t Mir_instr.t) =
          match ty v with Mir_type.Vec _ | Mir_type.Mask _ -> true | _ -> false)
        (Mir_op.operands i.Mir_instr.op @ i.Mir_instr.results));
   match i.Mir_instr.op with
+  | Mir_op.Itrunc (Mir_width.W16, _) when Option.is_some (narrowing_half (r ()))
+    ->
+      (* made by the join that reads it *)
+      ()
+  | Mir_op.Vconcat [ a; b ]
+    when Option.is_some (narrowing_half a) && Option.is_some (narrowing_half b)
+    ->
+      let source h = u (Option.get (narrowing_half h)) in
+      def (V.Vnsrl16_pair (source a, source b))
+  | Mir_op.Itrunc (Mir_width.W16, a)
+    when Mir_type.equal (ty a) (V.i32v (Mir_type.Lanes.of_int 16)) ->
+      (* a group's lanes into half a group *)
+      def (V.Vnsrl16 (u a))
+  | Mir_op.Iarith (Mir_op.Iarith.Add, a, b) when V.is_i32v (ty a) ->
+      def (V.Vadd (u a, u b))
   | Mir_op.Vslice _ when Option.is_some (int_slice (r ())) ->
       (* made by the extensions that read it *)
       ()
@@ -236,6 +257,18 @@ let vector st (i : Mir_op.t Mir_instr.t) =
             [ r () ]
             (Mir_sel.Op.Machine (Rv32_op.Vec (V.Vlse32 (t, addr, stride))))
       | _ -> refuse st (Refusal.Width t))
+  | Mir_op.Vstore
+      ({ Mir_op.Vaccess.addr; stride = 2L; elem = Mir_type.Elem.Int w; _ }, x)
+    when w = Mir_width.W16 ->
+      (* a whole register of 16-bit lanes, or half a group *)
+      let t = ty x in
+      if not (Mir_type.equal t (V.int_register w) || Mir_type.equal t V.i16x16)
+      then refuse st (Refusal.Width t);
+      let n =
+        match t with Mir_type.Vec (_, n) -> Mir_type.Lanes.to_int n | _ -> 0
+      in
+      push st ?order []
+        (Mir_sel.Op.Machine (Rv32_op.Vec (V.Vse_int (w, n, u addr, u x))))
   | Mir_op.Vstore ({ Mir_op.Vaccess.addr; stride; _ }, x) -> (
       let addr = u addr and x = u x in
       match stride with

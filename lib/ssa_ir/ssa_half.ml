@@ -7,11 +7,14 @@
 let bf16_to_float bits =
   Int32.float_of_bits (Int32.shift_left (Int32.of_int (bits land 0xFFFF)) 16)
 
-(* The bfloat16 a value stores as: rounded to binary32, then to nearest even on
-   the high half of its bit pattern, the [Attention_block.bf16_round] rule. *)
+(* The bfloat16 a value stores as: [Expr.Value.bf16_value], rounded to
+   binary32, then to nearest even on the high half of its bit pattern (the
+   [Attention_block.bf16_round] rule), every NaN the canonical quiet [0x7FC0]. *)
 let float_to_bf16 x =
-  let r = Attention_block.bf16_round (F32_math.round32 x) in
-  Int32.to_int (Int32.shift_right_logical (Int32.bits_of_float r) 16)
+  Int32.to_int
+    (Int32.shift_right_logical
+       (Int32.bits_of_float (Expr.Value.bf16_value x))
+       16)
   land 0xFFFF
 
 (* IEEE binary16: 1 sign, 5 exponent (bias 15), 10 mantissa. *)

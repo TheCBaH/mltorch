@@ -372,11 +372,17 @@ census slice that will admit it.
   bitcast, or (`f16`) `(h << 17) >> 4` as binary32 bits times 2^112 (exact,
   a subnormal operand included), an infinity or NaN (a product at or above
   2^16) given the all-ones exponent by `or`, and the sign `or`ed last, every
-  NaN's bits kept. Integer vectors take `iarith` lane by lane (a shift's count
+  NaN's bits kept. A `bf16` encode of binary32 lanes into contiguous cells
+  whose run fills whole registers is the reverse, in `i32` lanes: the bits
+  plus `0x7FFF` plus the kept half's lowest bit, shifted down 16, a lane
+  unequal to itself (a NaN) selecting the canonical `0x7FC0`, then `itrunc`
+  to `i16` lanes (typed lane by lane on an integer vector) and one 16-bit
+  `vstore`; any other `bf16` encode is each lane extracted and stored
+  through the scalar encode. Integer vectors take `iarith` lane by lane (a shift's count
   a splatted constant, which the verifier requires and
   `Mir_vsplit.shift_counts` names so a selector shifts by the immediate) and
-  `bitcast` between `i32` and `f32` lanes. Any other integer vector stays
-  refused. A `vec.splat` of a predicate is a mask.
+  `bitcast` between `i32` and `f32` lanes, and `itrunc` to narrower lanes.
+  Any other integer vector stays refused. A `vec.splat` of a predicate is a mask.
   `vec.iota` is the splat of `f64(base)` plus inserted lane constants (each
   exact below 2^53). The oracle is the plan's own (`Ssa_plan.oracle`: every
   vector spelled out lane by lane, at the plan's precision); binary32 plans
@@ -390,11 +396,18 @@ census slice that will admit it.
   order), and extracts and inserts touch the slice holding the lane. A
   precision conversion changes how many lanes a slice holds, so a widening
   converts each half of a narrow slice (`vslice`) and a narrowing joins two
-  converted halves (`vconcat`). A narrow integer vector smaller than the unit
-  (sixteen 16-bit lanes under 64-byte register groups) is one fractional
-  slice when every value of its type is only widened to 32 bits (no other
-  use, no block parameter or edge): the widening fills whole units, so no
-  fractional value outlives it. The split program runs on the generic
+  converted halves (`vconcat`); a lane truncation (`itrunc`) likewise joins
+  the truncated source slices, which `Mir_vsplit.narrowing_halves` names so a
+  selector makes the joined register from the two `i32x4` sources at once
+  (AArch64 `UZP1 .8H`; x86-64 `PSLLD`/`PSRAD` by 16 then `PACKSSDW`, exact
+  once each lane is its low half sign-extended; RV32 two `vnsrl.wi` at
+  e16/mf2 joined by a tail-undisturbed `vslideup.vi`). A narrow integer
+  vector smaller than the unit (sixteen 16-bit lanes under 64-byte register
+  groups) is one fractional slice when every value of its type is only
+  widened to 32 bits or stored (no other use, no block parameter or edge):
+  the widening fills whole units and the store ends the value, so no
+  fractional value outlives either; RV32 narrows a group into it with one
+  `vnsrl.wi` at e16/m2 and stores it with `vse16.v`. The split program runs on the generic
   interpreter against the plan's oracle; swapped or stale slices are caught.
   A mask is split like the vector it was compared from: its lane width is
   that vector's elements', found by a fixpoint from the compares that make

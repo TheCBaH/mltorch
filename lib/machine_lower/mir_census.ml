@@ -200,7 +200,11 @@ let rec op_row (op : Ssa_op.t) =
             ~disposition:(Disposition.Helper "exp")
       | Expr.Value.Cos | Expr.Value.Exp | Expr.Value.Log | Expr.Value.Sin ->
           row name Slice.Helpers "call libm (binary32: fext; call; fround)"
-            ~disposition:(Disposition.Helper (Ssa_op.unary_name u)))
+            ~disposition:(Disposition.Helper (Ssa_op.unary_name u))
+      | Expr.Value.Round_bf16 ->
+          row name Slice.Storage
+            "never an operation: Ssa_typing rejects it; the store's \
+             Encode.Bf16_round")
   | Ssa_op.I64_arith (o, _, _) ->
       row
         ("i64." ^ Ssa_op.I64_op.name o)

@@ -2,7 +2,7 @@
    units depend on this module, never on the [Expr] library façade. *)
 
 type binary_op = Add | Div | Mul | Sub
-type unary_op = Cos | Erf | Exp | Log | Sin | Sqrt | Trunc
+type unary_op = Cos | Erf | Exp | Log | Round_bf16 | Sin | Sqrt | Trunc
 
 (* Same-width modular two's-complement results (design's initial I64 policy,
    see .ai/) -- [Int64.add]/[sub]/[mul] already wrap this way, so [i64_binary]

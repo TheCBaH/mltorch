@@ -48,6 +48,7 @@ end
 
 module Mutation = struct
   type t =
+    | Bf16_nan_dropped
     | Channel_zero
     | Charge_after_body
     | Conversion_order

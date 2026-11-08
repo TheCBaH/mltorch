@@ -55,6 +55,7 @@ and pred ~f (p : Loop_expr.pred) : Loop_expr.pred =
   | Loop_bool.Value_lt (a, b) -> Loop_bool.Value_lt (expr ~f a, expr ~f b)
 
 let stored ~f : Loop_stored.t -> Loop_stored.t = function
+  | Loop_stored.Bf16 e -> Loop_stored.Bf16 (expr ~f e)
   | Loop_stored.Bool e -> Loop_stored.Bool (expr ~f e)
   | Loop_stored.F32 e -> Loop_stored.F32 (expr ~f e)
   | Loop_stored.I64 e -> Loop_stored.I64 (expr ~f e)

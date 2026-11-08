@@ -46,6 +46,19 @@ let tensor_outputs (p : Ssa_program.t) m =
                (Tensor_id.of_int (b.Ssa_buffer.id :> int))
                m
            with
+          | Some
+              (Tensor.Tensor
+                 { Tensor.payload = { Payload.fmt = Payload.BF16; data; _ }; _ })
+            when b.Ssa_buffer.format = Ssa_format.Bf16 ->
+              (* the stored bits, as the generic route reads a 16-bit cell *)
+              Vec6.iter shape (fun c ->
+                  let i = (Vec6.offset shape c :> int) in
+                  cells.(i) <-
+                    Some
+                      {
+                        Mir_const.ty = Mir_type.i64;
+                        bits = Int64.of_int data.{i};
+                      })
           | Some t ->
               Vec6.iter shape (fun c ->
                   cells.((Vec6.offset shape c :> int)) <-

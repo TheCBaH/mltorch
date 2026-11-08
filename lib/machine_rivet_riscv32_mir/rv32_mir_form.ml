@@ -236,7 +236,20 @@ let vitems env (op : Rv32_vop.t) ~(uses : Loc.t list) ~(defs : Loc.t list) :
   and d k = name env "def" (nth env "def" defs k) in
   let ru k = A.reg (u k) and rd k = A.reg (d k) in
   let module V = Rv32_vop in
+  (* [vsetivli] at a narrow element width *)
+  let narrow ~vl ~sew ~lmul ?(tail = "ta") () =
+    i "vsetivli"
+      [
+        A.reg "zero";
+        A.imm vl;
+        A.sym (Printf.sprintf "e%d" sew);
+        A.sym lmul;
+        A.sym tail;
+        A.sym "ma";
+      ]
+  in
   match op with
+  | V.Vadd _ -> [ i "vadd.vv" [ rd 0; ru 0; ru 1 ] ]
   | V.Vcast _ | V.Vmv _ -> (
       match nth env "def" defs 0 with
       | Loc.Reg { Mir_target.View.span = Mir_target.Span.Four; _ } ->
@@ -343,7 +356,33 @@ let vitems env (op : Rv32_vop.t) ~(uses : Loc.t list) ~(defs : Loc.t list) :
       ]
   | V.Vmv_v_x _ -> [ i "vmv.v.x" [ rd 0; ru 0 ] ]
   | V.Vnot _ -> [ i "vxor.vi" [ rd 0; ru 0; A.imm (-1) ] ]
+  | V.Vnsrl16 _ ->
+      (* a group's int32 lanes to half a group of 16-bit ones *)
+      [
+        narrow ~vl:16 ~sew:16 ~lmul:"m2" ();
+        i "vnsrl.wi" [ rd 0; ru 0; A.imm 0 ];
+        vsetivli ~config:Vconfig.M4 ();
+      ]
+  | V.Vnsrl16_pair _ ->
+      (* each register's four lanes to 16 bits, the second's slid up above
+         the first's *)
+      [
+        narrow ~vl:4 ~sew:16 ~lmul:"mf2" ();
+        i "vnsrl.wi" [ rd 0; ru 0; A.imm 0 ];
+        i "vnsrl.wi" [ A.reg v0; ru 1; A.imm 0 ];
+        narrow ~vl:8 ~sew:16 ~lmul:"m1" ~tail:"tu" ();
+        i "vslideup.vi" [ rd 0; A.reg v0; A.imm 4 ];
+        vsetivli ();
+      ]
   | V.Vse32 _ -> [ i "vse32.v" [ ru 1; A.mem (u 0) 0 ] ]
+  | V.Vse_int (w, n, _, _) ->
+      (* a register, or half a group at LMUL 2 *)
+      let b = Mir_width.bits w in
+      [
+        narrow ~vl:n ~sew:b ~lmul:(if n * b > 128 then "m2" else "m1") ();
+        i (Printf.sprintf "vse%d.v" b) [ ru 1; A.mem (u 0) 0 ];
+        vsetivli ();
+      ]
   | V.Vsgnj (o, _, _) -> [ i (Rv32_kind.Sgnj.vname o) [ rd 0; ru 0; ru 1 ] ]
   | V.Vsse32 _ -> [ i "vsse32.v" [ ru 2; A.mem (u 0) 0; ru 1 ] ]
 

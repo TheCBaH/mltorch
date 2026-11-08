@@ -169,10 +169,19 @@ let encode st addr (enc : Ssa_op.Encode.t) v =
       let rounded =
         ar Mir_op.Iarith.Add b (ar Mir_op.Iarith.Add (i32k st 0x7FFFL) lsb)
       in
-      store Mir_width.W16 2L
-        (emit st
-           (Mir_op.Itrunc
-              (Mir_width.W16, ar Mir_op.Iarith.Shr_u rounded (i32k st 16L))))
+      (* a NaN's pattern is the canonical [0x7FC0]: [0x7F800000 <u |b|] *)
+      let nan =
+        emit st
+          (Mir_op.Icmp
+             ( Mir_op.Icmp.Ult,
+               i32k st 0x7F80_0000L,
+               ar Mir_op.Iarith.And b (i32k st 0x7FFF_FFFFL) ))
+      in
+      let high =
+        select st nan (i32k st 0x7FC0L)
+          (ar Mir_op.Iarith.Shr_u rounded (i32k st 16L))
+      in
+      store Mir_width.W16 2L (emit st (Mir_op.Itrunc (Mir_width.W16, high)))
   | Ssa_op.Encode.Bool_nonzero ->
       (* [v <> 0.]: a NaN stores 1 *)
       let zero = emit st (Mir_op.Fcmp (Mir_op.Fcmp.Eq, v, f64k st 0.)) in

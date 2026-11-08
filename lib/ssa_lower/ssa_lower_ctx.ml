@@ -51,3 +51,17 @@ let refuse ctx construct =
     (`Unsupported { Ssa_unsupported.at = ctx.at; construct } : error)
 
 let buffer_id id = Ssa_id.Buffer.of_int (Tensor_id.to_int id)
+
+(* A value's store through its boundary's encode. [x] is
+   [Kernel.Result_conversion.before_store]'s value; a bfloat16 store takes a
+   binary32 operand, which that value already is exactly. *)
+let store_result b id ~(result : Kernel.Result_conversion.t) at x =
+  match result with
+  | Kernel.Result_conversion.Nonzero_bool ->
+      Ssa_builder.store_f64 b (buffer_id id) ~encode:Ssa_op.Encode.Bool_nonzero
+        at x
+  | Kernel.Result_conversion.Round_bf16 ->
+      Ssa_builder.store_bf16 b (buffer_id id) at (Ssa_builder.f64_to_f32 b x)
+  | Kernel.Result_conversion.Round_f32 ->
+      Ssa_builder.store_f64 b (buffer_id id) ~encode:Ssa_op.Encode.F32_round at
+        x

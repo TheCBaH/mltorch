@@ -179,6 +179,7 @@ type t =
       (** DUP Vd.T, Wn/Xn: a general register of all ones or zero to every lane,
           which makes the mask *)
   | Dup_lane of Fsz.t * int * v  (** DUP Sd/Dd, Vn.Ts[k]: a lane as a scalar *)
+  | Dup_w of v  (** DUP Vd.4S, Wn: four int32 lanes the W *)
   | Ext of { signed : bool; from : Mir_width.t; src : v }
       (** SXTB, SXTH, UXTB, UXTH: a W register from a byte or halfword *)
   | Fbin of Fop.t * Fsz.t * v * v
@@ -231,6 +232,8 @@ type t =
   | Str of Msz.t * v * int64 * v  (** base, imm, value *)
   | Str_idx of Msz.t * v * v * v
       (** [base, Wm, SXTW #log2 size]: base, index, value *)
+  | Str_ivec of Mir_type.t * v * int64 * v
+      (** STR Qt, [Xn, #imm]: a register of integer lanes ([int_register]) *)
   | Str_vec of Arr.t * v * int64 * v
       (** STR Qt or Dt, [Xn, #imm]: base, value *)
   | Sub of Sz.t * v * v
@@ -239,6 +242,10 @@ type t =
   | Trunc of Mir_width.t * v
       (** UXTB, UXTH: a byte or halfword value from the low bits of a W *)
   | Uxtw of v  (** X from W, zero-extended (a W move) *)
+  | Uzp1_h of v * v
+      (** UZP1 Vd.8H, Vn.8H, Vm.8H: the low halfword of each int32 lane of [a],
+          then of [b]: eight lanes each truncated to sixteen bits *)
+  | Vadd_w of v * v  (** ADD Vd.4S, Vn.4S, Vm.4S: int32 lanes, modulo 2^32 *)
   | Vbit of Arr.t * v * v * v
       (** BIT Vd.16b, Vn.16b, Vm.16b over [else; then; mask]: bit by bit, [then]
           where the mask is set and [else] elsewhere; the result takes [else]'s
@@ -283,6 +290,8 @@ let uses = function
   | Ldr_idx (_, a, b)
   | St1_lane (_, _, a, b)
   | Vfbin (_, _, a, b)
+  | Uzp1_h (a, b)
+  | Vadd_w (a, b)
   | Vfcmp (_, _, a, b)
   | Vlogic (_, a, b) ->
       [ a; b ]
@@ -294,6 +303,7 @@ let uses = function
   | Dup_half (_, a)
   | Dup_mask (_, a)
   | Dup_lane (_, _, a)
+  | Dup_w a
   | Ext { src = a; _ }
   | Fcvt (_, a)
   | Fcvtl a
@@ -336,7 +346,8 @@ let uses = function
   | Vbit (_, a, b, c)
   | Vfmla (_, a, b, c) ->
       [ a; b; c ]
-  | Str (_, base, _, x) | Str_vec (_, base, _, x) -> [ base; x ]
+  | Str (_, base, _, x) | Str_ivec (_, base, _, x) | Str_vec (_, base, _, x) ->
+      [ base; x ]
   | Str_idx (_, base, i, x) -> [ base; i; x ]
 
 let test_uses = function
@@ -349,7 +360,7 @@ let test_flags_read = function
 
 let ordered = function
   | Bl _ | Ld1_lane _ | Ld1r _ | Ldr _ | Ldr_idx _ | Ldr_ivec _ | Ldr_vec _
-  | St1_lane _ | Str _ | Str_idx _ | Str_vec _ ->
+  | St1_lane _ | Str _ | Str_idx _ | Str_ivec _ | Str_vec _ ->
       true
   | _ -> false
 
@@ -423,12 +434,13 @@ let op_features = function
       if List.exists fp (results @ List.map (fun (a : v) -> a.Mir_value.ty) args)
       then [ Mir_target.Feature.Fp ]
       else []
-  | Dup_elem _ | Dup_half _ | Dup_lane _ | Dup_mask _ | Fbin _ | Fcmp _
-  | Fcsel _ | Fcvt _ | Fcvtl _ | Fcvtn _ | Fcvtzs _ | Fmadd _ | Fmov _
+  | Dup_elem _ | Dup_half _ | Dup_lane _ | Dup_mask _ | Dup_w _ | Fbin _
+  | Fcmp _ | Fcsel _ | Fcvt _ | Fcvtl _ | Fcvtn _ | Fcvtzs _ | Fmadd _ | Fmov _
   | Fmov_from_gpr _ | Fmov_to_gpr _ | Funary _ | Ins_half _ | Ins_lane _
   | Ld1_lane _ | Ld1r _ | Ldr_ivec _ | Ldr_vec _ | Scvtf _ | Scvtf_vec _
-  | St1_lane _ | Str_vec _ | Vbit _ | Vcast _ | Vfbin _ | Vfcmp _ | Vfmla _
-  | Vfunary _ | Vlogic _ | Vmov _ | Vnot _ | Vshift _ | Vwiden _ | Xtl_w _ ->
+  | St1_lane _ | Str_ivec _ | Str_vec _ | Uzp1_h _ | Vadd_w _ | Vbit _ | Vcast _
+  | Vfbin _ | Vfcmp _ | Vfmla _ | Vfunary _ | Vlogic _ | Vmov _ | Vnot _
+  | Vshift _ | Vwiden _ | Xtl_w _ ->
       [ Mir_target.Feature.Fp ]
   | Ldr ((Msz.S | Msz.D), _, _)
   | Ldr_idx ((Msz.S | Msz.D), _, _)
@@ -624,6 +636,9 @@ let typing op =
       match Arr.mask_ty arr with
       | Some m -> Ok [ m ]
       | None -> Error "a half-width compare has no mask")
+  | Dup_w a ->
+      let* () = need (Mir_type.equal (ty a) Mir_type.i32) "dup source" in
+      Ok [ int32x4 ]
   | Dup_half (k, a) ->
       let* () = need ((k = 0 || k = 1) && is_arr Arr.S4 (ty a)) "dup half" in
       Ok [ Arr.ty Arr.S2 ]
@@ -854,6 +869,15 @@ let typing op =
           "st1 lane operands"
       in
       Ok []
+  | Str_ivec (t, base, k, x) ->
+      let* () = need (Mir_type.equal (ty base) Mir_type.Ptr) "str base" in
+      let* () = need (vec_offset Arr.S4 k) "str offset" in
+      let* () =
+        need
+          (Option.is_some (int_register t) && Mir_type.equal (ty x) t)
+          "integer register"
+      in
+      Ok []
   | Str_vec (arr, base, k, x) ->
       let* () = need (Mir_type.equal (ty base) Mir_type.Ptr) "str base" in
       let* () = need (vec_offset arr k) "str offset" in
@@ -942,10 +966,31 @@ let typing op =
       Ok [ Arr.ty arr ]
   | Vbit (arr, other, a, m) ->
       let* () = need (is_mask arr (ty m)) "bit mask" in
-      let* () =
-        need (is_arr arr (ty a) && is_arr arr (ty other)) "bit operands"
+      (* int32 lanes choose under a four-lane mask as binary32 lanes do *)
+      let lanes t =
+        is_arr arr t || (arr = Arr.S4 && Mir_type.equal t int32x4)
       in
-      Ok [ Arr.ty arr ]
+      let* () =
+        need (lanes (ty a) && Mir_type.equal (ty a) (ty other)) "bit operands"
+      in
+      Ok [ ty a ]
+  | Uzp1_h (a, b) ->
+      let* () =
+        need
+          (Mir_type.equal (ty a) int32x4 && Mir_type.equal (ty b) int32x4)
+          "int32 lane operands"
+      in
+      Ok
+        [
+          Mir_type.Vec (Mir_type.Elem.Int Mir_width.W16, Mir_type.Lanes.of_int 8);
+        ]
+  | Vadd_w (a, b) ->
+      let* () =
+        need
+          (Mir_type.equal (ty a) int32x4 && Mir_type.equal (ty b) int32x4)
+          "int32 lane operands"
+      in
+      Ok [ int32x4 ]
   | Vfcmp (_, arr, a, b) -> (
       let* () =
         need (is_arr arr (ty a) && is_arr arr (ty b)) "vector compare operands"
@@ -1026,6 +1071,7 @@ let pp_op pv fmt op =
   | Dup_mask (arr, a) -> Fmt.pf fmt "dup.%s.gpr %a" (Arr.name arr) pv a
   | Dup_lane (fsz, k, a) ->
       Fmt.pf fmt "dup.%s %a.%s[%d]" (Fsz.name fsz) pv a (Fsz.name fsz) k
+  | Dup_w a -> Fmt.pf fmt "dup.4s.gpr %a" pv a
   | Ext { signed; from; src } ->
       Fmt.pf fmt "%sxt%s %a"
         (if signed then "s" else "u")
@@ -1084,12 +1130,16 @@ let pp_op pv fmt op =
       Fmt.pf fmt "str.%s %a, [%a, #%Ld]" (Msz.name m) pv x pv base k
   | Str_idx (m, base, i, x) ->
       Fmt.pf fmt "str.%s %a, [%a, %a, sxtw]" (Msz.name m) pv x pv base pv i
+  | Str_ivec (t, base, k, x) ->
+      Fmt.pf fmt "str.%a %a, [%a, #%Ld]" Mir_type.pp t pv x pv base k
   | Str_vec (arr, base, k, x) ->
       Fmt.pf fmt "str.%s %a, [%a, #%Ld]" (Arr.name arr) pv x pv base k
   | Sub (sz, a, b) -> Fmt.pf fmt "sub.%s %a" (Sz.name sz) vs [ a; b ]
   | Sub_imm (sz, a, k) -> Fmt.pf fmt "sub.%s %a, #%Ld" (Sz.name sz) pv a k
   | Sxtw a -> Fmt.pf fmt "sxtw %a" pv a
   | Uxtw a -> Fmt.pf fmt "uxtw %a" pv a
+  | Uzp1_h (a, b) -> Fmt.pf fmt "uzp1.8h %a" vs [ a; b ]
+  | Vadd_w (a, b) -> Fmt.pf fmt "add.4s %a" vs [ a; b ]
   | Trunc (w, a) ->
       Fmt.pf fmt "uxt%s.trunc %a"
         (match w with Mir_width.W8 -> "b" | _ -> "h")

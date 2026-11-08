@@ -87,6 +87,11 @@ let admit ~limits ~(u : Kernel.Use.t) ~(producer : Kernel.Value.t)
   | Some producer_pixel, Some consumer_pixel -> (
       if has_scan producer_pixel || has_scan consumer_pixel then
         Err.fail (`Recurrent_use u)
+      else if producer.Kernel.Value.result = Kernel.Result_conversion.Round_bf16
+      then
+        (* a bfloat16 producer stays stored: its rounding is a store's encode
+           in the Loop IR and SSA, never an operation inside an expression *)
+        Err.fail (`Unsupported_use u)
       else
         match occurrence with
         | None -> Err.fail (`Not_a_dependency u)

@@ -481,7 +481,13 @@ and exec st ~depth frame (i : Mir_op.t Mir_instr.t) =
             | [ x ] -> ext w0 x
             | _ -> invalid_arg "Mir_interp")
       | _ -> put (Mir_datum.Bits (ext (width_of st frame a) (b a))))
-  | Mir_op.Itrunc (w, a) -> put (Mir_datum.Bits (Mir_width.normalize w (b a)))
+  | Mir_op.Itrunc (w, a) -> (
+      match a.Mir_value.ty with
+      | Mir_type.Vec (Mir_type.Elem.Int _, _) ->
+          lanewise [ a ] (function
+            | [ x ] -> Mir_width.normalize w x
+            | _ -> invalid_arg "Mir_interp")
+      | _ -> put (Mir_datum.Bits (Mir_width.normalize w (b a))))
   | Mir_op.Load { Mir_op.Access.width; addr; align } -> (
       match
         Mir_memory.load st.memory (ptr st frame addr)

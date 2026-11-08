@@ -95,7 +95,7 @@ let eval ?(fused = true) (op : Ssa_op.t) ~(result : Ssa_type.t)
               | Expr.Value.Exp -> F32_math.Value.exp x
               | Expr.Value.Log -> F32_math.Value.log x
               | Expr.Value.Sin -> F32_math.Value.sin x
-              | Expr.Value.Sqrt | Expr.Value.Trunc ->
+              | Expr.Value.Round_bf16 | Expr.Value.Sqrt | Expr.Value.Trunc ->
                   Ssa_const.round_f32 (Expr.Value.apply_unary op x)))
   | Ssa_op.I64_arith (op, a, b) ->
       let x = int a in

@@ -119,13 +119,15 @@ let rec conv ctx (e : float Loop_expr.t) : (V.t, Reason.t) result =
       let* a = conv ctx a in
       count ctx T.Op.Round_f32;
       Ok (V.Round_f32 a)
+  | Loop_expr.Unary (Expr.Value.Round_bf16, _) ->
+      Error (Reason.Expression "bfloat16 rounding")
   | Loop_expr.Unary (op, a) ->
       let* a = conv ctx a in
       count ctx
         (match op with
         | Expr.Value.Sqrt | Expr.Value.Trunc -> T.Op.Sqrt_trunc
         | Expr.Value.Cos | Expr.Value.Erf | Expr.Value.Exp | Expr.Value.Log
-        | Expr.Value.Sin ->
+        | Expr.Value.Round_bf16 | Expr.Value.Sin ->
             T.Op.Transcendental);
       Ok (V.Unary (op, a))
   | Loop_expr.Load_flat (b, i) ->
@@ -198,6 +200,7 @@ let store ctx buffer offset (value : Loop_stored.t) =
       | Loop_stored.Bool e ->
           let* e = conv ctx e in
           Ok (V.Bool e)
+      | Loop_stored.Bf16 _ -> Error (Reason.Expression "bfloat16 store")
       | Loop_stored.I64 _ -> Error (Reason.Expression "int64 store")
     in
     count ctx

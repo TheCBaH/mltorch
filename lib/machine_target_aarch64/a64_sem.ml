@@ -177,6 +177,7 @@ let exec env op =
   | Dup_half (k, x) -> [ vec (Array.sub (lanes env x) (2 * k) 2) ]
   | Dup_mask (arr, x) -> [ vec (Array.make (Arr.lanes arr) (bits env x)) ]
   | Dup_lane (_, k, x) -> [ b (lanes env x).(k) ]
+  | Dup_w x -> [ vec (Array.make 4 (norm Sz.W (bits env x))) ]
   | Ext { signed; from; src } ->
       let k = Mir_width.bits from in
       let x = Int64.logand (bits env src) (Mir_width.mask from) in
@@ -335,6 +336,15 @@ let exec env op =
         (addr env base (scaled_index env m i))
         ~bytes:(Msz.bytes m) ~align:1L (bits env x);
       []
+  | Str_ivec (t, base, k, x) ->
+      let size = Mir_width.bytes (Option.get (A64_op.int_register t)) in
+      Array.iteri
+        (fun j l ->
+          E.store env
+            (addr env base (Int64.add k (Int64.mul (Int64.of_int j) size)))
+            ~bytes:size ~align:1L l)
+        (lanes env x);
+      []
   | Str_vec (arr, base, k, x) ->
       let size = lane_bytes (Arr.fsz arr) in
       Array.iteri
@@ -400,6 +410,16 @@ let exec env op =
           (Array.map2 (fun p q -> logic o Sz.X p q) (lanes env x) (lanes env y));
       ]
   | Vcast (_, x) -> [ vec (lanes env x) ]
+  | Uzp1_h (x, y) ->
+      let low l = Int64.logand l 0xFFFFL in
+      [ vec (Array.map low (Array.append (lanes env x) (lanes env y))) ]
+  | Vadd_w (x, y) ->
+      [
+        vec
+          (Array.map2
+             (fun p q -> Mir_width.normalize Mir_width.W32 (Int64.add p q))
+             (lanes env x) (lanes env y));
+      ]
   | Vshift (o, k, x) ->
       let shift l =
         match o with

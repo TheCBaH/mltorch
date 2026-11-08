@@ -40,6 +40,7 @@ and pred : Loop_expr.pred -> Loop_expr.pred = function
       p
 
 let stored : Loop_stored.t -> Loop_stored.t = function
+  | Loop_stored.Bf16 e -> Loop_stored.Bf16 (expr e)
   | Loop_stored.Bool e -> Loop_stored.Bool (expr e)
   | Loop_stored.F32 e -> Loop_stored.F32 (expr e)
   | Loop_stored.I64 e -> Loop_stored.I64 (expr e)

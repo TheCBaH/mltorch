@@ -178,7 +178,7 @@ module Kernel : sig
   end
 
   module Result_conversion : sig
-    type t = Nonzero_bool | Round_f32
+    type t = Nonzero_bool | Round_bf16 | Round_f32
   end
 
   module Value : sig
@@ -227,6 +227,19 @@ consumer sees it, and it is stored as canonical Bool bytes. `Kernel.create`
 requires the conversion to match the declared format (`Round_f32` with f32,
 `Nonzero_bool` with Bool), because the two disagree on inputs like a subnormal.
 A filled Bool input and `Stage_program.ground` follow the same storage rule.
+`Round_bf16` is the BF16 boundary (a `To_copy` to `Bfloat16`): the binary32
+value rounded to nearest even on the high half of its bits, every NaN the
+canonical quiet `0x7FC0`, `Expr.Value.round_bf16` (a `unary_op`, so
+`Expr.Value.bf16_value` is the one definition). Under the binary64 reference
+that is two roundings, f64 to f32 to bf16, by definition: it is what every
+binary32 engine computes. `Kernel_elab` never inlines a `Round_bf16` producer
+(the rounding stays a stored value's), and the Loop and SSA lowerings take
+`Result_conversion.before_store`, which stops at binary32 and leaves the
+bfloat16 rounding to the store's encode (`Loop_stored.Bf16`,
+`Ssa_op.Encode.Bf16_round`), so no bfloat16 rounding is ever an operation
+inside a Loop or SSA expression; `Ssa_typing` rejects one. `Half.Bf16.of_float`
+stays the plain bit rounding the attention tests pin as the engine's operand
+rounding; the storage boundary applies `bf16_value` first.
 Bool values are exact in the float domain, so nothing is lost; exact I64 is
 different and has its own `values_i64` track.  For a Pixel-form computation the emitter is the
 original expression; a non-degenerate Region computation applies the same

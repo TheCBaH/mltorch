@@ -27,6 +27,7 @@ type error =
   | Operand_not_numeric of { position : Position.t; found : Ssa_type.t }
   | Operand_not_vector of { position : Position.t; found : Ssa_type.t }
   | Operands_differ of { first : Ssa_type.t; second : Ssa_type.t }
+  | Round_bf16_operation
   | Scale_out_of_domain of int64
 
 let pp_error fmt = function
@@ -59,6 +60,10 @@ let pp_error fmt = function
   | Operands_differ { first; second } ->
       Fmt.pf fmt "operand types differ: %a and %a" Ssa_type.pp first Ssa_type.pp
         second
+  | Round_bf16_operation ->
+      Fmt.string fmt
+        "a bfloat16 rounding is a store's encode (Encode.Bf16_round), never an \
+         operation"
   | Scale_out_of_domain k ->
       Fmt.pf fmt "scale literal %Ld is outside the index domain" k
 
@@ -312,6 +317,7 @@ let rec result_types : Ssa_op.t -> (Ssa_type.t list, error) result = function
   | Ssa_op.Index_of_i64 a ->
       let* () = expect (Position.of_int 0) i64 a in
       Ok [ index ]
+  | Ssa_op.Float_unary (Expr.Value.Round_bf16, _) -> Error Round_bf16_operation
   | Ssa_op.Float_unary (_, a) ->
       let* t = same_float a a in
       Ok [ t ]

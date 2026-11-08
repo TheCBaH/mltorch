@@ -16,13 +16,13 @@ let config =
   }
 
 let measure ?(numerics = Ssa_ir.Ssa_numerics.Fp32_ordered) ?(oracle = T.Fp32)
-    ?registers ?sequence target name g =
+    ?registers target name g =
   let cycles = ref 0L and retired = ref 0L in
   let on_run (o : C.Run.t) =
     cycles := Int64.add !cycles o.C.Run.mcycle;
     retired := Int64.add !retired o.C.Run.minstret
   in
-  T.check ?sequence
+  T.check
     ~route:(C.route ?registers ~on_run config)
     ~pipeline:(Ssa_backends.Pipeline.Planned { numerics; target })
     ~oracle ~constant:T.positive ~calls:1 name g;
@@ -40,7 +40,8 @@ let%expect_test "scalar and Zve32f on the RTL vector core" =
         (Int64.to_float sc /. Int64.to_float vc)
         si vi
         (Int64.to_float si /. Int64.to_float vi))
-    (T.vector_fixtures @ T.transformer_fixtures @ T.transformer_bf16_fixtures);
+    (T.vector_fixtures @ T.transformer_fixtures @ T.transformer_bf16_fixtures
+   @ Machine_model_test.Transformer_fixtures.bf16_out);
   [%expect
     {|
     relu then add over C=32, scalar (2 invocations): bitwise
@@ -48,7 +49,7 @@ let%expect_test "scalar and Zve32f on the RTL vector core" =
       cycles 7492 -> 1603 (4.67x), instructions 4564 -> 1141 (4.00x)
     softmax over H, W=32, scalar (1 invocations): bitwise
     softmax over H, W=32, zve32f128 (1 invocations): bitwise
-      cycles 474689 -> 474689 (1.00x), instructions 224279 -> 224279 (1.00x)
+      cycles 213975 -> 213975 (1.00x), instructions 120886 -> 120886 (1.00x)
     layer_norm over H, W=32, scalar (1 invocations): bitwise
     layer_norm over H, W=32, zve32f128 (1 invocations): bitwise
       cycles 50380 -> 50380 (1.00x), instructions 27189 -> 27189 (1.00x)
@@ -75,13 +76,13 @@ let%expect_test "scalar and Zve32f on the RTL vector core" =
       cycles 1376 -> 592 (2.32x), instructions 752 -> 289 (2.60x)
     tanh gelu mul 2x160, scalar (2 invocations): bitwise
     tanh gelu mul 2x160, zve32f128 (2 invocations): bitwise
-      cycles 167876 -> 54116 (3.10x), instructions 78139 -> 26040 (3.00x)
+      cycles 81207 -> 21756 (3.73x), instructions 43855 -> 11220 (3.91x)
     tanh gelu mul 1x67, scalar (2 invocations): bitwise
     tanh gelu mul 1x67, zve32f128 (2 invocations): bitwise
-      cycles 35260 -> 12604 (2.80x), instructions 16430 -> 6075 (2.70x)
+      cycles 17102 -> 5300 (3.23x), instructions 9242 -> 2781 (3.32x)
     tanh gelu mul 1x33, scalar (2 invocations): bitwise
     tanh gelu mul 1x33, zve32f128 (2 invocations): bitwise
-      cycles 17444 -> 6171 (2.83x), instructions 8142 -> 2998 (2.72x)
+      cycles 8489 -> 2644 (3.21x), instructions 4599 -> 1397 (3.29x)
     residual add bf16 2x160, scalar (1 invocations): bitwise
     residual add bf16 2x160, zve32f128 (1 invocations): bitwise
       cycles 7777 -> 1451 (5.36x), instructions 5199 -> 1339 (3.88x)
@@ -102,13 +103,40 @@ let%expect_test "scalar and Zve32f on the RTL vector core" =
       cycles 1607 -> 704 (2.28x), instructions 983 -> 411 (2.39x)
     tanh gelu mul bf16 2x160, scalar (2 invocations): bitwise
     tanh gelu mul bf16 2x160, zve32f128 (2 invocations): bitwise
-      cycles 169809 -> 56063 (3.03x), instructions 80071 -> 28434 (2.82x)
+      cycles 83147 -> 23703 (3.51x), instructions 45790 -> 13614 (3.36x)
     tanh gelu mul bf16 1x67, scalar (2 invocations): bitwise
     tanh gelu mul bf16 1x67, zve32f128 (2 invocations): bitwise
-      cycles 35662 -> 13021 (2.74x), instructions 16832 -> 6577 (2.56x)
+      cycles 17504 -> 5713 (3.06x), instructions 9644 -> 3279 (2.94x)
     tanh gelu mul bf16 1x33, scalar (2 invocations): bitwise
     tanh gelu mul bf16 1x33, zve32f128 (2 invocations): bitwise
-      cycles 17642 -> 6380 (2.77x), instructions 8340 -> 3249 (2.57x) |}]
+      cycles 8687 -> 2851 (3.05x), instructions 4797 -> 1646 (2.91x)
+    residual add bf16->bf16 2x160, scalar (2 invocations): bitwise
+    residual add bf16->bf16 2x160, zve32f128 (2 invocations): bitwise
+      cycles 16825 -> 3698 (4.55x), instructions 14548 -> 3137 (4.64x)
+    residual add bf16->bf16 1x67, scalar (2 invocations): bitwise
+    residual add bf16->bf16 1x67, zve32f128 (2 invocations): bitwise
+      cycles 3611 -> 1041 (3.47x), instructions 3092 -> 849 (3.64x)
+    residual add bf16->bf16 1x33, scalar (2 invocations): bitwise
+    residual add bf16->bf16 1x33, zve32f128 (2 invocations): bitwise
+      cycles 1843 -> 579 (3.18x), instructions 1562 -> 453 (3.45x)
+    rms norm bf16->bf16 2x160, scalar (2 invocations): bitwise
+    rms norm bf16->bf16 2x160, zve32f128 (2 invocations): bitwise
+      cycles 23116 -> 6998 (3.30x), instructions 18155 -> 4636 (3.92x)
+    rms norm bf16->bf16 1x67, scalar (2 invocations): bitwise
+    rms norm bf16->bf16 1x67, zve32f128 (2 invocations): bitwise
+      cycles 5007 -> 1832 (2.73x), instructions 3882 -> 1219 (3.18x)
+    rms norm bf16->bf16 1x33, scalar (2 invocations): bitwise
+    rms norm bf16->bf16 1x33, zve32f128 (2 invocations): bitwise
+      cycles 2593 -> 1030 (2.52x), instructions 1978 -> 665 (2.97x)
+    tanh gelu mul bf16->bf16 2x160, scalar (3 invocations): bitwise
+    tanh gelu mul bf16->bf16 2x160, zve32f128 (3 invocations): bitwise
+      cycles 92195 -> 25950 (3.55x), instructions 55139 -> 15412 (3.58x)
+    tanh gelu mul bf16->bf16 1x67, scalar (3 invocations): bitwise
+    tanh gelu mul bf16->bf16 1x67, zve32f128 (3 invocations): bitwise
+      cycles 19442 -> 6315 (3.08x), instructions 11625 -> 3767 (3.09x)
+    tanh gelu mul bf16->bf16 1x33, scalar (3 invocations): bitwise
+    tanh gelu mul bf16->bf16 1x33, zve32f128 (3 invocations): bitwise
+      cycles 9673 -> 3177 (3.04x), instructions 5792 -> 1900 (3.05x) |}]
 
 (* The matrix products on the same core: whole-invocation cycles, and the
    rate in operations a cycle (a multiply-add is two) against the peak
@@ -316,7 +344,8 @@ let%expect_test "transformer operations, register groups" =
       in
       Fmt.pr "  cycles %Ld -> %Ld (%.2fx)@." sc gc
         (Int64.to_float sc /. Int64.to_float gc))
-    (T.transformer_fixtures @ T.transformer_bf16_fixtures);
+    (T.transformer_fixtures @ T.transformer_bf16_fixtures
+   @ Machine_model_test.Transformer_fixtures.bf16_out);
   [%expect
     {|
     residual add 2x160, m1 (1 invocations): bitwise
@@ -339,13 +368,13 @@ let%expect_test "transformer operations, register groups" =
       cycles 592 -> 435 (1.36x)
     tanh gelu mul 2x160, m1 (2 invocations): bitwise
     tanh gelu mul 2x160, m4 (2 invocations): bitwise
-      cycles 54116 -> 35209 (1.54x)
+      cycles 21756 -> 13889 (1.57x)
     tanh gelu mul 1x67, m1 (2 invocations): bitwise
     tanh gelu mul 1x67, m4 (2 invocations): bitwise
-      cycles 12604 -> 8881 (1.42x)
+      cycles 5300 -> 3721 (1.42x)
     tanh gelu mul 1x33, m1 (2 invocations): bitwise
     tanh gelu mul 1x33, m4 (2 invocations): bitwise
-      cycles 6171 -> 4306 (1.43x)
+      cycles 2644 -> 1851 (1.43x)
     residual add bf16 2x160, m1 (1 invocations): bitwise
     residual add bf16 2x160, m4 (1 invocations): bitwise
       cycles 1451 -> 691 (2.10x)
@@ -366,70 +395,40 @@ let%expect_test "transformer operations, register groups" =
       cycles 704 -> 476 (1.48x)
     tanh gelu mul bf16 2x160, m1 (2 invocations): bitwise
     tanh gelu mul bf16 2x160, m4 (2 invocations): bitwise
-      cycles 56063 -> 35729 (1.57x)
+      cycles 23703 -> 14129 (1.68x)
     tanh gelu mul bf16 1x67, m1 (2 invocations): bitwise
     tanh gelu mul bf16 1x67, m4 (2 invocations): bitwise
-      cycles 13021 -> 8875 (1.47x)
+      cycles 5713 -> 3787 (1.51x)
     tanh gelu mul bf16 1x33, m1 (2 invocations): bitwise
     tanh gelu mul bf16 1x33, m4 (2 invocations): bitwise
-      cycles 6380 -> 4300 (1.48x) |}]
-
-(* The fast binary32 exp ([Sequence.Fast]) in tanh GELU: the same bits,
-   scalar, LMUL 1 and LMUL 4, cycles under the reference sequence and the fast
-   one. *)
-let%expect_test "tanh gelu, fast sequences" =
-  let grouped = Machine_rivet_riscv32_mir.Rv32_mir_route.Registers.Grouped in
-  List.iter
-    (fun (name, g) ->
-      if String.starts_with ~prefix:"tanh gelu" name then
-        List.iter
-          (fun (rname, target, registers) ->
-            let rc, _ =
-              measure ?registers target (Fmt.str "%s, %s" name rname) g
-            in
-            let fc, _ =
-              measure ?registers ~sequence:Machine_lower.Mir_lower.Sequence.Fast
-                target
-                (Fmt.str "%s, %s, fast" name rname)
-                g
-            in
-            Fmt.pr "  cycles %Ld -> %Ld (%.2fx)@." rc fc
-              (Int64.to_float rc /. Int64.to_float fc))
-          [
-            ("scalar", Ssa_ir.Ssa_target.scalar, None);
-            ("m1", Ssa_ir.Ssa_target.zve32f128, None);
-            ("m4", Ssa_ir.Ssa_target.zve32f128, Some grouped);
-          ])
-    T.transformer_fixtures;
-  [%expect
-    {|
-    tanh gelu mul 2x160, scalar (2 invocations): bitwise
-    tanh gelu mul 2x160, scalar, fast (2 invocations): bitwise
-      cycles 167876 -> 81207 (2.07x)
-    tanh gelu mul 2x160, m1 (2 invocations): bitwise
-    tanh gelu mul 2x160, m1, fast (2 invocations): bitwise
-      cycles 54116 -> 21756 (2.49x)
-    tanh gelu mul 2x160, m4 (2 invocations): bitwise
-    tanh gelu mul 2x160, m4, fast (2 invocations): bitwise
-      cycles 35209 -> 13889 (2.54x)
-    tanh gelu mul 1x67, scalar (2 invocations): bitwise
-    tanh gelu mul 1x67, scalar, fast (2 invocations): bitwise
-      cycles 35260 -> 17102 (2.06x)
-    tanh gelu mul 1x67, m1 (2 invocations): bitwise
-    tanh gelu mul 1x67, m1, fast (2 invocations): bitwise
-      cycles 12604 -> 5300 (2.38x)
-    tanh gelu mul 1x67, m4 (2 invocations): bitwise
-    tanh gelu mul 1x67, m4, fast (2 invocations): bitwise
-      cycles 8881 -> 3721 (2.39x)
-    tanh gelu mul 1x33, scalar (2 invocations): bitwise
-    tanh gelu mul 1x33, scalar, fast (2 invocations): bitwise
-      cycles 17444 -> 8489 (2.05x)
-    tanh gelu mul 1x33, m1 (2 invocations): bitwise
-    tanh gelu mul 1x33, m1, fast (2 invocations): bitwise
-      cycles 6171 -> 2644 (2.33x)
-    tanh gelu mul 1x33, m4 (2 invocations): bitwise
-    tanh gelu mul 1x33, m4, fast (2 invocations): bitwise
-      cycles 4306 -> 1851 (2.33x) |}]
+      cycles 2851 -> 1881 (1.52x)
+    residual add bf16->bf16 2x160, m1 (2 invocations): bitwise
+    residual add bf16->bf16 2x160, m4 (2 invocations): bitwise
+      cycles 3698 -> 1917 (1.93x)
+    residual add bf16->bf16 1x67, m1 (2 invocations): bitwise
+    residual add bf16->bf16 1x67, m4 (2 invocations): bitwise
+      cycles 1041 -> 687 (1.52x)
+    residual add bf16->bf16 1x33, m1 (2 invocations): bitwise
+    residual add bf16->bf16 1x33, m4 (2 invocations): bitwise
+      cycles 579 -> 403 (1.44x)
+    rms norm bf16->bf16 2x160, m1 (2 invocations): bitwise
+    rms norm bf16->bf16 2x160, m4 (2 invocations): bitwise
+      cycles 6998 -> 3710 (1.89x)
+    rms norm bf16->bf16 1x67, m1 (2 invocations): bitwise
+    rms norm bf16->bf16 1x67, m4 (2 invocations): bitwise
+      cycles 1832 -> 1176 (1.56x)
+    rms norm bf16->bf16 1x33, m1 (2 invocations): bitwise
+    rms norm bf16->bf16 1x33, m4 (2 invocations): bitwise
+      cycles 1030 -> 702 (1.47x)
+    tanh gelu mul bf16->bf16 2x160, m1 (3 invocations): bitwise
+    tanh gelu mul bf16->bf16 2x160, m4 (3 invocations): bitwise
+      cycles 25950 -> 15355 (1.69x)
+    tanh gelu mul bf16->bf16 1x67, m1 (3 invocations): bitwise
+    tanh gelu mul bf16->bf16 1x67, m4 (3 invocations): bitwise
+      cycles 6315 -> 4187 (1.51x)
+    tanh gelu mul bf16->bf16 1x33, m1 (3 invocations): bitwise
+    tanh gelu mul bf16->bf16 1x33, m4 (3 invocations): bitwise
+      cycles 3177 -> 2107 (1.51x) |}]
 
 (* Thirty-two-lane plans in groups of eight registers (LMUL 8) against
    sixteen-lane ones at LMUL 4: the kernels whose forms need at most two
@@ -474,3 +473,31 @@ let%expect_test "groups of eight" =
     rms norm 1x33, m4 (1 invocations): bitwise
     rms norm 1x33, m8 (1 invocations): bitwise
       cycles 435 -> 431 (1.01x) |}]
+
+(* RMS norm under the relaxed policy in groups of four: its scheduled sum's
+   horizontal combine extracts lanes of a sixteen-lane group. The oracle is
+   the policy's own schedule on the generic Machine IR route, bitwise. *)
+let%expect_test "relaxed sums, register groups" =
+  let grouped = Machine_rivet_riscv32_mir.Rv32_mir_route.Registers.Grouped in
+  let numerics = Ssa_ir.Ssa_numerics.Simd_fp32_relaxed
+  and target = Ssa_ir.Ssa_target.zve32f128 in
+  let oracle =
+    Machine_model_test.Plan_oracle.make
+      ~pipeline:(Ssa_backends.Pipeline.Planned { numerics; target })
+  in
+  List.iter
+    (fun (name, g) ->
+      if String.starts_with ~prefix:"rms norm" name then
+        let c, _ =
+          measure ~numerics ~oracle ~registers:grouped target (name ^ ", m4") g
+        in
+        Fmt.pr "  cycles %Ld@." c)
+    T.transformer_fixtures;
+  [%expect
+    {|
+    rms norm 2x160, m4 (1 invocations): bitwise
+      cycles 1781
+    rms norm 1x67, m4 (1 invocations): bitwise
+      cycles 744
+    rms norm 1x33, m4 (1 invocations): bitwise
+      cycles 785 |}]

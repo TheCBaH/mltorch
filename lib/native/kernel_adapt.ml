@@ -492,6 +492,8 @@ let of_stage_program ?(limits = Kernel.Limits.default) ?select ?outputs p =
                 (match st.sg.Tensor_sig.fmt with
                 | Payload.Fmt Payload.Bool ->
                     Kernel.Result_conversion.Nonzero_bool
+                | Payload.Fmt Payload.BF16 ->
+                    Kernel.Result_conversion.Round_bf16
                 | _ -> Kernel.Result_conversion.Round_f32);
             }
         else None)

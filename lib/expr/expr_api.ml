@@ -273,7 +273,7 @@ module type S = sig
 
   and Value : sig
     type binary_op = Add | Div | Mul | Sub
-    type unary_op = Cos | Erf | Exp | Log | Sin | Sqrt | Trunc
+    type unary_op = Cos | Erf | Exp | Log | Round_bf16 | Sin | Sqrt | Trunc
     type i64_binary_op = I64_add | I64_div | I64_mul | I64_sub
 
     (* Carrier-indexed. [I64_binary]/[I64_const]/[I64_load]/[I64_local]/
@@ -401,6 +401,13 @@ module type S = sig
     (** Round toward zero -- ATen's `static_cast<IntT>` for a float-to-int
         [_to_copy.default]/[to.dtype] cast. Distinct from [round_f32], which
         rounds to f32 storage precision, not to an integer. *)
+
+    val round_bf16 : float t -> float t
+    (** The value a bfloat16 cell stores: rounded to binary32, then to nearest
+        even on the high half; every NaN the canonical quiet [0x7FC0]. *)
+
+    val bf16_value : float -> float
+    (** [round_bf16]'s meaning on a float, the one definition. *)
 
     val select : Bool.t -> 'a t -> 'a t -> 'a t
     val value_of_index : Role.Delta.t Index.t -> float t

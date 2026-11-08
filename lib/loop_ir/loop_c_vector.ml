@@ -89,6 +89,8 @@ let rec vexpr nm vs (e : V.t) : string =
         | Expr.Value.Erf -> "erf"
         | Expr.Value.Exp -> "exp"
         | Expr.Value.Log -> "log"
+        | Expr.Value.Round_bf16 ->
+            invalid_arg ("Loop_c_vector: " ^ Loop_c_base.bf16_unary)
         | Expr.Value.Sin -> "sin"
         | Expr.Value.Sqrt -> "sqrt"
         | Expr.Value.Trunc -> "trunc"

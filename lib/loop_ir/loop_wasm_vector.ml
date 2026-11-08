@@ -157,6 +157,7 @@ let rec half st vc h (e : V.t) : I.t list =
       | Expr.Value.Trunc ->
           a
           @ [ vn (if st.f32 then Wasm_op.F32x4_trunc else Wasm_op.F64x2_trunc) ]
+      | Expr.Value.Round_bf16 -> invalid_arg Loop_wasm_value.bf16_unary
       | Expr.Value.Cos | Expr.Value.Erf | Expr.Value.Exp | Expr.Value.Log
       | Expr.Value.Sin ->
           let callee =

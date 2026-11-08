@@ -115,6 +115,7 @@ let lanewise st (inner : Ssa_op.t) (res : Ssa_value.t) =
             | _ -> R.Callee.Sin_f32x4
           in
           set_chunks st res (chunks_of a (fun i -> [ src a i; call st callee ]))
+      | Expr.Value.Round_bf16 -> invalid_arg Ssa_wasm_op.bf16_unary
       | Expr.Value.Cos | Expr.Value.Erf | Expr.Value.Exp | Expr.Value.Log
       | Expr.Value.Sin ->
           (* no vector instruction: each lane runs the scalar callee *)
@@ -659,7 +660,8 @@ let instr st ~limits (i : Ssa_instr.t) : I.t list =
   | Ssa_op.Select (p, a, b) -> one (r a @ r b @ r p @ [ I.Select ])
   | Ssa_op.Store { buffer; at; encode; value } ->
       let b = find_buffer st buffer in
-      cell_address st b (access_index st b at) @ r value @ encode_store encode
+      cell_address st b (access_index st b at)
+      @ r value @ encode_store st encode
   | Ssa_op.Vec_extract { lane; vector } -> (
       let k = Ssa_type.Lane.to_int lane in
       let res = first_result i in
@@ -960,4 +962,4 @@ let instr st ~limits (i : Ssa_instr.t) : I.t list =
                  @ [
                      get regs.(k / per); I.Simd_lane (extract_lane e, k mod per);
                    ]
-                 @ encode_store encode)))
+                 @ encode_store st encode)))

@@ -316,7 +316,7 @@ let lower ctx (v : Kernel.Value.t) (program : Region_program.t) =
               (fun a -> if singleton partition a then Some (a, a) else None)
               Expr.Axis.all;
           output =
-            Kernel.Result_conversion.apply v.Kernel.Value.result
+            Kernel.Result_conversion.before_store v.Kernel.Value.result
               (Region_program.output program);
         };
       ]
@@ -338,7 +338,7 @@ let lower_group ctx (g : Region_group.t)
              partition = e.Region_group.Emitter.partition;
              key_axes = e.Region_group.Emitter.key_axes;
              output =
-               Kernel.Result_conversion.apply v.Kernel.Value.result
+               Kernel.Result_conversion.before_store v.Kernel.Value.result
                  e.Region_group.Emitter.output;
            })
          members)

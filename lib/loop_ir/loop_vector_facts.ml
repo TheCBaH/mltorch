@@ -173,7 +173,8 @@ let rec stmt_temp_reads acc (s : Loop_stmt.t) =
   | Loop_stmt.Array_set (_, _, e) -> expr_temps e @ acc
   | Loop_stmt.Store { value; _ } | Loop_stmt.Store_flat { value; _ } -> (
       match value with
-      | Loop_stored.Bool e | Loop_stored.F32 e -> expr_temps e @ acc
+      | Loop_stored.Bf16 e | Loop_stored.Bool e | Loop_stored.F32 e ->
+          expr_temps e @ acc
       | Loop_stored.I64 e -> expr_temps e @ acc)
   | Loop_stmt.Fail_if (p, _) -> pred_temps p @ acc
   | Loop_stmt.If (p, a, b) ->

@@ -118,6 +118,10 @@ let rec stmt nm ~limits ~depth (s : Loop_stmt.t) : string list =
 and store nm b addr value =
   let cell () = buffer nm b ^ "[" ^ addr_offset nm b addr ^ "]" in
   match value with
+  | Loop_stored.Bf16 (Loop_expr.Round_f32 e) | Loop_stored.Bf16 e ->
+      (* the helper's [float] parameter is the binary32 rounding *)
+      let e = num nm e in
+      Printf.sprintf "%s = %s;" (cell ()) (call nm R.Name.Float_to_bf16 [ e ])
   | Loop_stored.Bool e ->
       (* Evaluation order between the target and the value does not matter:
          both are pure. *)

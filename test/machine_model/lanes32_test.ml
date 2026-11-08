@@ -22,7 +22,7 @@ let%expect_test "32-lane plans are the binary32 oracle" =
                 g)
             routes)
         (T.vector_fixtures @ T.transformer_fixtures
-       @ T.transformer_bf16_fixtures))
+       @ T.transformer_bf16_fixtures @ Transformer_fixtures.bf16_out))
     [
       ( "neon128_x32",
         Ssa_ir.Ssa_target.neon128_x32,
@@ -104,6 +104,33 @@ let%expect_test "32-lane plans are the binary32 oracle" =
     tanh gelu mul bf16 1x33, neon128_x32, generic (2 invocations): bitwise
     tanh gelu mul bf16 1x33, neon128_x32, aarch64 (2 invocations): bitwise
     tanh gelu mul bf16 1x33, neon128_x32, x86_64 (2 invocations): bitwise
+    residual add bf16->bf16 2x160, neon128_x32, generic (2 invocations): bitwise
+    residual add bf16->bf16 2x160, neon128_x32, aarch64 (2 invocations): bitwise
+    residual add bf16->bf16 2x160, neon128_x32, x86_64 (2 invocations): bitwise
+    residual add bf16->bf16 1x67, neon128_x32, generic (2 invocations): bitwise
+    residual add bf16->bf16 1x67, neon128_x32, aarch64 (2 invocations): bitwise
+    residual add bf16->bf16 1x67, neon128_x32, x86_64 (2 invocations): bitwise
+    residual add bf16->bf16 1x33, neon128_x32, generic (2 invocations): bitwise
+    residual add bf16->bf16 1x33, neon128_x32, aarch64 (2 invocations): bitwise
+    residual add bf16->bf16 1x33, neon128_x32, x86_64 (2 invocations): bitwise
+    rms norm bf16->bf16 2x160, neon128_x32, generic (2 invocations): bitwise
+    rms norm bf16->bf16 2x160, neon128_x32, aarch64 (2 invocations): bitwise
+    rms norm bf16->bf16 2x160, neon128_x32, x86_64 (2 invocations): bitwise
+    rms norm bf16->bf16 1x67, neon128_x32, generic (2 invocations): bitwise
+    rms norm bf16->bf16 1x67, neon128_x32, aarch64 (2 invocations): bitwise
+    rms norm bf16->bf16 1x67, neon128_x32, x86_64 (2 invocations): bitwise
+    rms norm bf16->bf16 1x33, neon128_x32, generic (2 invocations): bitwise
+    rms norm bf16->bf16 1x33, neon128_x32, aarch64 (2 invocations): bitwise
+    rms norm bf16->bf16 1x33, neon128_x32, x86_64 (2 invocations): bitwise
+    tanh gelu mul bf16->bf16 2x160, neon128_x32, generic (3 invocations): bitwise
+    tanh gelu mul bf16->bf16 2x160, neon128_x32, aarch64 (3 invocations): bitwise
+    tanh gelu mul bf16->bf16 2x160, neon128_x32, x86_64 (3 invocations): bitwise
+    tanh gelu mul bf16->bf16 1x67, neon128_x32, generic (3 invocations): bitwise
+    tanh gelu mul bf16->bf16 1x67, neon128_x32, aarch64 (3 invocations): bitwise
+    tanh gelu mul bf16->bf16 1x67, neon128_x32, x86_64 (3 invocations): bitwise
+    tanh gelu mul bf16->bf16 1x33, neon128_x32, generic (3 invocations): bitwise
+    tanh gelu mul bf16->bf16 1x33, neon128_x32, aarch64 (3 invocations): bitwise
+    tanh gelu mul bf16->bf16 1x33, neon128_x32, x86_64 (3 invocations): bitwise
     relu then add over C=32, zve32f128_x32, generic (2 invocations): bitwise
     relu then add over C=32, zve32f128_x32, riscv32 (2 invocations): bitwise
     softmax over H, W=32, zve32f128_x32, generic (1 invocations): bitwise
@@ -147,4 +174,22 @@ let%expect_test "32-lane plans are the binary32 oracle" =
     tanh gelu mul bf16 1x67, zve32f128_x32, generic (2 invocations): bitwise
     tanh gelu mul bf16 1x67, zve32f128_x32, riscv32 (2 invocations): bitwise
     tanh gelu mul bf16 1x33, zve32f128_x32, generic (2 invocations): bitwise
-    tanh gelu mul bf16 1x33, zve32f128_x32, riscv32 (2 invocations): bitwise |}]
+    tanh gelu mul bf16 1x33, zve32f128_x32, riscv32 (2 invocations): bitwise
+    residual add bf16->bf16 2x160, zve32f128_x32, generic (2 invocations): bitwise
+    residual add bf16->bf16 2x160, zve32f128_x32, riscv32 (2 invocations): bitwise
+    residual add bf16->bf16 1x67, zve32f128_x32, generic (2 invocations): bitwise
+    residual add bf16->bf16 1x67, zve32f128_x32, riscv32 (2 invocations): bitwise
+    residual add bf16->bf16 1x33, zve32f128_x32, generic (2 invocations): bitwise
+    residual add bf16->bf16 1x33, zve32f128_x32, riscv32 (2 invocations): bitwise
+    rms norm bf16->bf16 2x160, zve32f128_x32, generic (2 invocations): bitwise
+    rms norm bf16->bf16 2x160, zve32f128_x32, riscv32 (2 invocations): bitwise
+    rms norm bf16->bf16 1x67, zve32f128_x32, generic (2 invocations): bitwise
+    rms norm bf16->bf16 1x67, zve32f128_x32, riscv32 (2 invocations): bitwise
+    rms norm bf16->bf16 1x33, zve32f128_x32, generic (2 invocations): bitwise
+    rms norm bf16->bf16 1x33, zve32f128_x32, riscv32 (2 invocations): bitwise
+    tanh gelu mul bf16->bf16 2x160, zve32f128_x32, generic (3 invocations): bitwise
+    tanh gelu mul bf16->bf16 2x160, zve32f128_x32, riscv32 (3 invocations): bitwise
+    tanh gelu mul bf16->bf16 1x67, zve32f128_x32, generic (3 invocations): bitwise
+    tanh gelu mul bf16->bf16 1x67, zve32f128_x32, riscv32 (3 invocations): bitwise
+    tanh gelu mul bf16->bf16 1x33, zve32f128_x32, generic (3 invocations): bitwise
+    tanh gelu mul bf16->bf16 1x33, zve32f128_x32, riscv32 (3 invocations): bitwise |}]

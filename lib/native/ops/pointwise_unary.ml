@@ -427,7 +427,7 @@ end
    representation distinct from float, so both importers reject it rather than
    silently accepting it. *)
 module To_copy = struct
-  type target = Bool | Float | Int | Long
+  type target = Bfloat16 | Bool | Float | Int | Long
   type t = { target : target; x : Tensor_ref.t }
 
   let name = "To_copy"
@@ -436,16 +436,22 @@ module To_copy = struct
     Jsont.map ~kind:"to_copy_target"
       ~dec:(fun s ->
         match s with
+        | "bfloat16" -> Bfloat16
         | "bool" -> Bool
         | "float" -> Float
         | "int" -> Int
         | "long" -> Long
         | _ -> Jsont.Error.msgf Jsont.Meta.none "to_copy_target: unknown %S" s)
       ~enc:(function
-        | Bool -> "bool" | Float -> "float" | Int -> "int" | Long -> "long")
+        | Bfloat16 -> "bfloat16"
+        | Bool -> "bool"
+        | Float -> "float"
+        | Int -> "int"
+        | Long -> "long")
       Jsont.string
 
   let pp_target fmt = function
+    | Bfloat16 -> Fmt.string fmt "bfloat16"
     | Bool -> Fmt.string fmt "bool"
     | Float -> Fmt.string fmt "float"
     | Int -> Fmt.string fmt "int"
@@ -479,6 +485,11 @@ module To_copy = struct
       let v = S.load x out in
       match target with
       | Float -> v
+      | Bfloat16 ->
+          (* the binary32 value: rounding to bfloat16 is the storage
+             boundary's ([Kernel.Result_conversion.Round_bf16]), as a Bool
+             target's bytes are *)
+          v
       | Int | Long -> S.trunc v
       | Bool ->
           (* [S.eq], not the double-[lt] "nonzero test" this replaced: that

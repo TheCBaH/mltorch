@@ -198,15 +198,16 @@ let vector_scratch (x : Rv32_vop.t) =
   match x with
   | Rv32_vop.Vext { first; _ } when first <> 0 -> [ Rv32_reg.vector_scratch ]
   | Rv32_vop.Vfcmp _ | Rv32_vop.Vfredosum _ | Rv32_vop.Vinsert _
-  | Rv32_vop.Vmerge _ ->
+  | Rv32_vop.Vmerge _ | Rv32_vop.Vnsrl16_pair _ ->
       [ Rv32_reg.vector_scratch ]
   | Rv32_vop.Vfmv_f_s (k, _) when k <> 0 -> [ Rv32_reg.vector_scratch ]
-  | Rv32_vop.Vcast _ | Rv32_vop.Vext _ | Rv32_vop.Vfbin _ | Rv32_vop.Vfcvt_f_x _
-  | Rv32_vop.Vfcvt_x_f _ | Rv32_vop.Vfmacc _ | Rv32_vop.Vfmv_f_s _
-  | Rv32_vop.Vfmv_v_f _ | Rv32_vop.Vfsqrt _ | Rv32_vop.Vle32 _
-  | Rv32_vop.Vle_int _ | Rv32_vop.Vlogic _ | Rv32_vop.Vlse32 _ | Rv32_vop.Vmv _
-  | Rv32_vop.Vmv_v_x _ | Rv32_vop.Vnot _ | Rv32_vop.Vse32 _ | Rv32_vop.Vshift _
-  | Rv32_vop.Vsgnj _ | Rv32_vop.Vsse32 _ ->
+  | Rv32_vop.Vadd _ | Rv32_vop.Vcast _ | Rv32_vop.Vext _ | Rv32_vop.Vfbin _
+  | Rv32_vop.Vfcvt_f_x _ | Rv32_vop.Vfcvt_x_f _ | Rv32_vop.Vfmacc _
+  | Rv32_vop.Vfmv_f_s _ | Rv32_vop.Vfmv_v_f _ | Rv32_vop.Vfsqrt _
+  | Rv32_vop.Vle32 _ | Rv32_vop.Vle_int _ | Rv32_vop.Vlogic _
+  | Rv32_vop.Vlse32 _ | Rv32_vop.Vmv _ | Rv32_vop.Vmv_v_x _ | Rv32_vop.Vnot _
+  | Rv32_vop.Vnsrl16 _ | Rv32_vop.Vse32 _ | Rv32_vop.Vse_int _
+  | Rv32_vop.Vshift _ | Rv32_vop.Vsgnj _ | Rv32_vop.Vsse32 _ ->
       []
 
 (* Integers and pointers take the next of a0-a7, floats the next of fa0-fa7;

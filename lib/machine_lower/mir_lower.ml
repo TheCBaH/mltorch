@@ -373,6 +373,9 @@ let rec instr st (i : Ssa_instr.t) =
       ( ((Expr.Value.Cos | Expr.Value.Exp | Expr.Value.Log | Expr.Value.Sin) as u),
         a ) ->
       result (math_unary st u (v a))
+  | Ssa_op.Float_unary (Expr.Value.Round_bf16, _) ->
+      (* [Ssa_typing] rejects it: a verified program has none *)
+      invalid_arg "Mir_lower: a bfloat16 rounding is a store's encode"
   | Ssa_op.Check_access { at = Ssa_access.Flat _; _ } ->
       (* no source failure: outside the buffer is a defect, and the access
          that follows reports it *)
@@ -733,8 +736,10 @@ let rec instr st (i : Ssa_instr.t) =
            (Mir_op.Vsplat
               (Mir_type.Lanes.of_int (Ssa_type.Lanes.to_int lanes), v element)))
   | Ssa_op.Vec_store { buffer; at; steps; encode = enc; value = x; lanes } ->
-      Mir_lower_vector.store st op (entry_of st buffer) ~at ~steps ~lanes enc
-        (v x)
+      let e = entry_of st buffer in
+      Mir_lower_vector.store st op e ~at ~steps ~lanes
+        ~encode:(fun addr enc x -> Mir_lower_cell.encode st addr enc x)
+        enc (v x)
 
 let data_values vs = List.filter (fun v -> not (is_effect v)) vs
 

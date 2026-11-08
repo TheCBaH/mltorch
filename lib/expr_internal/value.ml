@@ -5,6 +5,7 @@ type unary_op = Expr_repr.unary_op =
   | Erf
   | Exp
   | Log
+  | Round_bf16
   | Sin
   | Sqrt
   | Trunc
@@ -53,6 +54,7 @@ let sqrt a = Unary (Sqrt, a)
 let erf a = Unary (Erf, a)
 let log a = Unary (Log, a)
 let trunc a = Unary (Trunc, a)
+let round_bf16 a = Unary (Round_bf16, a)
 let cos a = Unary (Cos, a)
 let sin a = Unary (Sin, a)
 let select c a b = Select (c, a, b)
@@ -246,11 +248,23 @@ let erf_approx x =
   in
   sign *. (1. -. o (poly *. Stdlib.exp (-.ax *. ax)))
 
+(* The value a bfloat16 cell stores: rounded to binary32, then to nearest even
+   on the high half of its bit pattern; a NaN of any sign or payload becomes
+   the canonical quiet [0x7FC0]. On [int32], so the same under js_of_ocaml. *)
+let bf16_value x =
+  if Float.is_nan x then Int32.float_of_bits 0x7FC0_0000l
+  else
+    let b = Int32.bits_of_float x in
+    let lsb = Int32.logand (Int32.shift_right_logical b 16) 1l in
+    Int32.float_of_bits
+      (Int32.logand (Int32.add b (Int32.add 0x7FFFl lsb)) 0xFFFF_0000l)
+
 let apply_unary = function
   | Cos -> Stdlib.cos
   | Erf -> erf_approx
   | Exp -> Stdlib.exp
   | Log -> Stdlib.log
+  | Round_bf16 -> bf16_value
   | Sin -> Stdlib.sin
   | Sqrt -> Stdlib.sqrt
   | Trunc -> Float.trunc
@@ -268,6 +282,7 @@ let unary_name = function
   | Erf -> "erf"
   | Exp -> "exp"
   | Log -> "log"
+  | Round_bf16 -> "round_bf16"
   | Sin -> "sin"
   | Sqrt -> "sqrt"
   | Trunc -> "trunc"

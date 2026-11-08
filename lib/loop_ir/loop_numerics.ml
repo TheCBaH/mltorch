@@ -174,7 +174,7 @@ let failure : Loop_failure.t -> unit = function
       ()
 
 let stored : Loop_stored.t -> unit = function
-  | Loop_stored.Bool e | Loop_stored.F32 e -> expr e
+  | Loop_stored.Bf16 e | Loop_stored.Bool e | Loop_stored.F32 e -> expr e
   | Loop_stored.I64 e -> expr e
 
 let rec stmt : Loop_stmt.t -> unit = function

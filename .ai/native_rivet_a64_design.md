@@ -181,7 +181,12 @@ too), `ORR .16b` on int32 lanes and `MOV .16b` for a vector bitcast (`Vcast`).
 `FCVTL .4s, .4h` is not used: it quiets a signalling NaN, and the binary16
 decode keeps every NaN's bits (sign, all-ones exponent, mantissa shifted), so
 `FCVTL` would differ from the scalar oracle on 1022 encodings. Strided reads stay
-a scalar decode per lane.
+a scalar decode per lane. A contiguous `bf16` store rounds in int32 lanes:
+`DUP .4s` from a W register for the constants (`Dup_w`), `ADD .4s` (`Vadd_w`),
+the lane shifts, `BIT` choosing int32 lanes under a binary32 compare's mask,
+then `UZP1 .8h` of two registers' int32 lanes (`Uzp1_h`, each lane's low
+halfword) and `STR Q` of the eight halfwords (`Str_ivec`); `ADD .4s` and `UZP1`
+are encoded words too.
 
 ## GNU as an independent encoder
 

@@ -7,6 +7,7 @@ type error =
   [ `Arange_i64_overflow of Factory.Arange.Overflow.t
   | `Embedding_index_out_of_range of Embedding.Embedding.Index_out_of_range.t
   | Tensor.dst_error
+  | `Unsupported_to_copy_bfloat16_source of Payload.packed_fmt
   | `Unsupported_to_copy_bool_source of Payload.packed_fmt
   | `Unsupported_to_copy_long_source of Payload.packed_fmt ]
 
@@ -18,6 +19,9 @@ let pp_error ppf : [< error ] -> unit = function
   | `Embedding_index_out_of_range e ->
       Embedding.Embedding.Index_out_of_range.pp ppf e
   | #Tensor.dst_error as e -> Tensor.pp_dst_error ppf e
+  | `Unsupported_to_copy_bfloat16_source (Payload.Fmt f) ->
+      Format.fprintf ppf "to_copy: a bfloat16 target from a %s source"
+        (Payload.fmt_name f)
   | `Unsupported_to_copy_bool_source (Payload.Fmt f) ->
       Format.fprintf ppf
         "to_copy: Bool target has no exact Bool output for a %s source"
@@ -692,6 +696,23 @@ let compute_arms (g : graph) (op : op) ~(output : Output_ordinal.t) ~out_shape
                  not (Int64.equal (Direct.i64_load x_t coord) 0L)))
       | Payload.Fmt other ->
           Err.fail (`Unsupported_to_copy_bool_source (Payload.Fmt other)))
+  (* [To_copy]'s [Bfloat16] target: the operand's value rounded once by
+     [Kernel.Result_conversion.Round_bf16]'s own definition
+     ([Expr.Value.bf16_value]: to binary32, then to nearest even, every NaN
+     canonical) and written as BF16 cells, which then encode it exactly. A
+     float operand only, as no corpus caller casts an integer one. *)
+  | To_copy { Pointwise.To_copy.target = Pointwise.To_copy.Bfloat16; x } -> (
+      let x_sig = Tensor_id.Map.find x g.Graph.tensors in
+      match x_sig.Tensor_sig.fmt with
+      | Payload.Fmt (Payload.BF16 | Payload.F16 | Payload.F32 | Payload.F64) ->
+          let module C = Pointwise.To_copy.Compute (Direct) in
+          let x_t = Tensor_id.Map.find x operand_env in
+          finish dst
+            (Tensor.write_float dst (fun coord ->
+                 Expr.Value.bf16_value
+                   (C.pixel Pointwise.To_copy.Bfloat16 x_t coord)))
+      | Payload.Fmt other ->
+          Err.fail (`Unsupported_to_copy_bfloat16_source (Payload.Fmt other)))
   (* [Bitwise_not] now writes real [Payload.Bool] storage too, matching
      [Graph_builder.bitwise_not]'s own unconditional [Bool] output
      declaration -- real ATen's [bitwise_not] on a bool operand produces a

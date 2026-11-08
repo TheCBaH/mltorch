@@ -225,12 +225,17 @@ let load_cell nm b addr =
 (* Binary32: the project's own sequences ({!F32_math}), one helper each. A
    square root and a truncation are exact in [float], so they use the float
    function. *)
+let bf16_unary =
+  "a bfloat16 rounding is a store's encode, never an operation \
+   ([Kernel.Result_conversion.before_store])"
+
 let unary_f32 nm (op : Expr.Value.unary_op) a =
   match op with
   | Expr.Value.Cos -> call nm R.Name.Cos_f32 [ a ]
   | Expr.Value.Erf -> call nm R.Name.Erf_f32 [ a ]
   | Expr.Value.Exp -> call nm R.Name.Exp_f32 [ a ]
   | Expr.Value.Log -> call nm R.Name.Log_f32 [ a ]
+  | Expr.Value.Round_bf16 -> invalid_arg ("Loop_c: " ^ bf16_unary)
   | Expr.Value.Sin -> call nm R.Name.Sin_f32 [ a ]
   | Expr.Value.Sqrt -> "sqrtf(" ^ a ^ ")"
   | Expr.Value.Trunc -> "truncf(" ^ a ^ ")"
@@ -243,6 +248,7 @@ let unary_c nm (op : Expr.Value.unary_op) a =
     | Expr.Value.Erf -> call nm R.Name.Erf [ a ]
     | Expr.Value.Exp -> "exp(" ^ a ^ ")"
     | Expr.Value.Log -> "log(" ^ a ^ ")"
+    | Expr.Value.Round_bf16 -> invalid_arg ("Loop_c: " ^ bf16_unary)
     | Expr.Value.Sin -> "sin(" ^ a ^ ")"
     | Expr.Value.Sqrt -> "sqrt(" ^ a ^ ")"
     | Expr.Value.Trunc -> "trunc(" ^ a ^ ")"

@@ -163,6 +163,7 @@ let count_of t =
 let vexec env (op : Rv32_vop.t) =
   let module V = Rv32_vop in
   match op with
+  | V.Vadd (a, c) -> [ lanewise2 env (fun x y -> m32 (Int64.add x y)) a c ]
   | V.Vcast (_, a) | V.Vmv a -> [ vec (lanes env a) ]
   | V.Vext { signed; from; first; src } ->
       let l = lanes env src in
@@ -263,12 +264,29 @@ let vexec env (op : Rv32_vop.t) =
       ]
   | V.Vmv_v_x (t, a) -> [ vec (Array.make (count_of t) (m32 (bits env a))) ]
   | V.Vnot a -> [ lanewise env (fun x -> Int64.logxor x ones) a ]
+  | V.Vnsrl16 a -> [ lanewise env (fun x -> Int64.logand x 0xFFFFL) a ]
+  | V.Vnsrl16_pair (a, c) ->
+      [
+        vec
+          (Array.map
+             (fun x -> Int64.logand x 0xFFFFL)
+             (Array.append (lanes env a) (lanes env c)));
+      ]
   | V.Vse32 (base, x) ->
       Array.iteri
         (fun k l ->
           E.store env
             (addr env base (Int64.of_int (4 * k)))
             ~bytes:4L ~align:1L l)
+        (lanes env x);
+      []
+  | V.Vse_int (w, _, base, x) ->
+      let size = Mir_width.bytes w in
+      Array.iteri
+        (fun k l ->
+          E.store env
+            (addr env base (Int64.mul (Int64.of_int k) size))
+            ~bytes:size ~align:1L l)
         (lanes env x);
       []
   | V.Vsgnj (o, a, c) -> [ lanewise2 env (sgnj o) a c ]

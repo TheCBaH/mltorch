@@ -285,3 +285,32 @@ let%expect_test "a binary64 kernel among binary32 ones is caught" =
   Fmt.pr "equals the oracle %b (%d of %d binary32)@." same_oracle
     st.Loop_bundle_wasm.f32_invocations st.Loop_bundle_wasm.invocations;
   [%expect {| equals the oracle false (2 of 3 binary32) |}]
+
+(* A bfloat16 result planned as vectors: the narrowing kernel's store is a
+   vector store of [Bf16_round], which Wasm writes lane by lane through the
+   scalar encode; bitwise the reference (the add is exact in binary64, so its
+   one binary32 rounding is the planned one). *)
+let%expect_test "a bfloat16 result through planned binary32 vectors" =
+  let module F = Native_test.Graph_fixtures in
+  let g =
+    F.build "bf16_out"
+      Graph_builder.(
+        let* a = input ~shape:(F.s 1 1 1 1 3 37) () in
+        let* b = input ~shape:(F.s 1 1 1 1 3 37) () in
+        let* s = add a b in
+        to_copy Pointwise.To_copy.Bfloat16 s)
+  in
+  let ssa, st =
+    run_graph
+      ~kernel:(fun ~table_alloc inv ->
+        Ssa_backends.wasm
+          ~pipeline:
+            (target ~numerics:Ssa_ir.Ssa_numerics.Fp32_ordered
+               Ssa_ir.Ssa_target.wasm128)
+          ~table_alloc inv)
+      ~constant:positive g
+  in
+  Fmt.pr "identical: %b (%d invocations)@."
+    (List.for_all (fun (t, r) -> bits t = bits r) ssa)
+    st.Loop_bundle_wasm.invocations;
+  [%expect {| identical: true (2 invocations) |}]

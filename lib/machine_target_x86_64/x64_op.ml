@@ -219,11 +219,19 @@ type t =
   | Movq_widen of v  (** MOVQ xmm, xmm: a half as a PS vector, upper zero *)
   | Movup_iload of Mir_type.t * Addr.t
       (** MOVUPS from memory: a register of integer lanes ([i8x16], [i16x8]) *)
+  | Movup_istore of Mir_type.t * Addr.t * v
+      (** MOVUPS to memory: a register of integer lanes ([i8x16], [i16x8]) *)
   | Movup_load of Pk.t * Addr.t  (** MOVUPS/MOVUPD from memory *)
   | Movup_store of Pk.t * Addr.t * v  (** MOVUPS/MOVUPD to memory *)
   | Movsxd of v
   | Movzx32 of v  (** MOV r32, r32: a 32-bit value zero-extended *)
   | Neg of Sz.t * v
+  | Packssdw of v * v
+      (** PACKSSDW: the int32 lanes of the first operand, then of the second,
+          each saturated to int16: eight lanes; tied to the first, which is a
+          copy typed as the result ({!Movap_cast}) because a tie needs equal
+          types *)
+  | Paddd of v * v  (** PADDD: int32 lanes, modulo 2^32, tied *)
   | Pbin of Fop.t * Pk.t * v * v
       (** ADDPS … SUBPD, tied; MAXPS is not IEEE maximum, as for {!Fbin} *)
   | Pcmp of Cmp_pred.t * Pk.t * v * v
@@ -275,6 +283,8 @@ let uses = function
   | Movlhps (a, b)
   | Pbin (_, _, a, b)
   | Pcmp (_, _, a, b)
+  | Packssdw (a, b)
+  | Paddd (a, b)
   | Plogic (_, _, a, b)
   | Pshuf (_, _, a, b)
   | Imul (_, a, b)
@@ -325,13 +335,15 @@ let uses = function
   | Lea_view _ | Mov_imm _ | Pones _ -> []
   | Load (_, addr) | Movup_load (_, addr) | Movup_iload (_, addr) ->
       Addr.uses addr
-  | Movup_store (_, addr, x) | Store (_, addr, x) -> Addr.uses addr @ [ x ]
+  | Movup_istore (_, addr, x) | Movup_store (_, addr, x) | Store (_, addr, x) ->
+      Addr.uses addr @ [ x ]
 
 let test_uses = function Jcc (_, f) -> [ f ]
 let test_flags_read = function Jcc (c, _) -> Cond.reads c
 
 let ordered = function
-  | Call _ | Load _ | Movup_iload _ | Movup_load _ | Movup_store _ | Store _ ->
+  | Call _ | Load _ | Movup_iload _ | Movup_istore _ | Movup_load _
+  | Movup_store _ | Store _ ->
       true
   | _ -> false
 
@@ -339,7 +351,8 @@ let tied0 = [ Mir_target.Constraint.Tied { result = 0; use = 0 } ]
 
 let constraints = function
   | Alu _ | Alu_imm _ | Cmps _ | Fbin _ | Flogic _ | Imul _ | Movlhps _ | Neg _
-  | Pbin _ | Pcmp _ | Plogic _ | Pshift _ | Pshuf _ | Shift_imm _ ->
+  | Packssdw _ | Paddd _ | Pbin _ | Pcmp _ | Plogic _ | Pshift _ | Pshuf _
+  | Shift_imm _ ->
       tied0
   | Cmov _ | Fmadd231 _ | Pfmadd231 _ ->
       [ Mir_target.Constraint.Tied { result = 0; use = 2 } ]
@@ -431,10 +444,10 @@ let op_features = function
   | Cmps _ | Cvt _ | Cvtdq2ps _ | Cvtpd2ps _ | Cvtps2pd _ | Cvtsi2s _
   | Cvttps2dq _ | Cvtts2si _ | Fbin _ | Movup_iload _ | Flogic _ | Movap _
   | Movap_cast _ | Movap_to_mask _ | Movlhps _ | Movq_from_gpr _ | Movq_low _
-  | Movq_to_gpr _ | Movq_widen _ | Movup_load _ | Movup_store _ | Pbin _
-  | Pcmp _ | Plogic _ | Pones _ | Pshuf _ | Pshufd_half _ | Pshufd_lane _
-  | Pshufd_splat _ | Pshufd_splat_mask _ | Pshift _ | Psqrt _ | Sqrt _
-  | Ucomis _ | Xt_lanes _ ->
+  | Movq_to_gpr _ | Movq_widen _ | Movup_istore _ | Movup_load _ | Movup_store _
+  | Packssdw _ | Paddd _ | Pbin _ | Pcmp _ | Plogic _ | Pones _ | Pshuf _
+  | Pshufd_half _ | Pshufd_lane _ | Pshufd_splat _ | Pshufd_splat_mask _
+  | Pshift _ | Psqrt _ | Sqrt _ | Ucomis _ | Xt_lanes _ ->
       [ Mir_target.Feature.Sse2 ]
   | Load ((Msz.S | Msz.D), _) | Store ((Msz.S | Msz.D), _, _) ->
       [ Mir_target.Feature.Sse2 ]
@@ -619,7 +632,10 @@ let typing op =
       in
       Ok [ int32x4 ]
   | Movap_cast (t, a) ->
-      let q x = Mir_type.equal x int32x4 || is_pk Pk.Ps x in
+      let q x =
+        Mir_type.equal x int32x4 || is_pk Pk.Ps x
+        || Option.is_some (int_register x)
+      in
       let* () = need (q t && q (ty a)) "an XMM register's lanes" in
       Ok [ t ]
   | Cvtsi2s (fsz, a) ->
@@ -703,10 +719,35 @@ let typing op =
   | Movup_load (pk, a) ->
       let* () = addr_ok a in
       Ok [ Pk.ty pk ]
+  | Movup_istore (t, a, x) ->
+      let* () = addr_ok a in
+      let* () =
+        need
+          (Option.is_some (int_register t) && Mir_type.equal (ty x) t)
+          "integer register"
+      in
+      Ok []
   | Movup_store (pk, a, x) ->
       let* () = addr_ok a in
       let* () = need (is_pk pk (ty x)) "movup value" in
       Ok []
+  | Packssdw (a, b) ->
+      let i16x8 =
+        Mir_type.Vec (Mir_type.Elem.Int Mir_width.W16, Mir_type.Lanes.of_int 8)
+      in
+      let* () =
+        need
+          (Mir_type.equal (ty a) i16x8 && Mir_type.equal (ty b) int32x4)
+          "int32 lane operands"
+      in
+      Ok [ i16x8 ]
+  | Paddd (a, b) ->
+      let* () =
+        need
+          (Mir_type.equal (ty a) int32x4 && Mir_type.equal (ty b) int32x4)
+          "int32 lane operands"
+      in
+      Ok [ int32x4 ]
   | Pbin (_, pk, a, b) ->
       let* () = need (is_pk pk (ty a) && is_pk pk (ty b)) "packed operands" in
       Ok [ Pk.ty pk ]
@@ -878,8 +919,12 @@ let pp_op pv fmt op =
   | Movq_low a -> Fmt.pf fmt "movq.low %a" pv a
   | Movq_widen a -> Fmt.pf fmt "movq.widen %a" pv a
   | Movup_load (pk, a) -> Fmt.pf fmt "movu%s %a" (Pk.name pk) (pp_addr pv) a
+  | Movup_istore (t, a, x) ->
+      Fmt.pf fmt "movups %a %a, %a" Mir_type.pp t pv x (pp_addr pv) a
   | Movup_store (pk, a, x) ->
       Fmt.pf fmt "movu%s %a, %a" (Pk.name pk) pv x (pp_addr pv) a
+  | Packssdw (a, b) -> Fmt.pf fmt "packssdw %a" vs [ a; b ]
+  | Paddd (a, b) -> Fmt.pf fmt "paddd %a" vs [ a; b ]
   | Movq_from_gpr (fsz, a) ->
       Fmt.pf fmt "mov%s.from_gpr %a"
         (match fsz with Fsz.D -> "q" | Fsz.S -> "d")

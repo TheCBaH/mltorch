@@ -13,6 +13,7 @@ module Name : sig
     | Exp_f32
     | F16_to_float
     | Float_max
+    | Float_to_bf16
     | Fma_f32
     | I64_from_float_failure
     | Pool_better
@@ -44,6 +45,9 @@ val source : string
     The one place each helper's kinds are stated. *)
 
 val bf16_to_float : Js_build.bits16 Js_build.t -> Js_build.num Js_build.t
+
+val float_to_bf16 : Js_build.num Js_build.t -> Js_build.bits16 Js_build.t
+(** [Expr.Value.bf16_value]'s bfloat16 pattern. *)
 
 val coord_failure :
   buffer:Js_build.idx Js_build.t ->

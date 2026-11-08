@@ -974,6 +974,24 @@ lives past the widening. RV32 holds it in a whole group, loads it with
 1024, MPACT m3 and the RTL; residual add bf16 at LMUL 4: 691 / 287 / 177
 cycles (LMUL 1: 1,451 / 439 / 253), tanh GELU mul bf16 35,729 at 2x160.
 
+bfloat16 results store from vectors too: the binary32 lanes round in int32
+lanes (`vadd.vv`, `vsrl.vi`, the canonical-NaN `vmerge`), then narrow and
+store as 16-bit lanes. Under groups one `vnsrl.wi` at e16/m2 narrows a group
+into half a group (`Vnsrl16`) and `vse16.v` at m2 stores it (`Vse_int`); on
+single registers two `vnsrl.wi` at e16/mf2 fill the low lanes of the result
+and of v0, which a tail-undisturbed `vslideup.vi` by 4 joins
+(`Vnsrl16_pair`). No `vfncvtbf16` (no `Zvfbfmin` declared). The bf16-in,
+bf16-out fixtures (a `To_copy` to `Bfloat16` after each operation, so one
+more invocation: the bundle does not fuse the narrowing into its producer)
+are bitwise on qemu at VLEN 128 and 1024, MPACT m3 and the RTL. RTL cycles
+(2x160 / 1x67 / 1x33): residual add 1,917 / 687 / 403 at LMUL 4 (LMUL 1:
+3,698 / 1,041 / 579), RMS norm 3,710 / 1,176 / 702 (6,998 / 1,832 /
+1,030), tanh GELU mul 15,355 / 4,187 / 2,107 (25,950 / 6,315 / 3,177),
+3,007 / 5,588 / 21,649 summed over the three shapes against the released
+bf16 kernels' 701 / 1,624 / 3,314; most of the residual add's gap is the separate narrowing
+invocation (1,917 against 691 for bf16 inputs alone). At LMUL 8 sixteen-bit
+vectors have no register shape, for loads and stores alike.
+
 The strict sums reduce in order on the vector unit: `vfredosum.vs` measured
 3.2 cycles an element at LMUL 4 (3.75 at LMUL 1) against the scalar chain's
 15 (a hand-written probe, N against 2N trips). Strict RMS norm at LMUL 4:

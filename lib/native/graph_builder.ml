@@ -854,6 +854,13 @@ let to_copy ?name target x =
         (To_copy { Pointwise.To_copy.target; x })
   | Pointwise.To_copy.Float ->
       op1 ?name ~kind:"to_copy" (To_copy { Pointwise.To_copy.target; x })
+  | Pointwise.To_copy.Bfloat16 ->
+      (* a bfloat16 output edge: the binary32 value rounded once to
+         bfloat16 where it is stored *)
+      op1 ?name
+        ~fmt:Payload.(Fmt BF16)
+        ~kind:"to_copy"
+        (To_copy { Pointwise.To_copy.target; x })
 
 (* Returns every slice, in ordinal order. The count comes from the input
    signature via [Graph_shape], never from the caller — which is what lets a

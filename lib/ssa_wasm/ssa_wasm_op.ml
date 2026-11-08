@@ -29,6 +29,10 @@ let float_op ~f32 (op : Expr.Value.binary_op) =
 
 (* Binary32: the module's own function ({!F32_math}), no import; a square root
    and a truncation are exact in [f32]. The argument is on the stack. *)
+(* [Ssa_typing] rejects a bfloat16 rounding as an operation: a verified
+   program has none *)
+let bf16_unary = "Ssa_wasm: a bfloat16 rounding is a store's encode"
+
 let unary st ~f32 (op : Expr.Value.unary_op) =
   if f32 then
     match op with
@@ -36,6 +40,7 @@ let unary st ~f32 (op : Expr.Value.unary_op) =
     | Expr.Value.Erf -> [ call st R.Callee.Erf_f32 ]
     | Expr.Value.Exp -> [ call st R.Callee.Exp_f32 ]
     | Expr.Value.Log -> [ call st R.Callee.Log_f32 ]
+    | Expr.Value.Round_bf16 -> invalid_arg bf16_unary
     | Expr.Value.Sin -> [ call st R.Callee.Sin_f32 ]
     | Expr.Value.Sqrt -> [ n Wasm_op.F32_sqrt ]
     | Expr.Value.Trunc -> [ n Wasm_op.F32_trunc ]
@@ -45,6 +50,7 @@ let unary st ~f32 (op : Expr.Value.unary_op) =
     | Expr.Value.Erf -> [ call st R.Callee.Erf ]
     | Expr.Value.Exp -> [ call st R.Callee.Exp ]
     | Expr.Value.Log -> [ call st R.Callee.Log ]
+    | Expr.Value.Round_bf16 -> invalid_arg bf16_unary
     | Expr.Value.Sin -> [ call st R.Callee.Sin ]
     | Expr.Value.Sqrt -> [ n Wasm_op.F64_sqrt ]
     | Expr.Value.Trunc -> [ n Wasm_op.F64_trunc ]
@@ -235,12 +241,36 @@ let decode st (b : Ssa_buffer.t) (d : Ssa_op.Decode.t) ~address
           in
           load l @ [ convert ] @ table zeros @ [ sub ] @ table scales @ [ mul ])
 
-let encode_store (e : Ssa_op.Encode.t) =
+let encode_store st (e : Ssa_op.Encode.t) =
   match e with
   | Ssa_op.Encode.Bf16_round ->
-      (* no producer gives this backend one: a bfloat16 store is written only
-         by a granted attention layer, which the Machine IR route alone runs *)
-      invalid_arg "Ssa_wasm: a bfloat16 store is not emitted"
+      (* [Expr.Value.bf16_value] on the binary32 operand, in i32:
+         [(b + 0x7FFF + bit 16) >>> 16], or [0x7FC0] when [b] is a NaN's *)
+      let b = fresh st Wasm_type.I32 in
+      let k x = I.I32_const x in
+      [
+        n Wasm_op.I32_reinterpret_f32;
+        set b;
+        k 0x7FC0l;
+        get b;
+        k 0x7FFFl;
+        n Wasm_op.I32_add;
+        get b;
+        k 16l;
+        n Wasm_op.I32_shr_u;
+        k 1l;
+        n Wasm_op.I32_and;
+        n Wasm_op.I32_add;
+        k 16l;
+        n Wasm_op.I32_shr_u;
+        get b;
+        k 0x7FFF_FFFFl;
+        n Wasm_op.I32_and;
+        k 0x7F80_0000l;
+        n Wasm_op.I32_gt_u;
+        I.Select;
+        I.Store (Wasm.Store.I32_store16, arg 1 0);
+      ]
   | Ssa_op.Encode.Bool_nonzero ->
       [ f64 0.; n Wasm_op.F64_ne; I.Store (Wasm.Store.I32_store8, arg 0 0) ]
   | Ssa_op.Encode.F32_exact -> [ I.Store (Wasm.Store.F32_store, arg 2 0) ]

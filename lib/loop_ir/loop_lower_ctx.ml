@@ -91,8 +91,9 @@ let output_buffer (sg : Tensor_sig.t) =
    already inside the expression; this only names how the buffer takes it. *)
 let stored_of (v : Kernel.Value.t) e : Loop_stored.t =
   match v.Kernel.Value.result with
-  | Kernel.Result_conversion.Round_f32 -> Loop_stored.F32 e
   | Kernel.Result_conversion.Nonzero_bool -> Loop_stored.Bool e
+  | Kernel.Result_conversion.Round_bf16 -> Loop_stored.Bf16 e
+  | Kernel.Result_conversion.Round_f32 -> Loop_stored.F32 e
 
 let format_name (b : Loop_buffer.t) =
   let sg = b.Loop_buffer.sg in

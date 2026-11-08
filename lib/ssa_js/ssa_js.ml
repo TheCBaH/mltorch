@@ -25,6 +25,7 @@ let unary cx ~f32 (op : Expr.Value.unary_op) a =
     | Expr.Value.Exp ->
         if f32 then runtime R.Name.Exp_f32 [ a ] else math "exp" [ a ]
     | Expr.Value.Log -> math "log" [ a ]
+    | Expr.Value.Round_bf16 -> refuse "a bfloat16 rounding as an operation"
     | Expr.Value.Sin -> math "sin" [ a ]
     | Expr.Value.Sqrt -> math "sqrt" [ a ]
     | Expr.Value.Trunc -> math "trunc" [ a ]
@@ -429,10 +430,9 @@ let instr cx ~(limits : Expr.Scan_limits.t) (i : Ssa_instr.t) : A.Stmt.t list =
       let e =
         match encode with
         | Ssa_op.Encode.Bf16_round ->
-            (* no producer gives this backend one: a bfloat16 store is written
-               only by a granted attention layer, which the Machine IR route
-               alone runs *)
-            invalid_arg "Ssa_js: a bfloat16 store is not emitted"
+            (* the runtime's [float_to_bf16], [Expr.Value.bf16_value]'s
+               pattern *)
+            runtime R.Name.Float_to_bf16 [ v value ]
         | Ssa_op.Encode.Bool_nonzero ->
             A.Cond (bin A.Ne_strict (v value) (num 0.), num 1., num 0.)
         | Ssa_op.Encode.F32_exact | Ssa_op.Encode.F32_round | Ssa_op.Encode.I64

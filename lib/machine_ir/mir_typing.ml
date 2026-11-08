@@ -203,6 +203,11 @@ let check ~(signature : Mir_op.Callee.t -> Signature.t option)
           | Some w0 when Mir_width.bits w0 < Mir_width.bits w ->
               Ok [ Mir_type.Int w ]
           | _ -> Error (Error.Bad_immediate Immediate.Width_order)))
+  | Itrunc (w, { Mir_value.ty = Mir_type.Vec (Mir_type.Elem.Int w0, n); _ }) ->
+      (* lane by lane on an integer vector: each lane's low bits *)
+      if Mir_width.bits w0 > Mir_width.bits w then
+        Ok [ Mir_type.Vec (Mir_type.Elem.Int w, n) ]
+      else Error (Error.Bad_immediate Immediate.Width_order)
   | Itrunc (w, a) | Narrow (w, a) -> (
       let* () = operand 0 a int_ty in
       match width_of a.Mir_value.ty with

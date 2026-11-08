@@ -110,7 +110,8 @@ and reads_pred env target (p : Loop_expr.pred) =
       false
 
 let reads_stored env target : Loop_stored.t -> bool = function
-  | Loop_stored.Bool e | Loop_stored.F32 e -> reads env target e
+  | Loop_stored.Bf16 e | Loop_stored.Bool e | Loop_stored.F32 e ->
+      reads env target e
   | Loop_stored.I64 e -> reads env target e
 
 let reads_failure env target : Loop_failure.t -> bool = function

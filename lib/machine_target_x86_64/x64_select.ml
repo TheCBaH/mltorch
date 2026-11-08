@@ -1,124 +1,6 @@
 open Machine_ir
 open X64_op
-module S = X64_stage.Sel
-
-module Refusal = struct
-  type t =
-    | Fallible_with_results of Mir_op.Callee.t
-    | Feature of Mir_target.Feature.t
-    | Invalid_selection of Mir_diagnostic.t
-    | Missing_site of Mir_failure.t
-    | Operation of string
-    | Vector of Mir_vsplit.Refusal.t
-    | Width of Mir_type.t
-
-  let pp fmt = function
-    | Fallible_with_results c ->
-        Fmt.pf fmt
-          "a call to %a that may fail, from or with results this slice cannot \
-           leave undefined"
-          Mir_op.Callee.pp c
-    | Feature f ->
-        Fmt.pf fmt "needs %s, which the program's features do not include"
-          (Mir_target.Feature.name f)
-    | Invalid_selection d ->
-        Fmt.pf fmt "selection defect: %a" Mir_diagnostic.pp d
-    | Missing_site f -> Fmt.pf fmt "no site-table entry for %a" Mir_failure.pp f
-    | Operation o -> Fmt.pf fmt "%s is not selected for x86_64" o
-    | Vector r -> Mir_vsplit.Refusal.pp fmt r
-    | Width t ->
-        Fmt.pf fmt "type %a has no x86_64 register in this slice" Mir_type.pp t
-end
-
-module Mutation = struct
-  type t =
-    | Commuted_sub
-    | Contract
-    | Division_swap
-    | Fused_float_eq
-    | Insert_next_lane
-    | Mask_arms
-    | Mask_lt_le
-    | Max_no_nan
-    | Missing_failure_word
-    | No_parity
-    | Pruned_live
-    | Scaled_address
-    | Signed_compare
-    | Unguarded_trunc
-end
-
-type result = { selected : S.Verified.t; record : Mir_id.View.t }
-
-type st = {
-  b : (X64.op, X64.test) Mir_select.t;
-  esc : Refusal.t Err.Escape.t;
-  mutation : Mutation.t option;
-  sites : Mir_failure.Site_entry.t array;
-  unlisted : Mir_failure.Unlisted.t;
-  fallible : Mir_op.Callee.t -> bool;
-  features : Mir_target.Feature.t list;
-  int_slices : (int, int * Mir_value.t) Hashtbl.t;
-      (** four lanes of an integer register read only by extensions to int32
-          ({!Mir_vsplit.widening_slices}) *)
-  shift_counts : (int, int64) Hashtbl.t;
-      (** an integer splat read only as a lane shift count: the count
-          ({!Mir_vsplit.shift_counts}) *)
-}
-
-let refuse st r = Err.Escape.throw st.esc r
-let mutated st m = st.mutation = Some m
-let fresh st ty = Mir_select.fresh st.b ty
-let push st ?order results op = Mir_select.push st.b ?order results op
-let emit st ?result ty op = Mir_select.emit st.b ?result ty op
-let ord st v = Mir_select.ord st.b v
-let ord_edge st e = Mir_select.ord_edge st.b e
-
-let sz_of st (t : Mir_type.t) =
-  match t with
-  | Mir_type.Int Mir_width.W64 | Mir_type.Ptr -> Sz.Q
-  | Mir_type.Int Mir_width.W32 | Mir_type.Pred -> Sz.L
-  | _ -> refuse st (Refusal.Width t)
-
-let fsz_of st (t : Mir_type.t) =
-  match t with
-  | Mir_type.F64 -> Fsz.D
-  | Mir_type.F32 -> Fsz.S
-  | _ -> refuse st (Refusal.Width t)
-
-let need_feature st f =
-  if not (List.mem f st.features) then refuse st (Refusal.Feature f)
-
-let const st ?result (c : Mir_const.t) =
-  match c.Mir_const.ty with
-  | Mir_type.Int _ | Mir_type.Pred ->
-      emit st ?result c.Mir_const.ty
-        (Mov_imm (c.Mir_const.ty, c.Mir_const.bits))
-  | Mir_type.F64 ->
-      let g = emit st Mir_type.i64 (Mov_imm (Mir_type.i64, c.Mir_const.bits)) in
-      emit st ?result Mir_type.F64 (Movq_from_gpr (Fsz.D, g))
-  | Mir_type.F32 ->
-      let g = emit st Mir_type.i32 (Mov_imm (Mir_type.i32, c.Mir_const.bits)) in
-      emit st ?result Mir_type.F32 (Movq_from_gpr (Fsz.S, g))
-  | t -> refuse st (Refusal.Width t)
-
-let icond st (c : Mir_op.Icmp.t) =
-  match c with
-  | Mir_op.Icmp.Eq -> Cond.E
-  | Mir_op.Icmp.Ne -> Cond.Ne
-  | Mir_op.Icmp.Sle -> Cond.Le
-  | Mir_op.Icmp.Slt -> Cond.L
-  | Mir_op.Icmp.Ule ->
-      if mutated st Mutation.Signed_compare then Cond.Le else Cond.Be
-  | Mir_op.Icmp.Ult ->
-      if mutated st Mutation.Signed_compare then Cond.L else Cond.B
-
-let msz_of (w : Mir_width.t) =
-  match w with
-  | Mir_width.W8 -> Msz.B
-  | Mir_width.W16 -> Msz.H
-  | Mir_width.W32 -> Msz.L
-  | Mir_width.W64 -> Msz.Q
+include X64_select_st
 
 (* An address operand: [base + index * scale + disp] when the generic address
    is a pointer plus an index times 1, 2, 4 or 8, then plus a constant that
@@ -321,6 +203,36 @@ let vector st (i : Mir_op.t Mir_instr.t) =
     if disp32 disp then { a with Addr.disp } else unsupported ()
   in
   match i.Mir_instr.op with
+  | Mir_op.Itrunc (Mir_width.W16, _)
+    when Hashtbl.mem st.narrowing_halves
+           (Mir_id.Value.to_int (r ()).Mir_value.id) ->
+      (* made by the join that reads it *)
+      ()
+  | Mir_op.Vconcat [ a; b ]
+    when Hashtbl.mem st.narrowing_halves (Mir_id.Value.to_int a.Mir_value.id)
+         && Hashtbl.mem st.narrowing_halves (Mir_id.Value.to_int b.Mir_value.id)
+    ->
+      (* each int32 lane's low half sign-extended in place, so the saturating
+         pack keeps it exactly *)
+      let low (h : Mir_value.t) =
+        let s =
+          Hashtbl.find st.narrowing_halves (Mir_id.Value.to_int h.Mir_value.id)
+        in
+        let up = emit st X64_op.int32x4 (Pshift (Shift.Shl, 16, s)) in
+        emit st X64_op.int32x4 (Pshift (Shift.Sar, 16, up))
+      in
+      let i16x8 = (r ()).Mir_value.ty in
+      let lo = emit st i16x8 (Movap_cast (i16x8, low a)) in
+      def (Packssdw (lo, low b))
+  | Mir_op.Vstore
+      ({ Mir_op.Vaccess.addr; stride; elem = Mir_type.Elem.Int w; _ }, v) -> (
+      (* a whole register of integer lanes, contiguous *)
+      match X64_op.int_register v.Mir_value.ty with
+      | Some _ when Int64.equal stride (Mir_width.bytes w) ->
+          push st ?order:i.Mir_instr.order []
+            (Mir_sel.Op.Machine
+               (Movup_istore (v.Mir_value.ty, address st addr, v)))
+      | _ -> refuse st (Refusal.Width v.Mir_value.ty))
   | Mir_op.Copy a -> (
       match pk_of st a.Mir_value.ty with
       | `Pk _ -> def (Movap a)
@@ -377,8 +289,11 @@ let vector st (i : Mir_op.t Mir_instr.t) =
       let ones = emit st (Pk.mask_ty p) (Pones p) in
       def (Plogic (Flogic.Xor, p, a, ones))
   | Mir_op.Select (m, a, b) when is_mask m ->
-      (* [b ^ ((a ^ b) & m)]: a lane of [a] where the mask is set *)
-      let p = pk a in
+      (* [b ^ ((a ^ b) & m)]: a lane of [a] where the mask is set; int32
+         lanes choose as binary32 lanes do *)
+      let p =
+        if Mir_type.equal a.Mir_value.ty X64_op.int32x4 then Pk.Ps else pk a
+      in
       let a, b = if mutated st Mutation.Mask_arms then (b, a) else (a, b) in
       let t = emit st a.Mir_value.ty (Plogic (Flogic.Xor, p, a, b)) in
       let u = emit st a.Mir_value.ty (Plogic (Flogic.And, p, t, m)) in
@@ -506,6 +421,15 @@ let vector st (i : Mir_op.t Mir_instr.t) =
         | _ -> Flogic.Xor
       in
       def (Plogic (o, Pk.Ps, a, b))
+  | Mir_op.Iarith (Mir_op.Iarith.Add, a, b)
+    when Mir_type.equal a.Mir_value.ty X64_op.int32x4 ->
+      def (Paddd (a, b))
+  | Mir_op.Vsplat (_, x) when Mir_type.equal (r ()).Mir_value.ty X64_op.int32x4
+    ->
+      (* the int32 to a lane, then to every lane, at the int32 lane type *)
+      let f = emit st Mir_type.F32 (Movq_from_gpr (Fsz.S, x)) in
+      let v = emit st (Pk.ty Pk.Ps) (Pshufd_splat (Pk.Ps, f)) in
+      def (Movap_cast (X64_op.int32x4, v))
   | Mir_op.Bitcast (t, a)
     when match t with Mir_type.Vec _ -> true | _ -> false ->
       def (Movap_cast (t, a))
@@ -859,7 +783,8 @@ let scalar st vs =
         when Option.is_some (X64_op.int_register v.Mir_value.ty)
              || Mir_type.equal v.Mir_value.ty X64_op.int32x4
              || Hashtbl.mem st.int_slices (Mir_id.Value.to_int v.Mir_value.id)
-        ->
+             || Hashtbl.mem st.narrowing_halves
+                  (Mir_id.Value.to_int v.Mir_value.id) ->
           (* a register of integer lanes, or four of its lanes a sign
              extension reads in place *)
           ()
@@ -952,6 +877,7 @@ let program ?mutation ?(sites = [||]) ?(unlisted = Mir_failure.Unlisted.Refused)
             fallible;
             int_slices = Mir_vsplit.widening_slices f;
             shift_counts = Mir_vsplit.shift_counts f;
+            narrowing_halves = Mir_vsplit.narrowing_halves f;
             features;
           }
         in

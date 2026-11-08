@@ -167,8 +167,62 @@ let load st op (e : L.Entry.t) ~at ~steps ~lanes ~decode ~channel
       by_lanes st op e ~at ~steps ~lanes ~decode d
   | Ssa_op.Decode.I64 -> unsupported st op
 
-let store st op (e : L.Entry.t) ~at ~steps ~lanes (enc : Ssa_op.Encode.t) v =
+(* Binary32 lanes stored as contiguous bfloat16 cells, the scalar encode's
+   rounding in int32 lanes: to nearest even on the high half of each lane's
+   bits ([b + 0x7FFF + lsb], then the high half), a NaN lane (the only lane
+   unequal to itself) the canonical [0x7FC0]; each lane's low sixteen bits
+   then stored at once. *)
+let bf16_round st op (e : L.Entry.t) ~at ~steps ~lanes v =
+  let acc = vaccess st op e at steps lanes (Mir_type.Elem.Int Mir_width.W16) in
+  let n = acc.Mir_op.Vaccess.lanes in
+  with_role st Mir_origin.Role.Encode;
+  let int k = emit st (Mir_op.Vsplat (n, i32k st k)) in
+  let ia o a b = emit st (Mir_op.Iarith (o, a, b)) in
+  let b =
+    emit st
+      (Mir_op.Bitcast (Mir_type.Vec (Mir_type.Elem.Int Mir_width.W32, n), v))
+  in
+  let lsb =
+    ia Mir_op.Iarith.And (ia Mir_op.Iarith.Shr_u b (int 16L)) (int 1L)
+  in
+  let rounded =
+    ia Mir_op.Iarith.Add (ia Mir_op.Iarith.Add b lsb) (int 0x7FFFL)
+  in
+  let high = ia Mir_op.Iarith.Shr_u rounded (int 16L) in
+  let cell =
+    if mutated st Mutation.Bf16_nan_dropped then high
+    else
+      let ordered = emit st (Mir_op.Fcmp (Mir_op.Fcmp.Eq, v, v)) in
+      emit st (Mir_op.Select (ordered, high, int 0x7FC0L))
+  in
+  emit_unit st
+    (Mir_op.Vstore (acc, emit st (Mir_op.Itrunc (Mir_width.W16, cell))))
+
+(* An encode with no vector store, one lane at a time: each lane's scalar
+   encode at its own address. [encode] is the scalar encode at an address. *)
+let store_by_lanes st op (e : L.Entry.t) ~at ~steps ~lanes ~encode enc v =
+  let acc = vaccess st op e at steps lanes (Mir_type.Elem.Int Mir_width.W16) in
+  for k = 0 to Ssa_type.Lanes.to_int lanes - 1 do
+    let addr =
+      if k = 0 then acc.Mir_op.Vaccess.addr
+      else
+        emit st
+          (Mir_op.Ptr_add
+             ( acc.Mir_op.Vaccess.addr,
+               i64k st (Int64.mul (Int64.of_int k) acc.Mir_op.Vaccess.stride) ))
+    in
+    encode addr enc (emit st (Mir_op.Vextract (Mir_type.Lane.of_int k, v)))
+  done
+
+let store st op (e : L.Entry.t) ~at ~steps ~lanes ~encode
+    (enc : Ssa_op.Encode.t) v =
   match enc with
+  | Ssa_op.Encode.Bf16_round
+    when Int64.equal (stride st op e steps) e.L.Entry.elem_bytes
+         && Ssa_type.Lanes.to_int lanes * 2 mod 16 = 0 ->
+      bf16_round st op e ~at ~steps ~lanes v
+  | Ssa_op.Encode.Bf16_round ->
+      store_by_lanes st op e ~at ~steps ~lanes ~encode enc v
   | Ssa_op.Encode.F32_round ->
       let acc = vaccess st op e at steps lanes Mir_type.Elem.F32 in
       with_role st Mir_origin.Role.Encode;
@@ -178,8 +232,7 @@ let store st op (e : L.Entry.t) ~at ~steps ~lanes (enc : Ssa_op.Encode.t) v =
       let acc = vaccess st op e at steps lanes Mir_type.Elem.F32 in
       with_role st Mir_origin.Role.Encode;
       emit_unit st (Mir_op.Vstore (acc, v))
-  | Ssa_op.Encode.Bf16_round | Ssa_op.Encode.Bool_nonzero | Ssa_op.Encode.I64 ->
-      unsupported st op
+  | Ssa_op.Encode.Bool_nonzero | Ssa_op.Encode.I64 -> unsupported st op
 
 (* Lane [k] is binary64 [base + k * step]: [base] an index and [k * step]
    below 2^37, so both and their sum are exact in binary64. *)

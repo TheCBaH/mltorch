@@ -320,6 +320,11 @@ let instructions env (op : X.t) ~(uses : Loc.t list) ~(defs : Loc.t list) :
   | X.Movup_store (pk, a, _) ->
       let n = List.length (X.Addr.uses a) in
       [ mk ("movu" ^ X.Pk.name pk) [ x (u n); addr env a uses ] ]
+  | X.Movup_istore (_, a, _) ->
+      let n = List.length (X.Addr.uses a) in
+      [ mk "movups" [ x (u n); addr env a uses ] ]
+  | X.Packssdw _ -> [ mk "packssdw" [ x (u 1); x (d 0) ] ]
+  | X.Paddd _ -> [ mk "paddd" [ x (u 1); x (d 0) ] ]
   | X.Movsxd _ -> [ mk "movslq" [ gl (u 0); gq (d 0) ] ]
   | X.Movzx32 _ | X.Trunc32 _ -> [ mk "movl" [ gl (u 0); gl (d 0) ] ]
   | X.Neg (sz, _) -> [ mk ("neg" ^ sfx sz) [ gs sz (d 0) ] ]

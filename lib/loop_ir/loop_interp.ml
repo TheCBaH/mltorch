@@ -262,7 +262,8 @@ let rec eval : type a. state -> a Loop_expr.t -> a =
       | Loop_numerics.Precision.F32, Expr.Value.Sin -> F32_math.Value.sin x
       | ( (Loop_numerics.Precision.F32 | Loop_numerics.Precision.F64),
           ( Expr.Value.Cos | Expr.Value.Erf | Expr.Value.Exp | Expr.Value.Log
-          | Expr.Value.Sin | Expr.Value.Sqrt | Expr.Value.Trunc ) ) ->
+          | Expr.Value.Round_bf16 | Expr.Value.Sin | Expr.Value.Sqrt
+          | Expr.Value.Trunc ) ) ->
           working st (Expr.Value.apply_unary op x))
   | Loop_expr.Value_of_index i ->
       let i = idx st i in
@@ -413,6 +414,15 @@ let store st (b : Loop_buffer.t) coord (v : Loop_stored.t) =
         (Vec6.coord ~n:c.Expr.Coord.n ~t:c.Expr.Coord.t ~d:c.Expr.Coord.d
            ~h:c.Expr.Coord.h ~w:c.Expr.Coord.w ~c:c.Expr.Coord.c)
         x
+  | Loop_stored.Bf16 e, Payload.BF16 ->
+      (* [Expr.Value.bf16_value] is the rounding; the cell's encode then
+         writes a value it represents exactly *)
+      let x = Expr.Value.bf16_value (eval st e) in
+      let c = coord () in
+      Tensor.set_float packed
+        (Vec6.coord ~n:c.Expr.Coord.n ~t:c.Expr.Coord.t ~d:c.Expr.Coord.d
+           ~h:c.Expr.Coord.h ~w:c.Expr.Coord.w ~c:c.Expr.Coord.c)
+        x
   | Loop_stored.I64 e, Payload.I64 ->
       let x = eval st e in
       let c = coord () in
@@ -494,12 +504,15 @@ let rec exec st : Loop_stmt.t -> unit = function
   | Loop_stmt.Store_flat { buffer; offset; value } ->
       store st buffer (fun () -> flat_coord st buffer offset) value
 
-(* An Output buffer starts zeroed. Only the two float-path formats and the
-   int64 track can be produced ([Kernel.create]'s [Format_rule]), so any other
-   signature is a malformed program rather than a typed failure. *)
+(* An Output buffer starts zeroed. Only the float-path formats ([F32], [Bool],
+   [BF16]) and the int64 track can be produced ([Kernel.create]'s
+   [Format_rule]), so any other signature is a malformed program rather than a
+   typed failure. *)
 let allocate (b : Loop_buffer.t) =
   let shape = b.Loop_buffer.sg.Tensor_sig.shape in
   match b.Loop_buffer.sg.Tensor_sig.fmt with
+  | Payload.Fmt Payload.BF16 ->
+      Tensor.bf16_of_float_cells (Tensor.materialize shape (fun _ -> 0.))
   | Payload.Fmt Payload.F32 -> Tensor.create shape
   | Payload.Fmt Payload.Bool -> Tensor.materialize_bool shape (fun _ -> false)
   | Payload.Fmt Payload.I64 -> Tensor.materialize_i64 shape (fun _ -> 0L)

@@ -112,7 +112,8 @@ let rec scan_stmt ids (s : Loop_stmt.t) =
 
 and scan_stored ids (v : Loop_stored.t) =
   match v with
-  | Loop_stored.Bool e | Loop_stored.F32 e -> scan_expr ids e
+  | Loop_stored.Bf16 e | Loop_stored.Bool e | Loop_stored.F32 e ->
+      scan_expr ids e
   | Loop_stored.I64 e -> scan_expr ids e
 
 (* [subst var by index]: every [Var var] replaced by [by]. *)

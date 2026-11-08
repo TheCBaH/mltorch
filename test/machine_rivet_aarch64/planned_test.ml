@@ -189,7 +189,8 @@ let%expect_test "Fp32_ordered vectors on this CPU" =
             (Fmt.str "table %s %s" (Rt.Allocation.name allocation) name)
             g)
         Rt.Allocation.[ Reference; Scanned ])
-    (T.vector_fixtures @ T.transformer_fixtures @ T.transformer_bf16_fixtures);
+    (T.vector_fixtures @ T.transformer_fixtures @ T.transformer_bf16_fixtures
+   @ Machine_model_test.Transformer_fixtures.bf16_out);
   [%expect
     {|
     image relu then add over C=32 (2 invocations): bitwise as interpreted, within 1e-4 of binary64: true; bitwise as interpreted, within 1e-4 of binary64: true
@@ -257,7 +258,34 @@ let%expect_test "Fp32_ordered vectors on this CPU" =
     table scanned tanh gelu mul bf16 1x67 (2 invocations): bitwise, bitwise
     image tanh gelu mul bf16 1x33 (2 invocations): bitwise as interpreted, within 1e-4 of binary64: true; bitwise as interpreted, within 1e-4 of binary64: true
     table reference tanh gelu mul bf16 1x33 (2 invocations): bitwise, bitwise
-    table scanned tanh gelu mul bf16 1x33 (2 invocations): bitwise, bitwise |}]
+    table scanned tanh gelu mul bf16 1x33 (2 invocations): bitwise, bitwise
+    image residual add bf16->bf16 2x160 (2 invocations): bitwise as interpreted, within 1e-4 of binary64: true; bitwise as interpreted, within 1e-4 of binary64: true
+    table reference residual add bf16->bf16 2x160 (2 invocations): bitwise, bitwise
+    table scanned residual add bf16->bf16 2x160 (2 invocations): bitwise, bitwise
+    image residual add bf16->bf16 1x67 (2 invocations): bitwise as interpreted, within 1e-4 of binary64: true; bitwise as interpreted, within 1e-4 of binary64: true
+    table reference residual add bf16->bf16 1x67 (2 invocations): bitwise, bitwise
+    table scanned residual add bf16->bf16 1x67 (2 invocations): bitwise, bitwise
+    image residual add bf16->bf16 1x33 (2 invocations): bitwise as interpreted, within 1e-4 of binary64: true; bitwise as interpreted, within 1e-4 of binary64: true
+    table reference residual add bf16->bf16 1x33 (2 invocations): bitwise, bitwise
+    table scanned residual add bf16->bf16 1x33 (2 invocations): bitwise, bitwise
+    image rms norm bf16->bf16 2x160 (2 invocations): bitwise as interpreted, within 1e-4 of binary64: true; bitwise as interpreted, within 1e-4 of binary64: true
+    table reference rms norm bf16->bf16 2x160 (2 invocations): bitwise, bitwise
+    table scanned rms norm bf16->bf16 2x160 (2 invocations): bitwise, bitwise
+    image rms norm bf16->bf16 1x67 (2 invocations): bitwise as interpreted, within 1e-4 of binary64: true; bitwise as interpreted, within 1e-4 of binary64: true
+    table reference rms norm bf16->bf16 1x67 (2 invocations): bitwise, bitwise
+    table scanned rms norm bf16->bf16 1x67 (2 invocations): bitwise, bitwise
+    image rms norm bf16->bf16 1x33 (2 invocations): bitwise as interpreted, within 1e-4 of binary64: true; bitwise as interpreted, within 1e-4 of binary64: true
+    table reference rms norm bf16->bf16 1x33 (2 invocations): bitwise, bitwise
+    table scanned rms norm bf16->bf16 1x33 (2 invocations): bitwise, bitwise
+    image tanh gelu mul bf16->bf16 2x160 (3 invocations): bitwise as interpreted, within 1e-4 of binary64: true; bitwise as interpreted, within 1e-4 of binary64: true
+    table reference tanh gelu mul bf16->bf16 2x160 (3 invocations): bitwise, bitwise
+    table scanned tanh gelu mul bf16->bf16 2x160 (3 invocations): bitwise, bitwise
+    image tanh gelu mul bf16->bf16 1x67 (3 invocations): bitwise as interpreted, within 1e-4 of binary64: true; bitwise as interpreted, within 1e-4 of binary64: true
+    table reference tanh gelu mul bf16->bf16 1x67 (3 invocations): bitwise, bitwise
+    table scanned tanh gelu mul bf16->bf16 1x67 (3 invocations): bitwise, bitwise
+    image tanh gelu mul bf16->bf16 1x33 (3 invocations): bitwise as interpreted, within 1e-4 of binary64: true; bitwise as interpreted, within 1e-4 of binary64: true
+    table reference tanh gelu mul bf16->bf16 1x33 (3 invocations): bitwise, bitwise
+    table scanned tanh gelu mul bf16->bf16 1x33 (3 invocations): bitwise, bitwise |}]
 
 (* The binary32 transcendentals as NEON vector sequences, over the F32_math
    sample set, against the binary32 oracle. *)

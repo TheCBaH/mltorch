@@ -635,6 +635,16 @@ let eval_node ?region_counters ~limits ~synthetic_ids ~sched (g : Graph.graph)
                 | Payload.Fmt other ->
                     Err.fail
                       (`Unsupported_to_copy_bool_source (Payload.Fmt other)))
+            (* [To_copy]'s [Bfloat16] target: [Tensor.bf16_of_float_cells]
+               rounds by [Expr.Value.bf16_value], as [Eval_direct]'s arm. *)
+            | Op.To_copy
+                { Pointwise.To_copy.target = Pointwise.To_copy.Bfloat16; x } ->
+                let module C = Pointwise.To_copy.Compute (Direct) in
+                let x_t = Tensor_id.Map.find x operand_env in
+                Err.return
+                  (Tensor.bf16_of_float_cells
+                     (Tensor.materialize (Shape4.to_vec6 out_shape) (fun c ->
+                          C.pixel Pointwise.To_copy.Bfloat16 x_t c)))
             (* [Bitwise_not] now writes real [Payload.Bool] storage too, the
                Native4D twin of [Eval_direct]'s own arm --
                [Builder.bitwise_not] now declares the output edge [Bool]

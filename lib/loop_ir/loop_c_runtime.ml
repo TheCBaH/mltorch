@@ -19,6 +19,7 @@ module Name = struct
     | F32_prelude
     | Float_max
     | Float_max_f32
+    | Float_to_bf16
     | Floor_div
     | I64_div
     | I64_from_float
@@ -49,6 +50,7 @@ module Name = struct
       F32_prelude;
       Float_max;
       Float_max_f32;
+      Float_to_bf16;
       Floor_div;
       I64_div;
       I64_from_float;
@@ -79,6 +81,7 @@ module Name = struct
     | F32_prelude -> "f32_prelude"
     | Float_max -> "float_max"
     | Float_max_f32 -> "float_max_f32"
+    | Float_to_bf16 -> "float_to_bf16"
     | Floor_div -> "floor_div"
     | I64_div -> "i64_div"
     | I64_from_float -> "i64_from_float"
@@ -358,6 +361,17 @@ let text dialect : Name.t -> string =
       \  float f;\n\
       \  memcpy(&f, &b, sizeof f);\n\
       \  return (double)f;\n\
+       }\n"
+  | Name.Float_to_bf16 ->
+      (* [Expr.Value.bf16_value]: the parameter's conversion is the binary32
+         rounding; the NaN test is on the bits, so no floating-point mode can
+         fold it away *)
+      "static inline uint16_t float_to_bf16(float f) {\n\
+      \  uint32_t u;\n\
+      \  memcpy(&u, &f, sizeof u);\n\
+      \  if ((u & 0x7FFFFFFFu) > 0x7F800000u) return 0x7FC0;\n\
+      \  u += 0x7FFFu + ((u >> 16) & 1u);\n\
+      \  return (uint16_t)(u >> 16);\n\
        }\n"
   | Name.Coord_failure ->
       Printf.sprintf

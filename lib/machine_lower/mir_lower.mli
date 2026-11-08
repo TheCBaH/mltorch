@@ -40,6 +40,8 @@ end
     defect the differential harness must detect. No consumer passes one. *)
 module Mutation : sig
   type t =
+    | Bf16_nan_dropped
+        (** a vector bfloat16 store without its canonical-NaN select *)
     | Channel_zero  (** a per-channel decode reading channel 0's parameters *)
     | Charge_after_body
         (** a meter charge moved to the end of its block, after the body it

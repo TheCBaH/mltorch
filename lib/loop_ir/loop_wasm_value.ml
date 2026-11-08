@@ -1,5 +1,8 @@
 open Loop_wasm_ctx
 
+let bf16_unary =
+  "Loop_wasm: a bfloat16 rounding is a store's encode, never an operation"
+
 let rec index st : Loop_index.t -> I.t list = function
   | Loop_index.Add (a, b) ->
       let a = index st a in
@@ -269,6 +272,7 @@ let rec num st : float Loop_expr.t -> I.t list = function
         | Expr.Value.Erf -> a @ [ call st R.Callee.Erf_f32 ]
         | Expr.Value.Exp -> a @ [ call st R.Callee.Exp_f32 ]
         | Expr.Value.Log -> a @ [ call st R.Callee.Log_f32 ]
+        | Expr.Value.Round_bf16 -> invalid_arg bf16_unary
         | Expr.Value.Sin -> a @ [ call st R.Callee.Sin_f32 ]
         | Expr.Value.Sqrt -> a @ [ n Wasm_op.F32_sqrt ]
         | Expr.Value.Trunc -> a @ [ n Wasm_op.F32_trunc ]
@@ -278,6 +282,7 @@ let rec num st : float Loop_expr.t -> I.t list = function
         | Expr.Value.Erf -> a @ [ call st R.Callee.Erf ]
         | Expr.Value.Exp -> a @ [ call st R.Callee.Exp ]
         | Expr.Value.Log -> a @ [ call st R.Callee.Log ]
+        | Expr.Value.Round_bf16 -> invalid_arg bf16_unary
         | Expr.Value.Sin -> a @ [ call st R.Callee.Sin ]
         | Expr.Value.Sqrt -> a @ [ n Wasm_op.F64_sqrt ]
         | Expr.Value.Trunc -> a @ [ n Wasm_op.F64_trunc ])

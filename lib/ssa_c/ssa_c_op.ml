@@ -18,6 +18,10 @@ let sym : Expr.Value.binary_op -> string = function
 
 (* A binary32 transcendental is the project's own sequence ({!F32_math}), one
    helper each; a square root and a truncation are exact in [float]. *)
+(* [Ssa_typing] rejects a bfloat16 rounding as an operation: a verified
+   program has none *)
+let bf16_unary = "Ssa_c: a bfloat16 rounding is a store's encode"
+
 let unary cx ~f32 (op : Expr.Value.unary_op) a =
   if f32 then
     match op with
@@ -25,6 +29,7 @@ let unary cx ~f32 (op : Expr.Value.unary_op) a =
     | Expr.Value.Erf -> call cx R.Name.Erf_f32 [ a ]
     | Expr.Value.Exp -> call cx R.Name.Exp_f32 [ a ]
     | Expr.Value.Log -> call cx R.Name.Log_f32 [ a ]
+    | Expr.Value.Round_bf16 -> invalid_arg bf16_unary
     | Expr.Value.Sin -> call cx R.Name.Sin_f32 [ a ]
     | Expr.Value.Sqrt -> "sqrtf(" ^ a ^ ")"
     | Expr.Value.Trunc -> "truncf(" ^ a ^ ")"
@@ -34,6 +39,7 @@ let unary cx ~f32 (op : Expr.Value.unary_op) a =
     | Expr.Value.Erf -> call cx R.Name.Erf [ a ]
     | Expr.Value.Exp -> "exp(" ^ a ^ ")"
     | Expr.Value.Log -> "log(" ^ a ^ ")"
+    | Expr.Value.Round_bf16 -> invalid_arg bf16_unary
     | Expr.Value.Sin -> "sin(" ^ a ^ ")"
     | Expr.Value.Sqrt -> "sqrt(" ^ a ^ ")"
     | Expr.Value.Trunc -> "trunc(" ^ a ^ ")"
@@ -135,10 +141,11 @@ let decode_cell ?channel cx (b : Ssa_buffer.t) (d : Ssa_op.Decode.t) cell =
 let encode_value (e : Ssa_op.Encode.t) v =
   match e with
   | Ssa_op.Encode.Bf16_round ->
-      (* binary32 first, then to nearest even on the high half *)
+      (* binary32 first, then to nearest even on the high half; a NaN's
+         pattern (tested on the bits) is the canonical [0x7FC0] *)
       "({ float f_ = (float)(" ^ v
-      ^ "); uint32_t u_; memcpy(&u_, &f_, 4); u_ += 0x7FFFu + ((u_ >> 16) & \
-         1u); (uint16_t)(u_ >> 16); })"
+      ^ "); uint32_t u_; memcpy(&u_, &f_, 4); (uint16_t)((u_ & 0x7FFFFFFFu) > \
+         0x7F800000u ? 0x7FC0u : (u_ + 0x7FFFu + ((u_ >> 16) & 1u)) >> 16); })"
   | Ssa_op.Encode.Bool_nonzero -> "(" ^ v ^ " != 0.0 ? 1 : 0)"
   | Ssa_op.Encode.F32_exact -> v
   | Ssa_op.Encode.F32_round -> "(float)" ^ v
@@ -304,6 +311,7 @@ let lanewise cx (inner : Ssa_op.t) ~(result : Ssa_value.t) =
         | Expr.Value.Erf -> "erf"
         | Expr.Value.Exp -> "exp"
         | Expr.Value.Log -> "log"
+        | Expr.Value.Round_bf16 -> invalid_arg bf16_unary
         | Expr.Value.Sin -> "sin"
         | Expr.Value.Sqrt -> "sqrt"
         | Expr.Value.Trunc -> "trunc"

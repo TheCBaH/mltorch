@@ -56,6 +56,9 @@ type st = {
           the first lane and the register *)
   shift_counts : (int, int64) Hashtbl.t;
       (** an integer splat read only as a lane shift count: the count *)
+  narrowing_halves : (int, Mir_value.t) Hashtbl.t;
+      (** an [i16x4] truncation read only by a join into an [i16x8]: its
+          [int32x4] source ({!Mir_vsplit.narrowing_halves}) *)
 }
 
 (* The loads whose one reader is a bitcast to the float of the same width: the
@@ -322,6 +325,19 @@ let vector st (i : Mir_op.t Mir_instr.t) =
     refuse st (Refusal.Operation (Mir_op.name i.Mir_instr.op))
   in
   match i.Mir_instr.op with
+  | Mir_op.Itrunc (Mir_width.W16, _)
+    when Hashtbl.mem st.narrowing_halves
+           (Mir_id.Value.to_int (r ()).Mir_value.id) ->
+      (* made by the join that reads it *)
+      ()
+  | Mir_op.Vconcat [ x; y ]
+    when Hashtbl.mem st.narrowing_halves (Mir_id.Value.to_int x.Mir_value.id)
+         && Hashtbl.mem st.narrowing_halves (Mir_id.Value.to_int y.Mir_value.id)
+    ->
+      let source (h : Mir_value.t) =
+        Hashtbl.find st.narrowing_halves (Mir_id.Value.to_int h.Mir_value.id)
+      in
+      def (Uzp1_h (source x, source y))
   | Mir_op.Copy a
     when match a.Mir_value.ty with Mir_type.Mask _ -> true | _ -> false ->
       def (Vlogic (Logic.Orr, a, a))
@@ -357,8 +373,12 @@ let vector st (i : Mir_op.t Mir_instr.t) =
   | Mir_op.Pnot a -> def (Vnot a)
   | Mir_op.Select (m, a, b)
     when match m.Mir_value.ty with Mir_type.Mask _ -> true | _ -> false ->
-      if mutated st Mutation.Mask_arms then def (Vbit (arr a, a, b, m))
-      else def (Vbit (arr a, b, a, m))
+      (* int32 lanes choose as binary32 lanes do *)
+      let arr =
+        if Mir_type.equal a.Mir_value.ty A64_op.int32x4 then Arr.S4 else arr a
+      in
+      if mutated st Mutation.Mask_arms then def (Vbit (arr, a, b, m))
+      else def (Vbit (arr, b, a, m))
   | Mir_op.Fbinary (o, a, b) ->
       let o =
         match o with
@@ -447,6 +467,21 @@ let vector st (i : Mir_op.t Mir_instr.t) =
         | _ -> Logic.Eor
       in
       def (Vlogic (o, a, b))
+  | Mir_op.Iarith (Mir_op.Iarith.Add, a, b)
+    when Mir_type.equal a.Mir_value.ty A64_op.int32x4 ->
+      def (Vadd_w (a, b))
+  | Mir_op.Vstore
+      ({ Mir_op.Vaccess.addr; stride; elem = Mir_type.Elem.Int w; _ }, v) -> (
+      (* a whole register of integer lanes, contiguous *)
+      match A64_op.int_register v.Mir_value.ty with
+      | Some _ when Int64.equal stride (Mir_width.bytes w) ->
+          let base, k = displaced st addr ~ok:(A64_op.vec_offset Arr.S4) in
+          push st ?order:i.Mir_instr.order []
+            (Mir_sel.Op.Machine (Str_ivec (v.Mir_value.ty, base, k, v)))
+      | _ -> refuse st (Refusal.Width v.Mir_value.ty))
+  | Mir_op.Vsplat (_, x) when Mir_type.equal (r ()).Mir_value.ty A64_op.int32x4
+    ->
+      def (Dup_w x)
   | Mir_op.Bitcast (t, a) -> def (Vcast (t, a))
   | Mir_op.Fconvert (Mir_op.Fconvert.S32_to_f32, a)
     when Mir_type.equal a.Mir_value.ty A64_op.int32x4 ->
@@ -778,7 +813,8 @@ let scalar st vs =
         when Option.is_some (A64_op.int_register v.Mir_value.ty)
              || Mir_type.equal v.Mir_value.ty A64_op.int32x4
              || Hashtbl.mem st.int_slices (Mir_id.Value.to_int v.Mir_value.id)
-        ->
+             || Hashtbl.mem st.narrowing_halves
+                  (Mir_id.Value.to_int v.Mir_value.id) ->
           ()
       | Mir_type.Mask _ | Mir_type.Vec _ -> ignore (arr_of st v.Mir_value.ty)
       | _ -> ())
@@ -859,6 +895,7 @@ let program ?mutation ?(sites = [||]) ?(unlisted = Mir_failure.Unlisted.Refused)
             float_loads = float_loads f;
             int_slices = Mir_vsplit.widening_slices f;
             shift_counts = Mir_vsplit.shift_counts f;
+            narrowing_halves = Mir_vsplit.narrowing_halves f;
           }
         in
         List.iter (block st) f.Mir_func.blocks;

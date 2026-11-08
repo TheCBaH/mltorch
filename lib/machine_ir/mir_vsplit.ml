@@ -157,8 +157,9 @@ let program ?mutation ~register_bytes (g : Mir_verify.Generic.t) =
     propagate ();
     (* A narrow integer vector smaller than a register unit (sixteen bfloat16
        lanes under register groups) may stay one fractional slice when every
-       value of its type is only ever widened to 32 bits: the widening fills
-       whole registers again, so no fractional value lives past it. *)
+       value of its type is only ever widened to 32 bits or stored: the
+       widening fills whole registers again and the store ends the value, so
+       no fractional value lives past either. *)
     let widened_only =
       let bad = Hashtbl.create 4 in
       let narrow (v : Mir_value.t) =
@@ -176,6 +177,7 @@ let program ?mutation ~register_bytes (g : Mir_verify.Generic.t) =
             (fun (i : Mir_op.t Mir_instr.t) ->
               match i.Mir_instr.op with
               | Mir_op.Iext (_, Mir_width.W32, _) -> ()
+              | Mir_op.Vstore (_, _) -> ()
               | op ->
                   List.iter
                     (fun v ->
@@ -393,6 +395,28 @@ let program ?mutation ~register_bytes (g : Mir_verify.Generic.t) =
                       in
                       emit i [ r ] (Mir_op.Iext (k, w, part)))
                     (result ())
+            | Mir_op.Itrunc (w, a) ->
+                (* a lane narrowing: each result slice joins the truncated
+                   source slices its lanes come from *)
+                let src = s a in
+                let _, _, sk = shape a.Mir_value.ty in
+                let _, _, dk =
+                  shape (List.hd i.Mir_instr.results).Mir_value.ty
+                in
+                if sk = dk then per_slice (fun j -> Mir_op.Itrunc (w, src.(j)))
+                else
+                  let parts = dk / sk in
+                  Array.iteri
+                    (fun j r ->
+                      let truncated =
+                        List.init parts (fun q ->
+                            value i
+                              (Mir_type.Vec
+                                 (Mir_type.Elem.Int w, Mir_type.Lanes.of_int sk))
+                              (Mir_op.Itrunc (w, src.((j * parts) + q))))
+                      in
+                      emit i [ r ] (Mir_op.Vconcat truncated))
+                    (result ())
             | Mir_op.Vextract (lane, a) ->
                 let _, _, k = shape a.Mir_value.ty in
                 let l = Mir_type.Lane.to_int lane in
@@ -542,6 +566,49 @@ let widening_slices (f : (Mir_op.t, Mir_terminator.t) Mir_func.t) =
         b.Mir_block.body)
     f.Mir_func.blocks;
   slices
+
+(* The halves this pass makes to narrow two [i32x4] registers into one
+   [i16x8]: each an [i16x4] truncation read only by the join of two such
+   halves. A selector makes the joined register from the two [i32x4] sources
+   and leaves the halves unmade: the key is the half, the value its source. *)
+let narrowing_halves (f : (Mir_op.t, Mir_terminator.t) Mir_func.t) =
+  let key (v : Mir_value.t) = Mir_id.Value.to_int v.Mir_value.id in
+  let i32x4 =
+    Mir_type.Vec (Mir_type.Elem.Int Mir_width.W32, Mir_type.Lanes.of_int 4)
+  in
+  let halves = Hashtbl.create 16 in
+  let joined = Hashtbl.create 16 in
+  let other = Hashtbl.create 64 in
+  List.iter
+    (fun (b : (Mir_op.t, Mir_terminator.t) Mir_block.t) ->
+      List.iter
+        (fun (i : Mir_op.t Mir_instr.t) ->
+          (match (i.Mir_instr.op, i.Mir_instr.results) with
+          | Mir_op.Itrunc (Mir_width.W16, a), [ r ]
+            when Mir_type.equal a.Mir_value.ty i32x4 ->
+              Hashtbl.replace halves (key r) a
+          | _ -> ());
+          match (i.Mir_instr.op, i.Mir_instr.results) with
+          | Mir_op.Vconcat [ x; y ], [ r ] when int_register r.Mir_value.ty ->
+              Hashtbl.replace joined (key x) ();
+              Hashtbl.replace joined (key y) ()
+          | op, _ ->
+              List.iter
+                (fun v -> Hashtbl.replace other (key v) ())
+                (Mir_op.operands op))
+        b.Mir_block.body;
+      List.iter
+        (fun v -> Hashtbl.replace other (key v) ())
+        (Mir_terminator.operands b.Mir_block.terminator
+        @ List.concat_map
+            (fun (e : Mir_edge.t) -> e.Mir_edge.args)
+            (Mir_terminator.edges b.Mir_block.terminator)))
+    f.Mir_func.blocks;
+  Hashtbl.filter_map_inplace
+    (fun k a ->
+      if Hashtbl.mem joined k && not (Hashtbl.mem other k) then Some a else None)
+    halves;
+  halves
 
 (* The integer vector splats of a constant read only as shift counts: a
    selector shifts by the constant itself and leaves the splat unmade. The key

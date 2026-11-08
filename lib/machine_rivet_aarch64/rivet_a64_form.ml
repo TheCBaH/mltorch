@@ -55,6 +55,7 @@ let form_name : A.t -> string = function
   | A.Dup_half _ -> "Dup_half"
   | A.Dup_mask _ -> "Dup_mask"
   | A.Dup_lane _ -> "Dup_lane"
+  | A.Dup_w _ -> "Dup_w"
   | A.Ext _ -> "Ext"
   | A.Fbin _ -> "Fbin"
   | A.Fcmp _ -> "Fcmp"
@@ -93,12 +94,15 @@ let form_name : A.t -> string = function
   | A.St1_lane _ -> "St1_lane"
   | A.Str _ -> "Str"
   | A.Str_idx _ -> "Str_idx"
+  | A.Str_ivec _ -> "Str_ivec"
   | A.Str_vec _ -> "Str_vec"
   | A.Sub _ -> "Sub"
   | A.Sub_imm _ -> "Sub_imm"
   | A.Sxtw _ -> "Sxtw"
   | A.Trunc _ -> "Trunc"
   | A.Uxtw _ -> "Uxtw"
+  | A.Uzp1_h _ -> "Uzp1_h"
+  | A.Vadd_w _ -> "Vadd_w"
   | A.Vbit _ -> "Vbit"
   | A.Vcast _ -> "Vcast"
   | A.Vfbin _ -> "Vfbin"
@@ -504,7 +508,7 @@ let instructions env (op : A.t) ~(uses : Loc.t list) ~(defs : Loc.t list) :
       ]
   | A.Mul (sz, _, _) -> binary Op.Mul sz
   | A.Scvtf (fsz, _) -> [ ins Op.Scvtf [ f env fsz (d 0); g env A.Sz.X (u 0) ] ]
-  | A.Scvtf_vec _ | A.Vshift _ | A.Xtl_w _ ->
+  | A.Scvtf_vec _ | A.Uzp1_h _ | A.Vadd_w _ | A.Vshift _ | A.Xtl_w _ ->
       (* encoded words: see [items] *)
       refuse env (R.Location (form_name op ^ " is an encoded-word form"))
   | A.Sdiv (sz, _, _) -> binary Op.Sdiv sz
@@ -543,6 +547,7 @@ let instructions env (op : A.t) ~(uses : Loc.t list) ~(defs : Loc.t list) :
             vec env arr (d 0); O.Vlane (vnum env (u 0), lane (A.Arr.fsz arr), 0);
           ];
       ]
+  | A.Dup_w _ -> [ ins Op.Dup [ vec env A.Arr.S4 (d 0); g env A.Sz.W (u 0) ] ]
   | A.Dup_mask (arr, _) ->
       let sz =
         match arr with A.Arr.D2 -> A.Sz.X | A.Arr.S2 | A.Arr.S4 -> A.Sz.W
@@ -621,6 +626,8 @@ let instructions env (op : A.t) ~(uses : Loc.t list) ~(defs : Loc.t list) :
       [ vector_access env ~load:true A.Arr.S4 ~rt:(d 0) ~base:(u 0) ~offset:k ]
   | A.Ldr_vec (arr, _, k) ->
       [ vector_access env ~load:true arr ~rt:(d 0) ~base:(u 0) ~offset:k ]
+  | A.Str_ivec (_, _, k, _) ->
+      [ vector_access env ~load:false A.Arr.S4 ~rt:(u 1) ~base:(u 0) ~offset:k ]
   | A.Str_vec (arr, _, k, _) ->
       [ vector_access env ~load:false arr ~rt:(u 1) ~base:(u 0) ~offset:k ]
   | A.Vfbin (o, arr, _, _) ->
@@ -841,6 +848,14 @@ let words env (op : A.t) ~(uses : Loc.t list) ~(defs : Loc.t list) =
   | A.Scvtf_vec _ ->
       (* SCVTF Vd.4S, Vn.4S *)
       Some [ Int32.of_int (0x4E21D800 lor (u 0 lsl 5) lor d 0) ]
+  | A.Uzp1_h _ ->
+      (* UZP1 Vd.8H, Vn.8H, Vm.8H *)
+      Some
+        [ Int32.of_int (0x4E401800 lor (u 1 lsl 16) lor (u 0 lsl 5) lor d 0) ]
+  | A.Vadd_w _ ->
+      (* ADD Vd.4S, Vn.4S, Vm.4S *)
+      Some
+        [ Int32.of_int (0x4EA08400 lor (u 1 lsl 16) lor (u 0 lsl 5) lor d 0) ]
   | A.Vshift (o, k, _) ->
       (* Q = 1, .4s: immh:immb is 32 + k for SHL, 64 - k for a right shift *)
       let base, immhb =

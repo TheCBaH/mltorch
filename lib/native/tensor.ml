@@ -225,6 +225,22 @@ let materialize_bool (shape : Vec6.shape) (f : Vec6.coord -> bool) =
 let bool_of_float_cells (Tensor t as src) =
   materialize_bool t.shape (fun c -> read src c <> 0.)
 
+(* The storage boundary of a BF16-declared value: each cell rounded by
+   [Expr.Value.bf16_value] (the one definition, idempotent, so a cell that is
+   already [Kernel.Result_conversion.Round_bf16]'s value keeps it) and encoded
+   by [Half.Bf16.of_float], exactly. *)
+let bf16_of_float_cells (Tensor t as src) =
+  let n = (Vec6.numel t.shape :> int) in
+  let data = Bigarray.(Array1.create int16_unsigned c_layout n) in
+  Vec6.iter t.shape (fun c ->
+      let i = (Vec6.offset t.shape c :> int) in
+      data.{i} <- Half.Bf16.of_float (Expr.Value.bf16_value (read src c)));
+  Tensor
+    {
+      shape = t.shape;
+      payload = { Payload.fmt = Payload.BF16; quant = Payload.No_quant; data };
+    }
+
 (* Shared by [unbind] and [split_with_sizes] below: allocate a same-format
    destination buffer and fill it from [source_coord], one call per op rather
    than one per storage format. Copying cells directly (never through

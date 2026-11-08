@@ -265,6 +265,36 @@ and nodes st ~limits ns = List.concat_map (node st ~limits) ns
 and store st b addr value =
   let at = cell_address st b addr in
   match value with
+  | Loop_stored.Bf16 (Loop_expr.Round_f32 e) | Loop_stored.Bf16 e ->
+      (* [Expr.Value.bf16_value] in i32: [(b + 0x7FFF + bit 16) >>> 16], or
+         [0x7FC0] when [b] is a NaN's pattern *)
+      let b = fresh st Wasm_type.I32 in
+      let k x = I.I32_const x in
+      at @ num st e
+      @ (if st.f32 then [] else [ n Wasm_op.F32_demote_f64 ])
+      @ [
+          n Wasm_op.I32_reinterpret_f32;
+          set b;
+          k 0x7FC0l;
+          get b;
+          k 0x7FFFl;
+          n Wasm_op.I32_add;
+          get b;
+          k 16l;
+          n Wasm_op.I32_shr_u;
+          k 1l;
+          n Wasm_op.I32_and;
+          n Wasm_op.I32_add;
+          k 16l;
+          n Wasm_op.I32_shr_u;
+          get b;
+          k 0x7FFF_FFFFl;
+          n Wasm_op.I32_and;
+          k 0x7F80_0000l;
+          n Wasm_op.I32_gt_u;
+          I.Select;
+          I.Store (Wasm.Store.I32_store16, arg 1 0);
+        ]
   | Loop_stored.Bool e ->
       let e = num st e in
       at @ e

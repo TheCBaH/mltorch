@@ -8,6 +8,7 @@ module Name = struct
     | Exp_f32
     | F16_to_float
     | Float_max
+    | Float_to_bf16
     | Fma_f32
     | I64_from_float_failure
     | Pool_better
@@ -20,6 +21,7 @@ module Name = struct
       Exp_f32;
       F16_to_float;
       Float_max;
+      Float_to_bf16;
       Fma_f32;
       I64_from_float_failure;
       Pool_better;
@@ -32,6 +34,7 @@ module Name = struct
     | Exp_f32 -> "exp_f32"
     | F16_to_float -> "f16_to_float"
     | Float_max -> "float_max"
+    | Float_to_bf16 -> "float_to_bf16"
     | Fma_f32 -> "fma_f32"
     | I64_from_float_failure -> "i64_from_float_failure"
     | Pool_better -> "pool_better"
@@ -226,6 +229,39 @@ let bf16_body =
       ];
   ]
 
+(* [Expr.Value.bf16_value]: the binary32 rounding is the [Float32Array] store's,
+   then to nearest even on the high half by the carry out of the low one; a
+   NaN is the canonical quiet [0x7FC0]. A scratch pair of its own, so it
+   declares nothing [bf16_to_float] does. *)
+let float_to_bf16_body =
+  let bits = Arr.uint32 (id "bf16_enc_bits")
+  and view = Arr.num (id "bf16_enc_view") in
+  let hi = Bits.var (id "hi") and lo = Bits.var (id "lo") in
+  [
+    Stmt.const_arr (id "bf16_enc_bits") (Arr.new_uint32 1);
+    Stmt.const_arr (id "bf16_enc_view") (Arr.view_float32 bits);
+    fn Name.Float_to_bf16 [ "x" ]
+      [
+        Stmt.if_
+          (Num.is_nan (num_var "x"))
+          [ Stmt.return_ (expr (Bits.const 0x7FC0)) ]
+          [];
+        store view (Idx.const 0) (num_var "x");
+        Stmt.const_bits (id "hi") (Bits.hi16 (load bits (Idx.const 0)));
+        Stmt.const_bits (id "lo") (Bits.lo16 (load bits (Idx.const 0)));
+        Stmt.return_
+          (expr
+             (Bits.and_
+                (Bits.add hi
+                   (Bits.shr
+                      (Bits.add lo
+                         (Bits.add (Bits.const 0x7FFF)
+                            (Bits.and_ hi (Bits.const 1))))
+                      16))
+                (Bits.const 0xFFFF)));
+      ];
+  ]
+
 (* [Half.Half.to_float]: IEEE binary16, transcribed branch for branch. [ldexp] is
    an exact power-of-two scaling, so it is a multiplication by an exactly
    representable power of two. *)
@@ -305,6 +341,12 @@ let helper n =
   | Name.Exp_f32 -> one exp_f32_body
   | Name.F16_to_float -> one f16_body
   | Name.Float_max -> one float_max_body
+  | Name.Float_to_bf16 ->
+      {
+        Helper.name = n;
+        defines = [ id "bf16_enc_bits"; id "bf16_enc_view"; name n ];
+        body = float_to_bf16_body;
+      }
   | Name.Fma_f32 ->
       {
         Helper.name = n;
@@ -322,6 +364,7 @@ let source =
 
 let call n args = Unsafe.call (name n) args
 let bf16_to_float b = call Name.Bf16_to_float [ expr b ]
+let float_to_bf16 x = call Name.Float_to_bf16 [ expr x ]
 
 let coord_failure ~buffer ~extents ~coord =
   expr

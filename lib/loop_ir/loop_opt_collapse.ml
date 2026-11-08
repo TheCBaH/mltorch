@@ -156,6 +156,7 @@ let rewrite_body ~ratio ~single p env0 body =
         q
   in
   let stored env : Loop_stored.t -> Loop_stored.t = function
+    | Loop_stored.Bf16 e -> Loop_stored.Bf16 (expr env e)
     | Loop_stored.Bool e -> Loop_stored.Bool (expr env e)
     | Loop_stored.F32 e -> Loop_stored.F32 (expr env e)
     | Loop_stored.I64 e -> Loop_stored.I64 (expr env e)

@@ -226,6 +226,9 @@ let assigned_set stmts = List.sort_uniq Int.compare (assigned [] stmts)
    written through the encode its buffer takes. *)
 let store ctx env sb access (value : Loop_stored.t) =
   match value with
+  | Loop_stored.Bf16 e ->
+      let x = expr ctx env e in
+      B.store_bf16 ctx.b sb.Ssa_buffer.id (access ()) (B.f64_to_f32 ctx.b x)
   | Loop_stored.Bool e ->
       let x = expr ctx env e in
       B.store_f64 ctx.b sb.Ssa_buffer.id ~encode:Ssa_op.Encode.Bool_nonzero

@@ -140,3 +140,86 @@ let%expect_test "32 lanes in 16-byte slices" =
     ok (f32, 6 vector operations)
     ok (f32, 6 vector operations) DISAGREE oracle vs split: output t2[28]: -0x1.ad5184p+3:f32 vs 0x1.c9cb2ap+4:f32
     ok (f32, 6 vector operations) DISAGREE oracle vs split: output t2[0]: 0x1.c9cb2ap+4:f32 vs 0x1.1a8fc4p+4:f32 |}]
+
+(* A bfloat16 result stored from binary32 lanes: the rounding in int32 lanes
+   and the 16-bit store, against the plan's lane-by-lane oracle, over ties
+   either way, subnormals, the overflow to infinity and NaNs whose payload
+   sits in the low half or carries the sign; the canonical-NaN select dropped
+   is caught. *)
+let bf16_kernel ~shape =
+  let open Loop_fixtures in
+  Err.or_raise ~pp_error:Kernel.pp_error
+    (Kernel.create
+       ~inputs:
+         [
+           {
+             Kernel.Input.id = tid 0;
+             sg = sg 0 shape f32;
+             binding = Kernel.Binding.Caller;
+           };
+         ]
+       ~values:
+         [
+           {
+             Kernel.Value.id = tid 1;
+             sg = sg 1 shape (Payload.Fmt Payload.BF16);
+             computation = Region_group.Ref.Solo (Region_program.pixel x);
+             result = Kernel.Result_conversion.Round_bf16;
+           };
+         ]
+       ~outputs:[ tid 1 ]
+       ())
+
+let bf16_inputs n =
+  let special =
+    [|
+      0x3F808000l;
+      0x3F818000l;
+      0x3F808001l;
+      0x00008000l;
+      0x80018000l;
+      0x7F7FFFFFl;
+      0xFF800000l;
+      0x7FFFFFFFl;
+      0xFFC00001l;
+      0x7F800001l;
+    |]
+  in
+  Array.init n (fun i ->
+      if i < Array.length special then Int32.float_of_bits special.(i)
+      else (float_of_int (i * 7 mod 11) -. 5.) /. 4.)
+
+let%expect_test "bfloat16 results: rounding and canonical NaN in lanes" =
+  List.iter
+    (fun (tname, target) ->
+      List.iter
+        (fun n ->
+          Fmt.pr "%s, w=%d: " tname n;
+          let shape = Loop_fixtures.shape_w n in
+          show ~target (bf16_kernel ~shape)
+            ~bind:(bind_data ~shape (bf16_inputs n)))
+        [ 16; 17; 37 ])
+    [
+      ("neon128", neon);
+      ("neon128_x32", Ssa_ir.Ssa_target.forced Ssa_ir.Ssa_target.neon128_x32);
+    ];
+  let shape = Loop_fixtures.shape_w 16 in
+  show ~mutation:Machine_lower.Mir_lower.Mutation.Bf16_nan_dropped
+    (bf16_kernel ~shape)
+    ~bind:(bind_data ~shape (bf16_inputs 16));
+  List.iter
+    (fun mutation ->
+      show ~split_mutation:mutation (bf16_kernel ~shape)
+        ~bind:(bind_data ~shape (bf16_inputs 16)))
+    Machine_ir.Mir_vsplit.Mutation.[ Stale_slice; Swapped_slices ];
+  [%expect
+    {|
+    neon128, w=16: ok (f32, 16 vector operations)
+    neon128, w=17: ok (f32, 16 vector operations)
+    neon128, w=37: ok (f32, 16 vector operations)
+    neon128_x32, w=16: ok (f64, 9 vector operations)
+    neon128_x32, w=17: ok (f64, 9 vector operations)
+    neon128_x32, w=37: ok (f32, 16 vector operations)
+    ok (f32, 13 vector operations) DISAGREE oracle vs generic: output t1[7]: 32704:i64 vs 32768:i64; oracle vs split: output t1[7]: 32704:i64 vs 32768:i64
+    ok (f32, 16 vector operations) DISAGREE oracle vs split: output t1[8]: 32704:i64 vs 16256:i64
+    ok (f32, 16 vector operations) DISAGREE oracle vs split: output t1[0]: 16256:i64 vs 32770:i64 |}]

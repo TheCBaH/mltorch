@@ -37,6 +37,7 @@ module Class = struct
     | Expr.Value.Erf -> "erf"
     | Expr.Value.Exp -> "exp"
     | Expr.Value.Log -> "log"
+    | Expr.Value.Round_bf16 -> "round_bf16"
     | Expr.Value.Sin -> "sin"
     | Expr.Value.Sqrt -> "sqrt"
     | Expr.Value.Trunc -> "trunc"

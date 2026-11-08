@@ -481,6 +481,8 @@ let to_copy target x =
       op1 ~fmt:Payload.(Fmt I64) (Op.To_copy { Pointwise.To_copy.target; x })
   | Pointwise.To_copy.Bool ->
       op1 ~fmt:Payload.(Fmt Bool) (Op.To_copy { Pointwise.To_copy.target; x })
+  | Pointwise.To_copy.Bfloat16 ->
+      op1 ~fmt:Payload.(Fmt BF16) (Op.To_copy { Pointwise.To_copy.target; x })
   | Pointwise.To_copy.Float -> op1 (Op.To_copy { Pointwise.To_copy.target; x })
 
 let transposed_conv2d params ~x ~weight ?bias () =

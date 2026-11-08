@@ -147,6 +147,7 @@ let pp_failure nm fmt : Loop_failure.t -> unit = function
         (pp_index nm) index extent
 
 let pp_stored nm fmt : Loop_stored.t -> unit = function
+  | Loop_stored.Bf16 e -> Fmt.pf fmt "bf16(%a)" (pp_expr nm) e
   | Loop_stored.Bool e -> Fmt.pf fmt "bool(%a)" (pp_expr nm) e
   | Loop_stored.F32 e -> Fmt.pf fmt "f32(%a)" (pp_expr nm) e
   | Loop_stored.I64 e -> Fmt.pf fmt "i64(%a)" (pp_expr nm) e
