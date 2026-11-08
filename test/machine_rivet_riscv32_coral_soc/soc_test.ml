@@ -49,16 +49,16 @@ let%expect_test "Zve32f bundles on the subsystem and standalone" =
     {|
     relu then add over C=32, subsystem (2 invocations): bitwise
     relu then add over C=32, standalone (2 invocations): bitwise
-      cycles 1916 on the subsystem, 1916 standalone (+0)
+      cycles 1603 on the subsystem, 1603 standalone (+0)
     softmax over H, W=32, subsystem (1 invocations): bitwise
     softmax over H, W=32, standalone (1 invocations): bitwise
-      cycles 495832 on the subsystem, 495736 standalone (+96)
+      cycles 213975 on the subsystem, 213975 standalone (+0)
     layer_norm over H, W=32, subsystem (1 invocations): bitwise
     layer_norm over H, W=32, standalone (1 invocations): bitwise
-      cycles 84166 on the subsystem, 84166 standalone (+0)
+      cycles 50476 on the subsystem, 50380 standalone (+96)
     conv, batch norm, relu to C=32, subsystem (3 invocations): bitwise
     conv, batch norm, relu to C=32, standalone (3 invocations): bitwise
-      cycles 23825 on the subsystem, 23801 standalone (+24) |}]
+      cycles 23283 on the subsystem, 23181 standalone (+102) |}]
 
 (* Outputs stored under the wrong slot are caught by the oracle; a read-back
    larger than the budget is refused before any byte crosses the bridge. *)
@@ -91,10 +91,10 @@ let%expect_test "tensors in SRAM" =
     {|
     relu then add over C=32, DTCM (2 invocations): bitwise
     relu then add over C=32, SRAM (2 invocations): bitwise
-      cycles 1916 in DTCM, 2778 in SRAM
+      cycles 1603 in DTCM, 2483 in SRAM
     conv, batch norm, relu to C=32, DTCM (3 invocations): bitwise
     conv, batch norm, relu to C=32, SRAM (3 invocations): bitwise
-      cycles 23825 in DTCM, 45692 in SRAM |}]
+      cycles 23283 in DTCM, 45161 in SRAM |}]
 
 (* Matrix products as generated functions with their tensors in SRAM: read
    in place, or with the operands the staging rule picks copied into the
@@ -149,13 +149,13 @@ let%expect_test "contractions over SRAM, staged by DMA" =
     {|
     linear 9x32 k64, in SRAM (1 invocations): bitwise
     linear 9x32 k64, staged (1 invocations): bitwise
-      cycles 36504 -> 13719 (2.66x)
+      cycles 36453 -> 13668 (2.67x)
     linear 7x29 k63 bias, in SRAM (1 invocations): bitwise
     linear 7x29 k63 bias, staged (1 invocations): bitwise
-      cycles 34416 -> 14671 (2.35x)
+      cycles 33907 -> 14163 (2.39x)
     bmm 1x9x32 k64, in SRAM (1 invocations): bitwise
     bmm 1x9x32 k64, staged (1 invocations): bitwise
-      cycles 13376 -> 9848 (1.36x)
+      cycles 13329 -> 9801 (1.36x)
     staging not waited for (1 invocations): DIFFERS |}]
 
 (* Prepacked weights over SRAM: a Linear's packed weight streams contiguous
@@ -196,10 +196,10 @@ let%expect_test "prepacked weights over SRAM" =
     {|
     linear 9x32 k64, staged (1 invocations): bitwise
     linear 9x32 k64, packed (1 invocations, 1 packed): bitwise
-      cycles 13719 -> 9936 (1.38x)
+      cycles 13668 -> 9885 (1.38x)
     linear 7x29 k63 bias, staged (1 invocations): bitwise
     linear 7x29 k63 bias, packed (1 invocations, 1 packed): bitwise
-      cycles 14671 -> 10954 (1.34x) |}]
+      cycles 14163 -> 10445 (1.36x) |}]
 
 (* Staging within DTCM: a Linear whose A (200 rows of 64) is larger than the
    five eighths of the 32 KiB DTCM its functions share stages B and streams

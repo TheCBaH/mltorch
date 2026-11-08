@@ -57,9 +57,9 @@ let%expect_test "pointwise: lanes, tails and special values" =
     x * x + x, w=17: ok (f32, 6 vector operations)
     x * x + x, w=37: ok (f32, 6 vector operations)
     exp x, w=1: ok (f64, 0 vector operations)
-    exp x, w=16: ok (f32, 202 vector operations)
-    exp x, w=17: ok (f32, 202 vector operations)
-    exp x, w=37: ok (f32, 202 vector operations) |}]
+    exp x, w=16: ok (f32, 66 vector operations)
+    exp x, w=17: ok (f32, 66 vector operations)
+    exp x, w=37: ok (f32, 66 vector operations) |}]
 
 let matmul (m, k, n) =
   let a = operand 3 (m * k) and b = operand 5 (k * n) in
@@ -136,7 +136,8 @@ let%expect_test "32 lanes in 16-byte slices" =
       show ~target ~split_mutation:mutation (matmul_kernel ~m ~k ~n)
         ~bind:(matmul_bind ~m ~k ~n ~a ~b))
     Machine_ir.Mir_vsplit.Mutation.[ Stale_slice; Swapped_slices ];
-  [%expect {|
+  [%expect
+    {|
     ok (f32, 6 vector operations)
     ok (f32, 6 vector operations) DISAGREE oracle vs split: output t2[28]: -0x1.ad5184p+3:f32 vs 0x1.c9cb2ap+4:f32
     ok (f32, 6 vector operations) DISAGREE oracle vs split: output t2[0]: 0x1.c9cb2ap+4:f32 vs 0x1.1a8fc4p+4:f32 |}]

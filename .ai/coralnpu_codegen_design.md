@@ -938,12 +938,14 @@ ordered reduction (`vfredosum.vs`) is a separate possible strict lowering of
 the remaining sum; the reference instead uses lane FMA and unordered
 reduction.
 
-Under `Mir_lower.Sequence.Fast` (the same bits, see the Machine IR design
-record) tanh GELU mul takes 223,410 / 73,260 / 48,746 cycles (scalar, m1, m4,
-three shapes summed) to 109,627 / 30,056 / 19,831: `exp`'s two power-of-two
-ladders and its add-and-subtract truncations were most of the kernel. The
-golden is `rtl_test.ml`'s "tanh gelu, fast sequences"; MPACT m3 runs the same
-fixtures bitwise in `coral_test.ml`.
+The fast binary32 `exp` (the same bits, see the Machine IR design record)
+took tanh GELU mul from 223,410 / 73,260 / 48,746 cycles (scalar, m1, m4,
+three shapes summed) to 109,627 / 30,056 / 19,831 when measured as an option:
+`exp`'s two power-of-two ladders and its add-and-subtract truncations were
+most of the kernel. Machine IR now lowers only that form, so the GELU rows of
+`rtl_test.ml`'s goldens are its cycles: 106,798 / 29,700 / 19,461 after the
+later loop work. Scalar softmax over H, W=32 went from 474,689 to 213,975
+cycles with it. MPACT m3 runs the same fixtures bitwise in `coral_test.ml`.
 
 Residual add 2x160 at LMUL 4 after the addressing and loop work: 612 cycles
 at the start; carrying pointers in one-loop kernels and folding their start
@@ -961,7 +963,11 @@ the group copy scratch (v24-v27, never allocated) and moves from its element 0,
 so it holds at any VLEN; the first attempt, lane `k mod 4` of register
 `k / 4`, was right at VLEN 128 only and the qemu suite at VLEN 1024 caught it.
 Relaxed RMS norm at LMUL 4 on the RTL: 1,781 / 744 / 785 cycles (2x160, 1x67,
-1x33; the first two were refused before).
+1x33; the first two were refused before), the golden "relaxed sums, register
+groups" in the RTL suite, bitwise against the policy's own schedule on the
+generic route (the policy's contract; on these inputs the relaxed sum happens
+to round like the sequential one too). A wrong lane (`k mod 4`) differs at
+2x160 and 1x67; 1x33's sum is too short to be scheduled.
 
 The bfloat16 fixtures run under register groups too. Sixteen bfloat16 lanes
 are 32 bytes, half a group, which `Mir_vsplit` refused; a narrow integer

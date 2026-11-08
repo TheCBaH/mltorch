@@ -338,16 +338,21 @@ census slice that will admit it.
   transcendental (`exp`, `log`, `sin`, `cos`, `erf`) is the `F32_math`
   sequence on the vector itself (`Mir_lower_f32.f32_math_vector`: a constant
   splat to the lanes, every operation lanewise, a select on the lanewise
-  mask), so each lane is exactly the scalar sequence. `Mir_lower.program
-  ~sequence:Fast` (through `Mir_model.prepare` and `Model_test.check`; the
-  default is `Reference`) emits `F32_math.Make_fast` instead: `exp`'s powers
-  of two from their bits (a float add, a bitcast to i32, a shift by 23, a
-  bitcast back) and its truncations as `ftrunc`, the same bits for every input
-  (the exhaustive check is in `test/f32_math`, `make f32.exhaustive`).
-  Every Machine IR route selects it: generic, aarch64, x86_64 (SSE2 included,
-  through the integer truncation) and RV32 scalar and Zve32f, each bitwise
-  against the oracle in its own suite on operands across `exp`'s range and
-  the non-finite values. C, Wasm and JavaScript keep the reference. A binary64 one has no
+  mask), so each lane is exactly the scalar sequence. The sequence is always
+  `F32_math.Make_fast`: `exp`'s powers of two from their bits (a float add, a
+  bitcast to i32, a shift by 23, a bitcast back) and its truncations as
+  `ftrunc`, the same bits as the reference sequence for every input (the
+  exhaustive check is in `test/f32_math`, `make f32.exhaustive`), so there is
+  no choice for a planner or a cost model to see. It was an option (default
+  the reference) until measured: about 2.0x on scalar and 2.3x-2.5x on Zve32f
+  for tanh GELU on Coral. Every Machine IR route selects it: generic,
+  aarch64, x86_64 (SSE2 included, through the integer truncation) and RV32
+  scalar and Zve32f, each bitwise against the oracle in its own suite on
+  operands across `exp`'s range, within two patterns of every point where its
+  `k` steps (every power of two the pieces build), and the non-finite values.
+  `Mutation.Pow2_bias` (a bias of 128) is seen by the generic interpreter.
+  C, Wasm and JavaScript keep the reference; so does the hand-written Zvt SDPA
+  kernel. A binary64 one has no
   vector form and is expanded a lane at a time: the lane extracted, the scalar
   function (a helper call) applied, the result inserted into the vector the
   lanes build.

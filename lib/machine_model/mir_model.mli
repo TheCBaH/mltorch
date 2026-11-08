@@ -56,7 +56,6 @@ val prepare :
   ?bf16_pairs:bool ->
   ?attention:(Node_id.t -> Attention_site.t option) ->
   ?layer:(Node_id.t -> Layer_site.t option) ->
-  ?sequence:Machine_lower.Mir_lower.Sequence.t ->
   ?prepack:bool ->
   ?on_program:
     (Loop_ir.Loop_bundle.invocation ->
@@ -74,26 +73,24 @@ val prepare :
     (default [false]) says so ({!Ssa_ir.Ssa_plan.resolve}); [prepack] (default
     [false]) makes each one whose B is a constant with strided columns read a
     packed copy, built once when a context is created ({!Ssa_ir.Ssa_prepack});
-    [sequence] (default [Reference]) is the form of the binary32 transcendentals
-    ({!Machine_lower.Mir_lower.Sequence}), the same bits either way; Custom
-    routes finalize implementation choices after SSA prepacking and before
-    lowering; a recorded contraction engine is carried into the compilation
-    summary. [on_program] sees that final SSA program, exactly the one lowered
-    (what a cost estimate counts), with the Machine IR region of each of its
-    buffers, once the route has made the invocation executable. A [Planned]
-    pipeline is admitted unblocked: each invocation is lowered with the plan's
-    own summary (its numerics, working precision and target), so its comparison
-    oracle is the plan's, not the binary64 reference; a vector form the target
-    does not admit is a refusal. [blocking] ([Unblocked] by default) needs the
-    [Exact] pipeline; [Feedback] measures through the route's target, and on the
-    generic route, which has none, stays unblocked. [attention] names the nodes
-    computed as one fused attention: each such node's invocation is its program
-    replaced by one {!Ssa_ir.Ssa_op.Attend} over the buffers its roles bind
-    (unblocked pipelines only); a role no buffer binds is a refusal. [layer]
-    names the nodes computed as one granted attention layer ({!Layer_site}),
-    whose bundle was built granting them: each such node's invocation is the
-    layer's sequence over its roles' buffers, expanded and checked against the
-    plan exactly as a binary32 attention is. *)
+    Custom routes finalize implementation choices after SSA prepacking and
+    before lowering; a recorded contraction engine is carried into the
+    compilation summary. [on_program] sees that final SSA program, exactly the
+    one lowered (what a cost estimate counts), with the Machine IR region of
+    each of its buffers, once the route has made the invocation executable. A
+    [Planned] pipeline is admitted unblocked: each invocation is lowered with
+    the plan's own summary (its numerics, working precision and target), so its
+    comparison oracle is the plan's, not the binary64 reference; a vector form
+    the target does not admit is a refusal. [blocking] ([Unblocked] by default)
+    needs the [Exact] pipeline; [Feedback] measures through the route's target,
+    and on the generic route, which has none, stays unblocked. [attention] names
+    the nodes computed as one fused attention: each such node's invocation is
+    its program replaced by one {!Ssa_ir.Ssa_op.Attend} over the buffers its
+    roles bind (unblocked pipelines only); a role no buffer binds is a refusal.
+    [layer] names the nodes computed as one granted attention layer
+    ({!Layer_site}), whose bundle was built granting them: each such node's
+    invocation is the layer's sequence over its roles' buffers, expanded and
+    checked against the plan exactly as a binary32 attention is. *)
 
 val invocations : t -> int
 (** How many invocations the schedule holds. *)

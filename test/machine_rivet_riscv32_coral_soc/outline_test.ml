@@ -59,5 +59,5 @@ let%expect_test "an instruction memory too small even for the overlays" =
   run ~itcm:4096L "4096 bytes of it";
   [%expect
     {|
-    sdpa bf16 9x29 d64 masked, 4096 bytes of it: refused: invocation 0 (n0): itcm: 6576 bytes needed, 4096 available
+    sdpa bf16 9x29 d64 masked, 4096 bytes of it: refused: invocation 0 (n0): itcm: 5840 bytes needed, 4096 available
       cycles 0, 0 slots placed |}]

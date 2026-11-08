@@ -82,13 +82,13 @@ let%expect_test "a granted bfloat16 layer on the VME core, resident" =
   [%expect
     {|
     bare: no norm, bias or layer scale (1 invocations): bitwise
-      cycles 260314
+      cycles 277342
     no norm, all flags (1 invocations): bitwise
-      cycles 323334
+      cycles 320945
     pre layer, all flags, rope (1 invocations): bitwise
-      cycles 436619
+      cycles 429970
     post rms (1 invocations): bitwise
-      cycles 373464 |}]
+      cycles 363868 |}]
 
 (* The baseline the fused layer is measured against: the same layers
    decomposed, each node generated at binary32 on the core (no grant; the

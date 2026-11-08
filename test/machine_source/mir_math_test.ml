@@ -133,6 +133,36 @@ let%expect_test "libm helpers and the owned error function" =
     sin: ok
     sin (binary32): ok |}]
 
+(* The binary32 [exp] around each point where its [k] steps (every power of
+   two its fast pieces build, [k] in [-151, 129]), its clamps and zero: the
+   SSA interpreter's reference sequence against Machine IR's fast one. An
+   exponent bias of 128 is seen. *)
+let%expect_test "exp: the fast pieces at every k step" =
+  let around x d =
+    List.init
+      ((2 * d) + 1)
+      (fun j ->
+        Int32.float_of_bits
+          (Int32.add (Int32.bits_of_float x) (Int32.of_int (j - d))))
+  in
+  let steps =
+    List.concat_map
+      (fun k ->
+        let k = float_of_int k in
+        around ((k +. 0.5) /. 1.44269504088896341) 2
+        @ around ((k -. 0.5) /. 1.44269504088896341) 2)
+      (List.init 281 (fun j -> j - 151))
+    @ List.concat_map (fun x -> around x 4) [ -104.; 89.; 0. ]
+    |> Array.of_list
+  in
+  run ~f32:true Expr.Value.Exp steps;
+  run ~f32:true ~mutation:Machine_lower.Mir_lower.Mutation.Pow2_bias
+    Expr.Value.Exp steps;
+  [%expect
+    {|
+    exp (binary32): ok
+    exp (binary32): ok DISAGREE structured vs generic: output t1[0]: 0x0p+0:f32 vs 0x1p-148:f32 |}]
+
 let%expect_test "erf: the operation order and the binary32 steps are seen" =
   let all = Array.append inputs samples in
   run ~mutation:Machine_lower.Mir_lower.Mutation.Erf_distributed Expr.Value.Erf

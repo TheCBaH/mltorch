@@ -1,12 +1,13 @@
 module F = Native_test.Graph_fixtures
 module M = Machine_model.Mir_model
 module T = Model_test
-module S = Machine_lower.Mir_lower.Sequence
 
-(* The fast binary32 sequences ([Sequence.Fast]) against the binary32 oracle
-   on every Machine IR route, scalar and vector: the same bits as the
-   reference sequences, which every other route keeps. The operands sweep
-   [exp]'s whole range, its clamps and beyond, with the non-finite values. *)
+(* The binary32 sequences ({!F32_math.Make_fast}, the only form Machine IR
+   lowers) against the binary32 oracle on every Machine IR route, scalar and
+   vector: the reference sequence's bits, which the oracle runs. The operands
+   sweep [exp]'s whole range, its clamps and beyond, with the non-finite
+   values; [exp, around each k step] takes the patterns where the fast pieces
+   change their result. *)
 
 let wide ~salt i (sg : Tensor_sig.t) =
   let specials = [| Float.nan; Float.infinity; Float.neg_infinity; -0.; 0. |] in
@@ -17,17 +18,51 @@ let wide ~salt i (sg : Tensor_sig.t) =
         (* about -130 to 110, in steps that miss the integers of [t] *)
         (float_of_int (k * 7919 mod 2400) /. 10.) -. 130.03)
 
-let unary name op =
+(* The binary32 patterns within two of each point where [exp]'s [k] steps
+   ([t +- 0.5] crossing an integer, [k] in [-151, 129]: every power of two
+   [pow2_int] builds), within four of the clamps and of zero (the [-0] region
+   and the subnormals), and the non-finite values. *)
+let k_steps =
+  let around x d =
+    let b = Int32.bits_of_float x in
+    List.init
+      ((2 * d) + 1)
+      (fun j -> Int32.float_of_bits (Int32.add b (Int32.of_int (j - d))))
+  in
+  List.concat_map
+    (fun k ->
+      let k = float_of_int k in
+      around ((k +. 0.5) /. 1.44269504088896341) 2
+      @ around ((k -. 0.5) /. 1.44269504088896341) 2)
+    (List.init 281 (fun j -> j - 151))
+  @ List.concat_map (fun x -> around x 4) [ -104.; 89.; 0. ]
+  @ [ Float.nan; Float.infinity; Float.neg_infinity; -0.; -110.; 100.; 3e38 ]
+  |> Array.of_list
+
+let steps ~salt:_ _ (sg : Tensor_sig.t) =
+  Tensor.materialize sg.Tensor_sig.shape (fun c ->
+      let k = (Vec6.offset sg.Tensor_sig.shape c :> int) in
+      k_steps.(k mod Array.length k_steps))
+
+let unary ?(shape = F.s 1 1 1 1 2 160) name op =
   ( name,
     fun () ->
       F.build name
         Graph_builder.(
-          let* x = input ~shape:(F.s 1 1 1 1 2 160) () in
+          let* x = input ~shape () in
           op x) )
+
+let k_steps_name = "exp, around each k step"
+
+(* [steps] for [exp, around each k step] (one row of 23 x 128 holds every
+   pattern), [wide] for the rest. *)
+let input name = if String.equal name k_steps_name then steps else wide
 
 let fixtures =
   [
     unary "exp" (fun x -> Graph_builder.exp x);
+    unary ~shape:(F.s 1 1 1 1 23 128) k_steps_name (fun x ->
+        Graph_builder.exp x);
     unary "erf" (fun x -> Graph_builder.erf x);
     unary "exact gelu" (fun x -> Graph_builder.gelu Pointwise.Gelu.Exact x);
   ]
@@ -45,15 +80,15 @@ let routes =
     ("x86_64 scanned", Some (M.Route.X86_64 M.Stage.Scanned));
   ]
 
-let%expect_test "fast sequences: Machine IR is the binary32 oracle" =
+let%expect_test "binary32 sequences: Machine IR is the binary32 oracle" =
   List.iter
     (fun (fname, pipeline) ->
       List.iter
         (fun (name, g) ->
           List.iter
             (fun (rname, route) ->
-              T.check ?route ~sequence:S.Fast ~pipeline ~oracle:T.Fp32
-                ~input:wide ~calls:1
+              T.check ?route ~pipeline ~oracle:T.Fp32 ~input:(input name)
+                ~calls:1
                 (Fmt.str "%s, %s, %s" name fname rname)
                 g)
             routes)
@@ -64,6 +99,9 @@ let%expect_test "fast sequences: Machine IR is the binary32 oracle" =
     exp, scalar, generic (1 invocations): bitwise
     exp, scalar, aarch64 scanned (1 invocations): bitwise
     exp, scalar, x86_64 scanned (1 invocations): bitwise
+    exp, around each k step, scalar, generic (1 invocations): bitwise
+    exp, around each k step, scalar, aarch64 scanned (1 invocations): bitwise
+    exp, around each k step, scalar, x86_64 scanned (1 invocations): bitwise
     erf, scalar, generic (1 invocations): bitwise
     erf, scalar, aarch64 scanned (1 invocations): bitwise
     erf, scalar, x86_64 scanned (1 invocations): bitwise
@@ -103,6 +141,9 @@ let%expect_test "fast sequences: Machine IR is the binary32 oracle" =
     exp, neon128, generic (1 invocations): bitwise
     exp, neon128, aarch64 scanned (1 invocations): bitwise
     exp, neon128, x86_64 scanned (1 invocations): bitwise
+    exp, around each k step, neon128, generic (1 invocations): bitwise
+    exp, around each k step, neon128, aarch64 scanned (1 invocations): bitwise
+    exp, around each k step, neon128, x86_64 scanned (1 invocations): bitwise
     erf, neon128, generic (1 invocations): bitwise
     erf, neon128, aarch64 scanned (1 invocations): bitwise
     erf, neon128, x86_64 scanned (1 invocations): bitwise
@@ -140,14 +181,15 @@ let%expect_test "fast sequences: Machine IR is the binary32 oracle" =
     tanh gelu mul bf16->bf16 1x33, neon128, aarch64 scanned (3 invocations): bitwise
     tanh gelu mul bf16->bf16 1x33, neon128, x86_64 scanned (3 invocations): bitwise |}]
 
-(* The route suites' share: [exp], [erf] and both GELUs, a tail shape and a
-   bfloat16 one. *)
+(* The route suites' share: [exp] (and around each [k] step), [erf] and both
+   GELUs, a tail shape and a bfloat16 one. *)
 let route_fixtures =
   List.filter
     (fun (name, _) ->
       List.mem name
         [
           "exp";
+          k_steps_name;
           "erf";
           "exact gelu";
           "softmax over H, W=32";
@@ -156,17 +198,16 @@ let route_fixtures =
         ])
     fixtures
 
-(* Every route check of [route_fixtures] under [Fast], on [wide] inputs. *)
+(* Every route check of [route_fixtures], on each one's [input]. *)
 let each ?route ~pipeline label =
   List.iter
     (fun (name, g) ->
-      T.check ?route ~sequence:S.Fast ~pipeline ~oracle:T.Fp32 ~input:wide
-        ~calls:1
+      T.check ?route ~pipeline ~oracle:T.Fp32 ~input:(input name) ~calls:1
         (Fmt.str "%s, %s" name label)
         g)
     route_fixtures
 
-let%expect_test "fast sequences on RV32, interpreted" =
+let%expect_test "binary32 sequences on RV32, interpreted" =
   List.iter
     (fun (rname, route) ->
       each ~route ~pipeline:T.fp32_ordered ("scalar " ^ rname);
@@ -185,24 +226,28 @@ let%expect_test "fast sequences on RV32, interpreted" =
   [%expect
     {|
     exp, scalar selected (1 invocations): bitwise
+    exp, around each k step, scalar selected (1 invocations): bitwise
     erf, scalar selected (1 invocations): bitwise
     exact gelu, scalar selected (1 invocations): bitwise
     softmax over H, W=32, scalar selected (1 invocations): bitwise
     tanh gelu mul 1x67, scalar selected (2 invocations): bitwise
     tanh gelu mul bf16 1x33, scalar selected (2 invocations): bitwise
     exp, zve32f128 selected (1 invocations): bitwise
+    exp, around each k step, zve32f128 selected (1 invocations): bitwise
     erf, zve32f128 selected (1 invocations): bitwise
     exact gelu, zve32f128 selected (1 invocations): bitwise
     softmax over H, W=32, zve32f128 selected (1 invocations): bitwise
     tanh gelu mul 1x67, zve32f128 selected (2 invocations): bitwise
     tanh gelu mul bf16 1x33, zve32f128 selected (2 invocations): bitwise
     exp, scalar scanned (1 invocations): bitwise
+    exp, around each k step, scalar scanned (1 invocations): bitwise
     erf, scalar scanned (1 invocations): bitwise
     exact gelu, scalar scanned (1 invocations): bitwise
     softmax over H, W=32, scalar scanned (1 invocations): bitwise
     tanh gelu mul 1x67, scalar scanned (2 invocations): bitwise
     tanh gelu mul bf16 1x33, scalar scanned (2 invocations): bitwise
     exp, zve32f128 scanned (1 invocations): bitwise
+    exp, around each k step, zve32f128 scanned (1 invocations): bitwise
     erf, zve32f128 scanned (1 invocations): bitwise
     exact gelu, zve32f128 scanned (1 invocations): bitwise
     softmax over H, W=32, zve32f128 scanned (1 invocations): bitwise

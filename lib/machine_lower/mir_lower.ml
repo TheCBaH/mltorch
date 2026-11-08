@@ -837,8 +837,7 @@ let scan (cfg : Ssa_cfg.t) =
         (f32, fma) b.Ssa_cfg_block.body)
     (false, false) cfg.Ssa_cfg.blocks
 
-let program ?mutation ?(sequence = Sequence.Reference) ~planning
-    (p : Ssa_program.t) =
+let program ?mutation ~planning (p : Ssa_program.t) =
   Err.Escape.with_escape @@ fun esc ->
   let refuse r = Err.Escape.throw esc r in
   (match Err.payload (Ssa_verify.check p) with
@@ -904,7 +903,6 @@ let program ?mutation ?(sequence = Sequence.Reference) ~planning
       cur = entry;
       origin = Mir_origin.unknown;
       mutation;
-      sequence;
     }
   in
   let rpo =

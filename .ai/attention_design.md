@@ -636,13 +636,14 @@ resident, so the route loads the attention function and the kernel's other
 regions as overlays (see the Coral codegen record). The VME core has no DMA,
 so everything must be resident: since the runtime walks its slots from data
 tables and shares its transfer, copy and exit code, every fixture fits and
-runs bitwise there too — 260,314 cycles bare, 323,334 with every flag,
-373,465 Post RmsNorm, 436,619 Pre LayerNorm with RoPE — against 2,812,666 and
+runs bitwise there too — 277,342 cycles bare, 320,945 with every flag,
+363,868 Post RmsNorm, 429,970 Pre LayerNorm with RoPE — against 2,812,666 and
 2,821,597 for the bare and all-flags layers decomposed and generated node by
 node at binary32 (10.8x and 8.7x, nearly all of it the generated Sdpa's
 1.98 M). fastvit's shape runs there as well, its 2 MiB of bfloat16 weights in
 the testbench RAM: bitwise in 40,109,063 cycles. A generated norm needs no
-hand kernel, unlike the softmax (1,025 cycles an element): over C at the
+hand kernel, unlike the softmax (277 cycles an element with the fast `exp`,
+1,025 before): over C at the
 layer's 16 x 64 with its affine operands, LayerNorm costs 145 cycles an
 element and RmsNorm 60 on the VME core. The body keeps its code small without changing its
 arithmetic: one bias loop for Q, K and V that also rounds them to bfloat16

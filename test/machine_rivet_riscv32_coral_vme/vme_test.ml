@@ -113,11 +113,11 @@ let%expect_test "1x1 convolutions on the matrix engine" =
     conv1x1 3x5 c19 to 29, loops (1 invocations): bitwise
     conv1x1 3x5 c19 to 29, vector unit (1 invocations): bitwise
     conv1x1 3x5 c19 to 29, matrix engine (1 invocations): bitwise
-      cycles 242297 / 11662 / 7276; 0.068 / 1.417 / 2.272 ops/cycle
+      cycles 239555 / 10543 / 6157; 0.069 / 1.568 / 2.685 ops/cycle
     conv1x1 7x7 c32 to 48, loops (1 invocations): bitwise
     conv1x1 7x7 c32 to 48, vector unit (1 invocations): bitwise
     conv1x1 7x7 c32 to 48, matrix engine (1 invocations): bitwise
-      cycles 429465 / 65549 / 26544; 0.351 / 2.296 / 5.671 ops/cycle |}]
+      cycles 429269 / 64460 / 25455; 0.351 / 2.335 / 5.913 ops/cycle |}]
 
 (* bfloat16 products on the same core: the selection sends them to the
    vector unit (the engine's build multiplies no bfloat16), against the
@@ -164,16 +164,16 @@ let%expect_test "bfloat16 products on the vector unit" =
     {|
     bmm bf16 3x7x29 k63, ordered, loops (1 invocations): bitwise
     bmm bf16 3x7x29 k63, ordered, vector unit (1 invocations): bitwise
-      cycles 321686 -> 25970 (12.39x)
+      cycles 393550 -> 25862 (15.22x)
     bmm bf16 3x7x29 k63, contracted, loops (1 invocations): bitwise
     bmm bf16 3x7x29 k63, contracted, vector unit (1 invocations): bitwise
-      cycles 272777 -> 18353 (14.86x)
+      cycles 271753 -> 18245 (14.89x)
     linear bf16 9x32 k64, ordered, loops (1 invocations): bitwise
     linear bf16 9x32 k64, ordered, vector unit (1 invocations): bitwise
-      cycles 188189 -> 15466 (12.17x)
+      cycles 188118 -> 15415 (12.20x)
     linear bf16 9x32 k64, contracted, loops (1 invocations): bitwise
     linear bf16 9x32 k64, contracted, vector unit (1 invocations): bitwise
-      cycles 184203 -> 11130 (16.55x) |}]
+      cycles 184132 -> 11079 (16.62x) |}]
 
 (* Prepacked weights on the vector unit (the contracted policy, so the RVV
    function): B's rows contiguous instead of strided, against the unpacked
@@ -213,13 +213,13 @@ let%expect_test "prepacked weights on the vector unit" =
     {|
     linear 9x32 k64, strided (1 invocations): bitwise
     linear 9x32 k64, packed (1 invocations, 1 packed): bitwise
-      cycles 9280 -> 4687 (1.98x)
+      cycles 9229 -> 4636 (1.99x)
     linear 7x29 k63 bias, strided (1 invocations): bitwise
     linear 7x29 k63 bias, packed (1 invocations, 1 packed): bitwise
-      cycles 10033 -> 6213 (1.61x)
+      cycles 9505 -> 5685 (1.67x)
     linear bf16 9x32 k64, strided (1 invocations): bitwise
     linear bf16 9x32 k64, packed (1 invocations, 1 packed): bitwise
-      cycles 11130 -> 6351 (1.75x) |}]
+      cycles 11079 -> 6300 (1.76x) |}]
 
 (* bfloat16 products granted the engine's pair rounding ([bf16_pairs]): the
    matrix engine's function against the descriptor's [Paired] reference over
@@ -314,15 +314,15 @@ let%expect_test "bfloat16 pairs from a model on the matrix engine" =
   [%expect
     {|
     linear bf16 9x32 k64, paired (1 invocations): bitwise
-      cycles 4241
+      cycles 4192
     linear bf16 64x64 k64, paired (1 invocations): bitwise
-      cycles 37789
+      cycles 37530
     bmm bf16 1x64x32 k64, paired (1 invocations): bitwise
-      cycles 16140
+      cycles 15874
     bmm bf16 3x7x29 k63, paired (1 invocations): bitwise
-      cycles 10810
+      cycles 10703
     linear bf16 9x32 k64, not granted (1 invocations): DIFFERS
-      cycles 11130 |}]
+      cycles 11079 |}]
 
 (* The generated (ungranted) [Sdpa] on the core: its kernel fits the 8 KiB
    instruction memory beside the runtime, which runs each slot's transfer as
@@ -359,9 +359,9 @@ let%expect_test "the per-op composition of Sdpa" =
   [%expect
     {|
     sdpa composition 16x16 d16 (5 invocations): bitwise
-      cycles 266464 = 1413 + 916 + 261626 + 1131 + 1378
+      cycles 74649 = 1347 + 531 + 70735 + 724 + 1312
     sdpa composition 32x32 d32 (5 invocations): bitwise
-      cycles 1055104 = 4201 + 2741 + 1038604 + 3499 + 6059 |}]
+      cycles 294395 = 4071 + 1900 + 279803 + 2692 + 5929 |}]
 
 (* The generated binary32 [exp] and softmax at 16x16: see {!Exp_softmax}. *)
 let%expect_test "generated exp and softmax cycles per element" =
@@ -369,17 +369,17 @@ let%expect_test "generated exp and softmax cycles per element" =
   [%expect
     {|
     exp 16x16, planned (1 invocations): bitwise
-      cycles 38028, 148.5 per element
+      cycles 12757, 49.8 per element
     softmax over C 16x16, planned (1 invocations): bitwise
-      cycles 262426, 1025.1 per element
+      cycles 70755, 276.4 per element
     softmax over W 16x16, planned (1 invocations): bitwise
-      cycles 262426, 1025.1 per element
+      cycles 70886, 276.9 per element
     exp 16x16, forced vector (1 invocations): bitwise
-      cycles 38028, 148.5 per element
+      cycles 12757, 49.8 per element
     softmax over C 16x16, forced vector (1 invocations): bitwise
-      cycles 262426, 1025.1 per element
+      cycles 70755, 276.4 per element
     softmax over W 16x16, forced vector (1 invocations): bitwise
-      cycles 262426, 1025.1 per element |}]
+      cycles 70886, 276.9 per element |}]
 
 (* A granted [Sdpa] on the VME core: the node is one call of the fused
    function, bitwise against the granted streaming reference, with the cycles
@@ -507,6 +507,6 @@ let%expect_test "generated norm cycles per element" =
   [%expect
     {|
     layer norm over C 16x64 (1 invocations): bitwise
-      cycles 148915, 145.4 per element
+      cycles 22678, 22.1 per element
     rms norm over C 16x64 (1 invocations): bitwise
-      cycles 61083, 59.7 per element |}]
+      cycles 12627, 12.3 per element |}]

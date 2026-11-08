@@ -231,9 +231,9 @@ let%expect_test "the ELF each run loads" =
     residual add 1x33 (1 invocations): bitwise
       1 ELF images, all starting with \x7fELF: true |}]
 
-(* The fast binary32 sequences on MPACT m3, scalar and Zve32f, on operands
+(* The binary32 sequences on MPACT m3, scalar and Zve32f, on operands
    across [exp]'s range: the reference's bits. *)
-let%expect_test "fast sequences on MPACT" =
+let%expect_test "binary32 sequences on MPACT" =
   let module S = Machine_model_test.Sequence_test in
   List.iter
     (fun (tname, target) ->
@@ -247,12 +247,14 @@ let%expect_test "fast sequences on MPACT" =
   [%expect
     {|
     exp, mpact-m3 scalar (1 invocations): bitwise
+    exp, around each k step, mpact-m3 scalar (1 invocations): bitwise
     erf, mpact-m3 scalar (1 invocations): bitwise
     exact gelu, mpact-m3 scalar (1 invocations): bitwise
     softmax over H, W=32, mpact-m3 scalar (1 invocations): bitwise
     tanh gelu mul 1x67, mpact-m3 scalar (2 invocations): bitwise
     tanh gelu mul bf16 1x33, mpact-m3 scalar (2 invocations): bitwise
     exp, mpact-m3 zve32f128 (1 invocations): bitwise
+    exp, around each k step, mpact-m3 zve32f128 (1 invocations): bitwise
     erf, mpact-m3 zve32f128 (1 invocations): bitwise
     exact gelu, mpact-m3 zve32f128 (1 invocations): bitwise
     softmax over H, W=32, mpact-m3 zve32f128 (1 invocations): bitwise

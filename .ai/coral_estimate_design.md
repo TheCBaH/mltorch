@@ -17,7 +17,7 @@ kernels, and whether to run it on RTL is a computed answer.
   constants and induction values; a loop or `if` that depends on data is
   counted once (half per branch) and reported. Classes are what costs
   differently: scalar and vector binary32 operations, divides, each math
-  function separately (a vector exp is 580 cycles a register group, a vector
+  function separately (a vector exp is 192 cycles a register group, a vector
   sqrt 11), loads and stores by memory region and stride, scratch cells, loop
   trips, int and index work. Vector classes count 128-bit register groups.
 - **Placement is the route's, not assumed.** The DTCM is filled first-fit in
@@ -120,6 +120,19 @@ Validation strengthened 2026-11-08, after the transformer kernel changes:
   The decomposed layer also stays outside it: 1,024 data-dependent decisions
   are counted heuristically. Its diagnostic error is -22.2%.
 
+Recalibrated 2026-11-08 when Machine IR's binary32 `exp` became the fast form
+only. `class.vec_exp` 583.5 -> 192.0, `class.f32_exp` 453.7 -> 181.1 and
+`class.vec_other` 58.4 -> 13.1; the `exp` cases predict within 0.3%. The three
+softmax-over-C cases now fit the ITCM and are measured, so no refusal
+remains; the held-out one predicts +0.6% (limit 2%). The norm cases improve
+to +120.6%/+108.0% and stay outside the gate. Four limits were widened, each
+stated beside the list: `exp 64x64` and `softmax over W` by the fast form's
+cost (-2.0%, -5.3%), and the two attention layers because a bfloat16 store's
+canonical-NaN select (the bfloat16 result change) costs them about 7% of
+cycles and 34% more instructions, which the census does not price (-14.3%,
+-8.4%). That data had been stale since that change: without the select the
+layers measure their earlier cycles. Pricing the select is open.
+
 The table above records the original investigation, not current accuracy.
 Current committed-rate held-out errors include -9.6% for SDPA, +25.2% for the
 pre-LayerNorm/RoPE layer, and +0.6% for the separately measured fastvit shape.
@@ -155,6 +168,12 @@ interleave's overlap benefit. Reference/Fast have byte-identical feature files:
 the changed math sequence is a choice made after the counted SSA. Absolute
 errors for Fast are +134.8% (2x160) and +146.0% (1x67). These pairs are evidence
 of model gaps, not new accuracy successes or training samples.
+
+The math-sequence gap is closed by removing the choice rather than recording
+it: the fast form has the reference's bits for every input, so Machine IR
+lowers only it, and the calibration data, the `exp` rates and the held-out
+gates now describe that form. The probe keeps the unroll pairs and reports
+tanh GELU mul's own prediction error instead of a Reference/Fast pair.
 
 Reproduce with `CORALNPU_DATA=<archive> opam exec -- dune exec
 test/coral_estimate_validation/probe.exe -- --output <new-directory>
@@ -293,6 +312,8 @@ RAM 95. The installed `rivet` must stay pinned to `vendored/rivet`
   15% over, first), then priors or features from the measured costs.
 - Whole-model prediction through the route without simulation (`prepare`
   builds the images, so placements are real) and its emulator hours.
+- A bfloat16 store's rounding and canonical-NaN select are not priced: the
+  attention layers' held-out limits were widened for it.
 
 **First SSA planning increment implemented (2026-11-08).** Contraction
 engines are now selected in `Ssa_contract_plan`, after SSA prepacking and before

@@ -645,7 +645,8 @@ jobs:
         ${{ env.EXEC }} make coralnpu.soc.rv32.runtest
     - name: coralnpu transfer route
       if: matrix.suite == 'coralnpu-transfer'
-      timeout-minutes: 60
+      # ~48 min on the arm runner, ~27% more on a slower one
+      timeout-minutes: 90
       run: |
         ${{ env.EXEC }} make coralnpu.transfer.runtest
 

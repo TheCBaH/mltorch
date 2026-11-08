@@ -3,7 +3,6 @@
    typed Rivet module and run as its own static ELF. Each call is bitwise
    against the binary32 oracle. *)
 
-module M = Machine_model.Mir_model
 module T = Machine_model_test.Model_test
 module R = Machine_rivet_riscv32_mir.Rv32_mir_route
 
@@ -473,9 +472,9 @@ let%expect_test "an attention under qemu is refused" =
   [%expect
     {| sdpa bf16 16x32 d32: refused: invocation 0 (n0): attention attend.b1.h1.q16.k32.d32.sq0_0_32_1.sk0_0_32_1.sv0_0_32_1.so0_0_32_1.nomask.x3e3504f3.n32: an attention has no realization on this route |}]
 
-(* The fast binary32 sequences as RV32 processes, scalar and Zve32f at VLEN 128
+(* The binary32 sequences as RV32 processes, scalar and Zve32f at VLEN 128
    and 1024: the reference's bits. *)
-let%expect_test "fast sequences under qemu" =
+let%expect_test "binary32 sequences under qemu" =
   let module S = Machine_model_test.Sequence_test in
   S.each ~route:(R.route ()) ~pipeline:fp32_scalar "scalar";
   List.iter
@@ -488,18 +487,21 @@ let%expect_test "fast sequences under qemu" =
   [%expect
     {|
     exp, scalar (1 invocations): bitwise
+    exp, around each k step, scalar (1 invocations): bitwise
     erf, scalar (1 invocations): bitwise
     exact gelu, scalar (1 invocations): bitwise
     softmax over H, W=32, scalar (1 invocations): bitwise
     tanh gelu mul 1x67, scalar (2 invocations): bitwise
     tanh gelu mul bf16 1x33, scalar (2 invocations): bitwise
     exp, zve32f vlen 128 (1 invocations): bitwise
+    exp, around each k step, zve32f vlen 128 (1 invocations): bitwise
     erf, zve32f vlen 128 (1 invocations): bitwise
     exact gelu, zve32f vlen 128 (1 invocations): bitwise
     softmax over H, W=32, zve32f vlen 128 (1 invocations): bitwise
     tanh gelu mul 1x67, zve32f vlen 128 (2 invocations): bitwise
     tanh gelu mul bf16 1x33, zve32f vlen 128 (2 invocations): bitwise
     exp, zve32f vlen 1024 (1 invocations): bitwise
+    exp, around each k step, zve32f vlen 1024 (1 invocations): bitwise
     erf, zve32f vlen 1024 (1 invocations): bitwise
     exact gelu, zve32f vlen 1024 (1 invocations): bitwise
     softmax over H, W=32, zve32f vlen 1024 (1 invocations): bitwise
@@ -518,27 +520,7 @@ let%expect_test "relaxed sums under grouped registers" =
         target = Ssa_ir.Ssa_target.zve32f128;
       }
   in
-  let plan_oracle =
-    T.Custom
-      (fun g constants inputs ->
-        let m =
-          match M.prepare ~pipeline (T.bundle g) with
-          | Ok m -> m
-          | Error _ -> failwith "the generic route refused the plan"
-        in
-        match
-          Result.bind
-            (M.Context.create m ~constants:(fun id ->
-                 List.assoc_opt id constants))
-            (fun cx ->
-              M.Context.run cx ~inputs:(fun id -> List.assoc_opt id inputs))
-        with
-        | Ok outs ->
-            List.fold_left2
-              (fun acc id t -> Tensor_id.Map.add id t acc)
-              Tensor_id.Map.empty g.Graph_ir.Graph.outputs outs
-        | Error s -> Fmt.failwith "%a" M.Stop.pp s)
-  in
+  let plan_oracle = Machine_model_test.Plan_oracle.make ~pipeline in
   List.iter
     (fun vlen ->
       List.iter
@@ -782,9 +764,9 @@ let%expect_test "groups of eight under qemu" =
     vlen 128, rms norm 2x160 (1 invocations): bitwise
     vlen 128, rms norm 1x67 (1 invocations): bitwise
     vlen 128, rms norm 1x33 (1 invocations): bitwise
-    vlen 128, tanh gelu mul 2x160: refused: invocation 0 (n0): frame: fn0: a frame beyond the supported code model
-    vlen 128, tanh gelu mul 1x67: refused: invocation 0 (n0): frame: fn0: a frame beyond the supported code model
-    vlen 128, tanh gelu mul 1x33: refused: invocation 0 (n0): frame: fn0: a frame beyond the supported code model
+    vlen 128, tanh gelu mul 2x160: refused: invocation 0 (n0): publish: physical verifier: allocated fn0 bb4: target constraint: an undeclared slot
+    vlen 128, tanh gelu mul 1x67: refused: invocation 0 (n0): publish: physical verifier: allocated fn0 bb7: target constraint: an undeclared slot
+    vlen 128, tanh gelu mul 1x33: refused: invocation 0 (n0): publish: physical verifier: allocated fn0 bb7: target constraint: an undeclared slot
     vlen 1024, relu then add over C=32: refused: invocation 0 (n0): publish: physical verifier: allocated fn0 bb7: target constraint: an undeclared slot
     vlen 1024, softmax over H, W=32 (1 invocations): bitwise
     vlen 1024, layer_norm over H, W=32 (1 invocations): bitwise
@@ -795,6 +777,6 @@ let%expect_test "groups of eight under qemu" =
     vlen 1024, rms norm 2x160 (1 invocations): bitwise
     vlen 1024, rms norm 1x67 (1 invocations): bitwise
     vlen 1024, rms norm 1x33 (1 invocations): bitwise
-    vlen 1024, tanh gelu mul 2x160: refused: invocation 0 (n0): frame: fn0: a frame beyond the supported code model
-    vlen 1024, tanh gelu mul 1x67: refused: invocation 0 (n0): frame: fn0: a frame beyond the supported code model
-    vlen 1024, tanh gelu mul 1x33: refused: invocation 0 (n0): frame: fn0: a frame beyond the supported code model |}]
+    vlen 1024, tanh gelu mul 2x160: refused: invocation 0 (n0): publish: physical verifier: allocated fn0 bb4: target constraint: an undeclared slot
+    vlen 1024, tanh gelu mul 1x67: refused: invocation 0 (n0): publish: physical verifier: allocated fn0 bb7: target constraint: an undeclared slot
+    vlen 1024, tanh gelu mul 1x33: refused: invocation 0 (n0): publish: physical verifier: allocated fn0 bb7: target constraint: an undeclared slot |}]

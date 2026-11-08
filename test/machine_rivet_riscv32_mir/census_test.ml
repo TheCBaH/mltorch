@@ -91,10 +91,10 @@ let%expect_test "forms of the vector fixtures" =
       instructions 193, configurations 3, spills 0, reloads 0, remats 0, frame 80 bytes, helper calls 0
       vector vfadd.vv 8, vfmv.v.f 4, vle32.v 24, vmerge.vim 4, vmerge.vvm 4, vmflt.vv 4, vmsne.vi 4, vmv.v.i 4, vse32.v 12
     softmax over H, W=32, scalar:
-      instructions 838, configurations 0, spills 0, reloads 0, remats 0, frame 80 bytes, helper calls 0
+      instructions 534, configurations 0, spills 0, reloads 0, remats 0, frame 32 bytes, helper calls 0
       vector none
     softmax over H, W=32, zve32f128:
-      instructions 838, configurations 0, spills 0, reloads 0, remats 0, frame 80 bytes, helper calls 0
+      instructions 534, configurations 0, spills 0, reloads 0, remats 0, frame 32 bytes, helper calls 0
       vector none
     layer_norm over H, W=32, scalar:
       instructions 609, configurations 0, spills 0, reloads 0, remats 0, frame 80 bytes, helper calls 0
@@ -195,7 +195,7 @@ let%expect_test "forms with register groups" =
       instructions 92, configurations 3 (m4 3), spills 0, reloads 0, remats 0, frame 16 bytes, helper calls 0
       vector vfadd.vv 2, vfmv.v.f 1, vle32.v 6, vmerge.vim 1, vmerge.vvm 1, vmflt.vv 1, vmsne.vi 1, vmv.v.i 1, vse32.v 3
     softmax over H, W=32:
-      instructions 838, configurations 0, spills 0, reloads 0, remats 0, frame 80 bytes, helper calls 0
+      instructions 534, configurations 0, spills 0, reloads 0, remats 0, frame 32 bytes, helper calls 0
       vector none
     layer_norm over H, W=32:
       instructions 609, configurations 0, spills 0, reloads 0, remats 0, frame 80 bytes, helper calls 0

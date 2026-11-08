@@ -101,7 +101,7 @@ let in_format (sg : Tensor_sig.t) t =
         }
   | Payload.Fmt _ -> t
 
-let check ?route ?contractions ?bf16_pairs ?attention ?layer ?sequence ?prepack
+let check ?route ?contractions ?bf16_pairs ?attention ?layer ?prepack
     ?on_program ?(pipeline = Ssa_backends.Pipeline.Exact)
     ?(oracle = Reference_f64) ?(same = fun a b -> bits a = bits b) ?(calls = 2)
     ?constant ?(input = fun ~salt _ -> values ~salt) name g =
@@ -124,8 +124,8 @@ let check ?route ?contractions ?bf16_pairs ?attention ?layer ?sequence ?prepack
       b.Loop_ir.Loop_bundle.constants
   in
   match
-    M.prepare ?route ?contractions ?bf16_pairs ?attention ?layer ?sequence
-      ?prepack ?on_program ~pipeline b
+    M.prepare ?route ?contractions ?bf16_pairs ?attention ?layer ?prepack
+      ?on_program ~pipeline b
   with
   | Error rs ->
       Fmt.pr "%s: refused: %a@." name Fmt.(list ~sep:(any "; ") M.Refusal.pp) rs

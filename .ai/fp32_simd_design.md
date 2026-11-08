@@ -105,7 +105,9 @@ prints both forms as C (`truncf` and the bit construction as the pieces),
 compiles them natively and compares `exp` and `erf` over all 2^32 inputs, NaNs
 by their bits: no difference; the bias-128 build differs on 3,258,020,377
 inputs, and the target runs it as a must-fail step. `tanh`, GELU and softmax
-reach the fast form only through `exp`.
+reach the fast form only through `exp`. Machine IR lowers only the fast form
+(see the Machine IR design record); C, Wasm and JavaScript keep the
+reference.
 
 For a vector kernel the oracle is the plan's vector program expanded lane by lane
 and run by the interpreter (`Loop_plan.oracle`): independent of both backends.

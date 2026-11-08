@@ -57,6 +57,8 @@ module Mutation : sig
         (** the binary32 error function computed in binary64 and rounded once *)
     | Guard_order  (** axis guards in reverse order *)
     | Operand_order  (** a float subtraction's or division's operands swapped *)
+    | Pow2_bias
+        (** [exp]'s power of two built with an exponent bias of 128, not 127 *)
     | Scale_bytes  (** element offsets scaled by twice the element bytes *)
     | Sequential_transfer
         (** an edge argument that names an earlier rebound parameter reads its
@@ -66,15 +68,6 @@ module Mutation : sig
             starting undefined *)
     | Vector_stride  (** a lane access's stride doubled *)
     | Zero_extend  (** index widening by zero- instead of sign-extension *)
-end
-
-(** Which form of the binary32 sequences ({!F32_math}) the lowering emits for
-    [exp] and [erf]: both compute the same bits for every input. [Fast] takes
-    [exp]'s powers of two from their bits ({!F32_math.pow2_int32}) and its
-    truncations from [Funary.Trunc] ({!F32_math.Make_fast}); [Reference] is the
-    sequence every other backend runs. Alphabetical. *)
-module Sequence : sig
-  type t = Fast | Reference
 end
 
 type result = {
@@ -99,10 +92,12 @@ val summary :
 
 val program :
   ?mutation:Mutation.t ->
-  ?sequence:Sequence.t ->
   planning:Mir_planning.t option ->
   Ssa_ir.Ssa_program.t ->
   (result, Refusal.t) Err.t
 (** Verifies the structured program, admits the summary against its subject,
-    lowers it to a CFG and the CFG to generic Machine IR, and verifies that.
-    [sequence] defaults to [Reference]. *)
+    lowers it to a CFG and the CFG to generic Machine IR, and verifies that. The
+    binary32 [exp] and [erf] are {!F32_math.Make_fast}'s: [exp]'s powers of two
+    from their bits ({!F32_math.pow2_int32}) and its truncations from
+    [Funary.Trunc], the same bits as the reference sequence the C, Wasm and
+    JavaScript backends run. *)
