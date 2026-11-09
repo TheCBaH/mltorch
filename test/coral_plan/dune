@@ -1,0 +1,19 @@
+; The programs the Coral route plans, printed: no simulator, no release data.
+
+(library
+ (name coral_plan_test)
+ (libraries
+  contraction
+  coral_estimate_cases
+  fmt
+  loop_ir
+  machine_model
+  ssa_backends
+  ssa_ir)
+ (inline_tests)
+ (preprocess
+  (pps ppx_expect))
+ (enabled_if
+  (and
+   %{lib-available:rivet.riscv32_encode}
+   %{lib-available:rivet.driver_direct})))

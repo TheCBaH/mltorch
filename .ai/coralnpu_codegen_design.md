@@ -1146,3 +1146,16 @@ linear 9x32 k64 recorded 13,694/4,895 while both paths now measure
 13,643/4,844). Five rows in that golden were refreshed after the counterfactual
 comparison. This is baseline maintenance, not a performance gain from moving
 the engine choice. Full repository and JavaScript inline checks also pass.
+
+## Plan tests without a simulator
+
+`test/coral_plan` prints what the Coral route plans for a few estimator cases,
+with the matrix engine on and off: the engine chosen for each contraction and
+each invocation's final SSA program (`Ssa_pp`), the program lowering sees. It
+plans through a `Custom` route over `Ssa_contract_plan`, so it needs neither
+the release archive nor a simulator and runs in seconds; a change to engine
+selection, unrolling, numerics or fusion is a readable diff before any RTL or
+MPACT run. It shows one fact worth knowing: a bfloat16 paired contraction with
+the matrix engine off is refused, not lowered to loops. Machine IR and layout
+are not printed yet; the layout needs a profile's regions, which would come
+from a hand-built manifest as in `test/coralnpu`.
