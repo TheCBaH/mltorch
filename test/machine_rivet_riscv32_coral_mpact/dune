@@ -1,0 +1,94 @@
+; The VME core suite's checks on MPACT (mpact-m4), bitwise and without cycles:
+; its sources are the RTL suite's (derive.sh), so the two cannot drift, and the
+; tests it tags "disabled" for the simulator's cost run here. Correctness only:
+; MPACT has no timing model. Enabled by CORALNPU_DATA (make coralnpu.mpact.runtest).
+
+(rule
+ (target vme_test.ml)
+ (deps derive.sh)
+ (action
+  (with-stdout-to
+   %{target}
+   (run sh derive.sh %{dep:../machine_rivet_riscv32_coral_vme/vme_test.ml}))))
+
+(rule
+ (target attention_layer_test.ml)
+ (deps derive.sh)
+ (action
+  (with-stdout-to
+   %{target}
+   (run
+    sh
+    derive.sh
+    %{dep:../machine_rivet_riscv32_coral_vme/attention_layer_test.ml}))))
+
+(rule
+ (target exp_softmax.ml)
+ (deps derive.sh)
+ (action
+  (with-stdout-to
+   %{target}
+   (run
+    sh
+    derive.sh
+    %{dep:../machine_rivet_riscv32_coral_vme/exp_softmax.ml}))))
+
+(rule
+ (target sdpa_composition.ml)
+ (deps derive.sh)
+ (action
+  (with-stdout-to
+   %{target}
+   (run
+    sh
+    derive.sh
+    %{dep:../machine_rivet_riscv32_coral_vme/sdpa_composition.ml}))))
+
+(rule
+ (target deadline.ml)
+ (deps derive.sh)
+ (action
+  (with-stdout-to
+   %{target}
+   (run sh derive.sh %{dep:../machine_rivet_riscv32_coral_vme/deadline.ml}))))
+
+; The 64x64 cases, minutes each on the RTL (machine_rivet_riscv32_coral_large).
+
+(rule
+ (target large_test.ml)
+ (deps derive.sh)
+ (action
+  (with-stdout-to
+   %{target}
+   (run
+    sh
+    derive.sh
+    %{dep:../machine_rivet_riscv32_coral_large/large_test.ml}))))
+
+(library
+ (name machine_rivet_riscv32_coral_mpact_test)
+ (libraries
+  contraction
+  coralnpu
+  coralnpu_kernels
+  coralnpu_kernels_zvt
+  fmt
+  machine_model
+  machine_model_test
+  machine_rivet_riscv32
+  machine_rivet_riscv32_coral
+  machine_rivet_riscv32_mir
+  rivet.image
+  ssa_backends
+  ssa_ir)
+ (inline_tests
+  (deps
+   (env_var CORALNPU_DATA)
+   (env_var CORALNPU_RUN_DEADLINE)))
+ (preprocess
+  (pps ppx_expect))
+ (enabled_if
+  (and
+   (<> %{env:CORALNPU_DATA=} "")
+   %{lib-available:rivet.riscv32_encode}
+   %{lib-available:rivet.driver_direct})))

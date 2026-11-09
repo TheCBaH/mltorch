@@ -230,11 +230,13 @@ let show ?sram ?engine ?seed ~what d =
   | Ok r ->
       Fmt.pr
         "%Ldx%Ld k%Ld %s: %s (%d of %Ld differ from every step rounded to \
-         nearest), %Ld cycles, %.1f ops/cycle@."
+         nearest)"
         m n k what
         (if r.wrong = 0 then "bitwise" else Fmt.str "DIFFERS in %d" r.wrong)
-        r.nearest (Int64.mul m n) r.cycles
-        (2. *. Int64.to_float (C.macs d) /. Int64.to_float r.cycles)
+        r.nearest (Int64.mul m n);
+      Cycle_report.pr ", %Ld cycles, %.1f ops/cycle" r.cycles
+        (2. *. Int64.to_float (C.macs d) /. Int64.to_float r.cycles);
+      Fmt.pr "@."
   | Error e -> Fmt.pr "%Ldx%Ld k%Ld %s: %s@." m n k what e
 
 let%expect_test "bfloat16 pairs on the matrix engine" =

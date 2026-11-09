@@ -1741,6 +1741,21 @@ coralnpu.vme.runtest:
 	}
 	CORALNPU_DATA=$(CORALNPU_DATA) opam exec -- dune build @test/machine_rivet_riscv32_coral_vme/runtest --force
 
+# The compute checks of the RTL suites on MPACT instead: the VME core's on
+# mpact-m4 and the RVV core's on mpact-m3, the same graphs through the Coral
+# route, bitwise against their references, without cycles (MPACT has no timing
+# model; only the RTL suites report them). The sources are derived from the RTL
+# suites', so the tests they gate off as slow (generated and granted Sdpa, the
+# attention layers, the 64x64 cases) run here too: under a minute. Needs the
+# download.
+.PHONY: coralnpu.mpact.runtest
+coralnpu.mpact.runtest:
+	@test -f $(CORALNPU_DATA)/hardware-configurations.json || { \
+		echo "coralnpu.mpact.runtest: missing $(CORALNPU_DATA) -- run 'make coralnpu.download' first" >&2; \
+		exit 1; \
+	}
+	CORALNPU_DATA=$(CORALNPU_DATA) opam exec -- dune build @test/machine_rivet_riscv32_coral_mpact/runtest --force
+
 # The tests of the VME suite tagged "disabled", each over three minutes on an arm
 # core, which coralnpu.vme.runtest leaves out: run here by the suite's own runner,
 # as dune runs it. Manual, in no CI job. Needs the download.

@@ -15,6 +15,19 @@
  (optional)
  (libraries coralnpu coralnpu_rv32 err_trace fmt machine_rivet_riscv32))
 
+; The archive's own guest programs on every MPACT configuration.
+
+(executable
+ (name coral_fixtures)
+ (modules coral_fixtures)
+ (libraries coralnpu err_trace fmt pt2_sha256 unix))
+
+(cram
+ (applies_to fixtures)
+ (deps %{exe:coral_fixtures.exe} (universe))
+ (enabled_if
+  (<> %{env:CORALNPU_DATA=} "")))
+
 (cram
  (applies_to kernels)
  (deps %{exe:coral_kernels.exe} (universe))

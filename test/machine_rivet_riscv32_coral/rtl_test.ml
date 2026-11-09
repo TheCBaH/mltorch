@@ -35,8 +35,8 @@ let%expect_test "scalar and Zve32f on the RTL vector core" =
       let vc, vi =
         measure Ssa_ir.Ssa_target.zve32f128 (name ^ ", zve32f128") g
       in
-      Fmt.pr "  cycles %Ld -> %Ld (%.2fx), instructions %Ld -> %Ld (%.2fx)@." sc
-        vc
+      Cycle_report.pr
+        "  cycles %Ld -> %Ld (%.2fx), instructions %Ld -> %Ld (%.2fx)@." sc vc
         (Int64.to_float sc /. Int64.to_float vc)
         si vi
         (Int64.to_float si /. Int64.to_float vi))
@@ -149,7 +149,7 @@ let%expect_test "matrix products on the RTL vector core" =
         measure Ssa_ir.Ssa_target.zve32f128 (name ^ ", zve32f128") g
       in
       let rate c = 2. *. float_of_int macs /. Int64.to_float c in
-      Fmt.pr
+      Cycle_report.pr
         "  cycles %Ld -> %Ld (%.2fx), instructions %Ld -> %Ld (%.2fx); %.3f -> \
          %.3f ops/cycle@."
         sc vc
@@ -193,7 +193,8 @@ let%expect_test "matrix products: contracted against ordered Zve32f" =
       let rate c =
         2. *. float_of_int (T.contraction_macs g) /. Int64.to_float c
       in
-      Fmt.pr "  cycles %Ld -> %Ld (%.2fx); %.3f -> %.3f ops/cycle@." oc cc
+      Cycle_report.pr "  cycles %Ld -> %Ld (%.2fx); %.3f -> %.3f ops/cycle@." oc
+        cc
         (Int64.to_float oc /. Int64.to_float cc)
         (rate oc) (rate cc))
     T.contraction_fixtures;
@@ -233,7 +234,7 @@ let%expect_test "register groups against single registers" =
             measure ~numerics ~oracle ~registers:grouped
               Ssa_ir.Ssa_target.zve32f128 (name ^ ", m4") g
           in
-          Fmt.pr "  cycles %Ld -> %Ld (%.2fx)@." sc gc
+          Cycle_report.pr "  cycles %Ld -> %Ld (%.2fx)@." sc gc
             (Int64.to_float sc /. Int64.to_float gc))
         (List.hd T.vector_fixtures
         :: List.nth T.vector_fixtures 3
@@ -309,7 +310,8 @@ let%expect_test "generated contractions against planned loops" =
       let rate c =
         2. *. float_of_int (T.contraction_macs g) /. Int64.to_float c
       in
-      Fmt.pr "  cycles %Ld -> %Ld (%.2fx); %.3f -> %.3f ops/cycle@." lc !cycles
+      Cycle_report.pr "  cycles %Ld -> %Ld (%.2fx); %.3f -> %.3f ops/cycle@." lc
+        !cycles
         (Int64.to_float lc /. Int64.to_float !cycles)
         (rate lc) (rate !cycles))
     T.contraction_fixtures;
@@ -342,7 +344,7 @@ let%expect_test "transformer operations, register groups" =
       let gc, _ =
         measure ~registers:grouped Ssa_ir.Ssa_target.zve32f128 (name ^ ", m4") g
       in
-      Fmt.pr "  cycles %Ld -> %Ld (%.2fx)@." sc gc
+      Cycle_report.pr "  cycles %Ld -> %Ld (%.2fx)@." sc gc
         (Int64.to_float sc /. Int64.to_float gc))
     (T.transformer_fixtures @ T.transformer_bf16_fixtures
    @ Machine_model_test.Transformer_fixtures.bf16_out);
@@ -450,7 +452,7 @@ let%expect_test "groups of eight" =
           measure ~registers:grouped8 Ssa_ir.Ssa_target.zve32f128_x32
             (name ^ ", m8") g
         in
-        Fmt.pr "  cycles %Ld -> %Ld (%.2fx)@." c4 c8
+        Cycle_report.pr "  cycles %Ld -> %Ld (%.2fx)@." c4 c8
           (Int64.to_float c4 /. Int64.to_float c8))
     T.transformer_fixtures;
   [%expect
@@ -491,7 +493,7 @@ let%expect_test "relaxed sums, register groups" =
         let c, _ =
           measure ~numerics ~oracle ~registers:grouped target (name ^ ", m4") g
         in
-        Fmt.pr "  cycles %Ld@." c)
+        Cycle_report.pr "  cycles %Ld@." c)
     T.transformer_fixtures;
   [%expect
     {|

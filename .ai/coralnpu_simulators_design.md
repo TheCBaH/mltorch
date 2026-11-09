@@ -818,3 +818,48 @@ The fastvit attention layer (`make coralnpu.fastvit.run`, about three hours per
 architecture) and the 64x64 cases of the VME suite (`machine_rivet_riscv32_coral_large`, `make coralnpu.large.run`; minutes of
 simulation each, at about 23 thousand simulated cycles a second) are outside
 every job.
+
+## Packaged fixtures on MPACT
+
+`Coral_manifest.fixtures` decodes the manifest's `fixtures`: each guest program
+the archive ships, with its SHA-256, pass marker and the configurations the
+producer ran it on. `test/coralnpu_data/fixtures.t` runs every fixture listed
+for an MPACT configuration (`mpact-v2`, `mpact-m3`, `mpact-m4`) by the
+profile's launch command and requires exit 0 and the marker. It covers
+the matrix-engine programs (`vme_*`, `matrix`), the vector floating-point
+and bfloat16 programs, the Gemma kernels (`kernel_*`, `rvv_matmul_*`) and the
+scalar and memory programs, in about half a minute for 50 runs, where the RTL
+testbenches take minutes each. `batch_limits`, `exit_status` and `host_ram`
+are excluded because the archive's scripts supply their stdin or modes.
+MPACT has no timing model, so anything that reports cycles stays on RTL.
+
+Release v0.0.10 changes the RTL's memory system, not the programs' results:
+see the estimate record. Its manifest adds `zvfbfwma` to the vector and matrix
+configurations; configuration IDs changed with the provenance.
+
+## Compute checks on MPACT
+
+Cycle reports belong to the RTL suites; the compute checks run on both.
+`make coralnpu.mpact.runtest` runs the graphs of the VME core suite
+(`mpact-m4`: Zvt, Zve32f, bfloat16) and of the RVV core suite and the hand
+kernels of `machine_rivet_riscv32_coral` (`mpact-m3` for the vector core,
+`mpact-m4` for the matrix engine) on MPACT, bitwise against the same
+references, in under a minute. The sources are the RTL suites', derived by
+`derive.sh` (configuration swapped, the cycle budget a limit on instructions,
+cycle reports discarded and their golden lines dropped), so the two cannot
+drift, and the tests the RTL suites tag "disabled" for the simulator's cost
+(generated and granted Sdpa, the attention layers, the 64x64 cases) run too.
+A report of cycles in a result line goes through the RTL suite's
+`Cycle_report.pr`, which the derived suite replaces with a no-op; a report on
+a line of its own is dropped by the script. Result lines (bitwise, DIFFERS,
+exact) are the RTL suites'. A new cycle report in an RTL suite must use one of
+the two forms, or the derived goldens stop matching.
+
+One known divergence, expected by a rule in `derive.sh` so that it turns red
+when MPACT agrees: the matrix engine's paired bfloat16 `linear` products
+differ in 1 of 288 and 50 of 4096 outputs, all at the float32 overflow edge.
+The RTL and the descriptor's reference (round to odd, which saturates) give
+the largest finite value, MPACT gives infinity (also with the v0.0.9
+simulator). The matching `bmm` cases are bitwise. The write-up for the
+simulator's maintainers, with a reproducing operand pair, is kept outside the
+tracked record.

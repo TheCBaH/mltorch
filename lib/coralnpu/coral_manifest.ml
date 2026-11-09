@@ -112,10 +112,30 @@ module Artifact = struct
     |> Jsont.Object.finish
 end
 
+module Fixture = struct
+  type t = {
+    configuration_ids : string list;
+    marker : string;
+    path : string;
+    sha256 : string;
+  }
+
+  let jsont =
+    Jsont.Object.map ~kind:"Fixture"
+      (fun configuration_ids marker path sha256 ->
+        { configuration_ids; marker; path; sha256 })
+    |> Jsont.Object.mem "configurations" (Jsont.list Jsont.string)
+    |> Jsont.Object.mem "marker" Jsont.string
+    |> Jsont.Object.mem "path" Jsont.string
+    |> Jsont.Object.mem "sha256" Jsont.string
+    |> Jsont.Object.finish
+end
+
 type t = {
   archive : string;
   artifacts : Artifact.t list;
   configurations : Configuration.t list;
+  fixtures : Fixture.t list;
 }
 
 module Id_mismatch = struct
@@ -142,6 +162,7 @@ module File = struct
     archive : string;
     artifacts : Artifact.t list;
     configurations : Jsont.json list;
+    fixtures : Fixture.t list;
     schema_version : string;
   }
 
@@ -152,11 +173,12 @@ module File = struct
 
   let jsont =
     Jsont.Object.map ~kind:"Manifest"
-      (fun archive artifacts configurations schema_version ->
-        { archive; artifacts; configurations; schema_version })
+      (fun archive artifacts configurations fixtures schema_version ->
+        { archive; artifacts; configurations; fixtures; schema_version })
     |> Jsont.Object.mem "archive" archive
     |> Jsont.Object.mem "artifacts" (Jsont.list Artifact.jsont)
     |> Jsont.Object.mem "configurations" (Jsont.list Jsont.json)
+    |> Jsont.Object.mem "fixtures" ~dec_absent:[] (Jsont.list Fixture.jsont)
     |> Jsont.Object.mem "schema_version" Jsont.string
     |> Jsont.Object.finish
 end
@@ -202,4 +224,9 @@ let of_string s =
   in
   let* configurations = Err.List.map checked file.configurations in
   Err.return
-    { archive = file.archive; artifacts = file.artifacts; configurations }
+    {
+      archive = file.archive;
+      artifacts = file.artifacts;
+      configurations;
+      fixtures = file.fixtures;
+    }

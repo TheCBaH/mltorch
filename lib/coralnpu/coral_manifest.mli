@@ -53,10 +53,22 @@ module Artifact : sig
   }
 end
 
+module Fixture : sig
+  type t = {
+    configuration_ids : string list;
+        (** The configurations the producer ran it on and saw [marker]. *)
+    marker : string;  (** What a passing run prints. *)
+    path : string;  (** Relative to the archive root. *)
+    sha256 : string;
+  }
+  (** A guest program the archive ships, self-checking. *)
+end
+
 type t = {
   archive : string;  (** [archive.name]. *)
   artifacts : Artifact.t list;
   configurations : Configuration.t list;
+  fixtures : Fixture.t list;  (** Empty when the manifest lists none. *)
 }
 
 module Id_mismatch : sig

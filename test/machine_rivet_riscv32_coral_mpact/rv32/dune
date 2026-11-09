@@ -1,0 +1,123 @@
+; The RV32 Machine IR suites of machine_rivet_riscv32_coral on MPACT: the RVV
+; core's checks on mpact-m3 and the VME core's on mpact-m4, results only (derive.sh).
+
+(rule
+ (target rtl_test.ml)
+ (deps ../derive.sh)
+ (action
+  (with-stdout-to
+   %{target}
+   (run sh ../derive.sh %{dep:../../machine_rivet_riscv32_coral/rtl_test.ml}))))
+
+(rule
+ (target bf16_pair_test.ml)
+ (deps ../derive.sh)
+ (action
+  (with-stdout-to
+   %{target}
+   (run
+    sh
+    ../derive.sh
+    %{dep:../../machine_rivet_riscv32_coral/bf16_pair_test.ml}))))
+
+(rule
+ (target int8_test.ml)
+ (deps ../derive.sh)
+ (action
+  (with-stdout-to
+   %{target}
+   (run
+    sh
+    ../derive.sh
+    %{dep:../../machine_rivet_riscv32_coral/int8_test.ml}))))
+
+(rule
+ (target sdpa_test.ml)
+ (deps ../derive.sh)
+ (action
+  (with-stdout-to
+   %{target}
+   (run
+    sh
+    ../derive.sh
+    %{dep:../../machine_rivet_riscv32_coral/sdpa_test.ml}))))
+
+(rule
+ (target kernel_forms_test.ml)
+ (deps ../derive.sh)
+ (action
+  (with-stdout-to
+   %{target}
+   (run
+    sh
+    ../derive.sh
+    %{dep:../../machine_rivet_riscv32_coral/kernel_forms_test.ml}))))
+
+(rule
+ (target vexp_test.ml)
+ (deps ../derive.sh)
+ (action
+  (with-stdout-to
+   %{target}
+   (run
+    sh
+    ../derive.sh
+    %{dep:../../machine_rivet_riscv32_coral/vexp_test.ml}))))
+
+(rule
+ (target kernel_harness.ml)
+ (deps ../derive.sh)
+ (action
+  (with-stdout-to
+   %{target}
+   (run
+    sh
+    ../derive.sh
+    %{dep:../../machine_rivet_riscv32_coral/kernel_harness.ml}))))
+
+(rule
+ (target deadline.ml)
+ (deps ../derive.sh)
+ (action
+  (with-stdout-to
+   %{target}
+   (run sh ../derive.sh %{dep:../../machine_rivet_riscv32_coral/deadline.ml}))))
+
+; MPACT has no timing model: what the RTL suite reports through Cycle_report
+; is discarded here.
+
+(rule
+ (target cycle_report.ml)
+ (action
+  (with-stdout-to
+   %{target}
+   (echo "let pr fmt = Fmt.kstr ignore fmt\n"))))
+
+(library
+ (name machine_rivet_riscv32_coral_mpact_rv32_test)
+ (libraries
+  contraction
+  coralnpu
+  coralnpu_kernels
+  coralnpu_kernels_zvt
+  fmt
+  machine_lower
+  machine_model
+  machine_model_test
+  machine_rivet_riscv32
+  machine_rivet_riscv32_coral
+  machine_rivet_riscv32_mir
+  rivet.image
+  ssa_backends
+  ssa_ir)
+ (inline_tests
+  (deps
+   (env_var CORALNPU_DATA)
+   (env_var CORALNPU_RUN_DEADLINE)))
+ (preprocess
+  (pps ppx_expect))
+ (enabled_if
+  (and
+   (<> %{env:CORALNPU_DATA=} "")
+   %{lib-available:rivet.riscv32_encode}
+   %{lib-available:rivet.driver_direct})))

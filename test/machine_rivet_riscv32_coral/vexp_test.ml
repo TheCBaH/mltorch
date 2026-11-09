@@ -156,17 +156,15 @@ let%expect_test "exp over vector registers on the core" =
                       if not (H.same_f32 got.(i) (F32_math.Value.exp x)) then
                         incr wrong)
                     samples;
-                  Fmt.pr
-                    "lmul %d: %d instructions, %d registers at most, %s, %Ld \
-                     cycles (%.1f per element), %Ld retired@."
+                  Fmt.pr "lmul %d: %d instructions, %d registers at most, %s"
                     lmul
                     (List.length plan.Z.Vexpr.Plan.items)
                     plan.Z.Vexpr.Plan.peak
                     (if !wrong = 0 then "all equal"
-                     else Fmt.str "%d DIFFER" !wrong)
-                    cycles
-                    (Int64.to_float cycles /. float_of_int n)
-                    retired
+                     else Fmt.str "%d DIFFER" !wrong);
+                  Cycle_report.pr ", %Ld cycles (%.1f per element)" cycles
+                    (Int64.to_float cycles /. float_of_int n);
+                  Fmt.pr ", %Ld retired@." retired
               | Ok _ -> assert false)))
     [ 1; 2; 4 ];
   [%expect

@@ -131,13 +131,13 @@ let%expect_test "integer contractions on the vector unit and the matrix engine"
             (fun (unit, configuration, engine) ->
               match run ~configuration ~engine d with
               | Ok (exact, cycles) ->
-                  Fmt.pr "%Ldx%Ld k%Ld %s, %s: %s, %Ld cycles, %.2f ops/cycle@."
-                    m n k
+                  Fmt.pr "%Ldx%Ld k%Ld %s, %s: %s" m n k
                     (C.Element.name d.C.format)
                     unit
-                    (if exact then "exact" else "DIFFERS")
-                    cycles
-                    (2. *. Int64.to_float (C.macs d) /. Int64.to_float cycles)
+                    (if exact then "exact" else "DIFFERS");
+                  Cycle_report.pr ", %Ld cycles, %.2f ops/cycle" cycles
+                    (2. *. Int64.to_float (C.macs d) /. Int64.to_float cycles);
+                  Fmt.pr "@."
               | Error e ->
                   Fmt.pr "%Ldx%Ld k%Ld %s, %s: %s@." m n k
                     (C.Element.name d.C.format)

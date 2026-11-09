@@ -141,12 +141,13 @@ let run ?mutation ?dtcm ?(pad = 0) ?(fill = '\000') ?(sram = false) ?inputs t =
 let show ?mutation ?pad ?fill ?sram ?inputs what t =
   match run ?mutation ?pad ?fill ?sram ?inputs t with
   | Ok o ->
-      Fmt.pr "%s: %s, %Ld cycles@." what
+      Fmt.pr "%s: %s" what
         (if o.wrong = 0 && o.code = 0 then "bitwise"
          else
            Fmt.str "DIFFERS in %d of %d cells (%d in exact bits)" o.wrong
-             o.cells o.code)
-        o.cycles
+             o.cells o.code);
+      Cycle_report.pr ", %Ld cycles" o.cycles;
+      Fmt.pr "@."
   | Error e -> Fmt.pr "%s: %s@." what e
 
 let neg_inf = Float.neg_infinity
@@ -427,11 +428,11 @@ let%expect_test "cycles by phase" =
     Ok r.H.cycles
   in
   let whole = Result.get_ok (cycles ()) in
-  Fmt.pr "whole: %Ld@." whole;
+  Cycle_report.pr "whole: %Ld@." whole;
   List.iter
     (fun (what, phase) ->
       let c = Result.get_ok (cycles ~skip:[ phase ] ()) in
-      Fmt.pr "%s: %Ld@." what (Int64.sub whole c))
+      Cycle_report.pr "%s: %Ld@." what (Int64.sub whole c))
     Z.Zvt_sdpa.Phase.
       [
         ("scores block", Scores);
