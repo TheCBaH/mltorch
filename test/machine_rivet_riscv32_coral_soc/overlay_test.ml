@@ -168,4 +168,4 @@ let%expect_test "as overlays, both attentions run bitwise" =
     {|
     attention 0: bitwise
     attention 1: bitwise
-    187103 cycles |}]
+    178814 cycles |}]

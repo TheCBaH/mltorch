@@ -15,10 +15,10 @@ form is what pins it.
 
   $ ./dma_bench.exe "$CORALNPU_SUBSYSTEM_DATA" subsystem-matrix-normal overlay
   overlay: slot 0x2c0, 2048 bytes; images 16, 48, 2048 bytes
-  load 0 (A): 42, load 74 cycles
-  load 1 (B): 66, load 102 cycles
-  load 2 (C): 511, load 1852 cycles
-  load 3 (A): 42, load 74 cycles
+  load 0 (A): 42, load 69 cycles
+  load 1 (B): 66, load 95 cycles
+  load 2 (C): 511, load 1720 cycles
+  load 3 (A): 42, load 69 cycles
 
 The same overlays through the image builder: a caller that only `jal`s their
 names, and the builder adds the slot, a stub for each name, the manager and an
@@ -30,16 +30,16 @@ calls back into the resident image, a helper in the caller's module that adds
 7 to its 50.
 
   $ ./dma_bench.exe "$CORALNPU_SUBSYSTEM_DATA" subsystem-matrix-normal overlay-calls
-  call 0 (ovl_a): 42, 153 cycles
-  call 1 (ovl_b): 66, 231 cycles
-  call 2 (ovl_c): 511, 2949 cycles
-  call 3 (ovl_a): 42, 153 cycles
+  call 0 (ovl_a): 42, 128 cycles
+  call 1 (ovl_b): 66, 204 cycles
+  call 2 (ovl_c): 511, 2287 cycles
+  call 3 (ovl_a): 42, 128 cycles
   call 4 (ovl_a): 42, 36 cycles
-  call 5 (ovl_d): 1, 190 cycles
+  call 5 (ovl_d): 1, 164 cycles
   call 6 (ovl_d): 2, 45 cycles
-  call 7 (ovl_a): 42, 153 cycles
-  call 8 (ovl_d): 1, 190 cycles
-  call 9 (ovl_e): 57, 185 cycles
+  call 7 (ovl_a): 42, 128 cycles
+  call 8 (ovl_d): 1, 164 cycles
+  call 9 (ovl_e): 57, 159 cycles
 
 A run can leave its waveform: `DMA_BENCH_TRACE=FILE` has the run end the
 simulator with an interrupt, which is when it writes the trace out, rather than

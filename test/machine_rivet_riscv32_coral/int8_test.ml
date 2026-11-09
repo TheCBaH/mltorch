@@ -157,18 +157,18 @@ let%expect_test "integer contractions on the vector unit and the matrix engine"
   [%expect
     {|
     32x32 k64 i8ss, vector unit: exact, 12855 cycles, 10.20 ops/cycle
-    32x32 k64 i8ss, matrix engine: exact, 5939 cycles, 22.07 ops/cycle
+    32x32 k64 i8ss, matrix engine: exact, 5938 cycles, 22.07 ops/cycle
     32x32 k64 i8su, vector unit: exact, 12855 cycles, 10.20 ops/cycle
-    32x32 k64 i8su, matrix engine: exact, 5939 cycles, 22.07 ops/cycle
+    32x32 k64 i8su, matrix engine: exact, 5938 cycles, 22.07 ops/cycle
     32x32 k64 i8us, vector unit: exact, 12855 cycles, 10.20 ops/cycle
-    32x32 k64 i8us, matrix engine: exact, 5939 cycles, 22.07 ops/cycle
+    32x32 k64 i8us, matrix engine: exact, 5938 cycles, 22.07 ops/cycle
     32x32 k64 i8uu, vector unit: exact, 12855 cycles, 10.20 ops/cycle
-    32x32 k64 i8uu, matrix engine: exact, 5939 cycles, 22.07 ops/cycle
+    32x32 k64 i8uu, matrix engine: exact, 5938 cycles, 22.07 ops/cycle
     19x29 k61 i8ss, vector unit: exact, 7665 cycles, 8.77 ops/cycle
-    19x29 k61 i8ss, matrix engine: exact, 4166 cycles, 16.14 ops/cycle
+    19x29 k61 i8ss, matrix engine: exact, 4165 cycles, 16.14 ops/cycle
     19x29 k61 i8su, vector unit: exact, 7665 cycles, 8.77 ops/cycle
-    19x29 k61 i8su, matrix engine: exact, 4166 cycles, 16.14 ops/cycle
+    19x29 k61 i8su, matrix engine: exact, 4165 cycles, 16.14 ops/cycle
     19x29 k61 i8us, vector unit: exact, 7665 cycles, 8.77 ops/cycle
-    19x29 k61 i8us, matrix engine: exact, 4166 cycles, 16.14 ops/cycle
+    19x29 k61 i8us, matrix engine: exact, 4165 cycles, 16.14 ops/cycle
     19x29 k61 i8uu, vector unit: exact, 7665 cycles, 8.77 ops/cycle
-    19x29 k61 i8uu, matrix engine: exact, 4166 cycles, 16.14 ops/cycle |}]
+    19x29 k61 i8uu, matrix engine: exact, 4165 cycles, 16.14 ops/cycle |}]

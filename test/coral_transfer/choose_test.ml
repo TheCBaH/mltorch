@@ -51,13 +51,13 @@ let%expect_test "the plan chosen for each shape" =
     ];
   [%expect
     {|
-    linear 1x8 k8                in place
+    linear 1x8 k8                DMA: A in place, B copied
     linear 4x16 k16              DMA: A in place, B shared
-    linear 9x32 k64              DMA: A copied, B shared
-    linear 48x32 k64             DMA: A streamed by 30 rows, B shared, C by the DMA
-    linear 60x32 k64, ordered    DMA: A streamed by 32 rows, B shared, C by the DMA
+    linear 9x32 k64              DMA: A in place, B shared
+    linear 48x32 k64             DMA: A in place, B shared
+    linear 60x32 k64, ordered    DMA: A streamed by 48 rows, B shared
     linear 192x32 k128           DMA: A streamed by 12 rows, B shared, C by the DMA
     linear 120x24 k64, ordered   DMA: A streamed by 36 rows, B shared, C by the DMA
-    bmm 1x9x32 k64               DMA: A in place, B shared
-    bmm 1x12x64 k32              DMA: A copied, B shared
-    bmm 1x18x40 k48              DMA: A copied, B shared |}]
+    bmm 1x9x32 k64               in place
+    bmm 1x12x64 k32              DMA: A copied, B in place
+    bmm 1x18x40 k48              DMA: A copied, B in place |}]

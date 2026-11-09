@@ -3,7 +3,7 @@ manifest hash.
 
   $ ./coral_manifest_check.exe "$CORALNPU_DATA"
   10 configurations, every ID recomputed
-  core-mini-axi rtl coralnpu:core-mini-axi:58eb27254a05f6466f72
+  core-mini-axi rtl coralnpu:core-mini-axi:70a30942dc9fc466c228
   f,i,m,zbb,zfbfmin,zicsr,zifencei
   itcm           itcm 0x00000000     8192 loadable
   dtcm           dtcm 0x00010000    32768 writable loadable htif
@@ -11,7 +11,7 @@ manifest hash.
   testbench-ram  ram  0x20000000  4194304 writable loadable htif
   testbench-uart mmio 0x54000000        4 writable
   $DIR/bin/core_mini_axi_fast_sim --binary=guest.elf
-  core-mini-highmem-axi rtl coralnpu:core-mini-highmem-axi:3d9fac4d5ef5eccbef4e
+  core-mini-highmem-axi rtl coralnpu:core-mini-highmem-axi:3bfba01d17848b33884a
   f,i,m,zbb,zfbfmin,zicsr,zifencei
   itcm           itcm 0x00000000  1048576 loadable
   dtcm           dtcm 0x00100000  1048576 writable loadable htif
@@ -19,7 +19,7 @@ manifest hash.
   testbench-ram  ram  0x20000000  4194304 writable loadable htif
   testbench-uart mmio 0x54000000        4 writable
   $DIR/bin/core_mini_highmem_axi_fast_sim --binary=guest.elf
-  mpact-v2 mpact coralnpu:mpact-v2:1c45f81c4bc6cc0a83f3
+  mpact-v2 mpact coralnpu:mpact-v2:67fd519804be8c5386c2
   f,i,m,zbb,zicsr,zifencei,zve32x
   itcm           itcm 0x00000000     8192 loadable
   dtcm           dtcm 0x00010000    32768 writable loadable htif

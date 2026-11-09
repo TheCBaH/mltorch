@@ -41,7 +41,7 @@ kernels, and whether to run it on RTL is a computed answer.
   kernel weighs as much as a 4 M one. The memory classes rise together in
   every case, so the fit alone cannot tell them apart; each is pulled toward
   the cost the waveforms show (a prior row of weight two: loads 4 cycles from
-  the TCM and 7 from the testbench RAM, stores 3 and 8, vector loads 4 and 7,
+  the TCM and 6 from the testbench RAM, stores 3 and 8, vector loads 4 and 7,
   vector stores 4 and 8, read with `coralview commits --profile`).
 - **Vector operations overlap external vector accesses.** The vector unit
   runs an operation while earlier loads and stores are in flight, so in one
@@ -347,3 +347,51 @@ linear 9x32 k64 recorded 13,694/4,895 while both paths now measure
 13,643/4,844). Five rows in that golden were refreshed after the counterfactual
 comparison. This is baseline maintenance, not a performance gain from moving
 the engine choice. Full repository and JavaScript inline checks also pass.
+
+## Release v0.0.10: external-RAM vector and tile traffic got cheaper
+
+The release's RTL (upstream coralnpu `1fbd7be6`, `7708a86b`) put the LSU and
+the fetch unit on TileLink-UL, joined to the external AXI port by an arbiter
+(`ExtArbiter`) and `TLUL2Axi`. The same programs retire the same instructions
+(every case's `instret` is identical) but external-RAM cycles fell, and the
+committed rates, fitted to v0.0.9, over-predicted a held-out matrix-engine
+contraction in RAM by 90% until refitted.
+
+Read with the old and new coralview on `vme_external_matmul.elf`
+(`coralview commits --profile-by=class`, `coralview axi`):
+
+| | v0.0.9 | v0.0.10 |
+|---|---:|---:|
+| `vle32.v` (m4) from RAM, dispatch to retire | 91.6 | 37.4 |
+| `vtle32` tile load, same | 56.3 | 26.7 |
+| `vtse32` tile store, same | 43.8 | 25.8 |
+| `flw` from RAM | 7.0 | 6.0 |
+| `fsw` to RAM | 4.0 | 4.0 |
+
+On the bus the cause is visible. Before, the LSU's external port was
+`DBus2AxiV2`, one request in flight with one ID: a 64-byte vector access went
+out as 16-byte beats starting every 4 cycles (3581, 3585, 3589, ...). Now the
+LSU issues TileLink requests from its slots under distinct source IDs (eight
+in the trace), and the beats start every cycle (3562, 3563, 3564, ...) with
+several outstanding. Scalar accesses are a single request either way, so they
+did not move (`flw` 7 -> 6). So a cost that is per
+128-bit beat in a stream fell from about 4 to about 1, and a cost that is per
+isolated access did not. Whole cases show it: DTCM-resident cases are within
+1.3% of before, cases that place a buffer in RAM have a median of 0.94 and a
+low of 0.38 (SRAM-resident GEMM).
+
+Refit (`Coral_rates.vme`, v0.0.10): `zvt.f32.rows_k.ram` 4.16 -> 1.00,
+`zvt.f32.cols_k.ram` 4.17 -> 1.58, `zvt.f32.tiles.ram` 334 -> 166,
+`zvt.bf16.tiles.ram` 271 -> 76, `class.vec_load_strided_ram` 19.1 -> 9.5;
+`class.load_ram`, `class.store_ram`, `class.vec_load_ram` and
+`class.vec_store_ram` moved under 6%. The prior for `class.load_ram` is 6
+(measured `flw`), the others are as before. The held-out limits did not change
+and all hold (`linear 32x96 k48` +1.5%, limit 2%); the pre-LayerNorm/RoPE
+layer moved +12.1% -> +17.9%, `post rms` +0.4% -> +4.5%, `bare` -14.3% ->
+-10.3%, `all flags` -8.4% -> -4.9%.
+
+What the model still does not represent: outstanding-request overlap as such.
+The memory classes charge a per-access cost, and the tile and strided classes
+absorb the pipelining through their fitted rates. A cost per outstanding
+request (up to eight sources) would need traces that vary the number in flight
+within one instruction, which these cases do not.

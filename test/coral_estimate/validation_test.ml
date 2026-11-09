@@ -150,15 +150,15 @@ let%expect_test "held-out accuracy domain and known gaps" =
     refused;
   [%expect
     {|
-    exp 64x64: -2.0%, limit 3.0%
-    softmax over C 64x64: +0.6%, limit 2.0%
-    softmax over W 16x16: -5.3%, limit 6.0%
-    linear 32x96 k48: +0.6%, limit 2.0%
+    exp 64x64: -2.3%, limit 3.0%
+    softmax over C 64x64: +0.9%, limit 2.0%
+    softmax over W 16x16: -5.5%, limit 6.0%
+    linear 32x96 k48: +1.5%, limit 2.0%
     sdpa bf16 41x61 d32: -9.6%, limit 10.0%
-    layer, bare: -14.3%, limit 15.0%
-    layer, all flags: -8.4%, limit 9.0%
-    layer, pre layer norm, rope: +12.1%, limit 30.0%
-    layer, post rms: +0.4%, limit 10.0%
-    layer norm over C 16x64: outside accuracy gate (ordered lane fold priced as scalar extracts), error +120.6%
-    rms norm over C 16x64: outside accuracy gate (ordered lane fold priced as scalar extracts), error +108.0%
-    layer decomposed, bare: outside accuracy gate (data-dependent control flow counted heuristically), error -28.8% |}]
+    layer, bare: -10.3%, limit 15.0%
+    layer, all flags: -4.9%, limit 9.0%
+    layer, pre layer norm, rope: +17.9%, limit 30.0%
+    layer, post rms: +4.5%, limit 10.0%
+    layer norm over C 16x64: outside accuracy gate (ordered lane fold priced as scalar extracts), error +125.0%
+    rms norm over C 16x64: outside accuracy gate (ordered lane fold priced as scalar extracts), error +112.3%
+    layer decomposed, bare: outside accuracy gate (data-dependent control flow counted heuristically), error -28.6% |}]

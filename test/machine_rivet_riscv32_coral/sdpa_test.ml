@@ -172,17 +172,17 @@ let%expect_test "shapes: whole blocks, ragged ones, both block sizes" =
     ];
   [%expect
     {|
-    16x32 d32 bk32: bitwise, 43943 cycles
-    32x32 d32 bk32: bitwise, 87641 cycles
-    64x64 d64 bk32: bitwise, 386473 cycles
-    9x29 d64 bk32: bitwise, 44832 cycles
-    41x61 d64 bk32: bitwise, 275669 cycles
-    16x36 d32 bk32: bitwise, 52433 cycles
-    23x40 d16 bk16: bitwise, 108505 cycles
-    5x7 d8 bk4: bitwise, 12338 cycles
-    41x61 d96 bk16: bitwise, 338735 cycles
-    16x32 d96 bk16: bitwise, 64072 cycles
-    9x29 d80 bk16: bitwise, 51977 cycles |}]
+    16x32 d32 bk32: bitwise, 43939 cycles
+    32x32 d32 bk32: bitwise, 87633 cycles
+    64x64 d64 bk32: bitwise, 373773 cycles
+    9x29 d64 bk32: bitwise, 44198 cycles
+    41x61 d64 bk32: bitwise, 267620 cycles
+    16x36 d32 bk32: bitwise, 52432 cycles
+    23x40 d16 bk16: bitwise, 108489 cycles
+    5x7 d8 bk4: bitwise, 12333 cycles
+    41x61 d96 bk16: bitwise, 325669 cycles
+    16x32 d96 bk16: bitwise, 62013 cycles
+    9x29 d80 bk16: bitwise, 51219 cycles |}]
 
 let%expect_test "masks: dense, per key, per query, a masked column" =
   List.iter
@@ -217,12 +217,12 @@ let%expect_test "masks: dense, per key, per query, a masked column" =
     t;
   [%expect
     {|
-    9x29 d64 bk32 dense: bitwise, 45219 cycles
-    41x61 d64 bk32 dense: bitwise, 286225 cycles
-    41x61 d32 bk32 [1, Tk]: bitwise, 244244 cycles
-    41x61 d32 bk32 [Tq, 1]: bitwise, 241992 cycles
-    41x61 d96 bk16 dense: bitwise, 349375 cycles
-    masked columns: bitwise, 92357 cycles |}]
+    9x29 d64 bk32 dense: bitwise, 44585 cycles
+    41x61 d64 bk32 dense: bitwise, 271039 cycles
+    41x61 d32 bk32 [1, Tk]: bitwise, 244247 cycles
+    41x61 d32 bk32 [Tq, 1]: bitwise, 241862 cycles
+    41x61 d96 bk16 dense: bitwise, 329172 cycles
+    masked columns: bitwise, 92355 cycles |}]
 
 let%expect_test "batches and heads, K and V shared by the heads" =
   show "2 batches x 3 heads, K/V per batch"
@@ -231,8 +231,8 @@ let%expect_test "batches and heads, K and V shared by the heads" =
     (make ~batch:2 ~heads:3 ~mask:Per_key ~tq:9 ~tk:29 ~d:32 ~bk:16 ());
   [%expect
     {|
-    2 batches x 3 heads, K/V per batch: bitwise, 235133 cycles
-    2 batches x 3 heads, masked, distinct K/V: bitwise, 253541 cycles |}]
+    2 batches x 3 heads, K/V per batch: bitwise, 235157 cycles
+    2 batches x 3 heads, masked, distinct K/V: bitwise, 251783 cycles |}]
 
 (* The key block is part of the grant: zero Q and K, 32 keys, d = 64, mask 0 on
    the first 16 keys and 1 on the last 16, V = 1 on the first 16 keys. *)
@@ -250,8 +250,8 @@ let%expect_test "the key block decides the answer" =
     [ 32; 16 ];
   [%expect
     {|
-    bk 32: bitwise, 45028 cycles
-    bk 16: bitwise, 47241 cycles |}]
+    bk 32: bitwise, 44320 cycles
+    bk 16: bitwise, 47230 cycles |}]
 
 (* V is staged, never read in place: a V that ends where the neighbour holds
    Inf or NaN bytes, in SRAM and in the DTCM, ragged and with a full last block *)
@@ -269,14 +269,14 @@ let%expect_test "V's neighbours" =
     [ (true, 29); (false, 29); (true, 64); (false, 64) ];
   [%expect
     {|
-    tk 29, SRAM, after-bytes ff: bitwise, 48687 cycles
-    tk 29, SRAM, after-bytes 7f: bitwise, 48687 cycles
-    tk 29, DTCM, after-bytes ff: bitwise, 48303 cycles
-    tk 29, DTCM, after-bytes 7f: bitwise, 48303 cycles
-    tk 64, SRAM, after-bytes ff: bitwise, 96802 cycles
-    tk 64, SRAM, after-bytes 7f: bitwise, 96802 cycles
-    tk 64, DTCM, after-bytes ff: bitwise, 96418 cycles
-    tk 64, DTCM, after-bytes 7f: bitwise, 96418 cycles |}]
+    tk 29, SRAM, after-bytes ff: bitwise, 47063 cycles
+    tk 29, SRAM, after-bytes 7f: bitwise, 47063 cycles
+    tk 29, DTCM, after-bytes ff: bitwise, 47031 cycles
+    tk 29, DTCM, after-bytes 7f: bitwise, 47031 cycles
+    tk 64, SRAM, after-bytes ff: bitwise, 93627 cycles
+    tk 64, SRAM, after-bytes 7f: bitwise, 93627 cycles
+    tk 64, DTCM, after-bytes ff: bitwise, 93595 cycles
+    tk 64, DTCM, after-bytes 7f: bitwise, 93595 cycles |}]
 
 (* Tq 16, Tk 34, d 64, zero Q and K, mask 0 on the first 32 keys and 200 on the
    last two, V feature 0 -1 then -0: the engine's zero sum is +0. *)
@@ -292,7 +292,7 @@ let%expect_test "a negative-zero seed meets a short last block" =
       Array.init tk (fun r -> if r < 32 then 0. else 200.) )
   in
   show "tk 34" ~inputs t;
-  [%expect {| tk 34: bitwise, 59339 cycles |}]
+  [%expect {| tk 34: bitwise, 57842 cycles |}]
 
 (* The function's size, the largest tile function's and the image's, against the
    instruction memory's 8 KiB *)
@@ -400,11 +400,11 @@ let%expect_test "each defect is detected" =
     rescale omitted: differs
     seed ignored: differs
     V not advanced: differs
-    V tail, unmutated: bitwise, 91468 cycles
+    V tail, unmutated: bitwise, 88785 cycles
     V tail unzeroed: differs
-    V tail d96, unmutated: bitwise, 58220 cycles
+    V tail d96, unmutated: bitwise, 56360 cycles
     V tail d96 unzeroed: differs
-    V in the DTCM, unmutated: bitwise, 38094 cycles
+    V in the DTCM, unmutated: bitwise, 38096 cycles
     V read in place in the DTCM: differs |}]
 
 (* Cycles by phase at 64x64 d64: the whole, then each phase left out in turn
@@ -441,10 +441,10 @@ let%expect_test "cycles by phase" =
       ];
   [%expect
     {|
-    whole: 386473
-    scores block: 32156
-    exp pass: 291120
-    context block: 29704
+    whole: 373773
+    scores block: 26516
+    exp pass: 293680
+    context block: 24056
     normalize: 18084 |}]
 
 (* d 128 fits the instruction memory only because the exp is one shared
@@ -471,6 +471,6 @@ let%expect_test "d 128" =
     .text: 6580 bytes
     .data: 88 bytes
     .bss: 23296 bytes
-    41x61 d128 bk16 dense: bitwise, 387087 cycles
-    16x32 d128 bk16: bitwise, 72966 cycles
-    9x29 d112 bk16: bitwise, 59535 cycles |}]
+    41x61 d128 bk16 dense: bitwise, 362003 cycles
+    16x32 d128 bk16: bitwise, 69435 cycles
+    9x29 d112 bk16: bitwise, 57328 cycles |}]

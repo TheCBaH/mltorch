@@ -38,7 +38,15 @@ module Rates = struct
      9.5% off at worst and still choose the best plan of every shape, and a
      refit does no better (11.6%), so they stand. The fit put a
      contiguous row's own SRAM access and a group's own instructions at zero:
-     the step and C's stores carry them. *)
+     the step and C's stores carry them.
+
+     v0.0.10 moved the vector and tile accesses to external RAM onto TileLink-UL,
+     a beat a cycle where they were one in four. The five SRAM rates (A's
+     value, B's beat and element, C's beat; B's row stays zero) were refitted
+     to the 26 plans of the three-shape CI cut alone, not the full grid:
+     worst error 11.2% there, and the best plan chosen for each shape. The
+     other rates are the v0.0.5 fit; a full-grid refit (about five hours,
+     coralnpu.transfer.full.runtest) would test them against v0.0.10. *)
   let fitted =
     {
       vector_fused = 0.177;
@@ -47,15 +55,15 @@ module Rates = struct
       vector_row_ordered = 5.708;
       step = 14.103;
       a_dtcm = 1.814;
-      a_sram = 5.578;
+      a_sram = 4.775;
       a_bf16 = 2.;
       b_beat_dtcm = 0.318;
       b_row_sram = 0.;
-      b_beat_sram = 4.182;
+      b_beat_sram = 0.788;
       b_element_dtcm = 0.843;
-      b_element_sram = 4.816;
+      b_element_sram = 7.838;
       group = 0.;
-      c_beat = 12.464;
+      c_beat = 2.922;
       dma = 16. /. 14.;
       dma_beside = 0.8;
       dma_start = 57.;

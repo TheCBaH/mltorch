@@ -545,6 +545,14 @@ fitted rates it picked the measured best plan on all sixteen shapes (in the
 fit; on the two held-out sets, before they joined it, the best or within
 5.7% of it).
 
+v0.0.10 put the vector and tile accesses to external RAM on TileLink-UL, so
+the SRAM terms moved. Five rates (A's value, B's beat and element, C's beat;
+B's row stays zero) are refitted to the 26 plans of the three-shape CI cut
+only, not the full grid: worst error 11.2% there, and the best plan chosen
+for each shape. The other rates are the v0.0.5 fit, and the full-grid refit
+(`make coralnpu.transfer.full.runtest`, about five hours) would test them
+against v0.0.10; the figures above are from the earlier release.
+
 The evidence stage 5.4 asks for is the DMA suite's committed rates
 reproduced through the generated path, and it is a kernel-to-kernel
 comparison: `kernel_test.ml` (beside the subsystem suite) calls the

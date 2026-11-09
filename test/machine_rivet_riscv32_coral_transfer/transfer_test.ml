@@ -188,61 +188,61 @@ let%expect_test "the transfer model against the subsystem, reduced" =
     {|
     bmm 1x9x32 k64, chosen (1 invocations): bitwise
     bmm 1x9x32 k64, A in place, B in place (1 invocations): bitwise
-      measured 13329, predicted 13242 (-0.7%)
+      measured 7128, predicted 6879 (-3.5%)
     bmm 1x9x32 k64, A copied, B in place (1 invocations): bitwise
-      measured 13106, predicted 13147 (+0.3%)
+      measured 7333, predicted 7246 (-1.2%)
     bmm 1x9x32 k64, A streamed by 9 rows, B in place (1 invocations): bitwise
-      measured 13143, predicted 13147 (+0.0%)
+      measured 7370, predicted 7246 (-1.7%)
     bmm 1x9x32 k64, A streamed by 9 rows, B in place, C by the DMA (1 invocations): bitwise
-      measured 14582, predicted 13386 (-8.2%)
+      measured 8590, predicted 8173 (-4.9%)
     bmm 1x9x32 k64, A in place, B copied (1 invocations): bitwise
-      measured 14433, predicted 14532 (+0.7%)
+      measured 13278, predicted 13382 (+0.8%)
     bmm 1x9x32 k64, A copied, B copied (1 invocations): bitwise
-      measured 14184, predicted 14681 (+3.5%)
+      measured 13446, predicted 13994 (+4.1%)
     bmm 1x9x32 k64, A streamed by 9 rows, B copied (1 invocations): bitwise
-      measured 14253, predicted 14681 (+3.0%)
+      measured 13526, predicted 13994 (+3.5%)
     bmm 1x9x32 k64, A streamed by 9 rows, B copied, C by the DMA (1 invocations): bitwise
-      measured 15692, predicted 14921 (-4.9%)
+      measured 14746, predicted 14921 (+1.2%)
     bmm 1x9x32 k64, A in place, B shared (1 invocations): bitwise
-      measured 9801, predicted 9845 (+0.5%)
+      measured 8327, predicted 8696 (+4.4%)
     bmm 1x9x32 k64, A copied, B shared (1 invocations): bitwise
-      measured 8991, predicted 9995 (+11.2%)
+      measured 8494, predicted 9308 (+9.6%)
     bmm 1x9x32 k64, A streamed by 9 rows, B shared (1 invocations): bitwise
-      measured 9621, predicted 9995 (+3.9%)
+      measured 8575, predicted 9308 (+8.5%)
     bmm 1x9x32 k64, A streamed by 9 rows, B shared, C by the DMA (1 invocations): bitwise
-      measured 11060, predicted 10235 (-7.5%)
-      chosen: A in place, B shared; measured best: A copied, B shared; chosen/best 1.090
+      measured 9795, predicted 10235 (+4.5%)
+      chosen: A in place, B in place; measured best: A in place, B in place; chosen/best 1.000
     linear 36x48 k96 packed, chosen (1 invocations, 1 packed): bitwise
     linear 36x48 k96 packed, A in place, B in place (1 invocations, 1 packed): bitwise
-      measured 129319, predicted 134245 (+3.8%)
+      measured 73616, predicted 77654 (+5.5%)
     linear 36x48 k96 packed, A copied, B in place (1 invocations, 1 packed): bitwise
-      measured 113832, predicted 120381 (+5.8%)
+      measured 64173, predicted 69340 (+8.1%)
     linear 36x48 k96 packed, A streamed by 24 rows, B in place (1 invocations, 1 packed): bitwise
-      measured 113353, predicted 118340 (+4.4%)
+      measured 61686, predicted 67299 (+9.1%)
     linear 36x48 k96 packed, A streamed by 15 rows, B in place, C by the DMA (1 invocations, 1 packed): bitwise
-      measured 111905, predicted 115690 (+3.4%)
+      measured 61838, predicted 68771 (+11.2%)
     linear 36x48 k96 packed, A in place, B copied (1 invocations, 1 packed): bitwise
-      measured 93757, predicted 97014 (+3.5%)
+      measured 82954, predicted 87341 (+5.3%)
     linear 36x48 k96 packed, A in place, B shared (1 invocations, 1 packed): bitwise
-      measured 83344, predicted 86541 (+3.8%)
-      chosen: A in place, B shared; measured best: A in place, B shared; chosen/best 1.000
+      measured 71834, predicted 76869 (+7.0%)
+      chosen: A streamed by 24 rows, B in place; measured best: A streamed by 24 rows, B in place; chosen/best 1.000
     linear 45x56 k80 packed, chosen (1 invocations, 1 packed): bitwise
     linear 45x56 k80 packed, A in place, B in place (1 invocations, 1 packed): bitwise
-      measured 156250, predicted 152119 (-2.6%)
+      measured 88570, predicted 83306 (-5.9%)
     linear 45x56 k80 packed, A copied, B in place (1 invocations, 1 packed): bitwise
-      measured 146325, predicted 137675 (-5.9%)
+      measured 81251, predicted 74644 (-8.1%)
     linear 45x56 k80 packed, A streamed by 30 rows, B in place (1 invocations, 1 packed): bitwise
-      measured 142235, predicted 135549 (-4.7%)
+      measured 77457, predicted 72518 (-6.4%)
     linear 45x56 k80 packed, A streamed by 18 rows, B in place, C by the DMA (1 invocations, 1 packed): bitwise
-      measured 141213, predicted 132472 (-6.2%)
+      measured 78746, predicted 75453 (-4.2%)
     linear 45x56 k80 packed, A in place, B copied (1 invocations, 1 packed): bitwise
-      measured 111156, predicted 102941 (-7.4%)
+      measured 98602, predicted 91147 (-7.6%)
     linear 45x56 k80 packed, A streamed by 3 rows, B copied (1 invocations, 1 packed): bitwise
-      measured 84199, predicted 79286 (-5.8%)
+      measured 79045, predicted 73274 (-7.3%)
     linear 45x56 k80 packed, A in place, B shared (1 invocations, 1 packed): bitwise
-      measured 100979, predicted 92704 (-8.2%)
+      measured 87893, predicted 80911 (-7.9%)
     linear 45x56 k80 packed, A streamed by 3 rows, B shared (1 invocations, 1 packed): bitwise
-      measured 74015, predicted 69049 (-6.7%)
+      measured 68331, predicted 63038 (-7.7%)
       chosen: A streamed by 3 rows, B shared; measured best: A streamed by 3 rows, B shared; chosen/best 1.000
     worst error 11.2% over 26 plans |}]
 

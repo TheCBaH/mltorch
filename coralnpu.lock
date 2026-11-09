@@ -1,6 +1,6 @@
-tag v0.0.9
+tag v0.0.10
 repo TheCBaH/devcontainer.coralnpu
-712308c54584ef70db81e21cb2f00beec9a427d551cbeb356a38898424b5578d  coralnpu-emulators-linux-aarch64.tar.gz
-6a30a7b025129e9ae8a113a39f49c690db1a2bdf5fd681f31d1d94315d2529b1  coralnpu-emulators-linux-x86_64.tar.gz
-9586d9579561eea3523055b2b089c68edf4a0c904ffcf2f187b1fcfbd05be7bc  coralnpu-subsystem-linux-aarch64.tar.gz
-16a4e2f7371cba85d7e558813874bb4be8225975f3ccd15b995ccd794dfad13a  coralnpu-subsystem-linux-x86_64.tar.gz
+dde1775c19624e3a723158ebe2ae9a6ed14eebc20ecb786c08a95c7be6336573  coralnpu-emulators-linux-aarch64.tar.gz
+6b6798f748cfd1f54caf10f7038246a9b3c23b2647f5c6813da78a1921b57d66  coralnpu-emulators-linux-x86_64.tar.gz
+4ad6aa33283889c0b54d4533727a74b27bad9e93bd58213ba34fb8a37207c01e  coralnpu-subsystem-linux-aarch64.tar.gz
+da3cbc5ae0f3346e888f137baef6a799e7ac6bf3f8e328b18e8e4a5c72db286c  coralnpu-subsystem-linux-x86_64.tar.gz
