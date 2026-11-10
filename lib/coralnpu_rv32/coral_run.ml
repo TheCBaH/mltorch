@@ -274,8 +274,10 @@ let run ?(deadline = 120.) ?(flags = []) ?label ?expect_cycles
       let argv =
         match Coral_profile.argv ~dir ~elf image.profile with
         | program :: args ->
-            (* the budget first: an explicit flag after it still wins *)
-            program :: (Option.to_list (Option.map snd budget) @ flags @ args)
+            (* the budget first, then the manifest's own arguments (MPACT's
+               carry a default instruction limit), then the caller's flags:
+               the last of a repeated flag wins *)
+            program :: (Option.to_list (Option.map snd budget) @ args @ flags)
         | [] -> []
       in
       let program = List.hd argv in

@@ -36,3 +36,6 @@ val program :
 val choices :
   Ssa_program.t -> (Contraction.t * Contraction.Select.Engine.t) list
 (** Recorded choices, in operation order, duplicates included. *)
+
+val has_contract : Ssa_program.t -> bool
+(** Whether any [Contract] remains, whatever its recorded engine. *)

@@ -321,3 +321,24 @@ let%expect_test "a forced DMA plan on MPACT" =
     (List.assoc "linear 9x32 k64" T.contraction_fixtures);
   [%expect
     {| forced DMA (1 invocations): invocation 0 (n0): unsupported(guest trap: mcause 7 mepc 0x000006a0 mtval 0x40050008) |}]
+
+(* Recognized contractions on cores with neither engine are expanded to their
+   reference loops: recognition on does not make a scalar configuration refuse. *)
+let%expect_test "contractions on a scalar core" =
+  List.iter
+    (fun (name, g) ->
+      T.check
+        ~route:(C.route (config "mpact-v2"))
+        ~contractions:true
+        ~pipeline:(planned Ssa_ir.Ssa_target.scalar)
+        ~oracle:T.Fp32 ~constant:T.positive ~calls:1
+        (Fmt.str "mpact-v2, scalar contractions, %s" name)
+        g)
+    T.contraction_fixtures;
+  [%expect
+    {|
+    mpact-v2, scalar contractions, linear 9x32 k64 (1 invocations): bitwise
+    mpact-v2, scalar contractions, linear 9x32 k64 bias (1 invocations): bitwise
+    mpact-v2, scalar contractions, linear 7x29 k63 bias (1 invocations): bitwise
+    mpact-v2, scalar contractions, bmm 1x9x32 k64 (1 invocations): bitwise
+    mpact-v2, scalar contractions, bmm 3x7x29 k63 (1 invocations): bitwise |}]

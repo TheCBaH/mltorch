@@ -92,12 +92,24 @@ let finalize ?(engine = true) c p =
   match Err.payload (Coral_profile.load ~dir:c.Config.dir c.configuration) with
   | Error e -> Error (Fmt.str "%a" Coral_profile.pp_error e)
   | Ok profile ->
+      let capabilities = capabilities ~engine profile in
+      (* a core with neither engine has no helper to call: each contraction
+         the expansion can realize becomes the loops of its reference, so
+         recognition does not make a scalar configuration refuse *)
+      let p =
+        if
+          capabilities.Contraction.Select.Capabilities.matrix
+          || capabilities.Contraction.Select.Capabilities.vector
+          || not (Ssa_ir.Ssa_contract_plan.has_contract p)
+        then p
+        else
+          (* the expansion is binary64 arithmetic until narrowed again *)
+          Ssa_ir.Ssa_precision.to_f32 ~exact:true
+            (Ssa_ir.Ssa_expand_contract.program p)
+      in
       Result.map_error
         (Fmt.str "%a" Ssa_ir.Ssa_contract_plan.pp_error)
-        (Err.payload
-           (Ssa_ir.Ssa_contract_plan.program
-              ~capabilities:(capabilities ~engine profile)
-              p))
+        (Err.payload (Ssa_ir.Ssa_contract_plan.program ~capabilities p))
 
 let image ?mutation ?kernel_mutation ?home ?(engine = true) ?engine_mutation
     ?transfer ?dma ?itcm (c : Config.t) ({ Q.artifact; record } : Q.published) =

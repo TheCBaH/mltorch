@@ -83,22 +83,39 @@ let () =
           prerr_endline "coral model: could not open or lower the archive";
           exit 1
       | Ok (b, constants, graph) -> (
+          let profile =
+            match Err.payload (Coral_profile.load ~dir configuration) with
+            | Ok p -> p
+            | Error e ->
+                Fmt.epr "coral model: %a@." Coral_profile.pp_error e;
+                exit 1
+          in
+          (* a cycle budget is the RTL testbench's flag; MPACT rejects it *)
           let config =
             {
               C.Config.dir;
               configuration;
               deadline = 3600.;
-              flags = [ "--cycles=2000000000" ];
+              flags =
+                (match profile.Coral_profile.simulator with
+                | Coral_profile.Simulator.Rtl -> [ "--cycles=2000000000" ]
+                | Coral_profile.Simulator.Mpact ->
+                    [ "--max_instructions=100000000000" ]
+                | Coral_profile.Simulator.Subsystem -> []);
             }
           in
           let runs = ref [] in
           let on_run (o : C.Run.t) = runs := o :: !runs in
+          (* the target follows the configuration: a core without Zve32f is
+             planned scalar *)
+          let target =
+            if List.mem "zve32f" profile.Coral_profile.extensions then
+              Ssa_ir.Ssa_target.zve32f128
+            else Ssa_ir.Ssa_target.scalar
+          in
           let pipeline =
             Ssa_backends.Pipeline.Planned
-              {
-                numerics = Ssa_ir.Ssa_numerics.Fp32_ordered;
-                target = Ssa_ir.Ssa_target.zve32f128;
-              }
+              { numerics = Ssa_ir.Ssa_numerics.Fp32_ordered; target }
           in
           let t0 = Unix.gettimeofday () in
           match

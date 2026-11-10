@@ -81,3 +81,16 @@ let choices p =
       r.body
   in
   region p.Ssa_program.entry
+
+let has_contract p =
+  let rec region (r : Ssa_region.t) =
+    List.exists
+      (function
+        | Ssa_stmt.Instr { Ssa_instr.op = Ssa_op.Contract _; _ } -> true
+        | Ssa_stmt.Instr _ -> false
+        | Ssa_stmt.For { body; _ } | Ssa_stmt.Ordered_sum { body; _ } ->
+            region body
+        | Ssa_stmt.If { then_; else_; _ } -> region then_ || region else_)
+      r.body
+  in
+  region p.Ssa_program.entry

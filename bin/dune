@@ -345,6 +345,22 @@
  (build_if %{lib-available:rivet.riscv32_encode})
  (enabled_if false))
 
+; Per invocation, the bytes of the tensors a model's bundle binds against a
+; region size (no simulator, no Rivet). MANUAL, needs the model data.
+
+(executable
+ (name coral_capacity_census)
+ (modules coral_capacity_census)
+ (libraries core err_trace fmt loop_ir native native_interp pt2))
+
+; A model's convolutions and linears by class, with multiply-add shares. MANUAL,
+; needs the model data.
+
+(executable
+ (name conv_census)
+ (modules conv_census)
+ (libraries core err_trace fmt loop_ir native native_interp pt2))
+
 ; A model on a Coral NPU simulator: every invocation an image with its
 ; tensors in RAM, its matrix products optionally generated helper calls, its
 ; outputs bitwise against the binary32 oracle and its cycles reported. MANUAL,
