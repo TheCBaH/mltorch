@@ -1,7 +1,7 @@
 # Domain-typed integers — one `int`, one meaning
 
 Status: **implemented** — the mechanism (`Core.Tagged_int`, the signature ratchet in
-`tools/int_signatures` with a `todo-domain` ceiling of 0, the convention in `CLAUDE.md`)
+`tools/int_signatures` with a `todo-domain` ceiling that only goes down, the convention in `CLAUDE.md`)
 and the domain migrations below have landed. What stays a bare `int` is classified in §1;
 The `Semantics` scale/constant arguments are deliberately left as dimensionless
 scalars. `Dim` and the guarded op scalars (`Geometry`: `Pos`, `Nonneg`, `Hw`) live in
@@ -205,6 +205,96 @@ Types alone do not stop the next `int`. Three layers:
    or allowlisted with a reason. The allowlist may only shrink. Signatures, not
    implementations, because a signature is the contract other code is written
    against and is precisely checkable (unlike domain inference).
+
+   A library whose interface *is* its implementation (the emitters, the targets)
+   has no `.mli` to read. An `ml:<dir>` line in the scope file also reads the
+   interface the compiler infers for each `.ml` of that library without an `.mli`:
+   the text `ocamlc -i` prints, through the same parser, with the library's object
+   directories on the include path, its alias module opened as dune does, and its
+   external libraries as `ocamlfind` packages. Nothing links against the compiler's
+   own library, so the check does not follow a compiler release; the dune rule
+   depends on the library's `check` alias, which keeps it hermetic. A bare `<dir>`
+   line is unchanged. `ml:lib/ssa_c`, `ssa_js` and `ssa_wasm` are in scope. A
+   library enters with an opening `todo-domain` balance (the three emitters: three
+   records of value ids and name counters) that is part of the recorded ceiling;
+   the ceiling only goes down from there. Judgement calls in that classification:
+   host-ABI positions and wasm local indices are `wire`, indent depths and lane
+   counts `tally`, the literal an emitter prints `as-written`.
+
+   The three machine targets (`machine_target_aarch64`, `_riscv32`, `_x86_64`)
+   entered next, with an opening `todo-domain` balance of 66. It is register numbers
+   (`x`, `gpr`, `rax`, `range`, `allocatable`, `view`, `sequence`, the unit
+   constructors), the value ids the selectors unwrap to key their tables, and the
+   instruction-form variants, which carry lane positions and bit indices. Judgement
+   calls: a width in bits (`Sz.bits`, `unit_bits`, `shape`, `bitmask_immediate`) and
+   a lane count are `tally`, the per-event index in `slot` is a `cell`, and the
+   fuel and depth of the interpreter runs are `budget`. The balance only goes down:
+   typing the register number as a `Mir_id.Unit`-style domain retires most of it.
+
+   The four `coralnpu*` libraries entered after them, adding 75 `todo-domain`
+   entries (rows, strides, panel and block extents, byte offsets, register
+   numbers, output ordinals in the generators and the run harness). Judgement
+   calls: the MMIO register offsets, the descriptor size and the mailbox layout
+   are `wire` (a layout shared with the hardware or the guest program), the
+   register bit masks are `bits`, instruction immediates in the kernel emitters
+   are `wire`, the refusal payloads that report a budget or a count are
+   `as-written`, and lane, element-width and factor arguments are `tally`.
+
+   The eight `machine_rivet_*` libraries entered last, adding 163 `todo-domain`
+   entries: the register-allocation intervals and positions the routes re-export,
+   value ids unwrapped as keys, byte offsets and sizes in the data blocks and the
+   outliner, the output ordinals of the run harnesses. Judgement calls: assembler
+   operands and directives, instruction encoding fields, ELF and image padding,
+   syscall numbers and the process exit code are `wire`, the typed register
+   index's constructors are `defn`, a payload reporting a number as the check saw
+   it is `as-written`, and a timeout or branch reach is a `budget`. A library
+   re-exporting a type through `include` or a functor application lists its
+   declarations once per file, so the opening balance counts each re-export. The
+   interface read for these libraries needs the workspace's own build of a
+   vendored library (`elf`) ahead of an installed one, so the tool also puts the
+   `vendored` object directories on the include path.
+
+   `js_ast` and `wasm_ir` entered next, the first of the libraries js_of_ocaml
+   reaches, adding 3 `todo-domain` entries: the Wasm instruction type (label
+   depths, function, global and local indices, lane indices), `Wasm.Module`'s
+   `map_calls`, and the export `kind`. Judgement calls: a literal in a JavaScript
+   expression tree (`Idx.const`, `scale`, an array length) is `expr-literal`,
+   printed through `float_of_int`; a memory-argument alignment and offset, an
+   opcode byte, a data-segment offset and the memory limits are `wire`, and the
+   offsets are bounded to `[0, 2^31)` at the declaration so they fit a 32-bit
+   `int`; a lane count and a census count are `tally`; the numbers a validation
+   error reports are `as-written`. No 32-bit hazard was found: the only `int`s
+   that could approach 2^31 are the memory offsets, bounded at the declaration,
+   and the printer's literals, which go through `float_of_int`.
+
+   `loop_ir` entered after them, adding 43 `todo-domain` entries: the ordinals
+   and local indices of the Wasm and C emitters (a local's index, a failure
+   site, a name's ordinal), the lane positions of the vector forms, the extents
+   and offsets the lowering passes thread (`extent`, `width`, `steps`, a pool's
+   element count and offset), and a statement's scan widths. Judgement calls: the
+   `Loop_array`, `Loop_temp` and `Loop_var` ids are already `Tagged_int`
+   instances, so their `of_int`/`to_int` are `defn`; the constants of an index
+   tree and of an affine form are `expr-literal` (the index domain
+   `[-2^31, 2^31)` is the contract, see `Loop_range.domain`); failure-record
+   words, memory placements and the process exit codes are `wire`. Two
+   32-bit-`int` hazards sit behind the `wire` label and are not hidden by it:
+   `Loop_bundle_wasm` admits a memory of exactly `2^31` bytes (`memory_cap` is
+   rejected with `>`), and narrows `Placement.total` with `Int64.to_int`, which
+   wraps under js_of_ocaml at that one value; and its `table_alloc` narrows a
+   table address with `Int64.to_int` before the total is checked. Both need a
+   multi-gigabyte placement to trigger, so neither is reachable by a model that
+   builds today.
+
+   `pt2` entered last of the JS-reachable libraries, adding 3 `todo-domain`
+   entries: `Pt2_tensor.product`, `numel` and `contiguous_strides`, which do
+   extent and stride arithmetic on raw `int`s that `pt2_aten` later wraps in
+   `Dim`. Judgement calls: the decoded tensor record, the pickle rebuild
+   descriptor and the zip end-of-central-directory fields are `wire` (the archive's
+   own representation), the zip `Limits` and their fields are `budget`, and the
+   counts and paths a rejection reports are `as-written`. No 32-bit hazard was
+   found: every decoded size is bounded when decoded, and `product` folds in
+   `int64` and narrows only to the runtime's own `int` range, so on js_of_ocaml
+   it bounds to 32 bits.
 2. **A review question**, added to the conventions: *"what does this `int` name, and
    what could it be confused with?"*
 3. **Exit hygiene**: the count of `(x :> int)`/`Dim.to_int` exits is tracked, and

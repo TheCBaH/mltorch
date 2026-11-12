@@ -6,6 +6,12 @@
    checked-in allowlist, each entry carrying a category.
 
      int_signatures check <allowlist> <root> <dir>...   fail on any drift
+
+   A [dir] is read as [.mli] text. [ml:<dir>] also reads the interface the
+   compiler infers for each [.ml] of that library that has no [.mli] (the text
+   [ocamlc -i] prints), through the same parser, for a library whose interface
+   is its implementation. The library's object directories must be built first:
+   the dune rule depends on its [check] alias.
      int_signatures print <root> <dir>...               file, line, declaration
      int_signatures update <allowlist> <root> <dir>...  the allowlist to write
 
@@ -138,8 +144,8 @@ let normalise s =
   |> String.concat " "
 
 (* (line, declaration) of every declaration that mentions [int]. *)
-let declarations path =
-  let lines = String.split_on_char '\n' (strip (read_file path)) in
+let declarations_of_text text =
+  let lines = String.split_on_char '\n' (strip text) in
   let flush acc = function
     | None -> acc
     | Some (ln, ls) ->
@@ -160,6 +166,8 @@ let declarations path =
   in
   List.rev (flush acc cur)
 
+let declarations path = declarations_of_text (read_file path)
+
 (* Inside dune's build directory the source tree also holds preprocessed copies
    ([.pp.mli]); only the authored signature counts. *)
 let rec mlis root dir =
@@ -175,12 +183,176 @@ let rec mlis root dir =
       then [ rel ]
       else [])
 
+(* ---- [ml:<dir>]: the inferred interface of a library without .mli files ---- *)
+
+let atoms_of_dune text =
+  let text =
+    String.split_on_char '\n' text
+    |> List.map (fun l ->
+        match String.index_opt l ';' with
+        | Some i -> String.sub l 0 i
+        | None -> l)
+    |> String.concat "\n"
+  in
+  let b = Buffer.create 16 and acc = ref [] in
+  let flush () =
+    if Buffer.length b > 0 then (
+      acc := Buffer.contents b :: !acc;
+      Buffer.clear b)
+  in
+  String.iter
+    (function
+      | ('(' | ')') as c ->
+          flush ();
+          acc := String.make 1 c :: !acc
+      | ' ' | '\n' | '\t' | '\r' -> flush ()
+      | c -> Buffer.add_char b c)
+    text;
+  flush ();
+  List.rev !acc
+
+(* The atoms of the first [(key ...)] form, nested forms flattened. *)
+let field toks key =
+  let rec find = function
+    | "(" :: k :: rest when k = key -> Some rest
+    | _ :: rest -> find rest
+    | [] -> None
+  in
+  match find toks with
+  | None -> []
+  | Some rest ->
+      let rec take depth acc = function
+        | [] -> List.rev acc
+        | ")" :: _ when depth = 0 -> List.rev acc
+        | ")" :: r -> take (depth - 1) acc r
+        | "(" :: r -> take (depth + 1) acc r
+        | a :: r -> take depth (a :: acc) r
+      in
+      take 0 [] rest
+
+(* Every [.<library>.objs/byte] directory under [rel], as (library, path). *)
+let rec objs_dirs root rel =
+  let full = Filename.concat root rel in
+  Sys.readdir full |> Array.to_list |> List.sort compare
+  |> List.concat_map (fun e ->
+      let r = Filename.concat rel e in
+      let p = Filename.concat root r in
+      if not (Sys.is_directory p) then []
+      else if e <> "" && e.[0] = '.' then
+        if Filename.check_suffix e ".objs" then
+          [ (String.sub e 1 (String.length e - 6), Filename.concat p "byte") ]
+        else []
+      else objs_dirs root r)
+
+(* [Ssa_c__.Ssa_c_ctx.t] -> [Ssa_c_ctx.t]: the wrapped library's alias module
+   shows through the paths [ocamlc -i] prints. *)
+let drop_alias_prefix s =
+  let n = String.length s in
+  let b = Buffer.create n in
+  let rec go i =
+    if i >= n then ()
+    else if i + 2 < n && s.[i] = '_' && s.[i + 1] = '_' && s.[i + 2] = '.' then (
+      let rec start j =
+        if j > 0 && is_ident (Buffer.nth b (j - 1)) then start (j - 1) else j
+      in
+      Buffer.truncate b (start (Buffer.length b));
+      go (i + 3))
+    else (
+      Buffer.add_char b s.[i];
+      go (i + 1))
+  in
+  go 0;
+  Buffer.contents b
+
+(* The text [ocamlc -i] prints for [ml] (a path relative to [root]) in library
+   directory [dir]: the library's object directories on the include path, its
+   alias module opened as dune does, its external libraries as packages. *)
+let inferred_text root dir ml =
+  let toks =
+    atoms_of_dune
+      (read_file (Filename.concat (Filename.concat root dir) "dune"))
+  in
+  let name =
+    match field toks "name" with
+    | n :: _ -> n
+    | [] -> failwith (dir ^ ": no library name")
+  in
+  let wrapped = field toks "wrapped" <> [ "false" ] in
+  (* dune names the alias module [Name__] when the library has a module of its
+     own name, and [Name] itself otherwise. *)
+  let has_main =
+    Sys.file_exists (Filename.concat (Filename.concat root dir) (name ^ ".ml"))
+  in
+  (* A vendored library built in the workspace (elf) shadows an installed one of
+     the same name, so its objects must win over the ocamlfind package. *)
+  let vendored =
+    if Sys.file_exists (Filename.concat root "vendored") then
+      objs_dirs root "vendored"
+    else []
+  in
+  let all = objs_dirs root "lib" @ vendored in
+  let internal = List.map fst all in
+  let packages =
+    List.filter (fun l -> not (List.mem l internal)) (field toks "libraries")
+  in
+  let out = Filename.temp_file "int_signatures" ".mli" in
+  let cmd =
+    Printf.sprintf "ocamlfind ocamlc %s%s%s -w -a -i %s > %s 2>&1"
+      (if packages = [] then ""
+       else "-package " ^ String.concat "," packages ^ " ")
+      (String.concat " " (List.map (fun (_, p) -> "-I " ^ Filename.quote p) all)
+      ^ " ")
+      (if not wrapped then ""
+       else if has_main then "-open " ^ String.capitalize_ascii name ^ "__ "
+       else "-open " ^ String.capitalize_ascii name ^ " ")
+      (Filename.quote (Filename.concat root ml))
+      (Filename.quote out)
+  in
+  let code = Sys.command cmd in
+  let text = read_file out in
+  Sys.remove out;
+  if code <> 0 then
+    failwith (Printf.sprintf "%s: ocamlc -i failed:\n%s" ml text);
+  drop_alias_prefix text
+
+let mls root dir =
+  let rec go rel =
+    let full = Filename.concat root rel in
+    Sys.readdir full |> Array.to_list |> List.sort compare
+    |> List.concat_map (fun e ->
+        let r = Filename.concat rel e in
+        let p = Filename.concat root r in
+        if Sys.is_directory p then if e <> "" && e.[0] = '.' then [] else go r
+        else if
+          Filename.check_suffix e ".ml"
+          && (not (Filename.check_suffix e ".pp.ml"))
+          && not (Sys.file_exists (p ^ "i"))
+        then [ r ]
+        else [])
+  in
+  go dir
+
 let current root dirs =
-  List.concat_map (mlis root) dirs
-  |> List.concat_map (fun f ->
-      List.map
-        (fun (ln, d) -> (f, ln, d))
-        (declarations (Filename.concat root f)))
+  List.concat_map
+    (fun dir ->
+      let from_mli d =
+        mlis root d
+        |> List.concat_map (fun f ->
+            List.map
+              (fun (ln, decl) -> (f, ln, decl))
+              (declarations (Filename.concat root f)))
+      in
+      match String.split_on_char ':' dir with
+      | [ "ml"; d ] ->
+          from_mli d
+          @ List.concat_map
+              (fun ml ->
+                List.map
+                  (fun (ln, decl) -> (ml, ln, decl))
+                  (declarations_of_text (inferred_text root d ml)))
+              (mls root d)
+      | _ -> from_mli dir)
+    dirs
 
 let parse_allowlist path =
   let ceiling = ref None in

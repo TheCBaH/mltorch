@@ -2,48 +2,139 @@
 # in-scope library that mentions [int]: file, category, normalised declaration (tab separated).
 # Categories: arity as-written bits budget cell defn expr-literal gate hash quantum tally todo-domain wire.
 # [todo-domain] is a debt marker (an int that names an entity); the ceiling only goes down.
-@todo-domain-ceiling 0
-lib/core/float_bits.mli	hash	val compare_exact : float -> float -> int
-lib/core/float_bits.mli	hash	val compare_portable : float -> float -> int
-lib/core/tagged_int.mli	defn	type t = private int
-lib/core/tagged_int.mli	defn	val of_int : int -> t
-lib/core/tagged_int.mli	defn	val to_int : t -> int
-lib/core/tagged_int.mli	hash	val compare : t -> t -> int
-lib/core/tagged_int.mli	defn	type t = private int
-lib/core/tagged_int.mli	defn	val of_int : int -> t
-lib/core/tagged_int.mli	tally	val check_room : t -> count:int -> unit
-lib/core/tagged_int.mli	tally	val alloc_n : t -> int -> id list * t
-lib/core/tagged_int.mli	hash	val compare : t -> t -> int
-lib/core/storage_units.mli	hash	val compare : t -> t -> int
-lib/core/storage_units.mli	hash	val compare : t -> t -> int
-lib/core/storage_units.mli	hash	val compare : t -> t -> int
-lib/core/storage_units.mli	hash	val compare : t -> t -> int
-lib/core/storage_units.mli	hash	val compare : t -> t -> int
-lib/core/storage_units.mli	hash	val compare : t -> t -> int
-lib/expr_internal/axis.mli	expr-literal	val to_int : t -> int
-lib/expr_internal/axis.mli	expr-literal	val compare : t -> t -> int
-lib/expr_internal/source.mli	expr-literal	val create : int -> t
-lib/expr_internal/source.mli	expr-literal	val to_int : t -> int
-lib/expr_internal/source.mli	expr-literal	val compare : t -> t -> int
-lib/expr_internal/source.mli	expr-literal	val hash : t -> int
-lib/machine_ir/mir_f64_census.mli	tally	val count : t -> Role.t -> int
-lib/machine_ir/mir_f64_census.mli	tally	val helpers : t -> (string * int) list
-lib/machine_ir/mir_f64_census.mli	tally	val total : t -> int
-lib/machine_ir/mir_planning.mli	hash	val compare : t -> t -> int end
-lib/machine_interp/mir_interp.mli	budget	val run : ?fuel:int64 -> ?max_depth:int -> ?invocation:int32 -> ?models:Mir_helper_model.t list -> Mir_verify.Generic.t -> Mir_memory.t -> Binding.t -> args:Mir_datum.t list -> run
-lib/machine_model/mir_model.mli	tally	val invocations : t -> int
-lib/machine_model/mir_model.mli	tally	val packed : t -> int
-lib/machine_model/mir_model.mli	budget	val run_prefix : ?fuel:int64 -> t -> inputs:(Tensor_id.t -> Tensor.packed option) -> count:int -> (Tensor_id.t list, Stop.t) result
-lib/machine_model/sdpa_select.mli	budget	type t = { block_keys : int; precision : Attention_block.Precision.t }
-lib/machine_model/sdpa_select.mli	as-written	type t = | Block_keys of int | Descriptor of string | Engine_absent | Feature_extent of int | Mask_not_f32 | Not_bf16 of string | Not_f32 of string | Not_sdpa | Outer_axes | Padded_work of { padded : int64; actual : int64 } | Ungranted | Unknown_node
-lib/native/alloc_script.mli	hash	val compare : t -> t -> int
-lib/native/arena_schedule.mli	hash	val compare : t -> t -> int
-lib/native/arena_schedule.mli	budget	type t = private { width : int; expansions : int; state_bytes : Byte_size.t }
-lib/native/arena_schedule.mli	budget	val make : width:int -> expansions:int -> state_bytes:Byte_size.t -> (t, [> error ]) Err.t
-lib/native/arena_schedule.mli	tally	type t = { score_evaluations : int; expansions : int; depth : int; max_ready_width : int; retained_states : int; state_bytes : Byte_size.t; }
-lib/native/arena_schedule_problem.mli	tally	val node_count : t -> int
-lib/native/arena_schedule_problem.mli	tally	val readers : t -> Tensor_id.t -> int
-lib/native/aten_shape.mli	arity	type t = { size : Aten_int.Size.t list; self_dims : Aten_int.Size.t array; fault : [ `Leading_inferred of int | `Rank_too_small ]; }
+# [ml:<dir>] scope entries also read the inferred interface of each .ml without an .mli; a library enters with an opening
+# [todo-domain] balance that is part of the ceiling, and the ceiling only goes down from there.
+@todo-domain-ceiling 356
+lib/coralnpu/coral_dma.mli	wire	val offset : t -> int end
+lib/coralnpu/coral_dma.mli	bits	val ctrl_start : int
+lib/coralnpu/coral_dma.mli	bits	val status_done : int
+lib/coralnpu/coral_dma.mli	bits	val status_error : int
+lib/coralnpu/coral_dma.mli	wire	val bytes : t -> int
+lib/coralnpu/coral_dma.mli	wire	val log2 : t -> int
+lib/coralnpu/coral_dma.mli	wire	val of_bytes : int -> t option end
+lib/coralnpu/coral_dma.mli	wire	val size : int
+lib/coralnpu/coral_dma.mli	wire	type t = { address : int64; alignment : int } end
+lib/coralnpu/coral_mailbox.mli	wire	val size : int
+lib/coralnpu/coral_mailbox.mli	wire	val done_offset : int
+lib/coralnpu/coral_mailbox.mli	wire	val hashes_offset : int
+lib/coralnpu/coral_mailbox.mli	wire	val max_hashes : int
+lib/coralnpu/coral_mailbox.mli	as-written	type t = | Hash_count of int | Magic of string | Size of int end
+lib/coralnpu/coral_mailbox.mli	wire	val is_done : string -> int -> bool
+lib/coralnpu/coral_profile.mli	wire	type t = { artifact : string; artifact_sha256 : string; command : string list; configuration_id : string; extensions : string list; name : string; regions : Region.t list; simulator : Simulator.t; threads : int; }
+lib/coralnpu_kernels/kernel_refusal.mli	as-written	type t = | Assembler of string | Bf16_ordered | Block_keys_unsupported | C_columns_not_contiguous | C_strides_not_one | Constant | D_odd | D_past_128 | Empty_k | Encoder of string | Extent_past_2_16 | Feature_stride_not_one | Fused_requirement | Int_rows_too_far_apart | Invariant of string | No_rounding_registers | Not_paired_bf16 | Offset_past_31_bits | Operand_past_dma_transfer | Paired_requirement | Panels_over_budget of { needed : int; available : int } | Past_31_bits of string | Precision_not_paired_bf16 | Register_or_immediate | Ring_block_past_dma_transfer | Seeded_from_output | Seeded_k_padding | Stride_past_30_bits | Too_many_output_tiles | Transfer_plan_mismatch | Vector_expression of string
+lib/coralnpu_kernels/dma_block.ml	todo-domain	type t = { accumulate : bool; b : Coralnpu_kernels.Peak_kernels.Gpr.t; b_row : int; c_row : int; depth : int; lanes : int; } end
+lib/coralnpu_kernels/dma_block.ml	todo-domain	val repack : bytes:int -> rows:int -> depth:int -> src:Coralnpu_kernels.Peak_kernels.Insn.Gpr.t -> (Coralnpu_kernels.Peak_kernels.Item.t list, [> `Constant_range of Coralnpu_kernels.Peak_kernels.Insn.Constant_range.t ]) Err.t
+lib/coralnpu_kernels/peak_kernels.ml	tally	val bytes : t -> int
+lib/coralnpu_kernels/peak_kernels.ml	cell	val set : t -> bytes -> int -> int -> unit end
+lib/coralnpu_kernels/peak_kernels.ml	todo-domain	val slot : Coral_layout.Placement.t -> int -> L.Slot.t
+lib/coralnpu_kernels/peak_kernels.ml	tally	val iterations : int
+lib/coralnpu_kernels/peak_kernels.ml	tally	val sew_of_bits : int -> Vtype.Sew.t
+lib/coralnpu_kernels/peak_kernels.ml	tally	val lmul_of_factor : int -> Vtype.Lmul.t
+lib/coralnpu_kernels/peak_kernels.ml	tally	val vset_item : ?avl:Machine_rivet_riscv32.Rv32_kernel_reg.Gpr.t -> int -> int -> Item.t
+lib/coralnpu_kernels/peak_kernels.ml	wire	val imm12 : int -> Imm.Imm12.t
+lib/coralnpu_kernels/peak_kernels.ml	wire	val addi : Insn.Gpr.t -> Insn.Gpr.t -> int -> Item.t
+lib/coralnpu_kernels/peak_kernels.ml	wire	val li : Insn.Gpr.t -> int -> Item.t
+lib/coralnpu_kernels/peak_kernels.ml	wire	val lw : Insn.Gpr.t -> Insn.Gpr.t -> int -> Item.t
+lib/coralnpu_kernels/peak_kernels.ml	wire	val srli : Insn.Gpr.t -> Insn.Gpr.t -> int -> Item.t
+lib/coralnpu_kernels/peak_kernels.ml	wire	val sw : Insn.Gpr.t -> Insn.Gpr.t -> int -> Item.t
+lib/coralnpu_kernels/peak_kernels.ml	wire	val flw : Insn.Fpr.t -> Insn.Gpr.t -> int -> Item.t
+lib/coralnpu_kernels/peak_kernels.ml	wire	val flh : Insn.Fpr.t -> Insn.Gpr.t -> int -> Item.t
+lib/coralnpu_kernels/peak_kernels.ml	tally	val one : t -> int
+lib/coralnpu_kernels/peak_kernels.ml	tally	val sum : t -> int
+lib/coralnpu_kernels/peak_kernels.ml	tally	val accumulator : t -> sew:int -> Elem.t option end
+lib/coralnpu_kernels/peak_kernels.ml	tally	val elementwise : sew:int -> lmul:int -> Vv_op.t -> (t, string) result
+lib/coralnpu_kernels/peak_kernels.ml	todo-domain	type shape = { rows : int; width : int; depth : int; blocks : int; src : Elem.t; dst : Elem.t; sa : int; sb : int; }
+lib/coralnpu_kernels/peak_kernels.ml	todo-domain	val a : shape -> int -> int -> int
+lib/coralnpu_kernels/peak_kernels.ml	todo-domain	val b : shape -> int -> int -> int
+lib/coralnpu_kernels/peak_kernels.ml	todo-domain	type tiling = { vl : int; tiles : int; b_row : int; c_row : int; }
+lib/coralnpu_kernels/peak_kernels.ml	tally	val tiling : shape -> lanes:int -> tiling
+lib/coralnpu_kernels/peak_kernels.ml	tally	val next_b : shape -> tiling -> per:int -> eew:Machine_rivet_riscv32.Rv32_kernel_vtype.Sew.t -> Item.t list
+lib/coralnpu_kernels/peak_kernels.ml	wire	val add_imm : Insn.Gpr.t -> int -> (Item.t list, [> `Constant_range of Insn.Constant_range.t ]) Err.t
+lib/coralnpu_kernels/peak_kernels.ml	wire	type 'r t = { load : 'r -> Gpr.t -> int -> Item.t; mac : acc:Vreg.t -> scalar:'r -> src:Vreg.t -> Item.t; cur : 'r * 'r * 'r; next : 'r * 'r * 'r; }
+lib/coralnpu_kernels/peak_kernels.ml	defn	val int : Insn.Gpr.t t end
+lib/coralnpu_kernels/peak_kernels.ml	todo-domain	val gemm_kernel : ?width:int -> Gemm.Input.t -> Gemm.shape * (Gemm.shape -> unit -> (Item.t list, [> `Constant_range of Insn.Constant_range.t ]) Err.t)
+lib/coralnpu_kernels/peak_kernels.ml	todo-domain	val gemm_shape : ?width:int -> Gemm.Input.t -> Gemm.shape
+lib/coralnpu_kernels/peak_kernels.ml	todo-domain	val gemm : ?width:int -> Gemm.Input.t -> t
+lib/coralnpu_kernels_zvt/vexpr.mli	todo-domain	val input : int -> t
+lib/coralnpu_kernels_zvt/vexpr.mli	tally	type t = { items : Machine_rivet_riscv32.Rv32_kernel_item.t list; result : Machine_rivet_riscv32.Rv32_kernel_reg.Vreg.t; peak : int; } end
+lib/coralnpu_kernels_zvt/vexpr.mli	tally	val emit : lmul:int -> scratch:Machine_rivet_riscv32.Rv32_kernel_reg.Gpr.t -> free:Machine_rivet_riscv32.Rv32_kernel_reg.Vreg.t list -> inputs: (Machine_rivet_riscv32.Rv32_kernel_reg.Vreg.t * [ `Consumed | `Kept ]) array -> t -> (Plan.t, string) result
+lib/coralnpu_kernels_zvt/zvt_packed_contraction.mli	todo-domain	val overread : Contraction.t -> int
+lib/coralnpu_kernels_zvt/zvt_packed_contraction.mli	todo-domain	type t = | Always | Outside of { base : int; bytes : int } end
+lib/coralnpu_kernels_zvt/zvt_packed_contraction.mli	todo-domain	val panel_bytes : ?stage_b:Stage.t -> Contraction.t -> (int, Coralnpu_kernels.Kernel_refusal.t) result
+lib/coralnpu_kernels_zvt/zvt_sdpa.mli	todo-domain	val panel_bytes : Attention_block.t -> (int, Coralnpu_kernels.Kernel_refusal.t) result
+lib/coralnpu_kernels_zvt/zvt_sdpa.mli	todo-domain	val block_queries : Attention_block.t -> (int, Coralnpu_kernels.Kernel_refusal.t) result
+lib/coralnpu_kernels_zvt/zvt_sdpa.mli	todo-domain	val module_ : ?mutation:Mutation.t -> ?budget:int -> ?dtcm:int * int -> ?skip:Phase.t list -> Attention_block.t -> ( Riscv32_encode.Instruction.t Asm_core.Normalized_ast.module_, Coralnpu_kernels.Kernel_refusal.t ) result
+lib/coralnpu_kernels_zvt/dma_gemm.ml	todo-domain	val streamed : int
+lib/coralnpu_kernels_zvt/dma_gemm.ml	todo-domain	val c : int
+lib/coralnpu_kernels_zvt/dma_gemm.ml	todo-domain	val resident : int
+lib/coralnpu_kernels_zvt/dma_gemm.ml	todo-domain	val resident_dtcm : int
+lib/coralnpu_kernels_zvt/dma_gemm.ml	todo-domain	val ring : int
+lib/coralnpu_kernels_zvt/dma_gemm.ml	todo-domain	val c_ring : int
+lib/coralnpu_kernels_zvt/dma_gemm.ml	todo-domain	val steps : int
+lib/coralnpu_kernels_zvt/dma_gemm.ml	todo-domain	val chains : int
+lib/coralnpu_kernels_zvt/dma_gemm.ml	todo-domain	val timings : int
+lib/coralnpu_kernels_zvt/dma_gemm.ml	todo-domain	val zeros : int
+lib/coralnpu_kernels_zvt/dma_gemm.ml	todo-domain	val packed : int end
+lib/coralnpu_kernels_zvt/dma_gemm.ml	wire	val words : int list -> string
+lib/coralnpu_kernels_zvt/dma_gemm.ml	todo-domain	val core_trip : int
+lib/coralnpu_kernels_zvt/dma_gemm.ml	todo-domain	type t = Coral_transfer.Dma_geometry.t = { blocks : int; depth : int; engine : Engine.t; geometry : Geometry.t; out : Out.t; prologue : Prologue.t; width : int; }
+lib/coralnpu_kernels_zvt/dma_gemm.ml	todo-domain	val rows : t -> int
+lib/coralnpu_kernels_zvt/dma_gemm.ml	todo-domain	val lanes : t -> int
+lib/coralnpu_kernels_zvt/dma_gemm.ml	todo-domain	val block_depth : t -> int
+lib/coralnpu_kernels_zvt/dma_gemm.ml	todo-domain	val chunks : t -> int
+lib/coralnpu_kernels_zvt/dma_gemm.ml	todo-domain	val steps : t -> int
+lib/coralnpu_kernels_zvt/dma_gemm.ml	todo-domain	val b_row : t -> int
+lib/coralnpu_kernels_zvt/dma_gemm.ml	todo-domain	val c_row : t -> int
+lib/coralnpu_kernels_zvt/dma_gemm.ml	todo-domain	val c_block : t -> int
+lib/coralnpu_kernels_zvt/dma_gemm.ml	todo-domain	val c_stride : t -> int
+lib/coralnpu_kernels_zvt/dma_gemm.ml	todo-domain	val c_step : t -> int
+lib/coralnpu_kernels_zvt/dma_gemm.ml	todo-domain	val a_block : t -> int
+lib/coralnpu_kernels_zvt/dma_gemm.ml	todo-domain	val a_pad : t -> int
+lib/coralnpu_kernels_zvt/dma_gemm.ml	todo-domain	val b_pad : t -> int
+lib/coralnpu_kernels_zvt/dma_gemm.ml	todo-domain	val piece : t -> int
+lib/coralnpu_kernels_zvt/dma_gemm.ml	todo-domain	val chunk_bytes : t -> int
+lib/coralnpu_kernels_zvt/dma_gemm.ml	todo-domain	val c_descriptors : t -> int
+lib/coralnpu_kernels_zvt/dma_gemm.ml	todo-domain	val pieces : src:int64 -> dst:int64 -> int -> D.Descriptor.t list
+lib/coralnpu_kernels_zvt/dma_gemm.ml	wire	val andi : Coralnpu_kernels.Peak_kernels.Insn.Gpr.t -> Coralnpu_kernels.Peak_kernels.Insn.Gpr.t -> int -> Coralnpu_kernels.Peak_kernels.Item.t
+lib/coralnpu_kernels_zvt/dma_gemm.ml	todo-domain	val core_copy : src:int -> dst:Coralnpu_kernels.Peak_kernels.Insn.Gpr.t -> bytes_at:int -> Coralnpu_kernels.Peak_kernels.Item.t list
+lib/coralnpu_kernels_zvt/dma_gemm.ml	tally	val ops : t -> int
+lib/coralnpu_kernels_zvt/dma_model.ml	todo-domain	val dtcm : G.t -> int
+lib/coralnpu_kernels_zvt/dma_model.ml	as-written	type t = Nothing_fits of { budget : int; least : int; } | Rows of { m : int; rows : int; }
+lib/coralnpu_kernels_zvt/dma_model.ml	todo-domain	val variants : ?a_row_major:bool -> budget:int -> engine:G.Engine.t -> m:int -> width:int -> depth:int -> unit -> ((Float.t * G.t) list, Refusal.t) result
+lib/coralnpu_kernels_zvt/peak_zvt.ml	todo-domain	type shape = { mtwiden : int; tk : int; vtype : int; lmul : int; a : int; b : int; acc : Coralnpu_kernels.Peak_kernels.Elem.t; sum : int; }
+lib/coralnpu_kernels_zvt/peak_zvt.ml	todo-domain	val elements : int
+lib/coralnpu_kernels_zvt/peak_zvt.ml	bits	val mtype : tk:int -> mtwiden:int -> int
+lib/coralnpu_kernels_zvt/peak_zvt.ml	bits	val configure : mtype:int -> vtype:int -> (Coralnpu_kernels.Peak_kernels.Item.t list, [> `Constant_range of Coralnpu_kernels.Peak_kernels.Insn.Constant_range.t ]) Err.t
+lib/coralnpu_kernels_zvt/peak_zvt.ml	todo-domain	val store : ?prefix:string -> ?from:int -> base:Coralnpu_kernels.Peak_kernels.Insn.Gpr.t -> stride:int -> rows:int -> int -> Coralnpu_kernels.Peak_kernels.Reg.Mtreg.t -> (Coralnpu_kernels.Peak_kernels.Item.t list, [> `Constant_range of Coralnpu_kernels.Peak_kernels.Insn.Constant_range.t ]) Err.t
+lib/coralnpu_kernels_zvt/peak_zvt.ml	todo-domain	val load : ?prefix:string -> from:int -> base:Coralnpu_kernels.Peak_kernels.Insn.Gpr.t -> stride:int -> rows:int -> int -> Coralnpu_kernels.Peak_kernels.Reg.Mtreg.t -> (Coralnpu_kernels.Peak_kernels.Item.t list, [> `Constant_range of Coralnpu_kernels.Peak_kernels.Insn.Constant_range.t ]) Err.t
+lib/coralnpu_kernels_zvt/peak_zvt.ml	todo-domain	module Geometry : sig type t = Engine | Rvv of { width : int option; } end
+lib/coralnpu_kernels_zvt/peak_zvt.ml	todo-domain	val tile : int
+lib/coralnpu_kernels_zvt/peak_zvt.ml	todo-domain	type plan = { s : Coralnpu_kernels.Peak_kernels.Gemm.shape; op : Coralnpu_kernels.Peak_kernels.Insn.Tile_op.t; t : Tile.shape; tile_rows : int; blocks : int; tm : int; columns : int; last : int; }
+lib/coralnpu_kernels_zvt/peak_zvt.ml	todo-domain	val passes : plan -> int list list
+lib/coralnpu_kernels_zvt/peak_zvt.ml	todo-domain	val accumulator : int -> int -> Coralnpu_kernels.Peak_kernels.Reg.Mtreg.t
+lib/coralnpu_kernels_zvt/peak_zvt.ml	todo-domain	val loads : ?pitch:int -> plan -> n:int -> base:int -> Coralnpu_kernels.Peak_kernels.Insn.Gpr.t -> (Coralnpu_kernels.Peak_kernels.Item.t list, [> `Register_index of Machine_rivet_riscv32.Rv32_kernel_reg.Register_index.t ]) Err.t
+lib/coralnpu_kernels_zvt/peak_zvt.ml	todo-domain	val multiplies : plan -> int list -> a:int -> b:int -> (Coralnpu_kernels.Peak_kernels.Item.t list, [> `Register_index of Machine_rivet_riscv32.Rv32_kernel_reg.Register_index.t ]) Err.t
+lib/coralnpu_kernels_zvt/peak_zvt.ml	todo-domain	val a_block : plan -> int
+lib/coralnpu_kernels_zvt/peak_zvt.ml	todo-domain	val c_row : plan -> int
+lib/coralnpu_kernels_zvt/peak_zvt.ml	todo-domain	val block_items : ?prefix:string -> ?a_pitch:int -> ?b_pitch:int -> ?b_pass:int -> ?split:int * Coralnpu_kernels.Peak_kernels.Insn.Gpr.t -> ?c_row:int -> ?accumulate:bool -> plan -> (Coralnpu_kernels.Peak_kernels.Item.t list, [> `Constant_range of Coralnpu_kernels.Peak_kernels.Insn.Constant_range.t | `Register_index of Machine_rivet_riscv32.Rv32_kernel_reg.Register_index.t ]) Err.t
+lib/coralnpu_kernels_zvt/zvt_sdpa_geometry.ml	todo-domain	val bq : int
+lib/coralnpu_kernels_zvt/zvt_sdpa_geometry.ml	todo-domain	val plan : rows:int -> depth:int -> n:int -> P.Tile_gemm.plan
+lib/coralnpu_kernels_zvt/zvt_sdpa_geometry.ml	todo-domain	type t = { d : int; depth : int; bk : int; tile_bytes : int; oacc_bytes : int; q_panel : int; k_panel : int; stage_bytes : int; arrays_bytes : int; q_blocks : int; q_tail : int; k_blocks : int; k_tail : int; }
+lib/coralnpu_kernels_zvt/zvt_sdpa_geometry.ml	todo-domain	val align64 : int -> int
+lib/coralnpu_kernels_zvt/zvt_sdpa_geometry.ml	todo-domain	val total : t -> int end
+lib/coralnpu_rv32/coral_cpus.mli	tally	val with_cpus : int -> (unit -> 'a) -> 'a
+lib/coralnpu_rv32/coral_cpus.mli	tally	val pool : unit -> int
+lib/coralnpu_rv32/coral_image.mli	todo-domain	type t = { elf : string; image : Image.t; layout : Coral_layout.t; profile : Coral_profile.t; internal : (int * string) list; }
+lib/coralnpu_rv32/coral_image.mli	as-written	type error = [ Coral_layout.error | Coral_dma.error | Coral_elf.error | Coral_overlay.error | `Layout_unsettled | `Mailbox_full of int | `Overlay_needs_dma | `Runtime_form of string ]
+lib/coralnpu_rv32/coral_run.mli	todo-domain	type outcome = { argv : string list; mcycle : int64; minstret : int64; outputs : (int * string) list; status : int32; text : string; wall : float; }
+lib/coralnpu_rv32/coral_run.mli	todo-domain	val run : ?deadline:float -> ?flags:string list -> ?label:string -> ?expect_cycles:int64 -> ?expect_instructions:int64 -> dir:string -> Coral_image.t -> bound:(int -> string option) -> (outcome, Run_error.t) Err.t
+lib/coralnpu_rv32/coral_soc_run.mli	as-written	type t = | Digest_mismatch of int32 | Guest_trap of Coral_run.Trap.t | Mailbox_malformed of Coral_mailbox.Malformed.t | No_core_csr | Read_back_mismatch of int | Read_back_over_budget of Over_budget.t | Simulator_crashed of { status : string; tail : string } | Simulator_missing of string | Spi_failed of string | Timeout
+lib/coralnpu_rv32/coral_soc_run.mli	todo-domain	type outcome = { argv : string list; hashes : (int * int32) list; mcycle : int64; minstret : int64; read_back : (int * string) list; status : int32; text : string; wall : float; }
+lib/coralnpu_rv32/coral_soc_run.mli	todo-domain	val run : ?deadline:float -> ?label:string -> ?trace:string -> ?read_back:int list -> ?skip_unchanged:bool -> ?budget:int64 -> dir:string -> Coral_image.t -> bound:(int -> string option) -> (outcome, Run_error.t) Err.t
+lib/coralnpu_rv32/coral_soc_run.mli	todo-domain	val matches : outcome -> int -> string -> bool
+lib/coralnpu_rv32/coral_spi.mli	wire	val connect : port:int -> t
+lib/coralnpu_rv32/coral_spi.mli	tally	val idle : t -> int -> unit
+lib/coralnpu_rv32/coral_spi.mli	tally	val read : t -> int64 -> beats:int -> string
 lib/core/dim.mli	defn	type +'role t = private int
 lib/core/dim.mli	defn	val extent : int -> extent t
 lib/core/dim.mli	defn	val index : int -> index t
@@ -53,6 +144,621 @@ lib/core/dim.mli	defn	val delta : int -> delta t
 lib/core/dim.mli	defn	val to_int : 'role t -> int
 lib/core/dim.mli	defn	val fence : int -> fence t
 lib/core/dim.mli	expr-literal	val scale : int -> delta t -> delta t
+lib/core/float_bits.mli	hash	val compare_exact : float -> float -> int
+lib/core/float_bits.mli	hash	val compare_portable : float -> float -> int
+lib/core/geometry.mli	defn	type t = private int
+lib/core/geometry.mli	defn	val of_int : int -> t
+lib/core/geometry.mli	defn	val to_int : t -> int
+lib/core/geometry.mli	defn	type t = private int
+lib/core/geometry.mli	defn	val of_int : int -> t
+lib/core/geometry.mli	defn	val to_int : t -> int
+lib/core/storage_units.mli	hash	val compare : t -> t -> int
+lib/core/storage_units.mli	hash	val compare : t -> t -> int
+lib/core/storage_units.mli	hash	val compare : t -> t -> int
+lib/core/storage_units.mli	hash	val compare : t -> t -> int
+lib/core/storage_units.mli	hash	val compare : t -> t -> int
+lib/core/storage_units.mli	hash	val compare : t -> t -> int
+lib/core/tagged_int.mli	defn	type t = private int
+lib/core/tagged_int.mli	defn	val of_int : int -> t
+lib/core/tagged_int.mli	defn	val to_int : t -> int
+lib/core/tagged_int.mli	hash	val compare : t -> t -> int
+lib/core/tagged_int.mli	defn	type t = private int
+lib/core/tagged_int.mli	defn	val of_int : int -> t
+lib/core/tagged_int.mli	tally	val check_room : t -> count:int -> unit
+lib/core/tagged_int.mli	tally	val alloc_n : t -> int -> id list * t
+lib/core/tagged_int.mli	hash	val compare : t -> t -> int
+lib/expr_internal/axis.mli	expr-literal	val to_int : t -> int
+lib/expr_internal/axis.mli	expr-literal	val compare : t -> t -> int
+lib/expr_internal/source.mli	expr-literal	val create : int -> t
+lib/expr_internal/source.mli	expr-literal	val to_int : t -> int
+lib/expr_internal/source.mli	expr-literal	val compare : t -> t -> int
+lib/expr_internal/source.mli	expr-literal	val hash : t -> int
+lib/js_ast/js_build.mli	expr-literal	val ceil_div_pos : idx t -> int -> idx t
+lib/js_ast/js_build.mli	expr-literal	val const : int -> idx t
+lib/js_ast/js_build.mli	expr-literal	val floor_div_pos : idx t -> int -> idx t
+lib/js_ast/js_build.mli	expr-literal	val out_of_range : idx t -> int -> bool_ t
+lib/js_ast/js_build.mli	expr-literal	val scale : int -> idx t -> idx t
+lib/js_ast/js_build.mli	expr-literal	val const : int -> bits16 t
+lib/js_ast/js_build.mli	expr-literal	val shr : bits16 t -> int -> bits16 t
+lib/js_ast/js_build.mli	expr-literal	val new_big64 : int -> big arr t
+lib/js_ast/js_build.mli	expr-literal	val new_float64 : int -> num arr t
+lib/js_ast/js_build.mli	expr-literal	val new_uint32 : int -> bits32 arr t
+lib/js_ast/js_ident.mli	hash	val compare : t -> t -> int
+lib/loop_ir/c_model_abi.mli	wire	val exit_ok : int
+lib/loop_ir/c_model_abi.mli	wire	val exit_usage : int
+lib/loop_ir/c_model_abi.mli	wire	val exit_payload : int
+lib/loop_ir/c_model_abi.mli	wire	val exit_allocation : int
+lib/loop_ir/c_model_abi.mli	wire	val exit_inference : int
+lib/loop_ir/c_payload_layout.mli	wire	val code : t -> int
+lib/loop_ir/c_workspace_plan.mli	todo-domain	type carve = { position : int; offset : int64; bytes : int64; fill : fill }
+lib/loop_ir/loop_block.mli	tally	val program : target:Loop_target.t -> Loop_vector.program -> Loop_vector.program * int
+lib/loop_ir/loop_bundle_c.mli	tally	type stats = { invocations : int; distinct_kernels : int; source_bytes : int; numerics : Loop_numerics.t; f32_invocations : int; f32_kernels : int; fp32_refusals : (Loop_numerics.Refusal.t * int) list; }
+lib/loop_ir/loop_bundle_js.mli	tally	type t = { program : Js_ast.Program.t; distinct_kernels : int; pools : (Storage_script.Arena_id.t * Alloc_script.Kind.t) list; externals : Tensor_id.t list; entry_name : Js_ident.t; }
+lib/loop_ir/loop_bundle_js.mli	todo-domain	val locate : Loop_bundle.t -> Tensor_id.t -> ( Storage_script.Arena_id.t * Alloc_script.Kind.t * int * int, [> error ] ) Err.t
+lib/loop_ir/loop_bundle_js.mli	todo-domain	val pool_numel : Loop_bundle.t -> Storage_script.Arena_id.t -> Alloc_script.Kind.t -> (int, [> error ]) Err.t
+lib/loop_ir/loop_bundle_oracle.mli	todo-domain	type error = [ `Failed of int * Loop_interp.error | `Missing of Tensor_id.t ]
+lib/loop_ir/loop_bundle_wasm.mli	wire	type t = { weights : int; inputs : int; workspace : int; outputs : int; total : int; } end
+lib/loop_ir/loop_bundle_wasm.mli	tally	type stats = { invocations : int; distinct_kernels : int; module_bytes : int; numerics : Loop_numerics.t; f32_invocations : int; f32_kernels : int; fp32_refusals : (Loop_numerics.Refusal.t * int) list; }
+lib/loop_ir/loop_bundle_wasm.mli	wire	val build : ?vector:Loop_target.t -> ?numerics:Loop_numerics.t -> ?kernel: (table_alloc:(bytes:int -> int) -> Loop_bundle.invocation -> (Loop_wasm.kernel, string) result) -> Loop_bundle.t -> (t, error) Err.t
+lib/loop_ir/loop_c_failure.mli	wire	val decode : sites:Loop_failure.t array -> kind:int -> v:int64 array -> (Loop_interp.error, string) result
+lib/loop_ir/loop_c_runtime.mli	tally	val f32_lanes : int
+lib/loop_ir/loop_c_runtime.mli	wire	val error_words : int
+lib/loop_ir/loop_c_runtime.mli	wire	val kind_index : Loop_js_failure.Kind.t -> int
+lib/loop_ir/loop_interp.mli	tally	type counters = { mutable emitters : int; mutable keys : int; mutable loads : int; mutable locals : int; mutable reductions : int; mutable scan_updates : int; mutable scans : int; }
+lib/loop_ir/loop_linear.mli	expr-literal	type t = { terms : (Loop_index.t * int) list; const : int }
+lib/loop_ir/loop_linear.mli	expr-literal	val const : int -> t
+lib/loop_ir/loop_linear.mli	expr-literal	val scale : int -> t -> t option
+lib/loop_ir/loop_linear.mli	expr-literal	val coefficient : t -> Loop_index.t -> int
+lib/loop_ir/loop_linear.mli	budget	val range : ?depth:int -> Loop_range.Env.t -> t -> Loop_range.t
+lib/loop_ir/loop_numeric_diff.mli	tally	type t = { cells : int; failing : int; nonfinite_actual : int; nonfinite_reference : int; nonfinite_mismatch : int; max_abs : float; max_rel : float; max_normalized : float; ulp_buckets : (string * int) list; }
+lib/loop_ir/loop_numerics.mli	tally	val coverage : numerics:t -> f32_kernels:int -> kernels:int -> f32_invocations:int -> invocations:int -> refusals:(Refusal.t * int) list -> string
+lib/loop_ir/loop_opt_collapse.mli	tally	val with_ratio : (c1:int -> c2:int -> n_inner:int -> bool) -> Loop_program.t -> Loop_program.t
+lib/loop_ir/loop_opt_guards.mli	budget	val with_upper_slack : int -> Loop_program.t -> Loop_program.t
+lib/loop_ir/loop_plan.mli	tally	type t = { numerics : Loop_numerics.t; precision : Loop_numerics.Precision.t; vector : Loop_vector.program option; refusal : Loop_numerics.Refusal.t option; report : Loop_vectorize.report; blocked : int; }
+lib/loop_ir/loop_range.mli	expr-literal	val span : lo:int -> hi:int -> t
+lib/loop_ir/loop_range.mli	expr-literal	val scale : int -> t -> t
+lib/loop_ir/loop_range.mli	expr-literal	val saturating_mul : int -> int64 -> int64
+lib/loop_ir/loop_sum.mli	tally	val count : Loop_program.t -> int
+lib/loop_ir/loop_target.mli	tally	type t = { name : string; vector_bits : int; precision : Loop_numerics.Precision.t; lanes : int; inner_loops : bool; fma : bool; relaxed_madd : bool; row_block : int; support : Op.t -> support; cost : Op.t -> float; at : Loop_numerics.Precision.t -> t; }
+lib/loop_ir/loop_target.mli	tally	val with_row_block : int -> t -> t
+lib/loop_ir/loop_target.mli	tally	val profitable : t -> (Op.t * int) list -> bool
+lib/loop_ir/loop_vector.mli	expr-literal	type t = { buffer : Loop_buffer.t; offset : Loop_index.t; stride : int } end
+lib/loop_ir/loop_vector.mli	expr-literal	type t = | Binary of Expr.Value.binary_op * t * t | Const of float | Float_max of t * t | Fma of t * t * t | Index_value of { base : Loop_index.t; step : int } | Load of Access.t | Round_f32 of t | Select of mask * t * t | Splat of float Loop_expr.t | Temp of Temp.t | Unary of Expr.Value.unary_op * t
+lib/loop_ir/loop_vector.mli	tally	type loop = { var : Loop_var.t; lo : Loop_index.t; hi : Loop_index.t; lanes : int; body : stmt list; scalar : Loop_stmt.t; }
+lib/loop_ir/loop_vector.mli	expr-literal	val shift : Loop_var.t -> int -> t -> t
+lib/loop_ir/loop_vector.mli	expr-literal	type t = { acc : Loop_temp.t; seed : float; var : Loop_var.t; lo : int; hi : int; lanes : int; parts : int; term : vec; fused : bool; scalar : Loop_stmt.t; } end
+lib/loop_ir/loop_vector.mli	tally	val count_vector_loops : node list -> int
+lib/loop_ir/loop_vector_check.mli	as-written	type t = | Bad_lanes of int | Bad_parts of int | Fused_term_not_a_product | Index_assignment_depends_on_loop_variable | Index_value_step_mismatch of { step : int; coefficient : int } | Inner_bounds_depend_on_loop_variable | Non_constant_bounds | Offset_not_affine | Reduction_too_short of { terms : int; lanes : int } | Splat_depends_on_loop_variable | Splat_loads_stored_buffer of Loop_buffer.t | Store_through_broadcast | Store_loaded_elsewhere of Loop_buffer.t | Stores_overlap of Loop_buffer.t | Stride_mismatch of { stride : int; coefficient : int } | Temp_read_before_assigned of Loop_vector.Temp.t | Unsupported_load_format of Loop_buffer.t end
+lib/loop_ir/loop_vector_expand.mli	todo-domain	val lane_expr : var:Loop_var.t -> base:Loop_index.t -> temp:(Loop_vector.Temp.t -> int -> Loop_temp.t) -> Loop_vector.t -> int -> float Loop_expr.t
+lib/loop_ir/loop_vector_facts.mli	expr-literal	val coefficient : Loop_var.t -> Loop_index.t -> (int, [> `Not_affine ]) result
+lib/loop_ir/loop_vectorize.mli	as-written	type t = | Body_statement of string | Expression of string | Live_out_temp | Loop_carried | Non_affine_access | Non_constant_bounds | Store_through_broadcast | Too_short of { trips : int; lanes : int } | Unprofitable
+lib/loop_ir/loop_vectorize.mli	tally	type t = { trips : int; work : int64; executions : int64; ops : int; outcome : outcome; } end
+lib/loop_ir/loop_vectorize.mli	tally	val tally : report -> (string * (int * int64)) list
+lib/loop_ir/loop_wasm.mli	as-written	type error = [ `Index_constant_out_of_range of int | `Local_arrays_too_large of int64 | `Unsupported_precision of Loop_numerics.Refusal.t ]
+lib/loop_ir/loop_wasm.mli	wire	type t = { module_ : Wasm.Module.t; local_base : int; mark_base : int option; heap_base : int; sites : Loop_failure.t array; precision : Loop_numerics.Precision.t; }
+lib/loop_ir/loop_wasm.mli	wire	val error_address : int
+lib/loop_ir/loop_wasm.mli	wire	val kernel : ?vector:Loop_target.t -> ?numerics:Loop_numerics.t -> ?precision:Loop_numerics.Precision.t -> ?mark_base:int -> table_alloc:(bytes:int -> int) -> Loop_program.t -> (kernel, [> error ]) Err.t
+lib/loop_ir/loop_wasm.mli	wire	val lower_with : ?numerics:Loop_numerics.t -> ?count_marks:bool -> (mark_base:int option -> table_alloc:(bytes:int -> int) -> (kernel, 'e) Err.t) -> (t, 'e) Err.t
+lib/loop_ir/loop_wasm.mli	wire	val with_pages : t -> pages:int -> Wasm.Module.t
+lib/loop_ir/loop_wasm_failure.mli	wire	val error_words : int
+lib/loop_ir/loop_wasm_failure.mli	wire	val kind_offset : int
+lib/loop_ir/loop_wasm_failure.mli	wire	val invocation_offset : int
+lib/loop_ir/loop_wasm_failure.mli	wire	val slot_offset : int -> int
+lib/loop_ir/loop_wasm_failure.mli	wire	val record_bytes : int
+lib/loop_ir/loop_wasm_failure.mli	wire	val kind_index : Loop_js_failure.Kind.t -> int
+lib/loop_ir/loop_wasm_link.mli	todo-domain	val kernel_call : int -> Wasm.Instr.t
+lib/loop_ir/loop_wasm_link.mli	todo-domain	val link : callees:Loop_wasm_runtime.Callee.t list -> Wasm.Func.t list -> Wasm.Import.t list * Wasm.Func.t list * int
+lib/loop_ir/loop_wasm_runtime.mli	todo-domain	val index : t -> int
+lib/loop_ir/loop_wasm_runtime.mli	todo-domain	val of_index : int -> t
+lib/loop_ir/loop_array.ml	defn	type t = private int
+lib/loop_ir/loop_array.ml	defn	val of_int : int -> t
+lib/loop_ir/loop_array.ml	defn	val to_int : t -> int
+lib/loop_ir/loop_array.ml	hash	val compare : t -> t -> int
+lib/loop_ir/loop_array.ml	hash	val compare : ('a -> 'a -> int) -> 'a t -> 'a t -> int
+lib/loop_ir/loop_array.ml	tally	val cardinal : 'a t -> int
+lib/loop_ir/loop_array.ml	hash	val compare : t -> t -> int
+lib/loop_ir/loop_array.ml	tally	val cardinal : t -> int
+lib/loop_ir/loop_array.ml	defn	type t = private int
+lib/loop_ir/loop_array.ml	defn	val of_int : int -> t
+lib/loop_ir/loop_array.ml	tally	val check_room : t -> count:int -> unit
+lib/loop_ir/loop_array.ml	tally	val alloc_n : t -> int -> id list * t
+lib/loop_ir/loop_array.ml	hash	val compare : t -> t -> int
+lib/loop_ir/loop_bool.ml	expr-literal	type ('f, 'i) t = I64_eq of 'i * 'i | I64_lt of 'i * 'i | Index_eq of Loop_ir.Loop_index.t * Loop_ir.Loop_index.t | Index_lt of Loop_ir.Loop_index.t * Loop_ir.Loop_index.t | Index_overflows of Loop_ir.Loop_index.t | Not of ('f, 'i) t | Or of ('f, 'i) t * ('f, 'i) t | Out_of_range of Loop_ir.Loop_index.t * int | Pool_better of 'f * 'f | Value_eq of 'f * 'f | Value_lt of 'f * 'f
+lib/loop_ir/loop_c_base.ml	todo-domain	type names = { vars : (int, int) Hashtbl.t; temps : (int, int) Hashtbl.t; index_temps : (int, int) Hashtbl.t; arrays : (int, int) Hashtbl.t; buffers : (int, int) Hashtbl.t; dialect : Loop_ir.Loop_c_dialect.t; f32 : bool; sites : Loop_ir.Loop_failure.t array; mutable next_site : int; mutable used : R.Name.t list; mutable local_doubles : int64; }
+lib/loop_ir/loop_c_base.ml	todo-domain	val ordinal : ('a, int) Hashtbl.t -> 'a -> int
+lib/loop_ir/loop_c_base.ml	as-written	val int_lit : int -> string
+lib/loop_ir/loop_c_base.ml	tally	val small : int -> bool
+lib/loop_ir/loop_c_base.ml	expr-literal	val scale_i : int -> Loop_ir.Loop_index.t -> Loop_ir.Loop_index.t
+lib/loop_ir/loop_c_base.ml	wire	type overflow_node = { op : int; value : string; lhs : string; rhs : string; }
+lib/loop_ir/loop_c_base.ml	todo-domain	val scan_failure : names -> F.Projection.t -> site:int -> local:'a option -> row:Loop_ir.Loop_index.t -> lane:Loop_ir.Loop_index.t -> extent:int -> string
+lib/loop_ir/loop_c_base.ml	todo-domain	val failure : names -> site:int -> Loop_ir.Loop_failure.t -> string
+lib/loop_ir/loop_c_base.ml	todo-domain	val next_site : names -> Loop_ir.Loop_failure.t -> int
+lib/loop_ir/loop_c_base.ml	tally	val indent : int -> string
+lib/loop_ir/loop_c_vector.ml	todo-domain	val lane_offset : V.Access.t -> int -> Loop_ir.Loop_index.t
+lib/loop_ir/loop_c_vector.ml	tally	module Vkind : sig type t = { ty : string; p : string; n : int; } end
+lib/loop_ir/loop_c_vector.ml	tally	val vloop : Loop_ir.Loop_c_base.names -> depth:int -> scalar_stmt:(Loop_ir.Loop_stmt.t -> string list) -> V.loop -> string list
+lib/loop_ir/loop_c_vector.ml	tally	val vreduction : Loop_ir.Loop_c_base.names -> depth:int -> V.Reduction.t -> string list
+lib/loop_ir/loop_failure.ml	as-written	type t = Gather_out_of_range of { raw : int64 Loop_ir.Loop_expr.t; extent : int; } | I64_division_by_zero | I64_division_overflow | I64_from_float of { value : float Loop_ir.Loop_expr.t; } | Index_overflow of { index : Loop_ir.Loop_index.t; } | Load_out_of_range of { buffer : Loop_ir.Loop_buffer.t; coord : Loop_ir.Loop_index.coord; } | Local_out_of_range of { local : Expr.Local_var.t; index : Loop_ir.Loop_index.t; extent : int; } | Scan_lane_out_of_range of { local : Expr.Local_var.t option; row : Loop_ir.Loop_index.t; lane : Loop_ir.Loop_index.t; extent : int; } | Scan_row_out_of_range of { local : Expr.Local_var.t option; row : Loop_ir.Loop_index.t; lane : Loop_ir.Loop_index.t; extent : int; }
+lib/loop_ir/loop_index.ml	expr-literal	type t = Add of t * t | Ceil_div_pos of t * int | Clamp_low of t | Const of int | Floor_div_pos of t * int | Max of t * t | Min of t * t | Scale of int * t | Temp of Loop_ir.Loop_temp.t | Var of Loop_ir.Loop_var.t
+lib/loop_ir/loop_lower_ctx.ml	todo-domain	type local = Prev_row of { array : Loop_ir.Loop_array.t; base : Loop_ir.Loop_index.t; width : int; } | Slots of { array : Loop_ir.Loop_array.t; range : Slot.Range.t; shape : Region_local.Shape.t; }
+lib/loop_ir/loop_lower_index.ml	todo-domain	val gather : Loop_ir.Loop_lower_ctx.t -> Expr.Source.t -> Expr.Role.Position.t Expr.Index.t Expr.Coord.t -> extent:int -> Loop_ir.Loop_index.t
+lib/loop_ir/loop_lower_region.ml	todo-domain	val wrap_loops : extent:('a -> int) -> ('a * Loop_ir.Loop_var.t) list -> Loop_ir.Loop_stmt.t list -> Loop_ir.Loop_stmt.t list
+lib/loop_ir/loop_lower_region.ml	todo-domain	val write_trace : Loop_ir.Loop_lower_ctx.t -> array:Loop_ir.Loop_array.t -> offset:int -> Expr.Scan.t -> unit
+lib/loop_ir/loop_lower_value.ml	todo-domain	val within : Loop_ir.Loop_lower_ctx.t -> Loop_ir.Loop_index.t -> extent:int -> bool
+lib/loop_ir/loop_lower_value.ml	todo-domain	val guard_projection : Loop_ir.Loop_lower_ctx.t -> local:Expr.Local_var.Map.key option -> row:Loop_ir.Loop_index.t -> lane:Loop_ir.Loop_index.t -> steps:int -> width:int -> unit
+lib/loop_ir/loop_mark.ml	wire	val index : t -> int
+lib/loop_ir/loop_program.ml	budget	type t = { buffers : Loop_ir.Loop_buffer.t list; body : Loop_ir.Loop_stmt.t list; scan_limits : Expr.Scan_limits.t; max_depth : int; }
+lib/loop_ir/loop_stmt.ml	todo-domain	type t = Alloc of Loop_ir.Loop_array.t * Slot.count Slot.t | Array_set of Loop_ir.Loop_array.t * Loop_ir.Loop_index.t * float Loop_ir.Loop_expr.t | Assign : 'a Loop_ir.Loop_carrier.t * Loop_ir.Loop_temp.t * 'a Loop_ir.Loop_expr.t -> t | Assign_index of Loop_ir.Loop_temp.t * Loop_ir.Loop_index.t | Assign_index_of_i64 of Loop_ir.Loop_temp.t * int64 Loop_ir.Loop_expr.t | Charge_scan_update | Fail_if of Loop_ir.Loop_expr.pred * Loop_ir.Loop_failure.t | For of { var : Loop_ir.Loop_var.t; lo : Loop_ir.Loop_index.t; hi : Loop_ir.Loop_index.t; body : t list; } | If of Loop_ir.Loop_expr.pred * t list * t list | Mark of Loop_ir.Loop_mark.t | Reduce_sum of { var : Loop_ir.Loop_var.t; lo : Loop_ir.Loop_index.t; hi : Loop_ir.Loop_index.t; acc : Loop_ir.Loop_temp.t; seed : float; body : t list; term : float Loop_ir.Loop_expr.t; at : Tensor_id.t option; } | Release_scan_state of int | Reserve_scan_state of int | Reset_meter | Store of { buffer : Loop_ir.Loop_buffer.t; coord : Loop_ir.Loop_index.coord; value : Loop_ir.Loop_stored.t; } | Store_flat of { buffer : Loop_ir.Loop_buffer.t; offset : Loop_ir.Loop_index.t; value : Loop_ir.Loop_stored.t; }
+lib/loop_ir/loop_temp.ml	defn	type t = private int
+lib/loop_ir/loop_temp.ml	defn	val of_int : int -> t
+lib/loop_ir/loop_temp.ml	defn	val to_int : t -> int
+lib/loop_ir/loop_temp.ml	hash	val compare : t -> t -> int
+lib/loop_ir/loop_temp.ml	hash	val compare : ('a -> 'a -> int) -> 'a t -> 'a t -> int
+lib/loop_ir/loop_temp.ml	tally	val cardinal : 'a t -> int
+lib/loop_ir/loop_temp.ml	hash	val compare : t -> t -> int
+lib/loop_ir/loop_temp.ml	tally	val cardinal : t -> int
+lib/loop_ir/loop_temp.ml	defn	type t = private int
+lib/loop_ir/loop_temp.ml	defn	val of_int : int -> t
+lib/loop_ir/loop_temp.ml	tally	val check_room : t -> count:int -> unit
+lib/loop_ir/loop_temp.ml	tally	val alloc_n : t -> int -> id list * t
+lib/loop_ir/loop_temp.ml	hash	val compare : t -> t -> int
+lib/loop_ir/loop_var.ml	defn	type t = private int
+lib/loop_ir/loop_var.ml	defn	val of_int : int -> t
+lib/loop_ir/loop_var.ml	defn	val to_int : t -> int
+lib/loop_ir/loop_var.ml	hash	val compare : t -> t -> int
+lib/loop_ir/loop_var.ml	hash	val compare : ('a -> 'a -> int) -> 'a t -> 'a t -> int
+lib/loop_ir/loop_var.ml	tally	val cardinal : 'a t -> int
+lib/loop_ir/loop_var.ml	hash	val compare : t -> t -> int
+lib/loop_ir/loop_var.ml	tally	val cardinal : t -> int
+lib/loop_ir/loop_var.ml	defn	type t = private int
+lib/loop_ir/loop_var.ml	defn	val of_int : int -> t
+lib/loop_ir/loop_var.ml	tally	val check_room : t -> count:int -> unit
+lib/loop_ir/loop_var.ml	tally	val alloc_n : t -> int -> id list * t
+lib/loop_ir/loop_var.ml	hash	val compare : t -> t -> int
+lib/loop_ir/loop_wasm_ctx.ml	wire	val error_address : int
+lib/loop_ir/loop_wasm_ctx.ml	as-written	type error = [ `Index_constant_out_of_range of int | `Local_arrays_too_large of int64 | `Unsupported_precision of Loop_ir.Loop_numerics.Refusal.t ]
+lib/loop_ir/loop_wasm_ctx.ml	todo-domain	type st = { esc : error Err.Escape.t; f32 : bool; relaxed_madd : bool; mutable extra : Wasm_type.t list; n_params : int; vars : (int, int) Hashtbl.t; bounds : (int, int) Hashtbl.t; floats : (int, int) Hashtbl.t; int64s : (int, int) Hashtbl.t; indices : (int, int) Hashtbl.t; buffers : (int, int) Hashtbl.t; tables : (int, int * int) Hashtbl.t; arrays : (int, int) Hashtbl.t; mutable local_top : int64; table_alloc : bytes:int -> int; mark_base : int option; mutable used : R.Callee.t list; mutable meter : (int * int) option; sites : Loop_ir.Loop_failure.t array; mutable next_site : int; }
+lib/loop_ir/loop_wasm_ctx.ml	wire	val i32 : int -> I.t
+lib/loop_ir/loop_wasm_ctx.ml	todo-domain	val get : int -> I.t
+lib/loop_ir/loop_wasm_ctx.ml	todo-domain	val set : int -> I.t
+lib/loop_ir/loop_wasm_ctx.ml	bits	val array_log2 : st -> int
+lib/loop_ir/loop_wasm_ctx.ml	cell	val array_cell_bytes : st -> int
+lib/loop_ir/loop_wasm_ctx.ml	wire	val arg : int -> int -> Wasm.Mem_arg.t
+lib/loop_ir/loop_wasm_ctx.ml	expr-literal	val fits32 : int -> bool
+lib/loop_ir/loop_wasm_ctx.ml	expr-literal	val int_const : st -> int -> I.t
+lib/loop_ir/loop_wasm_ctx.ml	todo-domain	val fresh : st -> Wasm_type.t -> int
+lib/loop_ir/loop_wasm_ctx.ml	todo-domain	val local : ('a, int) Hashtbl.t -> st -> 'a -> Wasm_type.t -> int
+lib/loop_ir/loop_wasm_ctx.ml	todo-domain	val var : st -> Loop_ir.Loop_var.t -> int
+lib/loop_ir/loop_wasm_ctx.ml	todo-domain	val bound : st -> Loop_ir.Loop_var.t -> int
+lib/loop_ir/loop_wasm_ctx.ml	todo-domain	val ftemp : st -> Loop_ir.Loop_temp.t -> int
+lib/loop_ir/loop_wasm_ctx.ml	todo-domain	val itemp : st -> Loop_ir.Loop_temp.t -> int
+lib/loop_ir/loop_wasm_ctx.ml	todo-domain	val xtemp : st -> Loop_ir.Loop_temp.t -> int
+lib/loop_ir/loop_wasm_ctx.ml	todo-domain	val buffer_param : st -> Loop_ir.Loop_buffer.t -> int
+lib/loop_ir/loop_wasm_ctx.ml	todo-domain	val reserve_local : st -> int64 -> int
+lib/loop_ir/loop_wasm_ctx.ml	bits	val cell_log2 : Loop_ir.Loop_buffer.t -> int
+lib/loop_ir/loop_wasm_fail.ml	wire	val fail : Loop_ir.Loop_wasm_ctx.st -> Loop_ir.Loop_js_failure.Kind.t -> (int * Loop_ir.Loop_wasm_ctx.I.t list) list -> Loop_ir.Loop_wasm_ctx.I.t list
+lib/loop_ir/loop_wasm_fail.ml	expr-literal	val i64_of_int : int -> Loop_ir.Loop_wasm_ctx.I.t list
+lib/loop_ir/loop_wasm_fail.ml	todo-domain	val scan_failure : Loop_ir.Loop_wasm_ctx.st -> Loop_ir.Loop_wasm_ctx.F.Projection.t -> site:int -> local:'a option -> row:Loop_ir.Loop_index.t -> lane:Loop_ir.Loop_index.t -> extent:int -> Loop_ir.Loop_wasm_ctx.I.t list
+lib/loop_ir/loop_wasm_fail.ml	todo-domain	val failure : Loop_ir.Loop_wasm_ctx.st -> site:int -> Loop_ir.Loop_failure.t -> Loop_ir.Loop_wasm_ctx.I.t list
+lib/loop_ir/loop_wasm_value.ml	expr-literal	val positive : Loop_ir.Loop_wasm_ctx.st -> int -> Loop_ir.Loop_wasm_ctx.I.t
+lib/loop_ir/loop_wasm_value.ml	wire	type overflow_node = { op : int; value : Loop_ir.Loop_wasm_ctx.I.t list; lhs : Loop_ir.Loop_wasm_ctx.I.t list; rhs : Loop_ir.Loop_wasm_ctx.I.t list; }
+lib/loop_ir/loop_wasm_vector.ml	todo-domain	type vctx = { halves : int; lpr : int; temps : (int, int array) Hashtbl.t; mutable splats : (float Loop_ir.Loop_expr.t * int) list; }
+lib/loop_ir/loop_wasm_vector.ml	todo-domain	val temp_local : Loop_ir.Loop_wasm_ctx.st -> vctx -> V.Temp.t -> int -> int
+lib/loop_ir/loop_wasm_vector.ml	todo-domain	val lane0 : vctx -> int -> int
+lib/loop_ir/loop_wasm_vector.ml	todo-domain	val lane_offset : V.Access.t -> int -> Loop_ir.Loop_index.t
+lib/loop_ir/loop_wasm_vector.ml	todo-domain	val half : Loop_ir.Loop_wasm_ctx.st -> vctx -> int -> V.t -> Loop_ir.Loop_wasm_ctx.I.t list
+lib/loop_ir/loop_wasm_vector.ml	todo-domain	val half_mask : Loop_ir.Loop_wasm_ctx.st -> vctx -> int -> V.mask -> Loop_ir.Loop_wasm_ctx.I.t list
+lib/loop_ir/loop_wasm_vector.ml	todo-domain	val load : Loop_ir.Loop_wasm_ctx.st -> vctx -> int -> V.Access.t -> Loop_ir.Loop_wasm_ctx.I.t list
+lib/machine_interp/mir_interp.mli	budget	val run : ?fuel:int64 -> ?max_depth:int -> ?invocation:int32 -> ?models:Mir_helper_model.t list -> Mir_verify.Generic.t -> Mir_memory.t -> Binding.t -> args:Mir_datum.t list -> run
+lib/machine_ir/mir_f64_census.mli	tally	val count : t -> Role.t -> int
+lib/machine_ir/mir_f64_census.mli	tally	val helpers : t -> (string * int) list
+lib/machine_ir/mir_f64_census.mli	tally	val total : t -> int
+lib/machine_ir/mir_planning.mli	hash	val compare : t -> t -> int end
+lib/machine_model/mir_model.mli	tally	val invocations : t -> int
+lib/machine_model/mir_model.mli	tally	val packed : t -> int
+lib/machine_model/mir_model.mli	budget	val run_prefix : ?fuel:int64 -> t -> inputs:(Tensor_id.t -> Tensor.packed option) -> count:int -> (Tensor_id.t list, Stop.t) result
+lib/machine_model/sdpa_select.mli	budget	type t = { block_keys : int; precision : Attention_block.Precision.t }
+lib/machine_model/sdpa_select.mli	as-written	type t = | Block_keys of int | Descriptor of string | Engine_absent | Feature_extent of int | Mask_not_f32 | Not_bf16 of string | Not_f32 of string | Not_sdpa | Outer_axes | Padded_work of { padded : int64; actual : int64 } | Ungranted | Unknown_node
+lib/machine_rivet_aarch64/rivet_a64_exp.ml	todo-domain	val one : int
+lib/machine_rivet_aarch64/rivet_a64_exp.ml	todo-domain	val round_bias : int
+lib/machine_rivet_aarch64/rivet_a64_exp.ml	todo-domain	val big : int
+lib/machine_rivet_aarch64/rivet_a64_exp.ml	todo-domain	val tiny : int
+lib/machine_rivet_aarch64/rivet_a64_exp.ml	todo-domain	val table_at : int
+lib/machine_rivet_aarch64/rivet_a64_form.ml	todo-domain	type env = { mutation : Mutation.t option; esc : R.t Err.Escape.t; reference : Machine_ir.Mir_target.Reference.t -> (string * int64) option; table_slot : string -> int option; }
+lib/machine_rivet_aarch64/rivet_a64_form.ml	wire	val imm_int : int -> O.t
+lib/machine_rivet_aarch64/rivet_a64_form.ml	todo-domain	val sp_unit : int
+lib/machine_rivet_aarch64/rivet_a64_form.ml	tally	val width_bits : A.Sz.t -> int
+lib/machine_rivet_aarch64/rivet_a64_form.ml	tally	val gpr : env -> width:int -> Machine_ir.Mir_target.View.t -> Aarch64_encode.Reg.t
+lib/machine_rivet_aarch64/rivet_a64_form.ml	todo-domain	val vnum : env -> Loc.t -> int
+lib/machine_rivet_aarch64/rivet_a64_form.ml	cell	val nth : env -> string -> 'a list -> int -> 'a
+lib/machine_rivet_aarch64/rivet_a64_form.ml	wire	val bitfield : signed:bool -> rd:O.t -> rn:O.t -> lsb:int -> width:int -> I.t
+lib/machine_rivet_aarch64/rivet_a64_form.ml	wire	val xtl : u:int -> q:int -> immhb:int -> rn:int -> rd:int -> int32
+lib/machine_rivet_aarch64/rivet_a64_host.ml	todo-domain	type kernel = { view : Mm.Kernel_view.t; slots : Machine_rivet_aarch64.Rivet_a64_table.slot list; record_slot : int; sites : Machine_ir.Mir_failure.Site_entry.t array; loaded : I.t; manifest : Machine_rivet_aarch64.Rivet_a64_manifest.t; }
+lib/machine_rivet_aarch64/rivet_a64_host.ml	tally	val invocations : t -> int
+lib/machine_rivet_aarch64/rivet_a64_host.ml	todo-domain	val slot_index : Machine_rivet_aarch64.Rivet_a64_table.slot list -> Machine_ir.Mir_id.Region.t -> int option
+lib/machine_rivet_aarch64/rivet_a64_host.ml	todo-domain	val tensor_bytes : Tensor.packed -> int
+lib/machine_rivet_aarch64/rivet_a64_host.ml	todo-domain	type bound = { kernel : kernel; table : (char, Bigarray.int8_unsigned_elt, Bigarray.c_layout) Bigarray.Array1.t; scratch : (int * (char, Bigarray.int8_unsigned_elt, Bigarray.c_layout) Bigarray.Array1.t) list; }
+lib/machine_rivet_aarch64/rivet_a64_host.ml	wire	val set_word : (char, 'a, 'b) Bigarray.Array1.t -> int -> int64 -> unit
+lib/machine_rivet_aarch64/rivet_a64_host.ml	todo-domain	val bytes : int -> (char, Bigarray.int8_unsigned_elt, Bigarray.c_layout) Bigarray.Array1.t
+lib/machine_rivet_aarch64/rivet_a64_host.ml	todo-domain	val invoke : ?poison:bool -> int -> bound -> (unit, Mm.Stop.t) result
+lib/machine_rivet_aarch64/rivet_a64_host.ml	tally	val run_prefix : ?poison:bool -> t -> inputs:(Graph_ir.Tensor_id.t -> Tensor.packed option) -> count:int -> (Graph_ir.Tensor_id.t list, Mm.Stop.t) result
+lib/machine_rivet_aarch64/rivet_a64_image.ml	wire	type section_build = Driver_direct.Pipeline_direct.Make(Aarch64_encode).section_build = { sb_name : string; sb_perms : Asm_core.Perms.t; sb_kind : Asm_core.Lowered_ast.section_kind; mutable sb_align : int; mutable sb_frags : Aarch64_encode.fixup_kind Asm_core.Lowered_ast.fragment list; }
+lib/machine_rivet_aarch64/rivet_a64_image.ml	wire	val merge_fill : executable:bool -> int -> string
+lib/machine_rivet_aarch64/rivet_a64_image.ml	wire	val section_pad : (length:int -> string) option
+lib/machine_rivet_aarch64/rivet_a64_module.ml	todo-domain	val relocation_index : ('a, 'b) Art.t -> (int * int * int option, Art.Relocation.t) Hashtbl.t
+lib/machine_rivet_aarch64/rivet_a64_module.ml	todo-domain	val instrs_of_func : ?mutation:F.Mutation.t -> table_slot:(string -> int option) -> F.R.t Err.Escape.t -> (int * int * int option, Art.Relocation.t) Hashtbl.t -> (Machine_target_aarch64.A64_op.t, Machine_target_aarch64.A64_op.test) Machine_ir.Mir_phys.Func.t -> F.I.t N.item list
+lib/machine_rivet_aarch64/rivet_a64_route.ml	tally	val shape : Machine_ir.Mir_type.t -> (Machine_ir.Mir_target.Bank.t * int) option
+lib/machine_rivet_aarch64/rivet_a64_route.ml	todo-domain	val in_memory : int -> Machine_ir.Mir_phys_verify.Loc.t -> bool
+lib/machine_rivet_aarch64/rivet_a64_route.ml	tally	val shape : Machine_ir.Mir_value.t -> Machine_ir.Mir_target.Bank.t * int
+lib/machine_rivet_aarch64/rivet_a64_route.ml	todo-domain	type st = Machine_alloc.Mir_ref_alloc.Make(Machine_target_aarch64.A64)(Machine_target_aarch64.A64_regs).st = { mutation : Machine_alloc.Mir_ref_alloc.Mutation.t option; mutable next_block : int; mutable slots : Machine_ir.Mir_phys.Slot.t list; mutable previous : Machine_ir.Mir_value.t option; }
+lib/machine_rivet_aarch64/rivet_a64_route.ml	tally	val shape : Machine_ir.Mir_type.t -> (Machine_ir.Mir_target.Bank.t * int) option
+lib/machine_rivet_aarch64/rivet_a64_route.ml	todo-domain	val in_memory : int -> Machine_ir.Mir_phys_verify.Loc.t -> bool
+lib/machine_rivet_aarch64/rivet_a64_route.ml	todo-domain	type t = Machine_alloc.Mir_liveness.Make(Machine_target_aarch64.A64).Interval.t = { value : Machine_ir.Mir_value.t; ranges : (int * int) list; uses : int list; } end
+lib/machine_rivet_aarch64/rivet_a64_route.ml	todo-domain	val spans : func -> (Machine_ir.Mir_id.Block.t * (int * int)) list
+lib/machine_rivet_aarch64/rivet_a64_route.ml	tally	val shape : Machine_ir.Mir_value.t -> Machine_ir.Mir_target.Bank.t * int
+lib/machine_rivet_aarch64/rivet_a64_route.ml	todo-domain	type t = Machine_alloc.Mir_scan.Make(Machine_target_aarch64.A64)(Machine_target_aarch64.A64_regs).Where.t = In of int | Spilled | Unassigned end
+lib/machine_rivet_aarch64/rivet_a64_route.ml	todo-domain	type t = Machine_alloc.Mir_scan.Make(Machine_target_aarch64.A64)(Machine_target_aarch64.A64_regs).Piece.t = { value : Machine_ir.Mir_value.t; mutable ranges : (int * int) list; mutable uses : int list; mutable needs : int list; mutable where : Where.t; }
+lib/machine_rivet_aarch64/rivet_a64_route.ml	todo-domain	val start : t -> int
+lib/machine_rivet_aarch64/rivet_a64_route.ml	todo-domain	val stop : t -> int
+lib/machine_rivet_aarch64/rivet_a64_route.ml	todo-domain	val covers : t -> int -> bool
+lib/machine_rivet_aarch64/rivet_a64_route.ml	todo-domain	val intersection : t -> t -> from:int -> int option
+lib/machine_rivet_aarch64/rivet_a64_route.ml	todo-domain	val next_use : t -> from:int -> int option
+lib/machine_rivet_aarch64/rivet_a64_route.ml	todo-domain	val split : t -> int -> t end
+lib/machine_rivet_aarch64/rivet_a64_route.ml	todo-domain	type t = Machine_alloc.Mir_scan.Make(Machine_target_aarch64.A64)(Machine_target_aarch64.A64_regs).Fixed.t = { view : Machine_ir.Mir_target.View.t; lo : int; hi : int; own : Machine_ir.Mir_value.t list; } end
+lib/machine_rivet_aarch64/rivet_a64_route.ml	todo-domain	val split_for : int -> int
+lib/machine_rivet_aarch64/rivet_a64_route.ml	todo-domain	val must : Piece.t -> at:int -> bool
+lib/machine_rivet_aarch64/rivet_a64_route.ml	todo-domain	type st = Machine_alloc.Mir_scan.Make(Machine_target_aarch64.A64)(Machine_target_aarch64.A64_regs).st = { mutation : Machine_alloc.Mir_scan.Mutation.t option; mutable next_block : int; }
+lib/machine_rivet_aarch64/rivet_a64_route.ml	todo-domain	val scan : st -> bank:Machine_ir.Mir_target.Bank.t -> fixed:Fixed.t list -> depth:(int -> int) -> starts:int list -> split_cost:(int -> 'a) -> loops:(int * int) list -> uses_of:(Machine_ir.Mir_value.t -> int list) -> prefer:(Machine_ir.Mir_value.t -> Machine_ir.Mir_value.t option) -> Piece.t list -> Piece.t list
+lib/machine_rivet_aarch64/rivet_a64_route.ml	todo-domain	type t = Machine_alloc.Mir_liveness.Make(Machine_target_aarch64.A64).Interval.t = { value : Machine_ir.Mir_value.t; ranges : (int * int) list; uses : int list; } end
+lib/machine_rivet_aarch64/rivet_a64_route.ml	todo-domain	val spans : func -> (Machine_ir.Mir_id.Block.t * (int * int)) list
+lib/machine_rivet_aarch64/rivet_a64_route.ml	todo-domain	val key : Machine_ir.Mir_value.t -> int
+lib/machine_rivet_aarch64/rivet_a64_route.ml	todo-domain	val dependencies : ?mutation:Machine_alloc.Mir_schedule.Mutation.t -> instr array -> (int * int) list
+lib/machine_rivet_aarch64/rivet_a64_route.ml	todo-domain	val placeholder : int -> Machine_ir.Mir_type.t -> Machine_ir.Mir_value.t
+lib/machine_rivet_aarch64/rivet_a64_table.ml	todo-domain	val slot_of_symbol : slot list -> String.t -> int option
+lib/machine_rivet_aarch64/rivet_a64_table.ml	todo-domain	val bytes : 'a list -> int
+lib/machine_rivet_aarch64_gnu/gnu_coherence.ml	wire	type section_build = Driver_direct.Pipeline_direct.Make(Aarch64).section_build = { sb_name : string; sb_perms : Asm_core.Perms.t; sb_kind : Asm_core.Lowered_ast.section_kind; mutable sb_align : int; mutable sb_frags : Aarch64.fixup_kind Asm_core.Lowered_ast.fragment list; }
+lib/machine_rivet_aarch64_gnu/gnu_coherence.ml	wire	val merge_fill : executable:bool -> int -> string
+lib/machine_rivet_aarch64_gnu/gnu_coherence.ml	wire	val section_pad : (length:int -> string) option
+lib/machine_rivet_aarch64_gnu/gnu_coherence.ml	wire	type section_build = Driver_direct.Pipeline_direct.Make(Aarch64).section_build = { sb_name : string; sb_perms : Asm_core.Perms.t; sb_kind : Asm_core.Lowered_ast.section_kind; mutable sb_align : int; mutable sb_frags : Aarch64.fixup_kind Asm_core.Lowered_ast.fragment list; }
+lib/machine_rivet_aarch64_gnu/gnu_coherence.ml	wire	val merge_fill : executable:bool -> int -> string
+lib/machine_rivet_aarch64_gnu/gnu_coherence.ml	wire	val section_pad : (length:int -> string) option
+lib/machine_rivet_aarch64_gnu/gnu_coherence.ml	as-written	type error = [ `Assignment_out_of_scope of string | `Data_fixup of string | `Data_value of Asm_core.Expr.error | `Directive_not_accepted of string | `Directive_rejected of Driver.Directives.rejection | `Expression of Asm_core.Expr.error | `Invalid_configuration of string | `Local_label_survived of int | `Relax_ladder of Asm_core.Lowered_ast.relax_error | `Statement_before_section | `Unknown_directive of string ]
+lib/machine_rivet_aarch64_gnu/gnu_coherence.ml	wire	val padding_at : address:int64 -> string -> pos:int -> (int * int) option
+lib/machine_rivet_aarch64_gnu/gnu_coherence.ml	as-written	type t = Agree of { segments : int; bytes : int; symbols : int; } | Differ of { segment : string; offset : int; rivet : int; gnu : int; } | Reparsed of { segment : string; offset : int; typed : int; text : int; } | Symbols of { name : string; rivet : int64 option; gnu : int64 option; } | Tool of { command : string; status : int; output : string; } | Rivet of string
+lib/machine_rivet_aarch64_gnu/gnu_coherence.ml	as-written	val first_difference : string -> string -> (int * int * int) option
+lib/machine_rivet_common/rivet_cfi.ml	todo-domain	val epilogue_start : 'a Machine_ir.Mir_phys.Instr.t list -> int
+lib/machine_rivet_common/rivet_table.ml	todo-domain	val slot_of_symbol : slot list -> String.t -> int option
+lib/machine_rivet_common/rivet_table.ml	todo-domain	val bytes : 'a list -> int
+lib/machine_rivet_riscv32/rv32_kernel.mli	as-written	type t = | Alignment of { at : Rv32_kernel_item.At.t; boundary : int } | Duplicate_export of { name : string; first : Rv32_kernel_item.At.t; second : Rv32_kernel_item.At.t; } | Duplicate_label of { label : Rv32_kernel_label.t; first : Rv32_kernel_item.At.t; second : Rv32_kernel_item.At.t; } | Export_twice of { label : Rv32_kernel_label.t; first : Rv32_kernel_item.At.t; second : Rv32_kernel_item.At.t; } | Export_undefined of { name : string; label : Rv32_kernel_label.t; at : Rv32_kernel_item.At.t; } | Immediate_range of { at : Rv32_kernel_item.At.t; range : Rv32_kernel_imm.Imm_range.t; } | Invalid_name of { kind : Name_kind.t; name : string; at : Rv32_kernel_item.At.t option; } | Negative_zero of { at : Rv32_kernel_item.At.t; length : int } | Unresolved_label of { label : Rv32_kernel_label.t; at : Rv32_kernel_item.At.t; } | Vsetvli_keeps_vl of { at : Rv32_kernel_item.At.t }
+lib/machine_rivet_riscv32/rv32_kernel_imm.mli	wire	type t = { domain : Domain.t; value : int }
+lib/machine_rivet_riscv32/rv32_kernel_imm.mli	wire	val of_int : int -> t
+lib/machine_rivet_riscv32/rv32_kernel_imm.mli	wire	val to_int : t -> int end
+lib/machine_rivet_riscv32/rv32_kernel_label.mli	hash	val compare : t -> t -> int
+lib/machine_rivet_riscv32/rv32_kernel_reg.mli	todo-domain	type t = { class_ : Class.t; index : int }
+lib/machine_rivet_riscv32/rv32_kernel_reg.mli	hash	val compare : t -> t -> int
+lib/machine_rivet_riscv32/rv32_kernel_reg.mli	defn	val index : t -> int
+lib/machine_rivet_riscv32/rv32_kernel_reg.mli	defn	val of_index : int -> (t, [> `Register_index of Register_index.t ]) Err.t
+lib/machine_rivet_riscv32/rv32_kernel_reg.mli	hash	val compare : t -> t -> int
+lib/machine_rivet_riscv32/rv32_kernel_reg.mli	defn	val index : t -> int
+lib/machine_rivet_riscv32/rv32_kernel_reg.mli	defn	val of_index : int -> (t, [> `Register_index of Register_index.t ]) Err.t
+lib/machine_rivet_riscv32/rv32_asm.ml	wire	val imm : int -> E.Operand.t
+lib/machine_rivet_riscv32/rv32_asm.ml	wire	val const : int -> Asm_core.Expr.t
+lib/machine_rivet_riscv32/rv32_asm.ml	wire	val sym_at : string -> int -> E.Operand.t
+lib/machine_rivet_riscv32/rv32_asm.ml	wire	val mem : string -> int -> E.Operand.t
+lib/machine_rivet_riscv32/rv32_asm.ml	wire	val align : int -> 'a N.item
+lib/machine_rivet_riscv32/rv32_asm.ml	wire	val zero : int -> 'a N.item
+lib/machine_rivet_riscv32/rv32_asm.ml	wire	val words : int list -> 'a N.item
+lib/machine_rivet_riscv32/rv32_asm.ml	wire	val load_imm : string -> int -> E.Instruction.t N.item list
+lib/machine_rivet_riscv32/rv32_elf.ml	wire	val segment : int -> Image.segment -> Elf.Exec.segment
+lib/machine_rivet_riscv32/rv32_harness.ml	todo-domain	type slot = { size : int; align : int; placement : Placement.t; }
+lib/machine_rivet_riscv32/rv32_harness.ml	todo-domain	type layout = { slots : (slot * int) list; in_size : int; out_size : int; bss_size : int; }
+lib/machine_rivet_riscv32/rv32_harness.ml	wire	val status_bytes : int
+lib/machine_rivet_riscv32/rv32_harness.ml	wire	val arguments : int
+lib/machine_rivet_riscv32/rv32_harness.ml	wire	val open_in : int
+lib/machine_rivet_riscv32/rv32_harness.ml	wire	val map_in : int
+lib/machine_rivet_riscv32/rv32_harness.ml	wire	val open_out : int
+lib/machine_rivet_riscv32/rv32_harness.ml	wire	val map_out : int
+lib/machine_rivet_riscv32/rv32_harness.ml	tally	val vlen : int end
+lib/machine_rivet_riscv32/rv32_harness.ml	wire	val syscall : int -> Machine_rivet_riscv32.Rv32_asm.E.Instruction.t Machine_rivet_riscv32.Rv32_asm.N.item list
+lib/machine_rivet_riscv32/rv32_harness.ml	wire	val map : path:string -> len:int -> flags:int -> prot:int -> into:string -> open_code:int -> map_code:int -> name:string -> Machine_rivet_riscv32.Rv32_asm.E.Instruction.t Machine_rivet_riscv32.Rv32_asm.N.item list
+lib/machine_rivet_riscv32/rv32_harness.ml	wire	val at : string -> int -> Machine_rivet_riscv32.Rv32_asm.E.Instruction.t Machine_rivet_riscv32.Rv32_asm.N.item list
+lib/machine_rivet_riscv32/rv32_harness.ml	wire	val harness : ?abi:Abi.t -> ?min_vlenb:int -> entry:string -> layout -> (Machine_rivet_riscv32.Rv32_asm.E.Instruction.t Machine_rivet_riscv32.Rv32_asm.N.module_, string) result
+lib/machine_rivet_riscv32/rv32_harness.ml	wire	type outcome = { status : int32; outputs : (int * string) list; }
+lib/machine_rivet_riscv32/rv32_harness.ml	budget	val run : ?timeout:int -> ?cpu:string -> prepared -> bound:(int -> string option) -> (outcome, string) result
+lib/machine_rivet_riscv32/rv32_image.ml	wire	type section_build = Driver_direct.Pipeline_direct.Make(Riscv32_encode).section_build = { sb_name : string; sb_perms : Asm_core.Perms.t; sb_kind : Asm_core.Lowered_ast.section_kind; mutable sb_align : int; mutable sb_frags : Riscv32_encode.fixup_kind Asm_core.Lowered_ast.fragment list; }
+lib/machine_rivet_riscv32/rv32_image.ml	wire	val merge_fill : executable:bool -> int -> string
+lib/machine_rivet_riscv32/rv32_image.ml	wire	val section_pad : (length:int -> string) option
+lib/machine_rivet_riscv32/rv32_kernel_insn.ml	todo-domain	val number : t -> int
+lib/machine_rivet_riscv32/rv32_kernel_insn.ml	as-written	module Constant_range : sig type t = { value : int; } val pp : Format.formatter -> t -> unit end
+lib/machine_rivet_riscv32/rv32_kernel_insn.ml	as-written	val load_imm : Gpr.t -> int -> (t list, [> `Constant_range of Constant_range.t ]) Err.t
+lib/machine_rivet_riscv32/rv32_kernel_item.ml	todo-domain	type t = { index : int; note : string option; }
+lib/machine_rivet_riscv32/rv32_kernel_item.ml	wire	type t = Align of int | Bss | Export of { name : string; label : Machine_rivet_riscv32.Rv32_kernel_label.t; } | Insn of Machine_rivet_riscv32.Rv32_kernel_insn.t | Label of Machine_rivet_riscv32.Rv32_kernel_label.t | Note of string option | Text | Zero of int
+lib/machine_rivet_riscv32/rv32_kernel_item.ml	wire	val align : int -> t
+lib/machine_rivet_riscv32/rv32_kernel_item.ml	wire	val zero : int -> t
+lib/machine_rivet_riscv32/rv32_kernel_vtype.ml	tally	val bits : t -> int
+lib/machine_rivet_riscv32/rv32_kernel_vtype.ml	tally	val of_bits : int -> t option
+lib/machine_rivet_riscv32/rv32_kernel_vtype.ml	tally	val factor : t -> int
+lib/machine_rivet_riscv32/rv32_kernel_vtype.ml	tally	val of_factor : int -> t option
+lib/machine_rivet_riscv32/rv32_libc.ml	todo-domain	val f : int -> Machine_rivet_riscv32.Rv32_asm.E.Operand.t
+lib/machine_rivet_riscv32/rv32_process.ml	wire	type outcome = { exit_code : int; stdout : string; }
+lib/machine_rivet_riscv32/rv32_process.ml	budget	val execute : ?timeout:int -> ?cpu:string -> ?args:string list -> string -> (outcome, string) result
+lib/machine_rivet_riscv32_coral/rv32_mir_coral.ml	todo-domain	val image : ?mutation:Machine_rivet_riscv32_mir.Rv32_mir_module.F.Mutation.t -> ?kernel_mutation:Coralnpu_kernels.Rvv_contraction.Mutation.t -> ?home:(Table.slot -> Coral_layout.Home.t) -> ?engine:bool -> ?engine_mutation:Coralnpu_kernels_zvt.Zvt_contraction.Mutation.t -> ?transfer:(budget:int -> Contraction.t -> Coral_transfer.Transfer_plan.t) -> ?dma:Dma.t -> ?itcm:Int64.t -> Config.t -> Q.published -> (Coral_image.t, string) result
+lib/machine_rivet_riscv32_coral/rv32_mir_coral.ml	todo-domain	val simulate : ?budget:int64 -> ?label:string -> ?expect_cycles:int64 -> Config.t -> Coral_image.t -> bound:(int -> string option) -> ((int * string) list * int32 * Run.t, string) result
+lib/machine_rivet_riscv32_coral/rv32_mir_coral.ml	todo-domain	val exec_of : ?mutation:Machine_rivet_riscv32_mir.Rv32_mir_module.F.Mutation.t -> ?kernel_mutation:Coralnpu_kernels.Rvv_contraction.Mutation.t -> ?route_mutation:Mutation.t -> ?registers:Q.Registers.t -> ?engine:bool -> ?engine_mutation:Coralnpu_kernels_zvt.Zvt_contraction.Mutation.t -> ?transfer:(budget:int -> Contraction.t -> Coral_transfer.Transfer_plan.t) -> ?dma:Dma.t -> ?itcm:Int64.t -> ?on_run:(Run.t -> unit) -> ?on_elf:(string -> unit) -> ?on_image:((Machine_ir.Mir_id.Region.t * Coral_profile.Role.t) list -> unit) -> ?home:(Table.slot -> Coral_layout.Home.t) -> ?budget:int64 -> ?label:string -> ?expect_cycles:int64 -> Config.t -> sites:Machine_ir.Mir_failure.Site_entry.t array -> Machine_ir.Mir_verify.Generic.t -> (Route.Exec.t, string) result
+lib/machine_rivet_riscv32_coral/rv32_mir_coral.ml	todo-domain	val route : ?mutation:Machine_rivet_riscv32_mir.Rv32_mir_module.F.Mutation.t -> ?kernel_mutation:Coralnpu_kernels.Rvv_contraction.Mutation.t -> ?route_mutation:Mutation.t -> ?registers:Q.Registers.t -> ?engine:bool -> ?engine_mutation:Coralnpu_kernels_zvt.Zvt_contraction.Mutation.t -> ?transfer:(budget:int -> Contraction.t -> Coral_transfer.Transfer_plan.t) -> ?dma:Dma.t -> ?itcm:Int64.t -> ?on_run:(Run.t -> unit) -> ?on_elf:(string -> unit) -> ?on_image:((Machine_ir.Mir_id.Region.t * Coral_profile.Role.t) list -> unit) -> ?home:(Table.slot -> Coral_layout.Home.t) -> ?budget:int64 -> ?label:string -> ?expect_cycles:int64 -> Config.t -> Route.Route.t
+lib/machine_rivet_riscv32_mir/rv32_mir_census.ml	tally	type t = { instructions : int; vector : (string * int) list; configurations : int; grouped : int; spills : int; reloads : int; remats : int; frame_bytes : int64; helper_calls : int; }
+lib/machine_rivet_riscv32_mir/rv32_mir_form.ml	todo-domain	val bytes : t -> int end
+lib/machine_rivet_riscv32_mir/rv32_mir_form.ml	todo-domain	type env = { mutation : Mutation.t option; esc : Refusal.t Err.Escape.t; reference : Machine_ir.Mir_target.Reference.t -> (string * int64) option; table_slot : string -> int option; fresh_label : unit -> string; }
+lib/machine_rivet_riscv32_mir/rv32_mir_form.ml	cell	val nth : env -> string -> 'a list -> int -> 'a
+lib/machine_rivet_riscv32_mir/rv32_mir_form.ml	tally	val vsetivli : ?config:Vconfig.t -> ?vl:int -> ?tail:string -> unit -> Item.t
+lib/machine_rivet_riscv32_mir/rv32_mir_module.ml	todo-domain	val relocation_index : ('a, 'b) Art.t -> (int * int * int option, Art.Relocation.t) Hashtbl.t
+lib/machine_rivet_riscv32_mir/rv32_mir_module.ml	budget	val reach : int
+lib/machine_rivet_riscv32_mir/rv32_mir_module.ml	todo-domain	val func_items : F.env -> (int * int * int option, Art.Relocation.t) Hashtbl.t -> (Machine_target_riscv32.Rv32_op.t, Machine_target_riscv32.Rv32_op.test) Machine_ir.Mir_phys.Func.t -> F.Item.t list
+lib/machine_rivet_riscv32_mir/rv32_mir_outline.ml	todo-domain	type layout = { func : func; head : Item.t list; labels : string array; runs : Item.t list array; index : (int, int) Hashtbl.t; }
+lib/machine_rivet_riscv32_mir/rv32_mir_outline.ml	todo-domain	val successors : layout -> int -> int list
+lib/machine_rivet_riscv32_mir/rv32_mir_outline.ml	todo-domain	val bytes : Item.t list -> int
+lib/machine_rivet_riscv32_mir/rv32_mir_outline.ml	todo-domain	type candidate = { first : int; last : int; size : int; depth : int; }
+lib/machine_rivet_riscv32_mir/rv32_mir_outline.ml	todo-domain	val sp_slot : int -> int
+lib/machine_rivet_riscv32_mir/rv32_mir_outline.ml	wire	val save : string -> int -> Item.t
+lib/machine_rivet_riscv32_mir/rv32_mir_outline.ml	wire	val restore : string -> int -> Item.t
+lib/machine_rivet_riscv32_mir/rv32_mir_outline.ml	todo-domain	val fill : slot:int -> candidate list -> candidate list option
+lib/machine_rivet_riscv32_mir/rv32_mir_route.ml	tally	val shape : Machine_ir.Mir_type.t -> (Machine_ir.Mir_target.Bank.t * int) option
+lib/machine_rivet_riscv32_mir/rv32_mir_route.ml	todo-domain	val in_memory : int -> Machine_ir.Mir_phys_verify.Loc.t -> bool
+lib/machine_rivet_riscv32_mir/rv32_mir_route.ml	tally	val shape : Machine_ir.Mir_value.t -> Machine_ir.Mir_target.Bank.t * int
+lib/machine_rivet_riscv32_mir/rv32_mir_route.ml	todo-domain	type st = Machine_alloc.Mir_ref_alloc.Make(Machine_target_riscv32.Rv32)(Machine_target_riscv32.Rv32_regs).st = { mutation : Machine_alloc.Mir_ref_alloc.Mutation.t option; mutable next_block : int; mutable slots : Machine_ir.Mir_phys.Slot.t list; mutable previous : Machine_ir.Mir_value.t option; }
+lib/machine_rivet_riscv32_mir/rv32_mir_route.ml	tally	val shape : Machine_ir.Mir_type.t -> (Machine_ir.Mir_target.Bank.t * int) option
+lib/machine_rivet_riscv32_mir/rv32_mir_route.ml	todo-domain	val in_memory : int -> Machine_ir.Mir_phys_verify.Loc.t -> bool
+lib/machine_rivet_riscv32_mir/rv32_mir_route.ml	todo-domain	type t = Machine_alloc.Mir_liveness.Make(Machine_target_riscv32.Rv32).Interval.t = { value : Machine_ir.Mir_value.t; ranges : (int * int) list; uses : int list; } end
+lib/machine_rivet_riscv32_mir/rv32_mir_route.ml	todo-domain	val spans : func -> (Machine_ir.Mir_id.Block.t * (int * int)) list
+lib/machine_rivet_riscv32_mir/rv32_mir_route.ml	tally	val shape : Machine_ir.Mir_value.t -> Machine_ir.Mir_target.Bank.t * int
+lib/machine_rivet_riscv32_mir/rv32_mir_route.ml	todo-domain	type t = Machine_alloc.Mir_scan.Make(Machine_target_riscv32.Rv32)(Machine_target_riscv32.Rv32_regs).Where.t = In of int | Spilled | Unassigned end
+lib/machine_rivet_riscv32_mir/rv32_mir_route.ml	todo-domain	type t = Machine_alloc.Mir_scan.Make(Machine_target_riscv32.Rv32)(Machine_target_riscv32.Rv32_regs).Piece.t = { value : Machine_ir.Mir_value.t; mutable ranges : (int * int) list; mutable uses : int list; mutable needs : int list; mutable where : Where.t; }
+lib/machine_rivet_riscv32_mir/rv32_mir_route.ml	todo-domain	val start : t -> int
+lib/machine_rivet_riscv32_mir/rv32_mir_route.ml	todo-domain	val stop : t -> int
+lib/machine_rivet_riscv32_mir/rv32_mir_route.ml	todo-domain	val covers : t -> int -> bool
+lib/machine_rivet_riscv32_mir/rv32_mir_route.ml	todo-domain	val intersection : t -> t -> from:int -> int option
+lib/machine_rivet_riscv32_mir/rv32_mir_route.ml	todo-domain	val next_use : t -> from:int -> int option
+lib/machine_rivet_riscv32_mir/rv32_mir_route.ml	todo-domain	val split : t -> int -> t end
+lib/machine_rivet_riscv32_mir/rv32_mir_route.ml	todo-domain	type t = Machine_alloc.Mir_scan.Make(Machine_target_riscv32.Rv32)(Machine_target_riscv32.Rv32_regs).Fixed.t = { view : Machine_ir.Mir_target.View.t; lo : int; hi : int; own : Machine_ir.Mir_value.t list; } end
+lib/machine_rivet_riscv32_mir/rv32_mir_route.ml	todo-domain	val split_for : int -> int
+lib/machine_rivet_riscv32_mir/rv32_mir_route.ml	todo-domain	val must : Piece.t -> at:int -> bool
+lib/machine_rivet_riscv32_mir/rv32_mir_route.ml	todo-domain	type st = Machine_alloc.Mir_scan.Make(Machine_target_riscv32.Rv32)(Machine_target_riscv32.Rv32_regs).st = { mutation : Machine_alloc.Mir_scan.Mutation.t option; mutable next_block : int; }
+lib/machine_rivet_riscv32_mir/rv32_mir_route.ml	todo-domain	val scan : st -> bank:Machine_ir.Mir_target.Bank.t -> fixed:Fixed.t list -> depth:(int -> int) -> starts:int list -> split_cost:(int -> 'a) -> loops:(int * int) list -> uses_of:(Machine_ir.Mir_value.t -> int list) -> prefer:(Machine_ir.Mir_value.t -> Machine_ir.Mir_value.t option) -> Piece.t list -> Piece.t list
+lib/machine_rivet_riscv32_mir/rv32_mir_route.ml	tally	val shape : Machine_ir.Mir_type.t -> (Machine_ir.Mir_target.Bank.t * int) option
+lib/machine_rivet_riscv32_mir/rv32_mir_route.ml	todo-domain	val in_memory : int -> Machine_ir.Mir_phys_verify.Loc.t -> bool
+lib/machine_rivet_riscv32_mir/rv32_mir_route.ml	todo-domain	type t = Machine_alloc.Mir_liveness.Make(Machine_target_riscv32.Rv32).Interval.t = { value : Machine_ir.Mir_value.t; ranges : (int * int) list; uses : int list; } end
+lib/machine_rivet_riscv32_mir/rv32_mir_route.ml	todo-domain	val spans : func -> (Machine_ir.Mir_id.Block.t * (int * int)) list
+lib/machine_rivet_riscv32_mir/rv32_mir_route.ml	tally	val shape : Machine_ir.Mir_value.t -> Machine_ir.Mir_target.Bank.t * int
+lib/machine_rivet_riscv32_mir/rv32_mir_route.ml	todo-domain	type t = Machine_alloc.Mir_scan.Make(Machine_target_riscv32.Rv32)(Machine_target_riscv32.Rv32_regs.Grouped).Where.t = In of int | Spilled | Unassigned end
+lib/machine_rivet_riscv32_mir/rv32_mir_route.ml	todo-domain	type t = Machine_alloc.Mir_scan.Make(Machine_target_riscv32.Rv32)(Machine_target_riscv32.Rv32_regs.Grouped).Piece.t = { value : Machine_ir.Mir_value.t; mutable ranges : (int * int) list; mutable uses : int list; mutable needs : int list; mutable where : Where.t; }
+lib/machine_rivet_riscv32_mir/rv32_mir_route.ml	todo-domain	val start : t -> int
+lib/machine_rivet_riscv32_mir/rv32_mir_route.ml	todo-domain	val stop : t -> int
+lib/machine_rivet_riscv32_mir/rv32_mir_route.ml	todo-domain	val covers : t -> int -> bool
+lib/machine_rivet_riscv32_mir/rv32_mir_route.ml	todo-domain	val intersection : t -> t -> from:int -> int option
+lib/machine_rivet_riscv32_mir/rv32_mir_route.ml	todo-domain	val next_use : t -> from:int -> int option
+lib/machine_rivet_riscv32_mir/rv32_mir_route.ml	todo-domain	val split : t -> int -> t end
+lib/machine_rivet_riscv32_mir/rv32_mir_route.ml	todo-domain	type t = Machine_alloc.Mir_scan.Make(Machine_target_riscv32.Rv32)(Machine_target_riscv32.Rv32_regs.Grouped).Fixed.t = { view : Machine_ir.Mir_target.View.t; lo : int; hi : int; own : Machine_ir.Mir_value.t list; } end
+lib/machine_rivet_riscv32_mir/rv32_mir_route.ml	todo-domain	val split_for : int -> int
+lib/machine_rivet_riscv32_mir/rv32_mir_route.ml	todo-domain	val must : Piece.t -> at:int -> bool
+lib/machine_rivet_riscv32_mir/rv32_mir_route.ml	todo-domain	type st = Machine_alloc.Mir_scan.Make(Machine_target_riscv32.Rv32)(Machine_target_riscv32.Rv32_regs.Grouped).st = { mutation : Machine_alloc.Mir_scan.Mutation.t option; mutable next_block : int; }
+lib/machine_rivet_riscv32_mir/rv32_mir_route.ml	todo-domain	val scan : st -> bank:Machine_ir.Mir_target.Bank.t -> fixed:Fixed.t list -> depth:(int -> int) -> starts:int list -> split_cost:(int -> 'a) -> loops:(int * int) list -> uses_of:(Machine_ir.Mir_value.t -> int list) -> prefer:(Machine_ir.Mir_value.t -> Machine_ir.Mir_value.t option) -> Piece.t list -> Piece.t list
+lib/machine_rivet_riscv32_mir/rv32_mir_route.ml	tally	val shape : Machine_ir.Mir_type.t -> (Machine_ir.Mir_target.Bank.t * int) option
+lib/machine_rivet_riscv32_mir/rv32_mir_route.ml	todo-domain	val in_memory : int -> Machine_ir.Mir_phys_verify.Loc.t -> bool
+lib/machine_rivet_riscv32_mir/rv32_mir_route.ml	todo-domain	type t = Machine_alloc.Mir_liveness.Make(Machine_target_riscv32.Rv32).Interval.t = { value : Machine_ir.Mir_value.t; ranges : (int * int) list; uses : int list; } end
+lib/machine_rivet_riscv32_mir/rv32_mir_route.ml	todo-domain	val spans : func -> (Machine_ir.Mir_id.Block.t * (int * int)) list
+lib/machine_rivet_riscv32_mir/rv32_mir_route.ml	tally	val shape : Machine_ir.Mir_value.t -> Machine_ir.Mir_target.Bank.t * int
+lib/machine_rivet_riscv32_mir/rv32_mir_route.ml	todo-domain	type t = Machine_alloc.Mir_scan.Make(Machine_target_riscv32.Rv32)(Machine_target_riscv32.Rv32_regs.Grouped8).Where.t = In of int | Spilled | Unassigned end
+lib/machine_rivet_riscv32_mir/rv32_mir_route.ml	todo-domain	type t = Machine_alloc.Mir_scan.Make(Machine_target_riscv32.Rv32)(Machine_target_riscv32.Rv32_regs.Grouped8).Piece.t = { value : Machine_ir.Mir_value.t; mutable ranges : (int * int) list; mutable uses : int list; mutable needs : int list; mutable where : Where.t; }
+lib/machine_rivet_riscv32_mir/rv32_mir_route.ml	todo-domain	val start : t -> int
+lib/machine_rivet_riscv32_mir/rv32_mir_route.ml	todo-domain	val stop : t -> int
+lib/machine_rivet_riscv32_mir/rv32_mir_route.ml	todo-domain	val covers : t -> int -> bool
+lib/machine_rivet_riscv32_mir/rv32_mir_route.ml	todo-domain	val intersection : t -> t -> from:int -> int option
+lib/machine_rivet_riscv32_mir/rv32_mir_route.ml	todo-domain	val next_use : t -> from:int -> int option
+lib/machine_rivet_riscv32_mir/rv32_mir_route.ml	todo-domain	val split : t -> int -> t end
+lib/machine_rivet_riscv32_mir/rv32_mir_route.ml	todo-domain	type t = Machine_alloc.Mir_scan.Make(Machine_target_riscv32.Rv32)(Machine_target_riscv32.Rv32_regs.Grouped8).Fixed.t = { view : Machine_ir.Mir_target.View.t; lo : int; hi : int; own : Machine_ir.Mir_value.t list; } end
+lib/machine_rivet_riscv32_mir/rv32_mir_route.ml	todo-domain	val split_for : int -> int
+lib/machine_rivet_riscv32_mir/rv32_mir_route.ml	todo-domain	val must : Piece.t -> at:int -> bool
+lib/machine_rivet_riscv32_mir/rv32_mir_route.ml	todo-domain	type st = Machine_alloc.Mir_scan.Make(Machine_target_riscv32.Rv32)(Machine_target_riscv32.Rv32_regs.Grouped8).st = { mutation : Machine_alloc.Mir_scan.Mutation.t option; mutable next_block : int; }
+lib/machine_rivet_riscv32_mir/rv32_mir_route.ml	todo-domain	val scan : st -> bank:Machine_ir.Mir_target.Bank.t -> fixed:Fixed.t list -> depth:(int -> int) -> starts:int list -> split_cost:(int -> 'a) -> loops:(int * int) list -> uses_of:(Machine_ir.Mir_value.t -> int list) -> prefer:(Machine_ir.Mir_value.t -> Machine_ir.Mir_value.t option) -> Piece.t list -> Piece.t list
+lib/machine_rivet_riscv32_mir/rv32_mir_route.ml	todo-domain	type t = Machine_alloc.Mir_liveness.Make(Machine_target_riscv32.Rv32).Interval.t = { value : Machine_ir.Mir_value.t; ranges : (int * int) list; uses : int list; } end
+lib/machine_rivet_riscv32_mir/rv32_mir_route.ml	todo-domain	val spans : func -> (Machine_ir.Mir_id.Block.t * (int * int)) list
+lib/machine_rivet_riscv32_mir/rv32_mir_route.ml	todo-domain	val key : Machine_ir.Mir_value.t -> int
+lib/machine_rivet_riscv32_mir/rv32_mir_route.ml	todo-domain	val dependencies : ?mutation:Machine_alloc.Mir_schedule.Mutation.t -> instr array -> (int * int) list
+lib/machine_rivet_riscv32_mir/rv32_mir_route.ml	todo-domain	val placeholder : int -> Machine_ir.Mir_type.t -> Machine_ir.Mir_value.t
+lib/machine_rivet_riscv32_mir/rv32_mir_route.ml	todo-domain	val region_bytes : Machine_interp.Mir_memory.t -> Machine_interp.Mir_interp.Binding.t -> Machine_ir.Mir_id.Region.t -> int -> (Machine_interp.Mir_memory.Key.t * string, string) result
+lib/machine_rivet_x86_64/rivet_x64_elf.ml	wire	val segment : int -> Image.segment -> Elf.Exec.segment
+lib/machine_rivet_x86_64/rivet_x64_exp.ml	todo-domain	val one : int
+lib/machine_rivet_x86_64/rivet_x64_exp.ml	todo-domain	val half : int
+lib/machine_rivet_x86_64/rivet_x64_exp.ml	todo-domain	val abs_mask : int
+lib/machine_rivet_x86_64/rivet_x64_exp.ml	todo-domain	val sign_mask : int
+lib/machine_rivet_x86_64/rivet_x64_exp.ml	todo-domain	val big : int
+lib/machine_rivet_x86_64/rivet_x64_exp.ml	todo-domain	val tiny : int
+lib/machine_rivet_x86_64/rivet_x64_exp.ml	todo-domain	val table_at : int
+lib/machine_rivet_x86_64/rivet_x64_form.ml	todo-domain	type env = { mutation : Mutation.t option; esc : R.t Err.Escape.t; reference : Machine_ir.Mir_target.Reference.t -> (string * int64) option; table_slot : string -> int option; }
+lib/machine_rivet_x86_64/rivet_x64_form.ml	tally	val gpr_name : bits:int -> int -> string
+lib/machine_rivet_x86_64/rivet_x64_form.ml	todo-domain	val unit_of : env -> Loc.t -> int
+lib/machine_rivet_x86_64/rivet_x64_form.ml	tally	val g : env -> bits:int -> Loc.t -> Op.t
+lib/machine_rivet_x86_64/rivet_x64_form.ml	wire	val mem_op : ?index:X86_family_encode__X86_types.Reg.t * int -> base:X86_family_encode__X86_types.Reg.t -> disp:int64 -> unit -> Op.t
+lib/machine_rivet_x86_64/rivet_x64_form.ml	tally	val sz_bits : X.Sz.t -> int
+lib/machine_rivet_x86_64/rivet_x64_form.ml	cell	val nth : env -> string -> 'a list -> int -> 'a
+lib/machine_rivet_x86_64/rivet_x64_host.ml	todo-domain	type kernel = { view : Mm.Kernel_view.t; slots : Machine_rivet_common.Rivet_table.slot list; record_slot : int; sites : Machine_ir.Mir_failure.Site_entry.t array; loaded : I.t; manifest : Machine_rivet_x86_64.Rivet_x64_manifest.t; }
+lib/machine_rivet_x86_64/rivet_x64_host.ml	tally	val invocations : t -> int
+lib/machine_rivet_x86_64/rivet_x64_host.ml	todo-domain	val slot_index : Machine_rivet_common.Rivet_table.slot list -> Machine_ir.Mir_id.Region.t -> int option
+lib/machine_rivet_x86_64/rivet_x64_host.ml	todo-domain	val tensor_bytes : Tensor.packed -> int
+lib/machine_rivet_x86_64/rivet_x64_host.ml	todo-domain	type bound = { kernel : kernel; table : (char, Bigarray.int8_unsigned_elt, Bigarray.c_layout) Bigarray.Array1.t; scratch : (int * (char, Bigarray.int8_unsigned_elt, Bigarray.c_layout) Bigarray.Array1.t) list; }
+lib/machine_rivet_x86_64/rivet_x64_host.ml	wire	val set_word : (char, 'a, 'b) Bigarray.Array1.t -> int -> int64 -> unit
+lib/machine_rivet_x86_64/rivet_x64_host.ml	todo-domain	val bytes : int -> (char, Bigarray.int8_unsigned_elt, Bigarray.c_layout) Bigarray.Array1.t
+lib/machine_rivet_x86_64/rivet_x64_host.ml	todo-domain	val invoke : ?poison:bool -> int -> bound -> (unit, Mm.Stop.t) result
+lib/machine_rivet_x86_64/rivet_x64_host.ml	tally	val run_prefix : ?poison:bool -> t -> inputs:(Graph_ir.Tensor_id.t -> Tensor.packed option) -> count:int -> (Graph_ir.Tensor_id.t list, Mm.Stop.t) result
+lib/machine_rivet_x86_64/rivet_x64_image.ml	wire	type section_build = Driver_direct.Pipeline_direct.Make(X86_64_encode).section_build = { sb_name : string; sb_perms : Asm_core.Perms.t; sb_kind : Asm_core.Lowered_ast.section_kind; mutable sb_align : int; mutable sb_frags : X86_64_encode.fixup_kind Asm_core.Lowered_ast.fragment list; }
+lib/machine_rivet_x86_64/rivet_x64_image.ml	wire	val merge_fill : executable:bool -> int -> string
+lib/machine_rivet_x86_64/rivet_x64_image.ml	wire	val section_pad : (length:int -> string) option
+lib/machine_rivet_x86_64/rivet_x64_module.ml	todo-domain	val relocation_index : ('a, 'b) Art.t -> (int * int * int option, Art.Relocation.t) Hashtbl.t
+lib/machine_rivet_x86_64/rivet_x64_module.ml	todo-domain	val instrs_of_func : table_slot:(string -> int option) -> F.R.t Err.Escape.t -> (int * int * int option, Art.Relocation.t) Hashtbl.t -> (Machine_target_x86_64.X64_op.t, Machine_target_x86_64.X64_op.test) Machine_ir.Mir_phys.Func.t -> X86_64_encode.Instruction.t N.item list
+lib/machine_rivet_x86_64/rivet_x64_process.ml	todo-domain	type layout = { slots : (Table.slot * int) list; total : int; }
+lib/machine_rivet_x86_64/rivet_x64_process.ml	todo-domain	val probe_record : int
+lib/machine_rivet_x86_64/rivet_x64_process.ml	todo-domain	val first_slot : int
+lib/machine_rivet_x86_64/rivet_x64_process.ml	budget	val execute : ?timeout:int -> string -> (string, string) result
+lib/machine_rivet_x86_64/rivet_x64_process.ml	budget	val launch : ?timeout:int -> prepared -> bound:(Machine_ir.Mir_id.Region.t -> string option) -> (outcome, string) result
+lib/machine_rivet_x86_64/rivet_x64_process.ml	budget	val run : ?runtime:Machine_rivet_common.Rivet_runtime.t -> ?timeout:int -> ?probe:bool -> ?entry_mutation:M.Entry_mutation.t -> bound:(Machine_ir.Mir_id.Region.t -> string option) -> (Machine_target_x86_64.X64_op.t, Machine_target_x86_64.X64_op.test) Machine_rivet_common.Rivet_runtime.Art.t -> (outcome, string) result
+lib/machine_rivet_x86_64/rivet_x64_route.ml	tally	val shape : Machine_ir.Mir_type.t -> (Machine_ir.Mir_target.Bank.t * int) option
+lib/machine_rivet_x86_64/rivet_x64_route.ml	todo-domain	val in_memory : int -> Machine_ir.Mir_phys_verify.Loc.t -> bool
+lib/machine_rivet_x86_64/rivet_x64_route.ml	tally	val shape : Machine_ir.Mir_value.t -> Machine_ir.Mir_target.Bank.t * int
+lib/machine_rivet_x86_64/rivet_x64_route.ml	todo-domain	type st = Machine_alloc.Mir_ref_alloc.Make(Machine_target_x86_64.X64)(Machine_target_x86_64.X64_regs).st = { mutation : Machine_alloc.Mir_ref_alloc.Mutation.t option; mutable next_block : int; mutable slots : Machine_ir.Mir_phys.Slot.t list; mutable previous : Machine_ir.Mir_value.t option; }
+lib/machine_rivet_x86_64/rivet_x64_route.ml	tally	val shape : Machine_ir.Mir_type.t -> (Machine_ir.Mir_target.Bank.t * int) option
+lib/machine_rivet_x86_64/rivet_x64_route.ml	todo-domain	val in_memory : int -> Machine_ir.Mir_phys_verify.Loc.t -> bool
+lib/machine_rivet_x86_64/rivet_x64_route.ml	todo-domain	type t = Machine_alloc.Mir_liveness.Make(Machine_target_x86_64.X64).Interval.t = { value : Machine_ir.Mir_value.t; ranges : (int * int) list; uses : int list; } end
+lib/machine_rivet_x86_64/rivet_x64_route.ml	todo-domain	val spans : func -> (Machine_ir.Mir_id.Block.t * (int * int)) list
+lib/machine_rivet_x86_64/rivet_x64_route.ml	tally	val shape : Machine_ir.Mir_value.t -> Machine_ir.Mir_target.Bank.t * int
+lib/machine_rivet_x86_64/rivet_x64_route.ml	todo-domain	type t = Machine_alloc.Mir_scan.Make(Machine_target_x86_64.X64)(Machine_target_x86_64.X64_regs).Where.t = In of int | Spilled | Unassigned end
+lib/machine_rivet_x86_64/rivet_x64_route.ml	todo-domain	type t = Machine_alloc.Mir_scan.Make(Machine_target_x86_64.X64)(Machine_target_x86_64.X64_regs).Piece.t = { value : Machine_ir.Mir_value.t; mutable ranges : (int * int) list; mutable uses : int list; mutable needs : int list; mutable where : Where.t; }
+lib/machine_rivet_x86_64/rivet_x64_route.ml	todo-domain	val start : t -> int
+lib/machine_rivet_x86_64/rivet_x64_route.ml	todo-domain	val stop : t -> int
+lib/machine_rivet_x86_64/rivet_x64_route.ml	todo-domain	val covers : t -> int -> bool
+lib/machine_rivet_x86_64/rivet_x64_route.ml	todo-domain	val intersection : t -> t -> from:int -> int option
+lib/machine_rivet_x86_64/rivet_x64_route.ml	todo-domain	val next_use : t -> from:int -> int option
+lib/machine_rivet_x86_64/rivet_x64_route.ml	todo-domain	val split : t -> int -> t end
+lib/machine_rivet_x86_64/rivet_x64_route.ml	todo-domain	type t = Machine_alloc.Mir_scan.Make(Machine_target_x86_64.X64)(Machine_target_x86_64.X64_regs).Fixed.t = { view : Machine_ir.Mir_target.View.t; lo : int; hi : int; own : Machine_ir.Mir_value.t list; } end
+lib/machine_rivet_x86_64/rivet_x64_route.ml	todo-domain	val split_for : int -> int
+lib/machine_rivet_x86_64/rivet_x64_route.ml	todo-domain	val must : Piece.t -> at:int -> bool
+lib/machine_rivet_x86_64/rivet_x64_route.ml	todo-domain	type st = Machine_alloc.Mir_scan.Make(Machine_target_x86_64.X64)(Machine_target_x86_64.X64_regs).st = { mutation : Machine_alloc.Mir_scan.Mutation.t option; mutable next_block : int; }
+lib/machine_rivet_x86_64/rivet_x64_route.ml	todo-domain	val scan : st -> bank:Machine_ir.Mir_target.Bank.t -> fixed:Fixed.t list -> depth:(int -> int) -> starts:int list -> split_cost:(int -> 'a) -> loops:(int * int) list -> uses_of:(Machine_ir.Mir_value.t -> int list) -> prefer:(Machine_ir.Mir_value.t -> Machine_ir.Mir_value.t option) -> Piece.t list -> Piece.t list
+lib/machine_rivet_x86_64/rivet_x64_route.ml	todo-domain	type t = Machine_alloc.Mir_liveness.Make(Machine_target_x86_64.X64).Interval.t = { value : Machine_ir.Mir_value.t; ranges : (int * int) list; uses : int list; } end
+lib/machine_rivet_x86_64/rivet_x64_route.ml	todo-domain	val spans : func -> (Machine_ir.Mir_id.Block.t * (int * int)) list
+lib/machine_rivet_x86_64/rivet_x64_route.ml	todo-domain	val key : Machine_ir.Mir_value.t -> int
+lib/machine_rivet_x86_64/rivet_x64_route.ml	todo-domain	val dependencies : ?mutation:Machine_alloc.Mir_schedule.Mutation.t -> instr array -> (int * int) list
+lib/machine_rivet_x86_64/rivet_x64_route.ml	todo-domain	val placeholder : int -> Machine_ir.Mir_type.t -> Machine_ir.Mir_value.t
+lib/machine_rivet_x86_64_gnu/gnu_coherence.ml	wire	type section_build = Driver_direct.Pipeline_direct.Make(X86_64).section_build = { sb_name : string; sb_perms : Asm_core.Perms.t; sb_kind : Asm_core.Lowered_ast.section_kind; mutable sb_align : int; mutable sb_frags : X86_64.fixup_kind Asm_core.Lowered_ast.fragment list; }
+lib/machine_rivet_x86_64_gnu/gnu_coherence.ml	wire	val merge_fill : executable:bool -> int -> string
+lib/machine_rivet_x86_64_gnu/gnu_coherence.ml	wire	val section_pad : (length:int -> string) option
+lib/machine_rivet_x86_64_gnu/gnu_coherence.ml	wire	type section_build = Driver_direct.Pipeline_direct.Make(X86_64).section_build = { sb_name : string; sb_perms : Asm_core.Perms.t; sb_kind : Asm_core.Lowered_ast.section_kind; mutable sb_align : int; mutable sb_frags : X86_64.fixup_kind Asm_core.Lowered_ast.fragment list; }
+lib/machine_rivet_x86_64_gnu/gnu_coherence.ml	wire	val merge_fill : executable:bool -> int -> string
+lib/machine_rivet_x86_64_gnu/gnu_coherence.ml	wire	val section_pad : (length:int -> string) option
+lib/machine_rivet_x86_64_gnu/gnu_coherence.ml	as-written	type error = [ `Assignment_out_of_scope of string | `Data_fixup of string | `Data_value of Asm_core.Expr.error | `Directive_not_accepted of string | `Directive_rejected of Driver.Directives.rejection | `Expression of Asm_core.Expr.error | `Invalid_configuration of string | `Local_label_survived of int | `Relax_ladder of Asm_core.Lowered_ast.relax_error | `Statement_before_section | `Unknown_directive of string ]
+lib/machine_rivet_x86_64_gnu/gnu_coherence.ml	wire	val padding_at : address:int64 -> string -> pos:int -> (int * int) option
+lib/machine_rivet_x86_64_gnu/gnu_coherence.ml	as-written	type t = Agree of { segments : int; bytes : int; symbols : int; } | Differ of { segment : string; offset : int; rivet : int; gnu : int; } | Reparsed of { segment : string; offset : int; typed : int; text : int; } | Symbols of { name : string; rivet : int64 option; gnu : int64 option; } | Tool of { command : string; status : int; output : string; } | Rivet of string
+lib/machine_rivet_x86_64_gnu/gnu_coherence.ml	as-written	val first_difference : string -> string -> (int * int * int) option
+lib/machine_target_aarch64/a64.ml	todo-domain	type t = Machine_target_aarch64.A64_form.t = Add of Sz.t * v * v | Add_imm of Sz.t * v * int64 | Add_lo12 of v * Machine_ir.Mir_id.View.t | Adrp of Machine_ir.Mir_id.View.t | Bl of { callee : Machine_ir.Mir_op.Callee.t; args : v list; results : Machine_ir.Mir_type.t list; } | Cmp of Sz.t * v * v | Cmp_imm of Sz.t * v * int64 | Csel of Sz.t * Cond.t * v * v * v | Cset of Cond.t * v | Dup_elem of Arr.t * v | Dup_half of int * v | Dup_mask of Arr.t * v | Dup_lane of Fsz.t * int * v | Dup_w of v | Ext of { signed : bool; from : Machine_ir.Mir_width.t; src : v; } | Fbin of Fop.t * Fsz.t * v * v | Fcmp of Fsz.t * v * v | Fcsel of Fsz.t * Cond.t * v * v * v | Fcvt of Fsz.t * v | Fcvtl of v | Fcvtn of v | Fcvtzs of Fsz.t * v | Fmadd of Fsz.t * v * v * v | Fmov of Fsz.t * v | Fmov_from_gpr of Fsz.t * v | Fmov_to_gpr of Fsz.t * v | Funary of Funary.t * Fsz.t * v | Ins_half of v * v | Ins_lane of Fsz.t * int * v * v | Ld1_lane of Fsz.t * int * v * v | Ld1r of Arr.t * v | Ldr of Msz.t * v * int64 | Ldr_idx of Msz.t * v * v | Ldr_ivec of Machine_ir.Mir_type.t * v * int64 | Ldr_vec of Arr.t * v * int64 | Logic of Logic.t * Sz.t * v * v | Logic_imm of Logic.t * Sz.t * v * int64 | Mov of Sz.t * v | Movk of Sz.t * v * int * int | Mrs_fpcr of v | Msr_fpcr of v | Movn of Sz.t * int * int | Movz of Machine_ir.Mir_type.t * int * int | Msub of Sz.t * v * v * v | Mul of Sz.t * v * v | Scvtf of Fsz.t * v | Scvtf_vec of v | Sdiv of Sz.t * v * v | Shift_imm of Shift.t * Sz.t * v * int | St1_lane of Fsz.t * int * v * v | Str of Msz.t * v * int64 * v | Str_idx of Msz.t * v * v * v | Str_ivec of Machine_ir.Mir_type.t * v * int64 * v | Str_vec of Arr.t * v * int64 * v | Sub of Sz.t * v * v | Sub_imm of Sz.t * v * int64 | Sxtw of v | Trunc of Machine_ir.Mir_width.t * v | Uxtw of v | Uzp1_h of v * v | Vadd_w of v * v | Vbit of Arr.t * v * v * v | Vcast of Machine_ir.Mir_type.t * v | Vfbin of Fop.t * Arr.t * v * v | Vfcmp of Vcmp.t * Arr.t * v * v | Vlogic of Logic.t * v * v | Vfmla of Arr.t * v * v * v | Vfunary of Funary.t * Arr.t * v | Vmov of Arr.t * v | Vnot of v | Vshift of Shift.t * int * v | Vwiden of v | Wtrunc of v | Xtl_w of { signed : bool; from : Machine_ir.Mir_width.t; first : int; src : v; }
+lib/machine_target_aarch64/a64.ml	tally	val unit_bits : Machine_ir.Mir_target.Bank.t -> int
+lib/machine_target_aarch64/a64.ml	tally	val bitmask_immediate : bits:int -> int64 -> bool
+lib/machine_target_aarch64/a64.ml	tally	val lane_ok : Machine_target_aarch64.A64_form.Fsz.t -> int -> bool
+lib/machine_target_aarch64/a64.ml	tally	val shape : Machine_ir.Mir_type.t -> (Machine_ir.Mir_target.Bank.t * int) option
+lib/machine_target_aarch64/a64_form.ml	tally	module Sz : sig type t = W | X val bits : t -> int val name : t -> string end
+lib/machine_target_aarch64/a64_form.ml	tally	val lanes : t -> int
+lib/machine_target_aarch64/a64_form.ml	todo-domain	type t = Add of Sz.t * v * v | Add_imm of Sz.t * v * int64 | Add_lo12 of v * Machine_ir.Mir_id.View.t | Adrp of Machine_ir.Mir_id.View.t | Bl of { callee : Machine_ir.Mir_op.Callee.t; args : v list; results : Machine_ir.Mir_type.t list; } | Cmp of Sz.t * v * v | Cmp_imm of Sz.t * v * int64 | Csel of Sz.t * Cond.t * v * v * v | Cset of Cond.t * v | Dup_elem of Arr.t * v | Dup_half of int * v | Dup_mask of Arr.t * v | Dup_lane of Fsz.t * int * v | Dup_w of v | Ext of { signed : bool; from : Machine_ir.Mir_width.t; src : v; } | Fbin of Fop.t * Fsz.t * v * v | Fcmp of Fsz.t * v * v | Fcsel of Fsz.t * Cond.t * v * v * v | Fcvt of Fsz.t * v | Fcvtl of v | Fcvtn of v | Fcvtzs of Fsz.t * v | Fmadd of Fsz.t * v * v * v | Fmov of Fsz.t * v | Fmov_from_gpr of Fsz.t * v | Fmov_to_gpr of Fsz.t * v | Funary of Funary.t * Fsz.t * v | Ins_half of v * v | Ins_lane of Fsz.t * int * v * v | Ld1_lane of Fsz.t * int * v * v | Ld1r of Arr.t * v | Ldr of Msz.t * v * int64 | Ldr_idx of Msz.t * v * v | Ldr_ivec of Machine_ir.Mir_type.t * v * int64 | Ldr_vec of Arr.t * v * int64 | Logic of Logic.t * Sz.t * v * v | Logic_imm of Logic.t * Sz.t * v * int64 | Mov of Sz.t * v | Movk of Sz.t * v * int * int | Mrs_fpcr of v | Msr_fpcr of v | Movn of Sz.t * int * int | Movz of Machine_ir.Mir_type.t * int * int | Msub of Sz.t * v * v * v | Mul of Sz.t * v * v | Scvtf of Fsz.t * v | Scvtf_vec of v | Sdiv of Sz.t * v * v | Shift_imm of Shift.t * Sz.t * v * int | St1_lane of Fsz.t * int * v * v | Str of Msz.t * v * int64 * v | Str_idx of Msz.t * v * v * v | Str_ivec of Machine_ir.Mir_type.t * v * int64 * v | Str_vec of Arr.t * v * int64 * v | Sub of Sz.t * v * v | Sub_imm of Sz.t * v * int64 | Sxtw of v | Trunc of Machine_ir.Mir_width.t * v | Uxtw of v | Uzp1_h of v * v | Vadd_w of v * v | Vbit of Arr.t * v * v * v | Vcast of Machine_ir.Mir_type.t * v | Vfbin of Fop.t * Arr.t * v * v | Vfcmp of Vcmp.t * Arr.t * v * v | Vlogic of Logic.t * v * v | Vfmla of Arr.t * v * v * v | Vfunary of Funary.t * Arr.t * v | Vmov of Arr.t * v | Vnot of v | Vshift of Shift.t * int * v | Vwiden of v | Wtrunc of v | Xtl_w of { signed : bool; from : Machine_ir.Mir_width.t; first : int; src : v; }
+lib/machine_target_aarch64/a64_form.ml	tally	val unit_bits : Machine_ir.Mir_target.Bank.t -> int
+lib/machine_target_aarch64/a64_form.ml	tally	val bitmask_immediate : bits:int -> int64 -> bool
+lib/machine_target_aarch64/a64_op.ml	todo-domain	type t = Machine_target_aarch64.A64_form.t = Add of Sz.t * v * v | Add_imm of Sz.t * v * int64 | Add_lo12 of v * Machine_ir.Mir_id.View.t | Adrp of Machine_ir.Mir_id.View.t | Bl of { callee : Machine_ir.Mir_op.Callee.t; args : v list; results : Machine_ir.Mir_type.t list; } | Cmp of Sz.t * v * v | Cmp_imm of Sz.t * v * int64 | Csel of Sz.t * Cond.t * v * v * v | Cset of Cond.t * v | Dup_elem of Arr.t * v | Dup_half of int * v | Dup_mask of Arr.t * v | Dup_lane of Fsz.t * int * v | Dup_w of v | Ext of { signed : bool; from : Machine_ir.Mir_width.t; src : v; } | Fbin of Fop.t * Fsz.t * v * v | Fcmp of Fsz.t * v * v | Fcsel of Fsz.t * Cond.t * v * v * v | Fcvt of Fsz.t * v | Fcvtl of v | Fcvtn of v | Fcvtzs of Fsz.t * v | Fmadd of Fsz.t * v * v * v | Fmov of Fsz.t * v | Fmov_from_gpr of Fsz.t * v | Fmov_to_gpr of Fsz.t * v | Funary of Funary.t * Fsz.t * v | Ins_half of v * v | Ins_lane of Fsz.t * int * v * v | Ld1_lane of Fsz.t * int * v * v | Ld1r of Arr.t * v | Ldr of Msz.t * v * int64 | Ldr_idx of Msz.t * v * v | Ldr_ivec of Machine_ir.Mir_type.t * v * int64 | Ldr_vec of Arr.t * v * int64 | Logic of Logic.t * Sz.t * v * v | Logic_imm of Logic.t * Sz.t * v * int64 | Mov of Sz.t * v | Movk of Sz.t * v * int * int | Mrs_fpcr of v | Msr_fpcr of v | Movn of Sz.t * int * int | Movz of Machine_ir.Mir_type.t * int * int | Msub of Sz.t * v * v * v | Mul of Sz.t * v * v | Scvtf of Fsz.t * v | Scvtf_vec of v | Sdiv of Sz.t * v * v | Shift_imm of Shift.t * Sz.t * v * int | St1_lane of Fsz.t * int * v * v | Str of Msz.t * v * int64 * v | Str_idx of Msz.t * v * v * v | Str_ivec of Machine_ir.Mir_type.t * v * int64 * v | Str_vec of Arr.t * v * int64 * v | Sub of Sz.t * v * v | Sub_imm of Sz.t * v * int64 | Sxtw of v | Trunc of Machine_ir.Mir_width.t * v | Uxtw of v | Uzp1_h of v * v | Vadd_w of v * v | Vbit of Arr.t * v * v * v | Vcast of Machine_ir.Mir_type.t * v | Vfbin of Fop.t * Arr.t * v * v | Vfcmp of Vcmp.t * Arr.t * v * v | Vlogic of Logic.t * v * v | Vfmla of Arr.t * v * v * v | Vfunary of Funary.t * Arr.t * v | Vmov of Arr.t * v | Vnot of v | Vshift of Shift.t * int * v | Vwiden of v | Wtrunc of v | Xtl_w of { signed : bool; from : Machine_ir.Mir_width.t; first : int; src : v; }
+lib/machine_target_aarch64/a64_op.ml	tally	val unit_bits : Machine_ir.Mir_target.Bank.t -> int
+lib/machine_target_aarch64/a64_op.ml	tally	val bitmask_immediate : bits:int -> int64 -> bool
+lib/machine_target_aarch64/a64_op.ml	tally	val lane_ok : Machine_target_aarch64.A64_form.Fsz.t -> int -> bool
+lib/machine_target_aarch64/a64_reg.ml	todo-domain	val gpr_unit : int -> Machine_ir.Mir_id.Unit.t
+lib/machine_target_aarch64/a64_reg.ml	todo-domain	val fpr_unit : int -> Machine_ir.Mir_id.Unit.t
+lib/machine_target_aarch64/a64_reg.ml	todo-domain	val x : int -> V.t
+lib/machine_target_aarch64/a64_reg.ml	todo-domain	val w : int -> V.t
+lib/machine_target_aarch64/a64_reg.ml	todo-domain	val q : int -> V.t
+lib/machine_target_aarch64/a64_reg.ml	todo-domain	val d : int -> V.t
+lib/machine_target_aarch64/a64_reg.ml	todo-domain	val s : int -> V.t
+lib/machine_target_aarch64/a64_reg.ml	todo-domain	val range : int -> int -> int list
+lib/machine_target_aarch64/a64_reg.ml	todo-domain	val allocatable_gpr : int list
+lib/machine_target_aarch64/a64_regs.ml	todo-domain	val view : Machine_ir.Mir_target.Bank.t -> bits:int -> int -> Machine_target_aarch64.A64_reg.V.t
+lib/machine_target_aarch64/a64_regs.ml	todo-domain	val use_scratch : Machine_ir.Mir_target.Bank.t -> bits:int -> int -> Machine_target_aarch64.A64_reg.V.t
+lib/machine_target_aarch64/a64_regs.ml	tally	val result_scratch : Machine_ir.Mir_target.Bank.t -> bits:int -> Machine_target_aarch64.A64_reg.V.t
+lib/machine_target_aarch64/a64_regs.ml	tally	val copy_scratch : Machine_ir.Mir_target.Bank.t -> bits:int -> Machine_target_aarch64.A64_reg.V.t
+lib/machine_target_aarch64/a64_regs.ml	tally	val cycle_scratch : Machine_ir.Mir_target.Bank.t -> bits:int -> Machine_target_aarch64.A64_reg.V.t
+lib/machine_target_aarch64/a64_regs.ml	tally	val shape : Machine_ir.Mir_type.t -> Machine_ir.Mir_target.Bank.t * int
+lib/machine_target_aarch64/a64_regs.ml	todo-domain	val allocatable : Machine_ir.Mir_target.Bank.t -> int list
+lib/machine_target_aarch64/a64_stage.ml	cell	val slot : Machine_ir.Mir_event.t -> int
+lib/machine_target_aarch64/a64_stage.ml	budget	val run : ?fuel:Int64.t -> ?max_depth:int -> ?models:Machine_interp.Mir_helper_model.t list -> S.Verified.t -> Machine_interp.Mir_memory.t -> Machine_interp.Mir_interp.Binding.t -> args:Machine_interp.Mir_datum.t list -> run end
+lib/machine_target_aarch64/a64_typing.ml	tally	val lane_ok : Machine_target_aarch64.A64_form.Fsz.t -> int -> bool
+lib/machine_target_riscv32/rv32.ml	tally	val unit_bits : Machine_ir.Mir_target.Bank.t -> int
+lib/machine_target_riscv32/rv32.ml	tally	val shape : Machine_ir.Mir_type.t -> (Machine_ir.Mir_target.Bank.t * int) option
+lib/machine_target_riscv32/rv32_op.ml	tally	val unit_bits : Machine_ir.Mir_target.Bank.t -> int
+lib/machine_target_riscv32/rv32_reg.ml	todo-domain	val gpr_unit : int -> Machine_ir.Mir_id.Unit.t
+lib/machine_target_riscv32/rv32_reg.ml	todo-domain	val fpr_unit : int -> Machine_ir.Mir_id.Unit.t
+lib/machine_target_riscv32/rv32_reg.ml	todo-domain	val x : int -> V.t
+lib/machine_target_riscv32/rv32_reg.ml	todo-domain	val f : int -> V.t
+lib/machine_target_riscv32/rv32_reg.ml	todo-domain	val a : int -> V.t
+lib/machine_target_riscv32/rv32_reg.ml	todo-domain	val fa : int -> V.t
+lib/machine_target_riscv32/rv32_reg.ml	todo-domain	val vector_unit : int -> Machine_ir.Mir_id.Unit.t
+lib/machine_target_riscv32/rv32_reg.ml	todo-domain	val v : int -> V.t
+lib/machine_target_riscv32/rv32_reg.ml	todo-domain	val group : Machine_ir.Mir_target.Span.t -> int -> (V.t, [> `Unaligned_group of Machine_ir.Mir_target.Span.t * int ]) Err.t
+lib/machine_target_riscv32/rv32_reg.ml	as-written	val pp_group_error : Format.formatter -> [< `Unaligned_group of Machine_ir.Mir_target.Span.t * int ] -> unit
+lib/machine_target_riscv32/rv32_reg.ml	todo-domain	val range : int -> int -> int list
+lib/machine_target_riscv32/rv32_reg.ml	todo-domain	val allocatable_gpr : int list
+lib/machine_target_riscv32/rv32_regs.ml	todo-domain	val view : Machine_ir.Mir_target.Bank.t -> bits:int -> int -> Machine_target_riscv32.Rv32_reg.V.t
+lib/machine_target_riscv32/rv32_regs.ml	todo-domain	val use_scratch : Machine_ir.Mir_target.Bank.t -> bits:int -> int -> Machine_target_riscv32.Rv32_reg.V.t
+lib/machine_target_riscv32/rv32_regs.ml	tally	val result_scratch : Machine_ir.Mir_target.Bank.t -> bits:int -> Machine_target_riscv32.Rv32_reg.V.t
+lib/machine_target_riscv32/rv32_regs.ml	tally	val copy_scratch : Machine_ir.Mir_target.Bank.t -> bits:int -> Machine_target_riscv32.Rv32_reg.V.t
+lib/machine_target_riscv32/rv32_regs.ml	tally	val cycle_scratch : Machine_ir.Mir_target.Bank.t -> bits:int -> Machine_target_riscv32.Rv32_reg.V.t
+lib/machine_target_riscv32/rv32_regs.ml	todo-domain	val allocatable : Machine_ir.Mir_target.Bank.t -> int list
+lib/machine_target_riscv32/rv32_regs.ml	todo-domain	val view : Machine_ir.Mir_target.Bank.t -> bits:int -> int -> Machine_target_riscv32.Rv32_reg.V.t
+lib/machine_target_riscv32/rv32_regs.ml	todo-domain	val use_scratch : Machine_ir.Mir_target.Bank.t -> bits:int -> int -> Machine_target_riscv32.Rv32_reg.V.t
+lib/machine_target_riscv32/rv32_regs.ml	tally	val result_scratch : Machine_ir.Mir_target.Bank.t -> bits:int -> Machine_target_riscv32.Rv32_reg.V.t
+lib/machine_target_riscv32/rv32_regs.ml	todo-domain	val group : int -> Machine_target_riscv32.Rv32_reg.V.t
+lib/machine_target_riscv32/rv32_regs.ml	tally	val copy_scratch : Machine_ir.Mir_target.Bank.t -> bits:int -> Machine_target_riscv32.Rv32_reg.V.t
+lib/machine_target_riscv32/rv32_regs.ml	tally	val cycle_scratch : Machine_ir.Mir_target.Bank.t -> bits:int -> Machine_target_riscv32.Rv32_reg.V.t
+lib/machine_target_riscv32/rv32_regs.ml	todo-domain	val allocatable : Machine_ir.Mir_target.Bank.t -> int list end
+lib/machine_target_riscv32/rv32_regs.ml	todo-domain	val view : Machine_ir.Mir_target.Bank.t -> bits:int -> int -> Machine_target_riscv32.Rv32_reg.V.t
+lib/machine_target_riscv32/rv32_regs.ml	todo-domain	val use_scratch : Machine_ir.Mir_target.Bank.t -> bits:int -> int -> Machine_target_riscv32.Rv32_reg.V.t
+lib/machine_target_riscv32/rv32_regs.ml	tally	val result_scratch : Machine_ir.Mir_target.Bank.t -> bits:int -> Machine_target_riscv32.Rv32_reg.V.t
+lib/machine_target_riscv32/rv32_regs.ml	todo-domain	val group : int -> Machine_target_riscv32.Rv32_reg.V.t
+lib/machine_target_riscv32/rv32_regs.ml	tally	val copy_scratch : Machine_ir.Mir_target.Bank.t -> bits:int -> Machine_target_riscv32.Rv32_reg.V.t
+lib/machine_target_riscv32/rv32_regs.ml	tally	val cycle_scratch : Machine_ir.Mir_target.Bank.t -> bits:int -> Machine_target_riscv32.Rv32_reg.V.t
+lib/machine_target_riscv32/rv32_regs.ml	todo-domain	val allocatable : Machine_ir.Mir_target.Bank.t -> int list end
+lib/machine_target_riscv32/rv32_select_seq.ml	tally	val log2 : Int64.t -> int option
+lib/machine_target_riscv32/rv32_select_st.ml	todo-domain	type st = { b : (Machine_target_riscv32.Rv32.op, Machine_target_riscv32.Rv32.test) Machine_ir.Mir_select.t; esc : Refusal.t Err.Escape.t; mutation : Mutation.t option; sites : Machine_ir.Mir_failure.Site_entry.t array; unlisted : Machine_ir.Mir_failure.Unlisted.t; fallible : Machine_ir.Mir_op.Callee.t -> bool; pairs : (int, pair) Hashtbl.t; subst : (int, Machine_ir.Mir_value.t) Hashtbl.t; float_loads : (int, Machine_ir.Mir_value.t) Hashtbl.t; int_slices : (int, int * Machine_ir.Mir_value.t) Hashtbl.t; shift_counts : (int, int64) Hashtbl.t; narrowing_halves : (int, Machine_ir.Mir_value.t) Hashtbl.t; reductions : (int, Machine_ir.Mir_value.t * Machine_ir.Mir_value.t) Hashtbl.t; reduced : (int, unit) Hashtbl.t; }
+lib/machine_target_riscv32/rv32_select_st.ml	todo-domain	val ordered_chains : (Machine_ir.Mir_op.t, Machine_ir.Mir_terminator.t) Machine_ir.Mir_func.t -> (int, Machine_ir.Mir_value.t * Machine_ir.Mir_value.t) Hashtbl.t * (int, unit) Hashtbl.t
+lib/machine_target_riscv32/rv32_select_st.ml	todo-domain	val key : Machine_ir.Mir_value.t -> int
+lib/machine_target_riscv32/rv32_select_st.ml	todo-domain	val float_loads : (Machine_ir.Mir_op.t, Machine_ir.Mir_terminator.t) Machine_ir.Mir_func.t -> (int, Machine_ir.Mir_value.t) Hashtbl.t
+lib/machine_target_riscv32/rv32_stage.ml	cell	val slot : Machine_ir.Mir_event.t -> int
+lib/machine_target_riscv32/rv32_stage.ml	budget	val run : ?fuel:Int64.t -> ?max_depth:int -> ?models:Machine_interp.Mir_helper_model.t list -> S.Verified.t -> Machine_interp.Mir_memory.t -> Machine_interp.Mir_interp.Binding.t -> args:Machine_interp.Mir_datum.t list -> run end
+lib/machine_target_riscv32/rv32_vop.ml	todo-domain	type t = Vadd of v * v | Vcast of Machine_ir.Mir_type.t * v | Vext of { signed : bool; from : Machine_ir.Mir_width.t; first : int; src : v; } | Vfbin of Fop.t * v * v | Vfcmp of Fcmp.t * v * v | Vfcvt_f_x of v | Vfcvt_x_f of v | Vfmacc of v * v * v | Vfredosum of v * v | Vfmv_f_s of int * v | Vfmv_v_f of Machine_ir.Mir_type.t * v | Vfsqrt of v | Vinsert of int * v * v | Vle32 of Machine_ir.Mir_type.t * v | Vle_int of Machine_ir.Mir_width.t * int * v | Vlogic of Logic.t * v * v | Vlse32 of Machine_ir.Mir_type.t * v * v | Vmerge of v * v * v | Vmv of v | Vmv_v_x of Machine_ir.Mir_type.t * v | Vnot of v | Vnsrl16 of v | Vnsrl16_pair of v * v | Vse32 of v * v | Vse_int of Machine_ir.Mir_width.t * int * v * v | Vshift of Machine_target_riscv32.Rv32_kind.Shift.t * int * v | Vsgnj of Sgnj.t * v * v | Vsse32 of v * v * v
+lib/machine_target_riscv32/rv32_vop.ml	tally	val lane_counts : int list
+lib/machine_target_riscv32/rv32_vop.ml	tally	val lane_ok : int -> bool
+lib/machine_target_x86_64/x64.ml	todo-domain	type t = Machine_target_x86_64.X64_op.t = Alu of Alu.t * Sz.t * v * v | Alu_imm of Alu.t * Sz.t * v * int64 | Bt of Sz.t * v * int | Call of { callee : Machine_ir.Mir_op.Callee.t; args : v list; results : Machine_ir.Mir_type.t list; } | Cmov of Sz.t * Cond.t * v * v * v | Cmp of Sz.t * v * v | Cmp_imm of Sz.t * v * int64 | Cmps of Cmp_pred.t * Fsz.t * v * v | Cqo_idiv of v * v | Cvt of Fsz.t * v | Cvtdq2ps of v | Cvttps2dq of v | Cvtpd2ps of v | Cvtps2pd of v | Cvtsi2s of Fsz.t * v | Cvtts2si of Fsz.t * v | Ext of { signed : bool; from : Machine_ir.Mir_width.t; src : v; } | Fbin of Fop.t * Fsz.t * v * v | Flogic of Flogic.t * Fsz.t * v * v | Fmadd231 of Fsz.t * v * v * v | Imul of Sz.t * v * v | Imul_imm of Sz.t * v * int64 | Lea of v * int64 | Lea_view of Machine_ir.Mir_id.View.t | Load of Msz.t * Addr.t | Mov of Sz.t * v | Mov_imm of Machine_ir.Mir_type.t * int64 | Movap of v | Movap_cast of Machine_ir.Mir_type.t * v | Movap_to_mask of Pk.t * v | Movlhps of v * v | Movq_from_gpr of Fsz.t * v | Movq_low of v | Movq_to_gpr of Fsz.t * v | Movq_widen of v | Movup_iload of Machine_ir.Mir_type.t * Addr.t | Movup_istore of Machine_ir.Mir_type.t * Addr.t * v | Movup_load of Pk.t * Addr.t | Movup_store of Pk.t * Addr.t * v | Movsxd of v | Movzx32 of v | Neg of Sz.t * v | Packssdw of v * v | Paddd of v * v | Pbin of Fop.t * Pk.t * v * v | Pcmp of Cmp_pred.t * Pk.t * v * v | Pfmadd231 of Pk.t * v * v * v | Plogic of Flogic.t * Pk.t * v * v | Pones of Pk.t | Pshuf of Pk.t * int * v * v | Pshufd_half of v | Pshufd_lane of Fsz.t * int * v | Pshufd_splat of Pk.t * v | Pshufd_splat_mask of Pk.t * v | Pshift of Shift.t * int * v | Psqrt of Pk.t * v | Round_trunc of Fsz.t * v | Setcc_zx of Cond.t * v | Shift_imm of Shift.t * Sz.t * v * int | Sqrt of Fsz.t * v | Store of Msz.t * Addr.t * v | Test of Sz.t * v * v | Trunc32 of v | Trunc_zx of Machine_ir.Mir_width.t * v | Ucomis of Fsz.t * v * v | Xt_lanes of { signed : bool; from : Machine_ir.Mir_width.t; first : int; src : v; }
+lib/machine_target_x86_64/x64.ml	tally	val unit_bits : Machine_ir.Mir_target.Bank.t -> int
+lib/machine_target_x86_64/x64.ml	tally	val shape : Machine_ir.Mir_type.t -> (Machine_ir.Mir_target.Bank.t * int) option
+lib/machine_target_x86_64/x64_op.ml	tally	module Sz : sig type t = L | Q val bits : t -> int val name : t -> string end
+lib/machine_target_x86_64/x64_op.ml	tally	val lanes : t -> int
+lib/machine_target_x86_64/x64_op.ml	todo-domain	type t = Alu of Alu.t * Sz.t * v * v | Alu_imm of Alu.t * Sz.t * v * int64 | Bt of Sz.t * v * int | Call of { callee : Machine_ir.Mir_op.Callee.t; args : v list; results : Machine_ir.Mir_type.t list; } | Cmov of Sz.t * Cond.t * v * v * v | Cmp of Sz.t * v * v | Cmp_imm of Sz.t * v * int64 | Cmps of Cmp_pred.t * Fsz.t * v * v | Cqo_idiv of v * v | Cvt of Fsz.t * v | Cvtdq2ps of v | Cvttps2dq of v | Cvtpd2ps of v | Cvtps2pd of v | Cvtsi2s of Fsz.t * v | Cvtts2si of Fsz.t * v | Ext of { signed : bool; from : Machine_ir.Mir_width.t; src : v; } | Fbin of Fop.t * Fsz.t * v * v | Flogic of Flogic.t * Fsz.t * v * v | Fmadd231 of Fsz.t * v * v * v | Imul of Sz.t * v * v | Imul_imm of Sz.t * v * int64 | Lea of v * int64 | Lea_view of Machine_ir.Mir_id.View.t | Load of Msz.t * Addr.t | Mov of Sz.t * v | Mov_imm of Machine_ir.Mir_type.t * int64 | Movap of v | Movap_cast of Machine_ir.Mir_type.t * v | Movap_to_mask of Pk.t * v | Movlhps of v * v | Movq_from_gpr of Fsz.t * v | Movq_low of v | Movq_to_gpr of Fsz.t * v | Movq_widen of v | Movup_iload of Machine_ir.Mir_type.t * Addr.t | Movup_istore of Machine_ir.Mir_type.t * Addr.t * v | Movup_load of Pk.t * Addr.t | Movup_store of Pk.t * Addr.t * v | Movsxd of v | Movzx32 of v | Neg of Sz.t * v | Packssdw of v * v | Paddd of v * v | Pbin of Fop.t * Pk.t * v * v | Pcmp of Cmp_pred.t * Pk.t * v * v | Pfmadd231 of Pk.t * v * v * v | Plogic of Flogic.t * Pk.t * v * v | Pones of Pk.t | Pshuf of Pk.t * int * v * v | Pshufd_half of v | Pshufd_lane of Fsz.t * int * v | Pshufd_splat of Pk.t * v | Pshufd_splat_mask of Pk.t * v | Pshift of Shift.t * int * v | Psqrt of Pk.t * v | Round_trunc of Fsz.t * v | Setcc_zx of Cond.t * v | Shift_imm of Shift.t * Sz.t * v * int | Sqrt of Fsz.t * v | Store of Msz.t * Addr.t * v | Test of Sz.t * v * v | Trunc32 of v | Trunc_zx of Machine_ir.Mir_width.t * v | Ucomis of Fsz.t * v * v | Xt_lanes of { signed : bool; from : Machine_ir.Mir_width.t; first : int; src : v; }
+lib/machine_target_x86_64/x64_op.ml	tally	val unit_bits : Machine_ir.Mir_target.Bank.t -> int
+lib/machine_target_x86_64/x64_reg.ml	todo-domain	val gpr : int -> int -> V.t
+lib/machine_target_x86_64/x64_reg.ml	todo-domain	val q : int -> V.t
+lib/machine_target_x86_64/x64_reg.ml	todo-domain	val d : int -> V.t
+lib/machine_target_x86_64/x64_reg.ml	todo-domain	val xmm_view : int -> int -> V.t
+lib/machine_target_x86_64/x64_reg.ml	todo-domain	val xmm : int -> V.t
+lib/machine_target_x86_64/x64_reg.ml	todo-domain	val sd : int -> V.t
+lib/machine_target_x86_64/x64_reg.ml	todo-domain	val ss : int -> V.t
+lib/machine_target_x86_64/x64_reg.ml	todo-domain	val rax : int
+lib/machine_target_x86_64/x64_reg.ml	todo-domain	val rcx : int
+lib/machine_target_x86_64/x64_reg.ml	todo-domain	val rdx : int
+lib/machine_target_x86_64/x64_reg.ml	todo-domain	val rbx : int
+lib/machine_target_x86_64/x64_reg.ml	todo-domain	val rsp : int
+lib/machine_target_x86_64/x64_reg.ml	todo-domain	val rbp : int
+lib/machine_target_x86_64/x64_reg.ml	todo-domain	val rsi : int
+lib/machine_target_x86_64/x64_reg.ml	todo-domain	val rdi : int
+lib/machine_target_x86_64/x64_reg.ml	todo-domain	val range : int -> int -> int list
+lib/machine_target_x86_64/x64_regs.ml	todo-domain	val view : Machine_ir.Mir_target.Bank.t -> bits:int -> int -> Machine_target_x86_64.X64_reg.V.t
+lib/machine_target_x86_64/x64_regs.ml	todo-domain	val gpr_uses : int array
+lib/machine_target_x86_64/x64_regs.ml	todo-domain	val use_scratch : Machine_ir.Mir_target.Bank.t -> bits:int -> int -> Machine_target_x86_64.X64_reg.V.t
+lib/machine_target_x86_64/x64_regs.ml	tally	val result_scratch : Machine_ir.Mir_target.Bank.t -> bits:int -> Machine_target_x86_64.X64_reg.V.t
+lib/machine_target_x86_64/x64_regs.ml	tally	val copy_scratch : Machine_ir.Mir_target.Bank.t -> bits:int -> Machine_target_x86_64.X64_reg.V.t
+lib/machine_target_x86_64/x64_regs.ml	tally	val cycle_scratch : Machine_ir.Mir_target.Bank.t -> bits:int -> Machine_target_x86_64.X64_reg.V.t
+lib/machine_target_x86_64/x64_regs.ml	tally	val shape : Machine_ir.Mir_type.t -> Machine_ir.Mir_target.Bank.t * int
+lib/machine_target_x86_64/x64_regs.ml	todo-domain	val sequence : ints:int array -> floats:int array -> Machine_ir.Mir_type.t list -> Machine_target_x86_64.X64_reg.V.t list
+lib/machine_target_x86_64/x64_regs.ml	todo-domain	val allocatable : Machine_ir.Mir_target.Bank.t -> int list
+lib/machine_target_x86_64/x64_select_st.ml	todo-domain	type st = { b : (Machine_target_x86_64.X64.op, Machine_target_x86_64.X64.test) Machine_ir.Mir_select.t; esc : Refusal.t Err.Escape.t; mutation : Mutation.t option; sites : Machine_ir.Mir_failure.Site_entry.t array; unlisted : Machine_ir.Mir_failure.Unlisted.t; fallible : Machine_ir.Mir_op.Callee.t -> bool; features : Machine_ir.Mir_target.Feature.t list; int_slices : (int, int * Machine_ir.Mir_value.t) Hashtbl.t; shift_counts : (int, int64) Hashtbl.t; narrowing_halves : (int, Machine_ir.Mir_value.t) Hashtbl.t; }
+lib/machine_target_x86_64/x64_stage.ml	cell	val slot : Machine_ir.Mir_event.t -> int
+lib/machine_target_x86_64/x64_stage.ml	budget	val run : ?fuel:Int64.t -> ?max_depth:int -> ?models:Machine_interp.Mir_helper_model.t list -> S.Verified.t -> Machine_interp.Mir_memory.t -> Machine_interp.Mir_interp.Binding.t -> args:Machine_interp.Mir_datum.t list -> run end
+lib/native/alloc_script.mli	hash	val compare : t -> t -> int
+lib/native/arena_schedule.mli	hash	val compare : t -> t -> int
+lib/native/arena_schedule.mli	budget	type t = private { width : int; expansions : int; state_bytes : Byte_size.t }
+lib/native/arena_schedule.mli	budget	val make : width:int -> expansions:int -> state_bytes:Byte_size.t -> (t, [> error ]) Err.t
+lib/native/arena_schedule.mli	tally	type t = { score_evaluations : int; expansions : int; depth : int; max_ready_width : int; retained_states : int; state_bytes : Byte_size.t; }
+lib/native/arena_schedule_problem.mli	tally	val node_count : t -> int
+lib/native/arena_schedule_problem.mli	tally	val readers : t -> Tensor_id.t -> int
+lib/native/aten_shape.mli	arity	type t = { size : Aten_int.Size.t list; self_dims : Aten_int.Size.t array; fault : [ `Leading_inferred of int | `Rank_too_small ]; }
 lib/native/eval_direct.mli	arity	type arity_mismatch = { expected : int; actual : int }
 lib/native/fusion_plan.mli	tally	type t = | Budget_exceeded of { use : Kernel.Use.t; error : Kernel_elab.error Err.Error.t; } | Intrinsic_use of Kernel.Use.t | Multiple_uses of { producer : Tensor_id.t; at_least : int } | Non_pointwise_use of { use : Kernel.Use.t; reason : Kernel_elab.error Err.Error.t; } | Regional_computation of Kernel.Use.t | Overlaps_selected of { rejected : Kernel.Use.t; selected : Kernel.Use.t } | Reducing_consumer of Kernel.Use.t
 lib/native/graph_builder.mli	arity	and output_count = { count : int }
@@ -80,12 +786,6 @@ lib/native/kernel_eval.mli	arity	type kind = | Format | Quant | Shape | Storage_
 lib/native/kernel_eval.mli	budget	type error = [ Expr.Eval.error | `Binding_mismatch of Binding_mismatch.t | `Duplicate_group_ordinal of Region_group.Ordinal.t | `Eval_too_deep of int | `Recursion_too_deep of int | Region_group.error | Region_partition.error | Region_program.error | `Unbound_input of Tensor_id.t | `Unknown_value of Tensor_id.t ]
 lib/native/kernel_eval.mli	expr-literal	val value_at : Kernel.t -> bind:(Tensor_id.t -> Tensor.packed option) -> Tensor_id.t -> int Expr.Coord.t -> (float, error) Err.t
 lib/native/kernel_eval.mli	expr-literal	val run : ?on_load:(Tensor_id.t -> int Expr.Coord.t -> unit) -> ?region_counters:Region_execution.counters Tensor_id.Map.t -> Kernel.t -> bind:(Tensor_id.t -> Tensor.packed option) -> (Tensor.packed Tensor_id.Map.t, error) Err.t
-lib/core/geometry.mli	defn	type t = private int
-lib/core/geometry.mli	defn	val of_int : int -> t
-lib/core/geometry.mli	defn	val to_int : t -> int
-lib/core/geometry.mli	defn	type t = private int
-lib/core/geometry.mli	defn	val of_int : int -> t
-lib/core/geometry.mli	defn	val to_int : t -> int
 lib/native/op_config.mli	defn	type fault = [ `Negative of int | `Not_positive of int ]
 lib/native/op_config.mli	defn	val pos : op:string -> param:param -> int -> (Pos.t, t) result
 lib/native/op_config.mli	defn	val nonneg : op:string -> param:param -> int -> (Nonneg.t, t) result end
@@ -198,6 +898,7 @@ lib/native_interp/native_interp.mli	arity	type fault = Bad_scale_arity of int | 
 lib/native_interp/native_interp.mli	arity	type fault = | Length_mismatch of { expected : Rank.t; got : int } | Multiple_live_entries of int list | No_live_entry | Wrong_dtype of { position : int; dtype : string } | Wrong_rank of { position : int; rank : Rank.t }
 lib/native_interp/native_interp.mli	tally	type t = { sizes : int; strides : int } end
 lib/native_interp/native_interp.mli	budget	type t = { lo : int64; hi : int64; data_bytes : int } end
+lib/native_interp/native_interp.mli	wire	type t = { emitted : (int * Graph_ir.Node_id.t list) list; bound : (int * (string * Graph_ir.Tensor_id.t) list) list; sources : (string * Graph_ir.Tensor_id.t) list; } end
 lib/native_interp/native_interp.mli	budget	type transformed = | Transformed : { constants : Tensor.packed Graph_ir.Tensor_id.Map.t; constant_store : Constant_store.t; derived : (Graph_ir.Tensor_id.t * string list) list; graph : Graph_ir.graph; lens : 'b Pt2_native_graph.lens; nodes_before : int; audits : Pass.Audit_log.t; composed : Map_verify.Report.t option; map_export : Map_export.t; } -> transformed
 lib/native_interp/native_interp.mli	budget	val transform : ?preload:bool -> ?verify:Map_verify.Policy.t -> ?verify_budget:Map_verify.Budget.t -> ?verify_probe:int -> Pt2_archive.t -> passes:Pass.t list -> (transformed, error) Err.t
 lib/native_interp/native_interp.mli	budget	val transform_lowered : ?constants:Tensor.packed Graph_ir.Tensor_id.Map.t -> ?verify:Map_verify.Policy.t -> ?verify_budget:Map_verify.Budget.t -> ?verify_probe:int -> ?max_verified_steps:int -> ?max_verify_clusters:int -> ?trace:bool -> ?max_trace_entries:int -> ?max_audit_reports:int -> Pt2_native_graph.t -> passes:Pass.t list -> (transformed, error) Err.t
@@ -205,26 +906,127 @@ lib/native_interp/native_interp.mli	tally	type loaded = { from_state : int; from
 lib/native_predict/native_predict.mli	as-written	type t = { classes : Dim.extent Dim.t; wanted : int } end
 lib/native_predict/native_predict.mli	as-written	type error = [ `Invalid_k of int | `Non_finite_logit of Non_finite.t | `Not_class_logits of Vec6.shape | `Output_count of int | `Too_few_classes of Too_few_classes.t ]
 lib/native_predict/native_predict.mli	as-written	val top_predictions : Tensor.packed list -> int -> ((Dim.index Dim.t * float) list, error) Err.t
+lib/pt2/pt2_storage.mli	wire	val length : t -> int
+lib/pt2/pt2_storage.mli	wire	val get_uint8 : t -> int -> int
+lib/pt2/pt2_storage.mli	wire	val get_int32_le : t -> int -> int32
+lib/pt2/pt2_storage.mli	wire	val get_int64_le : t -> int -> int64
+lib/pt2/pt2_archive.ml	as-written	val of_string : ?limits:Pt2_zip.Limits.t -> name:'a -> string -> (t, [> `Constants_config_decode of string | `Model_json_decode of string | `Read_archive_member of string * [> `Zip_missing_entry of Zipc.Fpath.t | `Zip_read_failed of Pt2_zip.Zip_read_failure.t | `Zip_stored_size_mismatch of Zipc.Fpath.t | `Zip_unsupported_method of Zipc.Fpath.t ] | `Weights_config_decode of string | `Zip_open of 'a * [> `Zip_bad_path of Pt2_zip.Path_rejection.t | `Zip_duplicate_paths of int | `Zip_encrypted_entry of Zipc.Fpath.t | `Zip_entry_too_large of Pt2_zip.Entry_bound.t | `Zip_no_eocd | `Zip_parse_failed of string | `Zip_too_many_entries of int | `Zip_total_too_large of int64 | `Zip_unsupported_method of Zipc.Fpath.t ] ]) Err.t
+lib/pt2/pt2_archive.ml	as-written	val open_pt2 : ?limits:Pt2_zip.Limits.t -> ?max_bytes:Int64.t -> string -> (t, [> `Constants_config_decode of string | `Io of Io.t | `Io_too_large of string * Int64.t | `Model_json_decode of string | `Read_archive_member of string * [> `Zip_missing_entry of Zipc.Fpath.t | `Zip_read_failed of Pt2_zip.Zip_read_failure.t | `Zip_stored_size_mismatch of Zipc.Fpath.t | `Zip_unsupported_method of Zipc.Fpath.t ] | `Weights_config_decode of string | `Zip_open of string * [> `Zip_bad_path of Pt2_zip.Path_rejection.t | `Zip_duplicate_paths of int | `Zip_encrypted_entry of Zipc.Fpath.t | `Zip_entry_too_large of Pt2_zip.Entry_bound.t | `Zip_no_eocd | `Zip_parse_failed of string | `Zip_too_many_entries of int | `Zip_total_too_large of int64 | `Zip_unsupported_method of Zipc.Fpath.t ] ]) Err.t
+lib/pt2/pt2_archive.ml	as-written	val pt_of_string : ?limits:Pt2_zip.Limits.t -> name:'a -> string -> (Pt2_tensor.t, [> `Pt_pickle of 'a * Pt2_pickle.error | `Read_archive_member of string * [> `Zip_missing_entry of Zipc.Fpath.t | `Zip_read_failed of Pt2_zip.Zip_read_failure.t | `Zip_stored_size_mismatch of Zipc.Fpath.t | `Zip_unsupported_method of Zipc.Fpath.t ] | `Zip_open of 'a * [> `Zip_bad_path of Pt2_zip.Path_rejection.t | `Zip_duplicate_paths of int | `Zip_encrypted_entry of Zipc.Fpath.t | `Zip_entry_too_large of Pt2_zip.Entry_bound.t | `Zip_no_eocd | `Zip_parse_failed of string | `Zip_too_many_entries of int | `Zip_total_too_large of int64 | `Zip_unsupported_method of Zipc.Fpath.t ] ]) Err.t
+lib/pt2/pt2_archive.ml	as-written	val load_pt : ?limits:Pt2_zip.Limits.t -> ?max_bytes:Int64.t -> string -> (Pt2_tensor.t, [> `Io of Io.t | `Io_too_large of string * Int64.t | `Pt_pickle of string * Pt2_pickle.error | `Read_archive_member of string * [> `Zip_missing_entry of Zipc.Fpath.t | `Zip_read_failed of Pt2_zip.Zip_read_failure.t | `Zip_stored_size_mismatch of Zipc.Fpath.t | `Zip_unsupported_method of Zipc.Fpath.t ] | `Zip_open of string * [> `Zip_bad_path of Pt2_zip.Path_rejection.t | `Zip_duplicate_paths of int | `Zip_encrypted_entry of Zipc.Fpath.t | `Zip_entry_too_large of Pt2_zip.Entry_bound.t | `Zip_no_eocd | `Zip_parse_failed of string | `Zip_too_many_entries of int | `Zip_total_too_large of int64 | `Zip_unsupported_method of Zipc.Fpath.t ] ]) Err.t
+lib/pt2/pt2_archive.ml	as-written	val pt_tensor_map_of_string : ?limits:Pt2_zip.Limits.t -> name:'a -> string -> ((String.t * Pt2_tensor.t) list, [> `Pt_pickle of 'a * Pt2_pickle.error | `Read_archive_member of string * [> `Zip_missing_entry of Zipc.Fpath.t | `Zip_read_failed of Pt2_zip.Zip_read_failure.t | `Zip_stored_size_mismatch of Zipc.Fpath.t | `Zip_unsupported_method of Zipc.Fpath.t ] | `Zip_open of 'a * [> `Zip_bad_path of Pt2_zip.Path_rejection.t | `Zip_duplicate_paths of int | `Zip_encrypted_entry of Zipc.Fpath.t | `Zip_entry_too_large of Pt2_zip.Entry_bound.t | `Zip_no_eocd | `Zip_parse_failed of string | `Zip_too_many_entries of int | `Zip_total_too_large of int64 | `Zip_unsupported_method of Zipc.Fpath.t ] ]) Err.t
+lib/pt2/pt2_archive.ml	as-written	val load_pt_tensor_map : ?limits:Pt2_zip.Limits.t -> ?max_bytes:Int64.t -> string -> ((String.t * Pt2_tensor.t) list, [> `Io of Io.t | `Io_too_large of string * Int64.t | `Pt_pickle of string * Pt2_pickle.error | `Read_archive_member of string * [> `Zip_missing_entry of Zipc.Fpath.t | `Zip_read_failed of Pt2_zip.Zip_read_failure.t | `Zip_stored_size_mismatch of Zipc.Fpath.t | `Zip_unsupported_method of Zipc.Fpath.t ] | `Zip_open of string * [> `Zip_bad_path of Pt2_zip.Path_rejection.t | `Zip_duplicate_paths of int | `Zip_encrypted_entry of Zipc.Fpath.t | `Zip_entry_too_large of Pt2_zip.Entry_bound.t | `Zip_no_eocd | `Zip_parse_failed of string | `Zip_too_many_entries of int | `Zip_total_too_large of int64 | `Zip_unsupported_method of Zipc.Fpath.t ] ]) Err.t
+lib/pt2/pt2_archive.ml	as-written	val load_first_pt_tensor : ?limits:Pt2_zip.Limits.t -> ?max_bytes:Int64.t -> string -> (Pt2_tensor.t, [> `Empty_tensor_map of string | `Io of Io.t | `Io_too_large of string * Int64.t | `Pt_pickle of string * Pt2_pickle.error | `Read_archive_member of string * [> `Zip_missing_entry of Zipc.Fpath.t | `Zip_read_failed of Pt2_zip.Zip_read_failure.t | `Zip_stored_size_mismatch of Zipc.Fpath.t | `Zip_unsupported_method of Zipc.Fpath.t ] | `Zip_open of string * [> `Zip_bad_path of Pt2_zip.Path_rejection.t | `Zip_duplicate_paths of int | `Zip_encrypted_entry of Zipc.Fpath.t | `Zip_entry_too_large of Pt2_zip.Entry_bound.t | `Zip_no_eocd | `Zip_parse_failed of string | `Zip_too_many_entries of int | `Zip_total_too_large of int64 | `Zip_unsupported_method of Zipc.Fpath.t ] ]) Err.t
+lib/pt2/pt2_dtype.ml	tally	val element_size : t -> int
+lib/pt2/pt2_pickle.ml	wire	type rebuild = { storage_key : string; dtype : Pt2_dtype.t; storage_offset : int; sizes : int list; strides : int list; }
+lib/pt2/pt2_pickle.ml	wire	val int_of : 'a -> V.t -> (int, [> `Expected_int of 'a | `Int_out_of_range of 'a * int64 ]) Err.t
+lib/pt2/pt2_pickle.ml	wire	val ints_of : 'a -> V.t array -> (int list, [> `Expected_int of 'a | `Int_out_of_range of 'a * int64 ]) Err.t
+lib/pt2/pt2_tensor.ml	wire	type t = { dtype : Pt2_dtype.t; sizes : int list; strides : int list; storage_offset : int; data : Pt2_storage.t; }
+lib/pt2/pt2_tensor.ml	todo-domain	val product : string -> int list -> int
+lib/pt2/pt2_tensor.ml	todo-domain	val numel : t -> int
+lib/pt2/pt2_tensor.ml	todo-domain	val contiguous_strides : int list -> int list
+lib/pt2/pt2_tensor.ml	wire	val int_of_symint : ?field:string -> Pytorch_types.SymInt.t -> (int, [> `Symbolic_value of string ]) Err.t
+lib/pt2/pt2_zip.ml	budget	val path_excerpt_bytes : int
+lib/pt2/pt2_zip.ml	budget	type t = { max_entries : int; max_entry_bytes : int64; max_total_bytes : int64; max_path_bytes : int; max_path_depth : int; allow_encrypted : bool; }
+lib/pt2/pt2_zip.ml	budget	val entries : int
+lib/pt2/pt2_zip.ml	budget	val path_bytes : int
+lib/pt2/pt2_zip.ml	budget	val path_depth : int
+lib/pt2/pt2_zip.ml	budget	val check_int : string -> int -> int -> (unit, [> `Invalid_limit of Invalid.t ]) Err.t
+lib/pt2/pt2_zip.ml	budget	val create : max_entries:int -> max_entry_bytes:Int64.t -> max_total_bytes:Int64.t -> max_path_bytes:int -> max_path_depth:int -> (t, [> `Invalid_limit of Invalid.t ]) Err.t
+lib/pt2/pt2_zip.ml	as-written	type kind = Absolute | Control_byte | Parent_segment | Too_deep of int | Too_long of int
+lib/pt2/pt2_zip.ml	as-written	type error = [ `Zip_bad_path of Path_rejection.t | `Zip_duplicate_paths of int | `Zip_encrypted_entry of string | `Zip_entry_too_large of Entry_bound.t | `Zip_missing_entry of string | `Zip_no_eocd | `Zip_parse_failed of string | `Zip_read_failed of Zip_read_failure.t | `Zip_stored_size_mismatch of string | `Zip_too_many_entries of int | `Zip_total_too_large of int64 | `Zip_unsupported_method of string ]
+lib/pt2/pt2_zip.ml	wire	val eocd_min_size : int
+lib/pt2/pt2_zip.ml	wire	val eocd_max_comment : int
+lib/pt2/pt2_zip.ml	wire	val raw_eocd_entry_count : string -> int option
+lib/pt2/pt2_zip.ml	as-written	val of_string : ?limits:Limits.t -> string -> (t, [> `Zip_bad_path of Path_rejection.t | `Zip_duplicate_paths of int | `Zip_encrypted_entry of Zipc.Fpath.t | `Zip_entry_too_large of Entry_bound.t | `Zip_no_eocd | `Zip_parse_failed of string | `Zip_too_many_entries of int | `Zip_total_too_large of int64 | `Zip_unsupported_method of Zipc.Fpath.t ]) Err.t
+lib/ssa_bridge/ssa_check.mli	tally	type t = { ssa_f32 : bool; loop_f32 : bool; ssa_loops : int; loop_loops : int; ssa_blocked : int; loop_blocked : int; } end
+lib/ssa_bridge/ssa_check.mli	tally	type marks = { emitters : int; keys : int; locals : int; reductions : int; scan_updates : int; scans : int; }
+lib/ssa_c/ssa_c_ctx.ml	as-written	type error = [ `Unsupported_lanes of int | `Unsupported_operation of string ]
+lib/ssa_c/ssa_c_ctx.ml	todo-domain	type t = { esc : error Err.Escape.t; names : (int, string) Hashtbl.t; mutable decls : (string * string * string) list; mutable next_name : int; mutable next_temp : int; mutable used : R.Name.t list; mutable sites : Loop_ir.Loop_failure.t list; mutable site_count : int; mutable local_doubles : int64; mutable vector_types : (string * string) list; mutable vector_helpers : (string * string) list; mutable f32 : bool; locals : (int, int64 * Expr.Local_var.t option) Hashtbl.t; out : Buffer.t; buffers : Ssa_ir.Ssa_buffer.t list; site_table : Loop_ir.Loop_failure.t array option; }
+lib/ssa_c/ssa_c_ctx.ml	tally	val line : t -> int -> ('a, unit, string, unit) format4 -> 'a
+lib/ssa_c/ssa_c_ctx.ml	tally	val check_lanes : t -> Ssa_ir.Ssa_type.Lanes.t -> int
+lib/ssa_c/ssa_c_ctx.ml	wire	val site : t -> Loop_ir.Loop_failure.t -> int
+lib/ssa_c/ssa_c_ctx.ml	wire	val buffer_index : t -> Ssa_ir.Ssa_id.Buffer.t -> int
+lib/ssa_c/ssa_c_ctx.ml	as-written	val int_lit : int -> string
+lib/ssa_c/ssa_c_op.ml	tally	val check_coord : Ssa_c_ctx.t -> int -> Ssa_ir.Ssa_buffer.t -> Ssa_ir.Ssa_value.t Expr.Coord.t -> unit
+lib/ssa_c/ssa_c_op.ml	tally	val lanes_of : Ssa_ir.Ssa_type.t -> int
+lib/ssa_c/ssa_c_op.ml	arity	val lane_helper : Ssa_c_ctx.t -> prefix:string -> ty:Ssa_ir.Ssa_type.t -> arity:int -> body:(string list -> string) -> string
+lib/ssa_c/ssa_c_op.ml	tally	val assign : Ssa_c_ctx.t -> int -> string -> string -> unit
+lib/ssa_c/ssa_c_op.ml	tally	val instr : Ssa_c_ctx.t -> int -> Ssa_ir.Ssa_instr.t -> unit
 lib/ssa_ir/ssa_interp.mli	tally	val mark : t -> Ssa_mark.t -> int
 lib/ssa_ir/ssa_interp.mli	tally	val loads : t -> int
 lib/ssa_ir/ssa_interp.mli	tally	val stores : t -> int end
 lib/ssa_ir/ssa_interp.mli	as-written	type failure = [ `Coord_out_of_range of Expr.Source.t * Expr.Axis.t * int * int Expr.Coord.t | `Gather_index_out_of_range of Expr.Eval.Gather_index_out_of_range.t | `I64_division_by_zero | `I64_division_overflow | `I64_from_float_infinite | `I64_from_float_nan | `I64_from_float_out_of_range of float | `Index_overflow of Expr.Index_overflow.t | `Scan_meter of Expr.Scan_meter.error | `Scan_projection of Expr.Eval.scan_error | `Unbound_local of Expr.Local_var.t ]
-lib/ssa_ir/ssa_verify.mli	budget	val max_region_depth : int
-lib/ssa_bridge/ssa_check.mli	tally	type marks = { emitters : int; keys : int; locals : int; reductions : int; scan_updates : int; scans : int; }
-lib/ssa_bridge/ssa_check.mli	tally	type t = { ssa_f32 : bool; loop_f32 : bool; ssa_loops : int; loop_loops : int; ssa_blocked : int; loop_blocked : int; } end
+lib/ssa_ir/ssa_numerics.mli	tally	val coverage : numerics:t -> f32_kernels:int -> kernels:int -> f32_invocations:int -> invocations:int -> refusals:(Refusal.t * int) list -> string
 lib/ssa_ir/ssa_opt.mli	tally	type report = (string * int) list
-lib/ssa_ir/ssa_pp.mli	arity	val line : state -> int -> ('a, Format.formatter, unit, unit) format4 -> 'a
-lib/ssa_ir/ssa_pp.mli	arity	val instr : state -> int -> Ssa_instr.t -> unit
+lib/ssa_ir/ssa_opt_contract.mli	tally	val contracted : Ssa_program.t -> int
 lib/ssa_ir/ssa_opt_rows.mli	budget	val program : rows:int -> policy:Ssa_effects.policy -> Ssa_program.t -> Ssa_program.t * int
 lib/ssa_ir/ssa_opt_rows.mli	tally	val analyze : rows:int -> policy:Ssa_effects.policy -> Ssa_program.t -> (Ssa_id.Region.t * (int, refusal) result) list
-lib/ssa_ir/ssa_numerics.mli	tally	val coverage : numerics:t -> f32_kernels:int -> kernels:int -> f32_invocations:int -> invocations:int -> refusals:(Refusal.t * int) list -> string
+lib/ssa_ir/ssa_plan.mli	tally	type t = { numerics : Ssa_numerics.t; precision : Ssa_numerics.Precision.t; program : Ssa_program.t; refusal : Ssa_numerics.Refusal.t option; vectorized : Ssa_vectorize.report; sums : Ssa_vector_sum.report; blocked : int; contracted : int; }
+lib/ssa_ir/ssa_pp.mli	arity	val line : state -> int -> ('a, Format.formatter, unit, unit) format4 -> 'a
+lib/ssa_ir/ssa_pp.mli	arity	val instr : state -> int -> Ssa_instr.t -> unit
 lib/ssa_ir/ssa_target.mli	budget	type t = { name : string; vector_bits : int; precision : Ssa_numerics.Precision.t; lanes : Ssa_type.Lanes.t; inner_loops : bool; fma : bool; relaxed_madd : bool; row_block : int; unroll : int; support : Op.t -> support; cost : Op.t -> float; at : Ssa_numerics.Precision.t -> t; }
 lib/ssa_ir/ssa_target.mli	budget	val with_row_block : int -> t -> t
 lib/ssa_ir/ssa_target.mli	budget	val with_unroll : int -> t -> t
 lib/ssa_ir/ssa_target.mli	tally	val profitable : t -> (Op.t * int) list -> bool
+lib/ssa_ir/ssa_vector_sum.mli	tally	type outcome = | Kept_sequential of Reason.t | Scheduled of { parts : int }
 lib/ssa_ir/ssa_vectorize.mli	tally	type t = { loop : Ssa_id.Region.t; trips : int64; work : int64; executions : int64; ops : (Ssa_target.Op.t * int) list; outcome : outcome; } end
 lib/ssa_ir/ssa_vectorize.mli	tally	val tally : report -> (string * (int * int64)) list
-lib/ssa_ir/ssa_opt_contract.mli	tally	val contracted : Ssa_program.t -> int
-lib/ssa_ir/ssa_plan.mli	tally	type t = { numerics : Ssa_numerics.t; precision : Ssa_numerics.Precision.t; program : Ssa_program.t; refusal : Ssa_numerics.Refusal.t option; vectorized : Ssa_vectorize.report; sums : Ssa_vector_sum.report; blocked : int; contracted : int; }
-lib/ssa_ir/ssa_vector_sum.mli	tally	type outcome = | Kept_sequential of Reason.t | Scheduled of { parts : int }
-lib/native_interp/native_interp.mli	wire	type t = { emitted : (int * Graph_ir.Node_id.t list) list; bound : (int * (string * Graph_ir.Tensor_id.t) list) list; sources : (string * Graph_ir.Tensor_id.t) list; } end
+lib/ssa_ir/ssa_verify.mli	budget	val max_region_depth : int
+lib/ssa_js/ssa_js_ctx.ml	as-written	val lit : int -> A.expr
+lib/ssa_js/ssa_js_ctx.ml	todo-domain	type t = { esc : error Err.Escape.t; names : (int, Js_ident.t) Hashtbl.t; mutable decls : (Js_ident.t * A.expr) list; mutable next_name : int; mutable next_temp : int; mutable sites : LF.t list; mutable site_count : int; mutable tables : A.Stmt.t list; locals : (int, int64 * Expr.Local_var.t option) Hashtbl.t; buffers : Ssa_ir.Ssa_buffer.t list; site_table : LF.t array option; }
+lib/ssa_js/ssa_js_ctx.ml	wire	val buffer_index : t -> Ssa_ir.Ssa_id.Buffer.t -> int
+lib/ssa_js/ssa_js_ctx.ml	wire	val site : t -> LF.t -> int
+lib/ssa_wasm/ssa_wasm.mli	wire	val kernel : ?buffers:Ssa_ir.Ssa_buffer.t list -> ?sites:Loop_ir.Loop_failure.t array -> relaxed_madd:bool -> table_alloc:(bytes:int -> int) -> Ssa_ir.Ssa_program.t -> (Loop_ir.Loop_wasm.kernel, error) result
+lib/ssa_wasm/ssa_wasm_ctx.ml	as-written	type error = [ `Local_arrays_too_large of int64 | `Loop_leaves_domain | `Unsupported_format of Ssa_ir.Ssa_id.Buffer.t * string | `Unsupported_lanes of int | `Unsupported_operation of string ]
+lib/ssa_wasm/ssa_wasm_ctx.ml	todo-domain	type t = { esc : error Err.Escape.t; mutable extra : Wasm_type.t list; n_params : int; values : (int, int array) Hashtbl.t; mask_shapes : (int, mask_shape) Hashtbl.t; buffers : Ssa_ir.Ssa_buffer.t list; tables : (int, int * int) Hashtbl.t; locals : (int, int64 * Expr.Local_var.t option) Hashtbl.t; mutable local_top : int64; table_alloc : bytes:int -> int; mutable used : R.Callee.t list; mutable sites : LF.t list; mutable site_count : int; mutable meter : (int * int) option; mutable f32 : bool; relaxed_madd : bool; ranges : Ssa_ir.Ssa_range.t; site_table : LF.t array option; }
+lib/ssa_wasm/ssa_wasm_ctx.ml	as-written	val i32 : int -> I.t
+lib/ssa_wasm/ssa_wasm_ctx.ml	wire	val get : int -> I.t
+lib/ssa_wasm/ssa_wasm_ctx.ml	wire	val set : int -> I.t
+lib/ssa_wasm/ssa_wasm_ctx.ml	wire	val arg : int -> int -> Wasm.Mem_arg.t
+lib/ssa_wasm/ssa_wasm_ctx.ml	bits	val fits32 : int -> bool
+lib/ssa_wasm/ssa_wasm_ctx.ml	wire	val fresh : t -> Wasm_type.t -> int
+lib/ssa_wasm/ssa_wasm_ctx.ml	wire	val site : t -> LF.t -> int
+lib/ssa_wasm/ssa_wasm_ctx.ml	tally	val lanes_per_register : Ssa_ir.Ssa_type.scalar -> int
+lib/ssa_wasm/ssa_wasm_ctx.ml	tally	val registers_of_lanes : t -> Ssa_ir.Ssa_type.Lanes.t -> int -> int
+lib/ssa_wasm/ssa_wasm_ctx.ml	wire	val define : ?shape:mask_shape -> t -> Ssa_ir.Ssa_value.t -> int array
+lib/ssa_wasm/ssa_wasm_ctx.ml	wire	val regs : t -> Ssa_ir.Ssa_value.t -> int array
+lib/ssa_wasm/ssa_wasm_ctx.ml	wire	val reg : t -> Ssa_ir.Ssa_value.t -> int
+lib/ssa_wasm/ssa_wasm_ctx.ml	wire	val fail : t -> Loop_ir.Loop_js_failure.Kind.t -> (int * I.t list) list -> I.t list
+lib/ssa_wasm/ssa_wasm_ctx.ml	as-written	val i64_of_int : int -> I.t list
+lib/ssa_wasm/ssa_wasm_ctx.ml	budget	val meter : t -> int * int
+lib/ssa_wasm/ssa_wasm_ctx.ml	wire	val buffer_index : t -> Ssa_ir.Ssa_id.Buffer.t -> int
+lib/ssa_wasm/ssa_wasm_ctx.ml	wire	val buffer_param : t -> Ssa_ir.Ssa_id.Buffer.t -> int
+lib/ssa_wasm/ssa_wasm_ctx.ml	bits	val cell_log2 : Ssa_ir.Ssa_format.t -> int
+lib/ssa_wasm/ssa_wasm_ctx.ml	wire	val reserve_local : t -> int64 -> int
+lib/ssa_wasm/ssa_wasm_instr.ml	tally	val per_register : Ssa_ir.Ssa_value.t -> int
+lib/ssa_wasm/ssa_wasm_instr.ml	tally	val chunk_count : Ssa_wasm_ctx.t -> Ssa_ir.Ssa_value.t -> int
+lib/ssa_wasm/ssa_wasm_op.ml	tally	val lanes_of : Ssa_ir.Ssa_value.t -> int
+lib/ssa_wasm/ssa_wasm_op.ml	wire	val from_float_failure : Ssa_wasm_ctx.t -> int -> Ssa_wasm_ctx.I.t list
+lib/ssa_wasm/ssa_wasm_op.ml	as-written	val coord_failure : Ssa_wasm_ctx.t -> Ssa_ir.Ssa_buffer.t -> int list -> Ssa_wasm_ctx.I.t list
+lib/ssa_wasm/ssa_wasm_op.ml	wire	val quant_tables : Ssa_wasm_ctx.t -> Ssa_ir.Ssa_buffer.t -> int * int
+lib/wasm_ir/wasm_census.mli	tally	val count : t -> Role.t -> int
+lib/wasm_ir/wasm_census.mli	tally	val total : t -> int
+lib/wasm_ir/wasm_census.mli	tally	val helpers : t -> (string * int) list
+lib/wasm_ir/wasm_check.mli	as-written	type t = | Alignment_too_large of { align : int; natural : int } | Bad_label of int | Bad_limits of { min_pages : int; max_pages : int option } | Const_expected | Data_out_of_memory of { offset : int; length : int } | Duplicate_export of string | Global_immutable of int | Memory_required | Offset_out_of_range of int | Operand_mismatch of { expected : Wasm_type.t; actual : Wasm_type.t option; } | Lane_out_of_range of { lane : int; lanes : int } | Select_operands_differ of Wasm_type.t * Wasm_type.t | Stack_height_mismatch of { expected : int; actual : int } | Stack_underflow | Unknown_export_target of int | Unknown_func of int | Unknown_global of int | Unknown_local of int end
+lib/wasm_ir/wasm_check.mli	as-written	type t = { func : int option; reason : Reason.t; } end
+lib/wasm_ir/wasm_op.mli	wire	val bytes : t -> int list
+lib/wasm_ir/wasm_type.mli	wire	val to_byte : t -> int
+lib/wasm_ir/wasm.ml	wire	module Mem_arg : sig type t = { align : int; offset : int; } end
+lib/wasm_ir/wasm.ml	wire	val natural_align : t -> int
+lib/wasm_ir/wasm.ml	wire	val byte : t -> int
+lib/wasm_ir/wasm.ml	wire	val natural_align : t -> int
+lib/wasm_ir/wasm.ml	wire	val byte : t -> int
+lib/wasm_ir/wasm.ml	tally	val lanes : t -> int
+lib/wasm_ir/wasm.ml	wire	val byte : t -> int
+lib/wasm_ir/wasm.ml	wire	val natural_align : t -> int
+lib/wasm_ir/wasm.ml	wire	val sub : t -> int
+lib/wasm_ir/wasm.ml	wire	val natural_align : t -> int
+lib/wasm_ir/wasm.ml	tally	val lanes : t -> int
+lib/wasm_ir/wasm.ml	wire	val sub : t -> int
+lib/wasm_ir/wasm.ml	todo-domain	type t = Block of Block_type.t * t list | Br of int | Br_if of int | Call of int | Drop | F32_const of int32 | F64_const of int64 | Global_get of int | Global_set of int | I32_const of int32 | I64_const of int64 | If of Block_type.t * t list * t list | Load of Load.t * Mem_arg.t | Local_get of int | Local_set of int | Local_tee of int | Loop of Block_type.t * t list | Memory_copy | Memory_fill | Numeric of Wasm_op.t | Return | Select | Simd_lane of Simd_lane.t * int | Simd_load of Simd_load.t * Mem_arg.t | Simd_store of Simd_store.t * Mem_arg.t * int | Store of Store.t * Mem_arg.t | Unreachable | V128_const of string
+lib/wasm_ir/wasm.ml	todo-domain	val map_calls : (int -> int) -> t -> t end
+lib/wasm_ir/wasm.ml	todo-domain	type kind = Func of int | Global of int | Memory
+lib/wasm_ir/wasm.ml	wire	module Data : sig type t = { offset : int; bytes : string; } end
+lib/wasm_ir/wasm.ml	wire	type t = { min_pages : int; max_pages : int option; }
+lib/wasm_ir/wasm.ml	wire	val page_bytes : int end

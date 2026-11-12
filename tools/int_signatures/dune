@@ -2,7 +2,11 @@
 ; integers, section on enforcement). Attached to runtest, so `make runtest`,
 ; `make precommit` and CI all run it; `make check.int-signatures` runs it alone.
 ;
-; The source tree is a dependency, so editing any .mli in scope reruns it.
+; The source tree is a dependency, so editing any .mli in scope reruns it. An
+; [ml:<dir>] scope entry also reads the interface the compiler infers for that
+; library's .ml files (ocamlc -i), so the library's [check] alias, which builds
+; its .cmi files and those of everything it depends on, is a dependency too:
+; list each such library below.
 
 (executable
  (name int_signatures)
@@ -12,7 +16,27 @@
  (alias runtest)
  (deps
   signature-allowlist.txt
-  (source_tree ../../lib))
+  (source_tree ../../lib)
+  (alias ../../lib/coralnpu_kernels/check)
+  (alias ../../lib/coralnpu_kernels_zvt/check)
+  (alias ../../lib/js_ast/check)
+  (alias ../../lib/loop_ir/check)
+  (alias ../../lib/machine_rivet_aarch64/check)
+  (alias ../../lib/machine_rivet_aarch64_gnu/check)
+  (alias ../../lib/machine_rivet_common/check)
+  (alias ../../lib/machine_rivet_riscv32/check)
+  (alias ../../lib/machine_rivet_riscv32_coral/check)
+  (alias ../../lib/machine_rivet_riscv32_mir/check)
+  (alias ../../lib/machine_rivet_x86_64/check)
+  (alias ../../lib/machine_rivet_x86_64_gnu/check)
+  (alias ../../lib/machine_target_aarch64/check)
+  (alias ../../lib/machine_target_riscv32/check)
+  (alias ../../lib/machine_target_x86_64/check)
+  (alias ../../lib/pt2/check)
+  (alias ../../lib/ssa_c/check)
+  (alias ../../lib/ssa_js/check)
+  (alias ../../lib/ssa_wasm/check)
+  (alias ../../lib/wasm_ir/check))
  (action
   (run
    %{exe:int_signatures.exe}
