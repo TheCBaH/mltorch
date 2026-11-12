@@ -47,7 +47,7 @@ and stmt st ~limits (s : Ssa_region.t Ssa_stmt.t) : I.t list =
       | Ssa_range.Empty -> ()
       | Ssa_range.Range r ->
           if Int64.compare (Int64.add r.hi step) Ssa_const.index_max > 0 then
-            refuse `Loop_leaves_domain);
+            refuse st `Loop_leaves_domain);
       let ivl = (define st iv).(0) in
       List.iter (fun p -> ignore (define st p)) carried;
       let init = copy st carried inits in
@@ -224,8 +224,12 @@ let kernel ?buffers ?sites ~relaxed_madd ~table_alloc (p : Ssa_program.t) =
         (Fmt.str "Ssa_wasm.kernel: the program does not verify: %a"
            Ssa_verify.pp_error e));
   let buffers = Option.value buffers ~default:(arguments p) in
+  Err.export ~pos:__POS__ ~pp_error
+  @@ Err.Escape.with_escape
+  @@ fun esc ->
   let st =
     {
+      esc;
       extra = [];
       n_params = 1 + List.length buffers;
       values = Hashtbl.create 64;
@@ -245,7 +249,7 @@ let kernel ?buffers ?sites ~relaxed_madd ~table_alloc (p : Ssa_program.t) =
       site_table = sites;
     }
   in
-  match
+  let data, limits, body =
     (* per-channel parameters, once, as constant arrays: [f32] for a buffer
        read with a binary32 dequantization, [f64] otherwise *)
     let wide32 = dequantized32 p in
@@ -279,40 +283,37 @@ let kernel ?buffers ?sites ~relaxed_madd ~table_alloc (p : Ssa_program.t) =
     List.iter (fun v -> ignore (define st v)) entry.Ssa_region.params;
     let body = region st ~limits entry in
     (data, limits, body)
-  with
-  | exception Refused e -> Error e
-  | data, limits, body ->
-      let prologue =
-        match st.meter with
-        | None -> []
-        | Some (remaining, _) ->
-            [ I.I64_const (Expr.Scan_limits.max_updates limits); set remaining ]
-      in
-      Ok
-        {
-          Loop_ir.Loop_wasm.func =
-            {
-              Wasm.Func.type_ =
-                {
-                  Wasm.Func_type.params =
-                    Wasm_type.I32 :: List.map (fun _ -> Wasm_type.I32) buffers;
-                  results = [ Wasm_type.I32 ];
-                };
-              locals = List.rev st.extra;
-              body = prologue @ body @ [ i32 0 ];
-            };
-          callees = Loop_ir.Loop_wasm_link.reached st.used;
-          local_bytes = st.local_top;
-          data;
-          sites =
-            (match sites with
-            | Some table -> table
-            | None -> Array.of_list (List.rev st.sites));
-          precision =
-            (if st.f32 then Loop_ir.Loop_numerics.Precision.F32
-             else Loop_ir.Loop_numerics.Precision.F64);
-          refusal = None;
-        }
+  in
+  let prologue =
+    match st.meter with
+    | None -> []
+    | Some (remaining, _) ->
+        [ I.I64_const (Expr.Scan_limits.max_updates limits); set remaining ]
+  in
+  {
+    Loop_ir.Loop_wasm.func =
+      {
+        Wasm.Func.type_ =
+          {
+            Wasm.Func_type.params =
+              Wasm_type.I32 :: List.map (fun _ -> Wasm_type.I32) buffers;
+            results = [ Wasm_type.I32 ];
+          };
+        locals = List.rev st.extra;
+        body = prologue @ body @ [ i32 0 ];
+      };
+    callees = Loop_ir.Loop_wasm_link.reached st.used;
+    local_bytes = st.local_top;
+    data;
+    sites =
+      (match sites with
+      | Some table -> table
+      | None -> Array.of_list (List.rev st.sites));
+    precision =
+      (if st.f32 then Loop_ir.Loop_numerics.Precision.F32
+       else Loop_ir.Loop_numerics.Precision.F64);
+    refusal = None;
+  }
 
 let lower ?(relaxed_madd = false)
     ?(numerics = Loop_ir.Loop_numerics.Reference_f64) (p : Ssa_program.t) =

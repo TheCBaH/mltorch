@@ -30,25 +30,18 @@ type t =
       and type Error.t = error)
 
 let sha_digest make text =
-  match
-    Codecs.Payload_hasher.digest_string Inference_compare_sha256.registry
-      Inference_compare_sha256.algorithm text
-  with
-  | Ok d -> (
-      match
-        make Inference_compare_sha256.algorithm ~hex:(Digest.Payload.hex d)
-      with
-      | Ok x -> x
-      | Error _ -> invalid_arg "Aten_runner.digest")
-  | Error _ -> invalid_arg "Aten_runner.digest"
+  let d =
+    Err.or_raise ~pp_error:Codecs.Payload_hasher.pp_error
+      (Codecs.Payload_hasher.digest_string Inference_compare_sha256.registry
+         Inference_compare_sha256.algorithm text)
+  in
+  Err.or_raise ~pp_error:Digest_error.pp
+    (make Inference_compare_sha256.algorithm ~hex:(Digest.Payload.hex d))
 
 let identity ?artifact () : Engine_identity.t =
-  let id mk s =
-    match mk s with Ok v -> v | Error _ -> invalid_arg "identity"
-  in
   {
-    engine = id Id.Engine.of_string "aten";
-    route = id Id.Engine_route.of_string "cpp-interpreter";
+    engine = Id.Engine.of_literal "aten";
+    route = Id.Engine_route.of_literal "cpp-interpreter";
     build_digest =
       sha_digest Digest.Build.make
         "inference-compare-pt2/aten/cpp-interpreter/v1";
@@ -167,12 +160,9 @@ let create ?artifact () : t =
                       | Ok tensor ->
                           let spec = List.assoc name body.model.specs in
                           let tref =
-                            match
-                              Aten_model.tensor_ref ~key:body.key
-                                ~scope:body.scope name
-                            with
-                            | Ok t -> t
-                            | Error m -> invalid_arg m
+                            Model_error.or_raise ~what:"Aten_runner.tensor_ref"
+                              (Aten_model.tensor_ref ~key:body.key
+                                 ~scope:body.scope name)
                           in
                           outs
                             ((tref, { Value.tensor; spec; released = false })

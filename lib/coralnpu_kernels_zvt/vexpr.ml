@@ -41,8 +41,6 @@ module Plan = struct
   type nonrec t = { items : Item.t list; result : Vreg.t; peak : int }
 end
 
-exception Out_of_registers of string
-
 module Int_map = Map.Make (Int)
 
 let children n =
@@ -103,173 +101,203 @@ let li ~scratch bits =
 
 let emit ~lmul ~scratch ~free ~inputs root =
   try
-    let uses = use_counts root in
-    let need_of = need_table () in
-    let free = ref (List.sort compare (List.map Vreg.index free)) in
-    let live = ref (Array.length inputs) in
-    let peak = ref !live in
-    List.iter
-      (fun i ->
-        if i mod lmul <> 0 || i = 0 then
-          invalid_arg
-            (Printf.sprintf "Vexpr: v%d is not a usable register group" i))
-      !free;
-    let alloc what =
-      match !free with
-      | [] -> raise (Out_of_registers what)
-      | r :: rest ->
-          free := rest;
-          incr live;
-          peak := max !peak !live;
-          ok (Vreg.of_index r)
-    in
-    let release r =
-      decr live;
-      free := List.sort compare (Vreg.index r :: !free)
-    in
-    let items = ref [] in
-    let emit_item i = items := i :: !items in
-    let emit_insn i = emit_item (Item.insn i) in
-    let kept = Hashtbl.create 8 in
-    Array.iter
-      (fun (r, mode) ->
-        match mode with
-        | `Kept -> Hashtbl.replace kept (Vreg.index r) ()
-        | `Consumed -> ())
-      inputs;
-    let reg_of = Hashtbl.create 64 in
-    let remaining = Hashtbl.copy uses in
-    let v0 = ok (Vreg.of_index 0) in
-    let constant x =
-      let r = alloc "a constant" in
-      let bits = Int32.to_int (Int32.bits_of_float x) land 0xFFFF_FFFF in
-      if bits = 0 then emit_insn (Insn.Vmv_v_x { dst = r; src = Gpr.zero })
-      else (
-        List.iter emit_item (li ~scratch bits);
-        emit_insn (Insn.Vmv_v_x { dst = r; src = scratch }));
-      r
-    in
-    let rec eval n =
-      match Hashtbl.find_opt reg_of n.id with
-      | Some r -> r
-      | None ->
-          let r =
-            match n.desc with
-            | Input k -> fst inputs.(k)
-            | Const _ -> assert false
-            | Bin (op, a, b) -> (
-                match operands [ a; b ] with
-                | [ ra; rb ] ->
-                    let dst = finish [ (a, ra); (b, rb) ] "a result" in
-                    (match op with
-                    | Add ->
-                        emit_insn
-                          (Insn.Vv
-                             { op = Insn.Vv_op.Vfadd; dst; a = ra; b = rb })
-                    | Mul ->
-                        emit_insn
-                          (Insn.Vv
-                             { op = Insn.Vv_op.Vfmul; dst; a = ra; b = rb })
-                    | Sub ->
-                        emit_insn
-                          (Insn.Valu
-                             { op = Insn.Alu_op.Vfsub; dst; a = ra; b = rb })
-                    | Div ->
-                        emit_insn
-                          (Insn.Valu
-                             { op = Insn.Alu_op.Vfdiv; dst; a = ra; b = rb }));
-                    release_constants [ (a, ra); (b, rb) ];
-                    dst
-                | _ -> assert false)
-            | Select (cmp, a, b, c, d) -> (
-                match operands [ a; b; c; d ] with
-                | [ ra; rb; rc; rd ] ->
-                    emit_insn
-                      (Insn.Vmcmp
-                         {
-                           cmp =
-                             (match cmp with
-                             | Eq -> Insn.Cmp.Feq
-                             | Lt -> Insn.Cmp.Flt);
-                           dst = v0;
-                           a = ra;
-                           b = rb;
-                         });
-                    (* the compare has read a and b: their registers may be dst *)
-                    let dst =
-                      finish
-                        [ (a, ra); (b, rb); (c, rc); (d, rd) ]
-                        "a selection"
-                    in
-                    emit_insn
-                      (Insn.Vmerge_vvm { dst; otherwise = rd; chosen = rc });
-                    release_constants [ (a, ra); (b, rb); (c, rc); (d, rd) ];
-                    dst
-                | _ -> assert false)
+    match
+      Err.payload
+        ( Err.Escape.with_escape @@ fun esc ->
+          let uses = use_counts root in
+          let need_of = need_table () in
+          let free = ref (List.sort compare (List.map Vreg.index free)) in
+          let live = ref (Array.length inputs) in
+          let peak = ref !live in
+          List.iter
+            (fun i ->
+              if i mod lmul <> 0 || i = 0 then
+                invalid_arg
+                  (Printf.sprintf "Vexpr: v%d is not a usable register group" i))
+            !free;
+          let alloc what =
+            match !free with
+            | [] -> Err.Escape.throw esc ~pp_error:Fmt.string what
+            | r :: rest ->
+                free := rest;
+                incr live;
+                peak := max !peak !live;
+                ok (Vreg.of_index r)
           in
-          Hashtbl.add reg_of n.id r;
-          r
-    (* the registers of [ns] in order: the larger subtrees first, a constant
+          let release r =
+            decr live;
+            free := List.sort compare (Vreg.index r :: !free)
+          in
+          let items = ref [] in
+          let emit_item i = items := i :: !items in
+          let emit_insn i = emit_item (Item.insn i) in
+          let kept = Hashtbl.create 8 in
+          Array.iter
+            (fun (r, mode) ->
+              match mode with
+              | `Kept -> Hashtbl.replace kept (Vreg.index r) ()
+              | `Consumed -> ())
+            inputs;
+          let reg_of = Hashtbl.create 64 in
+          let remaining = Hashtbl.copy uses in
+          let v0 = ok (Vreg.of_index 0) in
+          let constant x =
+            let r = alloc "a constant" in
+            let bits = Int32.to_int (Int32.bits_of_float x) land 0xFFFF_FFFF in
+            if bits = 0 then
+              emit_insn (Insn.Vmv_v_x { dst = r; src = Gpr.zero })
+            else (
+              List.iter emit_item (li ~scratch bits);
+              emit_insn (Insn.Vmv_v_x { dst = r; src = scratch }));
+            r
+          in
+          let rec eval n =
+            match Hashtbl.find_opt reg_of n.id with
+            | Some r -> r
+            | None ->
+                let r =
+                  match n.desc with
+                  | Input k -> fst inputs.(k)
+                  | Const _ -> assert false
+                  | Bin (op, a, b) -> (
+                      match operands [ a; b ] with
+                      | [ ra; rb ] ->
+                          let dst = finish [ (a, ra); (b, rb) ] "a result" in
+                          (match op with
+                          | Add ->
+                              emit_insn
+                                (Insn.Vv
+                                   {
+                                     op = Insn.Vv_op.Vfadd;
+                                     dst;
+                                     a = ra;
+                                     b = rb;
+                                   })
+                          | Mul ->
+                              emit_insn
+                                (Insn.Vv
+                                   {
+                                     op = Insn.Vv_op.Vfmul;
+                                     dst;
+                                     a = ra;
+                                     b = rb;
+                                   })
+                          | Sub ->
+                              emit_insn
+                                (Insn.Valu
+                                   {
+                                     op = Insn.Alu_op.Vfsub;
+                                     dst;
+                                     a = ra;
+                                     b = rb;
+                                   })
+                          | Div ->
+                              emit_insn
+                                (Insn.Valu
+                                   {
+                                     op = Insn.Alu_op.Vfdiv;
+                                     dst;
+                                     a = ra;
+                                     b = rb;
+                                   }));
+                          release_constants [ (a, ra); (b, rb) ];
+                          dst
+                      | _ -> assert false)
+                  | Select (cmp, a, b, c, d) -> (
+                      match operands [ a; b; c; d ] with
+                      | [ ra; rb; rc; rd ] ->
+                          emit_insn
+                            (Insn.Vmcmp
+                               {
+                                 cmp =
+                                   (match cmp with
+                                   | Eq -> Insn.Cmp.Feq
+                                   | Lt -> Insn.Cmp.Flt);
+                                 dst = v0;
+                                 a = ra;
+                                 b = rb;
+                               });
+                          (* the compare has read a and b: their registers may be dst *)
+                          let dst =
+                            finish
+                              [ (a, ra); (b, rb); (c, rc); (d, rd) ]
+                              "a selection"
+                          in
+                          emit_insn
+                            (Insn.Vmerge_vvm
+                               { dst; otherwise = rd; chosen = rc });
+                          release_constants
+                            [ (a, ra); (b, rb); (c, rc); (d, rd) ];
+                          dst
+                      | _ -> assert false)
+                in
+                Hashtbl.add reg_of n.id r;
+                r
+          (* the registers of [ns] in order: the larger subtrees first, a constant
        built last, so that it is live for the shortest time *)
-    and operands ns =
-      let indexed = List.mapi (fun i n -> (i, n)) ns in
-      let computed, constants =
-        List.partition (fun (_, n) -> not (is_const n)) indexed
-      in
-      let computed =
-        List.stable_sort
-          (fun (_, x) (_, y) -> compare (need_of y) (need_of x))
-          computed
-      in
-      let regs =
-        List.map (fun (i, n) -> (i, eval n)) computed
-        @ List.map
-            (fun (i, n) ->
-              (i, match n.desc with Const x -> constant x | _ -> assert false))
-            constants
-      in
-      List.map (fun (i, _) -> List.assoc i regs) indexed
-    (* count the operands' reads and free the registers read for the last
+          and operands ns =
+            let indexed = List.mapi (fun i n -> (i, n)) ns in
+            let computed, constants =
+              List.partition (fun (_, n) -> not (is_const n)) indexed
+            in
+            let computed =
+              List.stable_sort
+                (fun (_, x) (_, y) -> compare (need_of y) (need_of x))
+                computed
+            in
+            let regs =
+              List.map (fun (i, n) -> (i, eval n)) computed
+              @ List.map
+                  (fun (i, n) ->
+                    ( i,
+                      match n.desc with
+                      | Const x -> constant x
+                      | _ -> assert false ))
+                  constants
+            in
+            List.map (fun (i, _) -> List.assoc i regs) indexed
+          (* count the operands' reads and free the registers read for the last
        time, then allocate the destination: it may be one of them *)
-    and finish operands what =
-      let dying = ref [] in
-      List.iter
-        (fun (n, r) ->
-          if not (is_const n) then (
-            let left = Hashtbl.find remaining n.id - 1 in
-            Hashtbl.replace remaining n.id left;
-            if
-              left = 0
-              && (not (Hashtbl.mem kept (Vreg.index r)))
-              && not (List.exists (Vreg.equal r) !dying)
-            then dying := r :: !dying))
-        operands;
-      List.iter release !dying;
-      alloc what
-    and release_constants operands =
-      List.iter (fun (n, r) -> if is_const n then release r) operands
-    in
-    (* nodes in the order the sequence built them: a value is used soon after
+          and finish operands what =
+            let dying = ref [] in
+            List.iter
+              (fun (n, r) ->
+                if not (is_const n) then (
+                  let left = Hashtbl.find remaining n.id - 1 in
+                  Hashtbl.replace remaining n.id left;
+                  if
+                    left = 0
+                    && (not (Hashtbl.mem kept (Vreg.index r)))
+                    && not (List.exists (Vreg.equal r) !dying)
+                  then dying := r :: !dying))
+              operands;
+            List.iter release !dying;
+            alloc what
+          and release_constants operands =
+            List.iter (fun (n, r) -> if is_const n then release r) operands
+          in
+          (* nodes in the order the sequence built them: a value is used soon after
        it is made, which keeps fewer registers live than a depth-first walk *)
-    let reachable =
-      let seen = Hashtbl.create 64 and acc = ref [] in
-      let rec go n =
-        if not (Hashtbl.mem seen n.id) then (
-          Hashtbl.add seen n.id ();
-          List.iter go (children n);
-          acc := n :: !acc)
-      in
-      go root;
-      List.sort (fun a b -> compare a.id b.id) !acc
-    in
-    List.iter
-      (fun n ->
-        match n.desc with
-        | Const _ | Input _ -> ()
-        | Bin _ | Select _ -> ignore (eval n))
-      reachable;
-    let result = eval root in
-    Ok { Plan.items = List.rev !items; result; peak = !peak }
-  with
-  | Out_of_registers what -> Error ("out of vector registers for " ^ what)
-  | Invalid_argument m -> Error m
+          let reachable =
+            let seen = Hashtbl.create 64 and acc = ref [] in
+            let rec go n =
+              if not (Hashtbl.mem seen n.id) then (
+                Hashtbl.add seen n.id ();
+                List.iter go (children n);
+                acc := n :: !acc)
+            in
+            go root;
+            List.sort (fun a b -> compare a.id b.id) !acc
+          in
+          List.iter
+            (fun n ->
+              match n.desc with
+              | Const _ | Input _ -> ()
+              | Bin _ | Select _ -> ignore (eval n))
+            reachable;
+          let result = eval root in
+          { Plan.items = List.rev !items; result; peak = !peak } )
+    with
+    | Ok plan -> Ok plan
+    | Error what -> Error ("out of vector registers for " ^ what)
+  with Invalid_argument m -> Error m

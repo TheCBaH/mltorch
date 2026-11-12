@@ -14,12 +14,9 @@ let default_run_id (p : Session.prepared) =
   let e = p.validated.loaded.experiment in
   let plan = Core.Sealed_plan.plan p.sealed in
   let hex = Digest.Plan.hex plan.plan_digest in
-  match
-    Id.Run.of_string
-      (Id.Experiment.to_string e.experiment_id ^ "-" ^ String.sub hex 0 12)
-  with
-  | Ok r -> r
-  | Error _ -> invalid_arg "Run.default_run_id"
+  Err.or_raise ~pp_error:Text_error.pp
+    (Id.Run.of_string
+       (Id.Experiment.to_string e.experiment_id ^ "-" ^ String.sub hex 0 12))
 
 let config (p : Session.prepared) ~emit ~retain ~mode ~ledger_limit :
     Core.Coordinator.config =

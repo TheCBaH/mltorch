@@ -54,11 +54,7 @@ let require_spec ?side ?unit ?tensor ?canonical ~expected checked =
 
 (* A conversion chain as a recipe over one boundary tensor. *)
 let chain_recipe ~id tensor steps spec : Recipe.t =
-  let node_id i =
-    match Id.Conversion_node.of_string (Printf.sprintf "step%d" i) with
-    | Ok n -> n
-    | Error _ -> invalid_arg "Correspondence_check.chain_recipe"
-  in
+  let node_id i = Id.Conversion_node.of_literal (Printf.sprintf "step%d" i) in
   let nodes =
     List.mapi
       (fun i op ->
@@ -78,9 +74,5 @@ let chain_recipe ~id tensor steps spec : Recipe.t =
     | [] -> Recipe.Boundary tensor
     | _ -> Recipe.Conversion_result (node_id (List.length steps - 1))
   in
-  let id =
-    match Id.Recipe.of_string id with
-    | Ok r -> r
-    | Error _ -> invalid_arg "Correspondence_check.chain_recipe: id"
-  in
+  let id = Err.or_raise ~pp_error:Text_error.pp (Id.Recipe.of_string id) in
   { Recipe.id; nodes; result; output_spec = spec; lossless = false }

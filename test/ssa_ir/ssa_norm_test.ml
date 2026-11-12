@@ -88,12 +88,9 @@ let interpret p d cells =
 let contracted p (d : N.t) cells =
   let plan = Ssa_plan.resolve ~numerics:Ssa_numerics.Fp32_contracted p in
   let cfg =
-    match
-      Ssa_cfg_lower.program ~accumulate:Ssa_cfg_lower.Accumulate.Fuse_products
-        (Ssa_fuse_dots.program plan.Ssa_plan.program)
-    with
-    | Ok c -> c
-    | Error e -> Fmt.failwith "%a" Ssa_cfg_lower.pp_error e
+    Err.or_raise ~pp_error:Ssa_cfg_lower.pp_error
+      (Ssa_cfg_lower.program ~accumulate:Ssa_cfg_lower.Accumulate.Fuse_products
+         (Ssa_fuse_dots.program plan.Ssa_plan.program))
   in
   let m = memory d cells in
   Err.or_raise ~pp_error:Ssa_cfg_interp.pp_error

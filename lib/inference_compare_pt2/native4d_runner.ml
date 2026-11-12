@@ -9,12 +9,9 @@ type error = Graph_runner.error
 let pp_error = Graph_runner.pp_error
 
 let identity ?artifact () : Engine_identity.t =
-  let id mk s =
-    match mk s with Ok v -> v | Error _ -> invalid_arg "identity"
-  in
   {
-    engine = id Id.Engine.of_string "native4d";
-    route = id Id.Engine_route.of_string "eval-direct4";
+    engine = Id.Engine.of_literal "native4d";
+    route = Id.Engine_route.of_literal "eval-direct4";
     build_digest =
       Aten_runner.sha_digest Digest.Build.make
         "inference-compare-pt2/native4d/eval-direct4/v1";

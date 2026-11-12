@@ -143,12 +143,9 @@ let run cfg (sealed : Sealed_plan.t) ~left ~right : result =
       Codecs.Payload_hasher.digest_string cfg.hashers alg (L.contents v)
     with
     | Ok d -> d
-    | Error _ -> (
-        match
-          Digest.Payload.make alg ~hex:(Digest.Logical_value.hex (L.digest v))
-        with
-        | Ok d -> d
-        | Error _ -> invalid_arg "Coordinator.payload_digest_of")
+    | Error _ ->
+        Err.or_raise ~pp_error:Digest_error.pp
+          (Digest.Payload.make alg ~hex:(Digest.Logical_value.hex (L.digest v)))
   in
   let comparisons = ref [] in
   let commits = ref [] in

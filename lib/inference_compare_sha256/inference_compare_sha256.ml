@@ -1,10 +1,7 @@
 open Inference_compare_schema
 module Hasher = Inference_compare_codecs.Payload_hasher
 
-let algorithm =
-  match Id.Digest_algorithm.of_string "sha256" with
-  | Ok a -> a
-  | Error _ -> invalid_arg "Inference_compare_sha256.algorithm"
+let algorithm = Id.Digest_algorithm.of_literal "sha256"
 
 module Backend = struct
   type state = Pt2_sha256.t
@@ -16,6 +13,7 @@ module Backend = struct
 end
 
 let registry =
-  match Hasher.Registry.register Hasher.Registry.empty (module Backend) with
-  | Ok r -> r
-  | Error _ -> invalid_arg "Inference_compare_sha256.registry"
+  Err.or_raise
+    ~pp_error:(fun ppf (`Duplicate_algorithm a) ->
+      Fmt.pf ppf "duplicate digest algorithm %a" Id.Digest_algorithm.pp a)
+    (Hasher.Registry.register Hasher.Registry.empty (module Backend))

@@ -83,7 +83,7 @@ let lanewise st (inner : Ssa_op.t) (res : Ssa_value.t) =
           (chunks_of a (fun i ->
                [ src a i; src b i; src c i; vn Wasm_op.F32x4_relaxed_madd ]))
       else
-        refuse
+        refuse st
           (`Unsupported_operation "a fused multiply-add outside relaxed SIMD")
   | Ssa_op.Float_unary (op, a) -> (
       let f32 = elem_of a = Ssa_type.F32 in
@@ -178,7 +178,8 @@ let lanewise st (inner : Ssa_op.t) (res : Ssa_value.t) =
                (fun i pc ->
                  [ src a i; src b i ] @ pc @ [ vn Wasm_op.V128_bitselect ])
                p_chunks))
-  | _ -> refuse (`Unsupported_operation "an operation with no lane-wise form")
+  | _ ->
+      refuse st (`Unsupported_operation "an operation with no lane-wise form")
 
 (* ---- one instruction ------------------------------------------------------------ *)
 
@@ -244,15 +245,16 @@ let contract st (d : Contraction.t) ~a ~b ~c =
   (match d.Contraction.format with
   | Contraction.Element.F32 -> ()
   | Contraction.Element.Bf16 | Contraction.Element.I8 _ ->
-      refuse (`Unsupported_operation "a contraction over other than binary32"));
+      refuse st
+        (`Unsupported_operation "a contraction over other than binary32"));
   (match d.Contraction.numerics with
   | Contraction.Numerics.Ordered | Contraction.Numerics.Fused_sequential -> ()
   | Contraction.Numerics.Paired ->
-      refuse (`Unsupported_operation "a paired contraction"));
+      refuse st (`Unsupported_operation "a paired contraction"));
   let narrow what x =
     if fits32_64 x then Int64.to_int x
     else
-      refuse
+      refuse st
         (`Unsupported_operation ("a contraction " ^ what ^ " past 32 bits"))
   in
   let ao = d.Contraction.a and bo = d.Contraction.b in
@@ -347,7 +349,7 @@ let instr st ~limits (i : Ssa_instr.t) : I.t list =
   let one instrs = set_one st (first_result i) instrs in
   match op with
   | Ssa_op.Mark _ | Ssa_op.Mark_lanes _ -> []
-  | Ssa_op.Attend _ -> refuse (`Unsupported_operation "an attention")
+  | Ssa_op.Attend _ -> refuse st (`Unsupported_operation "an attention")
   | Ssa_op.Contract { desc = d; a; b; c; _ } -> contract st d ~a ~b ~c
   | Ssa_op.Check_access { buffer; at } -> (
       let b = find_buffer st buffer in
@@ -458,7 +460,7 @@ let instr st ~limits (i : Ssa_instr.t) : I.t list =
   | Ssa_op.Float_fma (a, b, c) ->
       if is_f32 (first_result i) then
         one (r a @ r b @ r c @ [ call st R.Callee.Fma_f32 ])
-      else refuse (`Unsupported_operation "a binary64 fused multiply-add")
+      else refuse st (`Unsupported_operation "a binary64 fused multiply-add")
   | Ssa_op.Float_max (a, b) ->
       one
         (r a @ r b
@@ -740,7 +742,7 @@ let instr st ~limits (i : Ssa_instr.t) : I.t list =
   | Ssa_op.Vec_iota { base; step; lanes } ->
       let res = first_result i in
       if elem_of res <> Ssa_type.F64 then
-        refuse (`Unsupported_operation "a binary32 iota");
+        refuse st (`Unsupported_operation "a binary32 iota");
       let lane k =
         wide (r base)
         @ [
@@ -778,7 +780,7 @@ let instr st ~limits (i : Ssa_instr.t) : I.t list =
         Ssa_format.per_channel b.Ssa_buffer.format
         && not (Int64.equal steps.Expr.Coord.c 0L)
       then
-        refuse
+        refuse st
           (`Unsupported_operation
              "a vector load across the channels of a per-channel quantized \
               buffer");
@@ -914,7 +916,7 @@ let instr st ~limits (i : Ssa_instr.t) : I.t list =
                       (gather Ssa_type.F32
                          (List.init per (fun j -> lane ((per * i) + j)))))
         | Ssa_type.I64 | Ssa_type.Index | Ssa_type.Pred ->
-            refuse (`Unsupported_operation "a vector load of a non-float")
+            refuse st (`Unsupported_operation "a vector load of a non-float")
       in
       start @ set_chunks st res chunks
   | Ssa_op.Vec_store { buffer; at; steps; encode; value; lanes } -> (

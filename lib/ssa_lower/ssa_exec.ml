@@ -142,10 +142,12 @@ let run ?counters ?fused ?(engine = Structured) (plan : Fusion_plan.t)
     | Cfg -> (
         match Err.payload (Ssa_verify.check p) with
         | Error (`Invalid_program d) -> Err.fail (`Invalid_program d : error)
-        | Ok () -> (
-            match Ssa_cfg_lower.program p with
-            | Error e -> Err.fail (`Cfg_lowering e : error)
-            | Ok cfg ->
+        | Ok () ->
+            Err.bind
+              (Err.map_error
+                 (fun e -> (`Cfg_lowering e : error))
+                 (Ssa_cfg_lower.program p))
+              (fun cfg ->
                 Err.map_error
                   (fun (e : Ssa_cfg_interp.error) -> (e :> error))
                   (Ssa_cfg_interp.run ?counters ?fused cfg ~memory))));

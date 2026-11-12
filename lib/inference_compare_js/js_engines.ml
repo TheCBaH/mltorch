@@ -127,12 +127,9 @@ end)
 (* ---- providers ---- *)
 
 let identity ~engine ~runtime ~helper : Engine_identity.t =
-  let id mk s =
-    match mk s with Ok v -> v | Error _ -> invalid_arg "identity"
-  in
   {
-    engine = id Id.Engine.of_string engine;
-    route = id Id.Engine_route.of_string "js-node-subprocess";
+    engine = Id.Engine.of_literal engine;
+    route = Id.Engine_route.of_literal "js-node-subprocess";
     build_digest =
       P.Aten_runner.sha_digest Digest.Build.make
         (Printf.sprintf "inference-compare-js/%s/v1 protocol %d helper %s"

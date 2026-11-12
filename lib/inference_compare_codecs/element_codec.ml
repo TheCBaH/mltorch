@@ -2,11 +2,7 @@ open Inference_compare_schema
 
 type t = { id : Id.Codec.t; element : Capability.element; byte_width : int }
 
-let id name =
-  match Id.Codec.of_string name with
-  | Ok c -> c
-  | Error _ -> invalid_arg ("Element_codec.id: " ^ name)
-
+let id = Id.Codec.of_literal
 let bool = id "bool"
 let f32 = id "f32"
 let f64 = id "f64"

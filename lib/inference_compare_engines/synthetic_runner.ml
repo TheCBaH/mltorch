@@ -131,9 +131,8 @@ let sha_hex s =
   | Error _ -> String.make 64 '0'
 
 let digest make s =
-  match make Inference_compare_sha256.algorithm ~hex:(sha_hex s) with
-  | Ok d -> d
-  | Error _ -> invalid_arg "Synthetic_runner.digest"
+  Err.or_raise ~pp_error:Digest_error.pp
+    (make Inference_compare_sha256.algorithm ~hex:(sha_hex s))
 
 let create (cfg : config) : t * counters =
   let counters =
@@ -186,12 +185,9 @@ let create (cfg : config) : t * counters =
     let fail e = Err.fail ~pp_error e
 
     let identity () : Engine_identity.t =
-      let text mk s =
-        match mk s with Ok v -> v | Error _ -> invalid_arg "identity"
-      in
       {
-        engine = text Id.Engine.of_string cfg.name;
-        route = text Id.Engine_route.of_string "synthetic";
+        engine = Id.Engine.of_literal cfg.name;
+        route = Id.Engine_route.of_literal "synthetic";
         build_digest = digest Digest.Build.make "synthetic-runner-build";
         configuration_digest =
           digest Digest.Configuration.make

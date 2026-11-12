@@ -9,6 +9,7 @@ module Gpr = Reg.Gpr
 module C = Contraction
 module P = Peak_zvt
 module K = Coralnpu_kernels.Peak_kernels
+module Kernel_refusal = Coralnpu_kernels.Kernel_refusal
 
 module Mutation = struct
   type t = A_pitch | Seed_ignored | Short_copy | Short_k
@@ -18,31 +19,30 @@ module Stage = struct
   type t = Always | Outside of { base : int; bytes : int }
 end
 
-exception Refused of string
-
-let refuse why = raise (Refused why)
 let tile = 16
 let insn i = Item.insn i
 
-let bytes (n : int64) =
+let bytes esc (n : int64) =
   let b = Int64.mul 2L n in
   if Int64.compare b 0x7FFF_FFFFL > 0 || Int64.compare b 0L < 0 then
-    refuse "an offset past 31 bits"
+    Kernel_refusal.refuse esc Offset_past_31_bits
   else Int64.to_int b
 
-let ok = function Ok x -> x | Error _ -> refuse "a register or immediate"
+let ok esc = function
+  | Ok x -> x
+  | Error _ -> Kernel_refusal.refuse esc Register_or_immediate
 
-let li rd n =
+let li esc rd n =
   match Err.payload (Insn.load_imm rd n) with
   | Ok is -> List.map insn is
-  | Error _ -> refuse "a constant"
+  | Error _ -> Kernel_refusal.refuse esc Constant
 
 (* [rd = rs + n], through [tmp] when [n] is past an [addi] *)
-let add_from ~tmp rd rs n =
+let add_from esc ~tmp rd rs n =
   if n = 0 && rd = rs then []
   else if Imm.Imm12.(in_range (of_int n)) then
     [ insn (Insn.Addi { dst = rd; src = rs; imm = Imm.Imm12.of_int n }) ]
-  else li tmp n @ [ insn (Insn.Add { dst = rd; lhs = rs; rhs = tmp }) ]
+  else li esc tmp n @ [ insn (Insn.Add { dst = rd; lhs = rs; rhs = tmp }) ]
 
 let sew16_m4 =
   {
@@ -52,8 +52,8 @@ let sew16_m4 =
     mask = Vtype.Policy.Agnostic;
   }
 
-let set_vl n =
-  li Gpr.t3 n
+let set_vl esc n =
+  li esc Gpr.t3 n
   @ [ insn (Insn.Vsetvli { avl = Vtype.Avl.Reg Gpr.t3; vtype = sew16_m4 }) ]
 
 (* the block plans: shapes, then each distinct block's rows *)
@@ -77,24 +77,24 @@ let plan ~rows ~depth ~n =
 let swapped (d : C.t) = not (Int64.equal d.C.c.C.Output.col 1L)
 let normal d = if swapped d then C.transpose d else d
 
-let geometry (d : C.t) =
+let geometry esc (d : C.t) =
   let d = normal d in
   (match (d.C.format, d.C.numerics) with
   | C.Element.Bf16, C.Numerics.Paired -> ()
-  | _ -> refuse "not a paired bfloat16 contraction");
+  | _ -> Kernel_refusal.refuse esc Not_paired_bf16);
   if not (Int64.equal d.C.c.C.Output.col 1L) then
-    refuse "neither of C's strides is one element";
+    Kernel_refusal.refuse esc C_strides_not_one;
   let m = Int64.to_int d.C.m and n = Int64.to_int d.C.n in
   let k = Int64.to_int d.C.k in
-  if k < 1 then refuse "an empty k";
+  if k < 1 then Kernel_refusal.refuse esc Empty_k;
   (* the depth padding adds a pair of zero products that the reference does
      not, and a seed of negative zero turns into positive zero by it *)
   (match d.C.seed with
   | C.Seed.Tensor when k mod 4 = 1 || k mod 4 = 2 ->
-      refuse "a seeded k that the depth padding changes"
+      Kernel_refusal.refuse esc Seeded_k_padding
   | C.Seed.Tensor | C.Seed.Zero -> ());
   if m > 0x1_0000 || n > 0x1_0000 || k > 0x1_0000 then
-    refuse "an extent past 2^16";
+    Kernel_refusal.refuse esc Extent_past_2_16;
   let depth = (k + 3) / 4 * 4 in
   let full = m / 32 and rest = m mod 32 in
   let tails =
@@ -105,9 +105,9 @@ let geometry (d : C.t) =
 (* An operand whose rows of k are whole contiguous runs of the tile's columns
    (A transposed, B as it is) is read where it is, with its row pitch, when k
    needs no zero steps and the pitch is an [addi]'s. *)
-let in_place (d : C.t) =
+let in_place esc (d : C.t) =
   let d = normal d in
-  let _, _, k, depth, _, _ = geometry d in
+  let _, _, k, depth, _, _ = geometry esc d in
   let fits x = x >= 0 && x < 2048 in
   ( k = depth
     && Int64.equal d.C.a.C.Operand.outer 1L
@@ -116,10 +116,10 @@ let in_place (d : C.t) =
     && Int64.equal d.C.b.C.Operand.outer 1L
     && fits (2 * Int64.to_int d.C.b.C.Operand.k) )
 
-let sizes ?stage_b (d : C.t) =
+let sizes esc ?stage_b (d : C.t) =
   let d = normal d in
-  let _, n, _, depth, full, tails = geometry d in
-  let a_ip, b_ip = in_place d in
+  let _, n, _, depth, full, tails = geometry esc d in
+  let a_ip, b_ip = in_place esc d in
   let rows = (if full > 0 then [ 32 ] else []) @ tails in
   let b_plan = plan ~rows:(List.hd rows) ~depth ~n in
   let b_bytes =
@@ -144,8 +144,9 @@ let sizes ?stage_b (d : C.t) =
 (* The bytes past an operand's end that the blocks' load ahead reads: a step
    of k rows of the operand read in place, and a tile's width. *)
 let overread d0 =
+  Kernel_refusal.generate_exn @@ fun esc ->
   let d = normal d0 in
-  let a_ip, b_ip = in_place d in
+  let a_ip, b_ip = in_place esc d in
   let one ip (o : C.Operand.t) =
     if ip then (4 * 2 * Int64.to_int o.C.Operand.k) + 128 else 0
   in
@@ -155,8 +156,9 @@ let overread d0 =
    (see [strided_rows]): else an element a load, which the plain function
    matches or beats. *)
 let fast d0 =
+  Kernel_refusal.generate_exn @@ fun esc ->
   let d = normal d0 in
-  let a_ip, b_ip = in_place d in
+  let a_ip, b_ip = in_place esc d in
   let words ip (o : C.Operand.t) =
     ip
     ||
@@ -168,24 +170,26 @@ let fast d0 =
 (* A B read in place is worth copying into the DTCM when more than one block
    of A reads it. *)
 let reuses_b d0 =
-  match normal d0 with
-  | exception Refused _ -> false
-  | d -> (
-      match in_place d with
-      | exception Refused _ -> false
-      | _, b_ip -> b_ip && Int64.compare d.C.m 32L > 0)
+  let d = normal d0 in
+  match Kernel_refusal.generate (fun esc -> in_place esc d) with
+  | Error _ -> false
+  | Ok (_, b_ip) -> b_ip && Int64.compare d.C.m 32L > 0
 
 let panel_bytes ?stage_b d =
-  match sizes ?stage_b d with
-  | exception Refused why -> Error why
-  | exception Invalid_argument why -> Error why
-  | b_bytes, a_bytes -> Ok (b_bytes + a_bytes)
+  Kernel_refusal.generate_checked @@ fun esc ->
+  let b_bytes, a_bytes = sizes esc ?stage_b d in
+  b_bytes + a_bytes
 
-let items ?mutation ?stage_b (d0 : C.t) =
+let items esc ?mutation ?stage_b (d0 : C.t) =
+  let ok x = ok esc x
+  and li rd n = li esc rd n
+  and bytes n = bytes esc n
+  and add_from ~tmp rd rs n = add_from esc ~tmp rd rs n
+  and set_vl n = set_vl esc n in
   let d = normal d0 in
-  let m, n, k, depth, full, tails = geometry d in
-  let b_bytes, a_bytes = sizes ?stage_b d in
-  let a_ip, b_ip = in_place d in
+  let m, n, k, depth, full, tails = geometry esc d in
+  let b_bytes, a_bytes = sizes esc ?stage_b d in
+  let a_ip, b_ip = in_place esc d in
   let name = C.symbol d0 in
   let panel_b = Label.named (name ^ "_pb")
   and panel_a = Label.named (name ^ "_pa") in
@@ -480,7 +484,6 @@ let items ?mutation ?stage_b (d0 : C.t) =
     ]
 
 let module_ ?mutation ?stage_b d =
-  match items ?mutation ?stage_b d with
-  | exception Refused why -> Error why
-  | exception Invalid_argument why -> Error why
-  | items -> Kernel_module.of_items ~name:(C.symbol d) items
+  Result.bind
+    (Kernel_refusal.generate_checked (fun esc -> items esc ?mutation ?stage_b d))
+    (fun items -> Kernel_module.of_items ~name:(C.symbol d) items)

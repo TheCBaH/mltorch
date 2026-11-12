@@ -101,7 +101,10 @@ let run ?mutation ?dtcm ?(pad = 0) ?(fill = '\000') ?(sram = false) ?inputs t =
       ~write:(fun o x -> out.(n o) <- x);
     H.f32_bytes out
   in
-  let* m = Z.Zvt_sdpa.module_ ?mutation ?dtcm t in
+  let* m =
+    Result.map_error Coralnpu_kernels.Kernel_refusal.to_string
+      (Z.Zvt_sdpa.module_ ?mutation ?dtcm t)
+  in
   let has_mask = t.A.mask <> None in
   let* r =
     H.run ~symbol:(A.symbol t) ~modules:[ m ] ~pad ~fill ~sram
@@ -325,7 +328,7 @@ let%expect_test "what d 96 and 130 need" =
   List.iter
     (fun (d, bk) ->
       Fmt.pr "d %d bk %d: %a@." d bk
-        Fmt.(result ~ok:int ~error:string)
+        Fmt.(result ~ok:int ~error:Coralnpu_kernels.Kernel_refusal.pp)
         (Z.Zvt_sdpa.panel_bytes (make ~tq:16 ~tk:32 ~d ~bk ())))
     [ (96, 32); (96, 16); (130, 16) ];
   [%expect
@@ -414,7 +417,10 @@ let%expect_test "cycles by phase" =
   let t = make ~tq:64 ~tk:64 ~d:64 ~bk:32 () in
   let cycles ?skip () =
     let ( let* ) = Result.bind in
-    let* m = Z.Zvt_sdpa.module_ ?skip t in
+    let* m =
+      Result.map_error Coralnpu_kernels.Kernel_refusal.to_string
+        (Z.Zvt_sdpa.module_ ?skip t)
+    in
     let n = 64 * 64 in
     let q = bf16_bytes (Array.init n (fun _ -> bf16_value ()))
     and k = bf16_bytes (Array.init n (fun _ -> bf16_value ()))
@@ -454,7 +460,7 @@ let%expect_test "d 128" =
   List.iter
     (fun (d, bk) ->
       Fmt.pr "d %d bk %d: %a@." d bk
-        Fmt.(result ~ok:int ~error:string)
+        Fmt.(result ~ok:int ~error:Coralnpu_kernels.Kernel_refusal.pp)
         (Z.Zvt_sdpa.panel_bytes (make ~tq:16 ~tk:32 ~d ~bk ())))
     [ (128, 16); (128, 8) ];
   let t = make ~mask:Dense ~tq:41 ~tk:61 ~d:128 ~bk:16 () in

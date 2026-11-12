@@ -7,12 +7,9 @@ open Inference_compare_schema
 module Tid = Graph_ir.Tensor_id
 
 let identity ~engine ~route ?artifact () : Engine_identity.t =
-  let id mk s =
-    match mk s with Ok v -> v | Error _ -> invalid_arg "identity"
-  in
   {
-    engine = id Id.Engine.of_string engine;
-    route = id Id.Engine_route.of_string route;
+    engine = Id.Engine.of_literal engine;
+    route = Id.Engine_route.of_literal route;
     build_digest =
       Aten_runner.sha_digest Digest.Build.make
         (Printf.sprintf "inference-compare-pt2/%s/%s/v1" engine route);

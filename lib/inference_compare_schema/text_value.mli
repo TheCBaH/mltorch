@@ -6,6 +6,12 @@ module type S = sig
   type t
 
   val of_string : string -> (t, Text_error.t) Err.t
+
+  val of_literal : string -> t
+  (** For text fixed in the source: raises [Invalid_argument] naming the role
+      and the rejected text. Text that comes from outside goes through
+      {!of_string}. *)
+
   val to_string : t -> string
   val compare : t -> t -> int
   val equal : t -> t -> bool

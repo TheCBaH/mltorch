@@ -12,7 +12,34 @@ type t = {
   sigs : Tensor_sig.t list;
 }
 
-exception Abort
+(* Why a group of nodes cannot be relabelled; the group is then left as it is,
+   so the reason is carried to the frame that tries it and never branched on. *)
+module Refusal = struct
+  type t =
+    | Boundary_tensor  (** a graph input or output, or one the caller avoids *)
+    | Extent_overflow  (** a fused or split extent does not fit *)
+    | Not_relabelable  (** an op whose meaning does not survive the fusion *)
+    | Unknown_signature
+        (** a tensor the view has no signature or producer for *)
+    | Unplannable_permute  (** a permute the wide planner declines *)
+
+  let pp fmt r =
+    Fmt.string fmt
+      (match r with
+      | Boundary_tensor -> "boundary_tensor"
+      | Extent_overflow -> "extent_overflow"
+      | Not_relabelable -> "not_relabelable"
+      | Unknown_signature -> "unknown_signature"
+      | Unplannable_permute -> "unplannable_permute")
+end
+
+let refuse esc r = Err.Escape.throw esc ~pp_error:Refusal.pp r
+
+(* Runs one attempt that may itself decline; a refusal declines it too. *)
+let attempt body =
+  match Err.payload (Err.Escape.with_escape body) with
+  | Ok x -> x
+  | Error _ -> None
 
 let extent shape axis = Vec6.get shape axis
 let is_one e = Dim.equal e Dim.one
@@ -33,18 +60,18 @@ let dialect shape = is_one (extent shape Axis.T) && is_one (extent shape Axis.D)
 let simple shape = d_only shape || dialect shape
 
 (* N*T*D fused into N. A shape whose fused extent does not fit is refused
-   ([Abort]), like any op whose meaning does not survive the fusion. *)
-let fuse_ntd shape =
+   (a [Refusal.Extent_overflow]), like any op whose meaning does not survive the fusion. *)
+let fuse_ntd esc shape =
   match
     Extent_product.bounded
       [ extent shape Axis.N; extent shape Axis.T; extent shape Axis.D ]
   with
   | Some n -> n
-  | None -> raise Abort
+  | None -> refuse esc Refusal.Extent_overflow
 
-let relabel_shape shape =
+let relabel_shape esc shape =
   Vec6.set
-    (Vec6.set (Vec6.set shape Axis.N (fuse_ntd shape)) Axis.T Dim.one)
+    (Vec6.set (Vec6.set shape Axis.N (fuse_ntd esc shape)) Axis.T Dim.one)
     Axis.D Dim.one
 
 let relabel_axis = function Axis.D -> Axis.N | a -> a
@@ -58,23 +85,23 @@ let swap_axis = function Axis.D -> Axis.N | Axis.N -> Axis.D | a -> a
    the survivors re-pack inward, which moves the extent on D somewhere the
    relabelled tensor's does not follow unless D is one of the axes reduced
    (only the unit N and T lie outside it), so that case is refused. *)
-let reduce_dims ~x_shape (p : Reduce.Dims_keepdim.t) =
+let reduce_dims esc ~x_shape (p : Reduce.Dims_keepdim.t) =
   if
     (not (candidate x_shape))
     || List.exists (function Axis.N | Axis.T -> true | _ -> false) p.dims
     || (List.mem Axis.D p.dims && not (d_only x_shape))
     || not (p.keepdim || List.mem Axis.D p.dims)
-  then raise Abort
+  then refuse esc Refusal.Not_relabelable
   else Reduce.Dims_keepdim.map_dims relabel_axis p
 
-(* The op with N, T and D fused into N, or [Abort] when it is not one whose
+(* The op with N, T and D fused into N, or a refusal when it is not one whose
    meaning survives the fusion. [shape_of] reads the SOURCE graph, [rename] maps
    a source tensor to the id its relabelled twin has, and [out_shape ()] is the
    op's source output shape. Names of D (a reduction, a softmax, a stack) are
    defined only for a tensor that is [d_only], where fusing is reading D as N.
    An operand or result outside the group keeps its shape, so a permutation is
    conjugated only on the sides that were relabelled. *)
-let relabel_op ~shape_of ~rename ~out_shape (op : op) =
+let relabel_op esc ~shape_of ~rename ~out_shape (op : op) =
   let x_shape () = shape_of (List.hd (Graph_ir.operands op)) in
   match Graph_ir.map_operands rename op with
   | ( Add _ | Add_scalar _ | Avg_pool2d _ | Batched_matmul _ | Clone _ | Div _
@@ -82,20 +109,23 @@ let relabel_op ~shape_of ~rename ~out_shape (op : op) =
     | Sigmoid _ | Silu _ | Sub _ ) as op ->
       op
   | Amax { Reduce.Amax.params; x } ->
-      Amax { Reduce.Amax.params = reduce_dims ~x_shape:(x_shape ()) params; x }
+      Amax
+        { Reduce.Amax.params = reduce_dims esc ~x_shape:(x_shape ()) params; x }
   | (Conv2d _ | Linear _) as op -> op
   | Expand { Pointwise.Expand.params; x } ->
       Expand
         {
           Pointwise.Expand.params =
-            { size = relabel_shape params.Pointwise.Expand.size };
+            { size = relabel_shape esc params.Pointwise.Expand.size };
           x;
         }
   | Mean { Reduce.Mean.params; x } ->
-      Mean { Reduce.Mean.params = reduce_dims ~x_shape:(x_shape ()) params; x }
+      Mean
+        { Reduce.Mean.params = reduce_dims esc ~x_shape:(x_shape ()) params; x }
   | Permute { Permute.Permute.perm; x } ->
       let x_shape = x_shape () and out_shape = out_shape () in
-      if not (simple x_shape && simple out_shape) then raise Abort;
+      if not (simple x_shape && simple out_shape) then
+        refuse esc Refusal.Not_relabelable;
       let swap shape a = if d_only shape then swap_axis a else a in
       Permute
         {
@@ -109,7 +139,8 @@ let relabel_op ~shape_of ~rename ~out_shape (op : op) =
         {
           Reshape.Reshape.params =
             {
-              Reshape.Reshape.shape = relabel_shape params.Reshape.Reshape.shape;
+              Reshape.Reshape.shape =
+                relabel_shape esc params.Reshape.Reshape.shape;
             };
           x;
         }
@@ -117,26 +148,28 @@ let relabel_op ~shape_of ~rename ~out_shape (op : op) =
   | Softmax { Reduce.Softmax.params; x } ->
       let axis = params.Reduce.Softmax.axis in
       (match axis with
-      | Axis.N | Axis.T -> raise Abort
-      | Axis.D -> if not (d_only (x_shape ())) then raise Abort
+      | Axis.N | Axis.T -> refuse esc Refusal.Not_relabelable
+      | Axis.D ->
+          if not (d_only (x_shape ())) then refuse esc Refusal.Not_relabelable
       | Axis.H | Axis.W | Axis.C -> ());
       Softmax { Reduce.Softmax.params = { axis = relabel_axis axis }; x }
   | Split_with_sizes { Split.Split_with_sizes.params; x } ->
       let axis =
         match params.Split.Split_with_sizes.axis with
-        | Axis.N | Axis.T -> raise Abort
+        | Axis.N | Axis.T -> refuse esc Refusal.Not_relabelable
         | Axis.D ->
-            if not (d_only (x_shape ())) then raise Abort;
+            if not (d_only (x_shape ())) then refuse esc Refusal.Not_relabelable;
             Axis.N
         | (Axis.H | Axis.W | Axis.C) as a -> a
       in
       Split_with_sizes
         { Split.Split_with_sizes.params = { params with axis }; x }
   | Stack { Concat.Stack.params = { axis = Axis.D }; xs } ->
-      if not (d_only (out_shape ())) then raise Abort;
+      if not (d_only (out_shape ())) then refuse esc Refusal.Not_relabelable;
       Concat { Concat.Concat.params = { axis = Axis.N }; xs }
   | Sum { Reduce.Sum.params; x } ->
-      Sum { Reduce.Sum.params = reduce_dims ~x_shape:(x_shape ()) params; x }
+      Sum
+        { Reduce.Sum.params = reduce_dims esc ~x_shape:(x_shape ()) params; x }
   | Unbind { Split.Unbind.params = { axis }; x } ->
       (* The outputs are the fused axis cut into equal runs, which is
          contiguous only when nothing outside [axis] is larger than one. *)
@@ -148,38 +181,38 @@ let relabel_op ~shape_of ~rename ~out_shape (op : op) =
             ( e Axis.N,
               match Extent_product.bounded [ e Axis.T; e Axis.D ] with
               | Some run -> run
-              | None -> raise Abort )
+              | None -> refuse esc Refusal.Extent_overflow )
         | Axis.T when is_one (e Axis.N) -> (e Axis.T, e Axis.D)
         | Axis.D when is_one (e Axis.N) && is_one (e Axis.T) ->
             (e Axis.D, Dim.one)
-        | _ -> raise Abort
+        | _ -> refuse esc Refusal.Not_relabelable
       in
-      if not (candidate s) then raise Abort;
+      if not (candidate s) then refuse esc Refusal.Not_relabelable;
       Split_with_sizes
         {
           Split.Split_with_sizes.params =
             { axis = Axis.N; sizes = List.init (count :> int) (fun _ -> run) };
           x;
         }
-  | _ -> raise Abort
+  | _ -> refuse esc Refusal.Not_relabelable
 
 (* A permutation that moves N, T or D beyond swapping D with N is a data
    movement of the FLAT layout, planned like any other by [Wide_permute] from
    the source's own six-axis shape to the fused shapes on either side. Each
    step is an ordinary Native reshape or permute, so the ordinary lowering still
    runs on the result. *)
-let plan_permute ~perm ~x_shape ~out_shape =
+let plan_permute esc ~perm ~x_shape ~out_shape =
   let fuse shape =
-    match Shape4.of_vec6 (relabel_shape shape) with
+    match Shape4.of_vec6 (relabel_shape esc shape) with
     | Ok s -> s
-    | Error _ -> raise Abort
+    | Error _ -> refuse esc Refusal.Unplannable_permute
   in
   match
     Wide_permute.plan ~source:x_shape ~x:(fuse x_shape) ~y:(fuse out_shape)
       [ Wide_permute.Permute perm ]
   with
   | Some steps -> steps
-  | None -> raise Abort
+  | None -> refuse esc Refusal.Unplannable_permute
 
 let native_of_step ~x = function
   | Wide_permute.Reshape4 shape ->
@@ -219,11 +252,13 @@ let keepdim_of op ~x_shape =
 (* The nodes standing in for [n], its own id on the last, and the signatures of
    the tensors between them. [steps] are the ops in order, each built from its
    operand and paired with the shape it produces (unread for the last). *)
-let chain ~rename ~sig_of ~fresh_tensor ~fresh_node (n : Graph_ir.node) ~x steps
-    =
+let chain esc ~rename ~sig_of ~fresh_tensor ~fresh_node (n : Graph_ir.node) ~x
+    steps =
   let out_id = List.hd n.Node.outputs in
   let out_sig =
-    match sig_of out_id with Some sg -> sg | None -> raise Abort
+    match sig_of out_id with
+    | Some sg -> sg
+    | None -> refuse esc Refusal.Unknown_signature
   in
   let count = List.length steps in
   let nodes, sigs, _ =
@@ -244,11 +279,11 @@ let chain ~rename ~sig_of ~fresh_tensor ~fresh_node (n : Graph_ir.node) ~x steps
   in
   (List.rev nodes, sigs)
 
-let relabel_node ~shape_of ~sig_of ~rename ~fresh_tensor ~fresh_node
+let relabel_node esc ~shape_of ~sig_of ~rename ~fresh_tensor ~fresh_node
     (n : Graph_ir.node) =
   let out_id = List.hd n.Node.outputs in
   let out_shape () = shape_of out_id in
-  let chain = chain ~rename ~sig_of ~fresh_tensor ~fresh_node n in
+  let chain = chain esc ~rename ~sig_of ~fresh_tensor ~fresh_node n in
   let keepdim =
     match n.Node.op with
     | (Amax _ | Mean _ | Sum _) as op ->
@@ -261,7 +296,7 @@ let relabel_node ~shape_of ~sig_of ~rename ~fresh_tensor ~fresh_node
       let kept =
         List.fold_left
           (fun s a -> Vec6.set s a (Dim.extent 1))
-          (relabel_shape (shape_of x))
+          (relabel_shape esc (shape_of x))
           dims
       in
       chain ~x:(rename x)
@@ -271,7 +306,7 @@ let relabel_node ~shape_of ~sig_of ~rename ~fresh_tensor ~fresh_node
               Reshape
                 {
                   Reshape.Reshape.params =
-                    { shape = relabel_shape (out_shape ()) };
+                    { shape = relabel_shape esc (out_shape ()) };
                   x;
                 }),
             out_shape () );
@@ -286,9 +321,11 @@ let relabel_node ~shape_of ~sig_of ~rename ~fresh_tensor ~fresh_node
       (* Dropping an inner axis shifts N, T and D inward, so each output is a
          unit slice reshaped to the packed result. *)
       let out_sig =
-        match sig_of out_id with Some sg -> sg | None -> raise Abort
+        match sig_of out_id with
+        | Some sg -> sg
+        | None -> refuse esc Refusal.Unknown_signature
       in
-      let x_fused = relabel_shape (shape_of x) in
+      let x_fused = relabel_shape esc (shape_of x) in
       let sliced = Vec6.set x_fused axis (Dim.extent 1) in
       let slices = List.map (fun _ -> fresh_tensor ()) n.Node.outputs in
       let split =
@@ -314,7 +351,7 @@ let relabel_node ~shape_of ~sig_of ~rename ~fresh_tensor ~fresh_node
                 Reshape
                   {
                     Reshape.Reshape.params =
-                      { shape = relabel_shape (out_shape ()) };
+                      { shape = relabel_shape esc (out_shape ()) };
                     x = slice;
                   };
               outputs = [ rename out ];
@@ -328,7 +365,7 @@ let relabel_node ~shape_of ~sig_of ~rename ~fresh_tensor ~fresh_node
   | Permute { Permute.Permute.perm; x }, _
     when not (simple (shape_of x) && simple (out_shape ())) ->
       let steps =
-        plan_permute ~perm ~x_shape:(shape_of x) ~out_shape:(out_shape ())
+        plan_permute esc ~perm ~x_shape:(shape_of x) ~out_shape:(out_shape ())
       in
       chain ~x:(rename x)
         (match steps with
@@ -341,19 +378,19 @@ let relabel_node ~shape_of ~sig_of ~rename ~fresh_tensor ~fresh_node
       ( [
           {
             n with
-            Node.op = relabel_op ~shape_of ~rename ~out_shape op;
+            Node.op = relabel_op esc ~shape_of ~rename ~out_shape op;
             outputs = List.map rename n.Node.outputs;
           };
         ],
         [] )
 
-let component view ~avoid seed =
+let component esc view ~avoid seed =
   let visited = ref Node_id.Set.empty in
   let tensors = ref Tensor_id.Set.empty in
   let shape_of id =
     match Graph_view.sig_of view id with
     | Some sg -> sg.Tensor_sig.shape
-    | None -> raise Abort
+    | None -> refuse esc Refusal.Unknown_signature
   in
   let rec tensor id =
     if not (Tensor_id.Set.mem id !tensors) then begin
@@ -361,10 +398,10 @@ let component view ~avoid seed =
       (* A relabelled tensor is one value; its producer and every reader move
          with it, and a graph input or output has no such freedom. *)
       if Graph_view.is_graph_output view id || Tensor_id.Set.mem id avoid then
-        raise Abort;
+        refuse esc Refusal.Boundary_tensor;
       (match Graph_view.def view id with
       | Some n -> node n
-      | None -> raise Abort);
+      | None -> refuse esc Refusal.Boundary_tensor);
       List.iter node (Graph_view.uses view id)
     end
   and node (n : Graph_ir.node) =
@@ -390,89 +427,89 @@ let find view ~watermark ~avoid =
           match Graph_view.sig_of view id with
           | Some sg
             when candidate sg.Tensor_sig.shape
-                 && not (Tensor_id.Set.mem id !claimed) -> (
-              try
-                let visited, tensors = component view ~avoid id in
-                claimed := Tensor_id.Set.union !claimed tensors;
-                let members =
-                  List.filter
-                    (fun (m : Graph_ir.node) ->
-                      Node_id.Set.mem m.Node.id visited)
-                    g.Graph.nodes
-                in
-                let fresh_tensor () =
-                  let f, n = Tensor_id.Next.alloc !next in
-                  next := n;
-                  f
-                in
-                let fresh_node () =
-                  let f, n = Node_id.Next.alloc !next_node in
-                  next_node := n;
-                  f
-                in
-                let fresh_of =
-                  List.map
-                    (fun id -> (id, fresh_tensor ()))
-                    (Tensor_id.Set.elements tensors)
-                in
-                let rename id =
-                  Option.value (List.assoc_opt id fresh_of) ~default:id
-                in
-                let shape_of id =
-                  match Graph_view.sig_of view id with
-                  | Some sg -> sg.Tensor_sig.shape
-                  | None -> raise Abort
-                in
-                let replaced =
-                  List.map
-                    (fun (m : Graph_ir.node) ->
-                      let nodes, sigs =
-                        relabel_node ~shape_of ~sig_of:(Graph_view.sig_of view)
-                          ~rename ~fresh_tensor ~fresh_node m
-                      in
-                      (m.Node.id, nodes, sigs))
-                    members
-                in
-                let sigs =
-                  List.map
-                    (fun (old_id, f) ->
-                      match Graph_view.sig_of view old_id with
-                      | Some sg ->
-                          {
-                            sg with
-                            Tensor_sig.id = f;
-                            shape = relabel_shape sg.Tensor_sig.shape;
-                          }
-                      | None -> raise Abort)
-                    fresh_of
-                in
-                let extra_sigs =
-                  List.concat_map (fun (_, _, s) -> s) replaced
-                in
-                Some
-                  {
-                    members =
-                      List.map (fun (m : Graph_ir.node) -> m.Node.id) members;
-                    internal = List.map fst fresh_of;
-                    fresh = List.map snd fresh_of;
-                    extra =
-                      List.map
-                        (fun (sg : Tensor_sig.t) -> sg.Tensor_sig.id)
-                        extra_sigs;
-                    extra_nodes =
-                      List.concat_map
-                        (fun (id, nodes, _) ->
-                          List.filter_map
-                            (fun (m : Graph_ir.node) ->
-                              if Node_id.equal m.Node.id id then None
-                              else Some m.Node.id)
-                            nodes)
-                        replaced;
-                    nodes =
-                      List.map (fun (id, nodes, _) -> (id, nodes)) replaced;
-                    sigs = sigs @ extra_sigs;
-                  }
-              with Abort -> None)
+                 && not (Tensor_id.Set.mem id !claimed) ->
+              attempt (fun esc ->
+                  let visited, tensors = component esc view ~avoid id in
+                  claimed := Tensor_id.Set.union !claimed tensors;
+                  let members =
+                    List.filter
+                      (fun (m : Graph_ir.node) ->
+                        Node_id.Set.mem m.Node.id visited)
+                      g.Graph.nodes
+                  in
+                  let fresh_tensor () =
+                    let f, n = Tensor_id.Next.alloc !next in
+                    next := n;
+                    f
+                  in
+                  let fresh_node () =
+                    let f, n = Node_id.Next.alloc !next_node in
+                    next_node := n;
+                    f
+                  in
+                  let fresh_of =
+                    List.map
+                      (fun id -> (id, fresh_tensor ()))
+                      (Tensor_id.Set.elements tensors)
+                  in
+                  let rename id =
+                    Option.value (List.assoc_opt id fresh_of) ~default:id
+                  in
+                  let shape_of id =
+                    match Graph_view.sig_of view id with
+                    | Some sg -> sg.Tensor_sig.shape
+                    | None -> refuse esc Refusal.Unknown_signature
+                  in
+                  let replaced =
+                    List.map
+                      (fun (m : Graph_ir.node) ->
+                        let nodes, sigs =
+                          relabel_node esc ~shape_of
+                            ~sig_of:(Graph_view.sig_of view) ~rename
+                            ~fresh_tensor ~fresh_node m
+                        in
+                        (m.Node.id, nodes, sigs))
+                      members
+                  in
+                  let sigs =
+                    List.map
+                      (fun (old_id, f) ->
+                        match Graph_view.sig_of view old_id with
+                        | Some sg ->
+                            {
+                              sg with
+                              Tensor_sig.id = f;
+                              shape = relabel_shape esc sg.Tensor_sig.shape;
+                            }
+                        | None -> refuse esc Refusal.Unknown_signature)
+                      fresh_of
+                  in
+                  let extra_sigs =
+                    List.concat_map (fun (_, _, s) -> s) replaced
+                  in
+                  Some
+                    {
+                      members =
+                        List.map (fun (m : Graph_ir.node) -> m.Node.id) members;
+                      internal = List.map fst fresh_of;
+                      fresh = List.map snd fresh_of;
+                      extra =
+                        List.map
+                          (fun (sg : Tensor_sig.t) -> sg.Tensor_sig.id)
+                          extra_sigs;
+                      extra_nodes =
+                        List.concat_map
+                          (fun (id, nodes, _) ->
+                            List.filter_map
+                              (fun (m : Graph_ir.node) ->
+                                if Node_id.equal m.Node.id id then None
+                                else Some m.Node.id)
+                              nodes)
+                          replaced;
+                      nodes =
+                        List.map (fun (id, nodes, _) -> (id, nodes)) replaced;
+                      sigs = sigs @ extra_sigs;
+                    })
           | _ -> None)
         n.Node.outputs)
     g.Graph.nodes

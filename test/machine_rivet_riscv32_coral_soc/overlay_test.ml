@@ -96,7 +96,9 @@ let caller =
 
 let functions =
   List.map
-    (fun t -> (A.symbol t, or_fail Fmt.string (Z.Zvt_sdpa.module_ t)))
+    (fun t ->
+      ( A.symbol t,
+        or_fail Coralnpu_kernels.Kernel_refusal.pp (Z.Zvt_sdpa.module_ t) ))
     shapes
 
 let cases = List.map case shapes

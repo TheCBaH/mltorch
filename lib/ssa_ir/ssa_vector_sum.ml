@@ -32,9 +32,13 @@ type report = Decision.t list
 let min_vectors = 4
 let max_parts = 4
 
-exception Kept of Reason.t
+(* A sum that stays sequential exits its attempt with the reason. *)
+let keep (esc : Reason.t Err.Escape.t) r =
+  Err.Escape.throw esc ~pp_error:(fun fmt r -> Fmt.string fmt (Reason.name r)) r
 
-let keep r = raise (Kept r)
+(* The body walks of {!Ssa_vector_body} throw their own reason; viewed through
+   this token they exit the same frame as an unsupported body. *)
+let body_escape esc = Err.Escape.map (fun r -> Reason.Unsupported r) esc
 
 let instr ?token ~results op =
   Ssa_stmt.Instr { Ssa_instr.results; op; token; origin = Ssa_origin.Unknown }
@@ -52,40 +56,41 @@ let rec tree add = function
       in
       tree add (pairs xs)
 
-let elt_type (v : Ssa_value.t) =
+let elt_type esc (v : Ssa_value.t) =
   match v.Ssa_value.ty with
   | Ssa_type.Scalar (Ssa_type.F32 | Ssa_type.F64) -> v.Ssa_value.ty
-  | _ -> keep Reason.Term_uniform
+  | _ -> keep esc Reason.Term_uniform
 
 let schedule ~(target : Ssa_target.t) info t (s : Ssa_region.t Ssa_stmt.t) =
+  Err.Escape.with_escape @@ fun esc ->
   match s with
   | Ssa_stmt.Ordered_sum f ->
-      let elt = elt_type f.seed in
+      let elt = elt_type esc f.seed in
       let n =
         match Ssa_range.trips info.ranges ~lo:f.lo ~hi:f.hi ~step:1L with
         | Ssa_range.Exactly n -> n
         | Ssa_range.Zero | Ssa_range.At_least_one | Ssa_range.Unknown ->
-            keep Reason.Non_constant_bounds
+            keep esc Reason.Non_constant_bounds
       in
       let lo_c =
         match Ssa_range.range info.ranges f.lo with
         | Ssa_range.Range r -> r.lo
-        | Ssa_range.Empty -> keep Reason.Non_constant_bounds
+        | Ssa_range.Empty -> keep esc Reason.Non_constant_bounds
       in
       let lanes = target.Ssa_target.lanes in
       let width = Ssa_type.Lanes.to_int lanes in
-      if width < 2 then keep Reason.Lanes_declined;
+      if width < 2 then keep esc Reason.Lanes_declined;
       if
         Int64.compare
           (Int64.div n (Int64.of_int width))
           (Int64.of_int min_vectors)
         < 0
-      then keep (Reason.Too_short { trips = n; lanes });
+      then keep esc (Reason.Too_short { trips = n; lanes });
       if
         List.exists
           (function Ssa_stmt.Instr _ -> false | _ -> true)
           f.body.Ssa_region.body
-      then keep Reason.Body_statement;
+      then keep esc Reason.Body_statement;
       let iv, eff_param =
         match f.body.Ssa_region.params with
         | [ iv; e ] -> (iv, e)
@@ -98,8 +103,8 @@ let schedule ~(target : Ssa_target.t) info t (s : Ssa_region.t Ssa_stmt.t) =
       in
       let kinds = Hashtbl.create 32 in
       let cx =
-        make_ctx ~t ~program:info.program ~kinds ~consts:info.consts ~lanes
-          ~trips:(fun _ -> 16)
+        make_ctx ~esc:(body_escape esc) ~t ~program:info.program ~kinds
+          ~consts:info.consts ~lanes ~trips:(fun _ -> 16)
       in
       let idx_ty = Ssa_type.Scalar Ssa_type.Index in
       let const_stmt ty c =
@@ -114,26 +119,20 @@ let schedule ~(target : Ssa_target.t) info t (s : Ssa_region.t Ssa_stmt.t) =
         let stmts = Ssa_clone.stmts cl f.body.Ssa_region.body in
         let term' = Ssa_clone.value cl term
         and chain' = Ssa_clone.value cl chain in
-        (try List.iter (classify_stmt kinds) stmts
-         with Refuse r -> keep (Reason.Unsupported r));
-        if kind_of kinds term' <> Vec then keep Reason.Term_uniform;
-        let vec =
-          try
-            let out, v =
-              in_region cx (fun () ->
-                  List.iter (emit_stmt cx) stmts;
-                  vec_of cx term')
-            in
-            (out, v)
-          with Refuse r -> keep (Reason.Unsupported r)
+        List.iter (classify_stmt (body_escape esc) kinds) stmts;
+        if kind_of kinds term' <> Vec then keep esc Reason.Term_uniform;
+        let out, v =
+          in_region cx (fun () ->
+              List.iter (emit_stmt cx) stmts;
+              vec_of cx term')
         in
-        (fst vec, snd vec, chain')
+        (out, v, chain')
       in
       (* a dry run decides whether the term reads consecutive cells at all *)
       let probe_base, _ = const_stmt idx_ty (Ssa_const.Index lo_c) in
       ignore (part ~base:probe_base ~eff:eff_param);
       if not (List.mem_assoc Ssa_target.Op.Contiguous_load cx.ops) then
-        keep Reason.Contiguous_load_missing;
+        keep esc Reason.Contiguous_load_missing;
       cx.ops <- [];
       let full = Int64.to_int (Int64.div n (Int64.of_int width)) in
       let parts = Stdlib.min max_parts (Stdlib.max 1 (full / 2)) in
@@ -304,34 +303,35 @@ let schedule ~(target : Ssa_target.t) info t (s : Ssa_region.t Ssa_stmt.t) =
    it. Only on a target whose [Ordered_reduce] is [Native], where a backend
    turns the lane chain into one ordered reduction ([vfredosum]). *)
 let ordered ~(target : Ssa_target.t) info t (s : Ssa_region.t Ssa_stmt.t) =
+  Err.Escape.with_escape @@ fun esc ->
   match s with
   | Ssa_stmt.Ordered_sum f ->
       (match f.seed.Ssa_value.ty with
       | Ssa_type.Scalar Ssa_type.F32 -> ()
-      | _ -> keep Reason.Term_uniform);
+      | _ -> keep esc Reason.Term_uniform);
       if target.Ssa_target.support Ssa_target.Op.Ordered_reduce <> Native then
-        keep Reason.Lanes_declined;
+        keep esc Reason.Lanes_declined;
       let n =
         match Ssa_range.trips info.ranges ~lo:f.lo ~hi:f.hi ~step:1L with
         | Ssa_range.Exactly n -> n
         | Ssa_range.Zero | Ssa_range.At_least_one | Ssa_range.Unknown ->
-            keep Reason.Non_constant_bounds
+            keep esc Reason.Non_constant_bounds
       in
       let lo_c =
         match Ssa_range.range info.ranges f.lo with
         | Ssa_range.Range r -> r.lo
-        | Ssa_range.Empty -> keep Reason.Non_constant_bounds
+        | Ssa_range.Empty -> keep esc Reason.Non_constant_bounds
       in
       let lanes = target.Ssa_target.lanes in
       let width = Ssa_type.Lanes.to_int lanes in
-      if width < 2 then keep Reason.Lanes_declined;
+      if width < 2 then keep esc Reason.Lanes_declined;
       let full = Int64.to_int (Int64.div n (Int64.of_int width)) in
-      if full < 1 then keep (Reason.Too_short { trips = n; lanes });
+      if full < 1 then keep esc (Reason.Too_short { trips = n; lanes });
       if
         List.exists
           (function Ssa_stmt.Instr _ -> false | _ -> true)
           f.body.Ssa_region.body
-      then keep Reason.Body_statement;
+      then keep esc Reason.Body_statement;
       let iv, eff_param =
         match f.body.Ssa_region.params with
         | [ iv; e ] -> (iv, e)
@@ -344,8 +344,8 @@ let ordered ~(target : Ssa_target.t) info t (s : Ssa_region.t Ssa_stmt.t) =
       in
       let kinds = Hashtbl.create 32 in
       let cx =
-        make_ctx ~t ~program:info.program ~kinds ~consts:info.consts ~lanes
-          ~trips:(fun _ -> 16)
+        make_ctx ~esc:(body_escape esc) ~t ~program:info.program ~kinds
+          ~consts:info.consts ~lanes ~trips:(fun _ -> 16)
       in
       let idx_ty = Ssa_type.Scalar Ssa_type.Index in
       let elt = f.seed.Ssa_value.ty in
@@ -359,22 +359,19 @@ let ordered ~(target : Ssa_target.t) info t (s : Ssa_region.t Ssa_stmt.t) =
         let stmts = Ssa_clone.stmts cl f.body.Ssa_region.body in
         let term' = Ssa_clone.value cl term
         and chain' = Ssa_clone.value cl chain in
-        (try List.iter (classify_stmt kinds) stmts
-         with Refuse r -> keep (Reason.Unsupported r));
-        if kind_of kinds term' <> Vec then keep Reason.Term_uniform;
+        List.iter (classify_stmt (body_escape esc) kinds) stmts;
+        if kind_of kinds term' <> Vec then keep esc Reason.Term_uniform;
         let out, v =
-          try
-            in_region cx (fun () ->
-                List.iter (emit_stmt cx) stmts;
-                vec_of cx term')
-          with Refuse r -> keep (Reason.Unsupported r)
+          in_region cx (fun () ->
+              List.iter (emit_stmt cx) stmts;
+              vec_of cx term')
         in
         (out, v, chain')
       in
       let probe_base, _ = const_stmt idx_ty (Ssa_const.Index lo_c) in
       ignore (part ~base:probe_base ~eff:eff_param);
       if not (List.mem_assoc Ssa_target.Op.Contiguous_load cx.ops) then
-        keep Reason.Contiguous_load_missing;
+        keep esc Reason.Contiguous_load_missing;
       cx.ops <- [];
       let out = ref [] in
       let emit s = out := s :: !out in
@@ -530,12 +527,12 @@ let program ~target (p : Ssa_program.t) =
           decisions :=
             { Decision.loop = body.Ssa_region.id; trips; outcome } :: !decisions
         in
-        match schedule ~target info t s with
-        | parts, stmts ->
+        match Err.payload (schedule ~target info t s) with
+        | Ok (parts, stmts) ->
             Ssa_rewrite.mark_changed t;
             decide (Decision.Scheduled { parts });
             stmts
-        | exception Kept r ->
+        | Error r ->
             decide (Decision.Kept_sequential r);
             [ s ])
     | Ssa_stmt.Ordered_sum _ | Ssa_stmt.For _ | Ssa_stmt.If _ | Ssa_stmt.Instr _
@@ -568,12 +565,12 @@ let ordered_program ~target (p : Ssa_program.t) =
           decisions :=
             { Decision.loop = body.Ssa_region.id; trips; outcome } :: !decisions
         in
-        match ordered ~target info t s with
-        | stmts ->
+        match Err.payload (ordered ~target info t s) with
+        | Ok stmts ->
             Ssa_rewrite.mark_changed t;
             decide (Decision.Scheduled { parts = 1 });
             stmts
-        | exception Kept r ->
+        | Error r ->
             decide (Decision.Kept_sequential r);
             [ s ])
     | Ssa_stmt.Ordered_sum _ | Ssa_stmt.For _ | Ssa_stmt.If _ | Ssa_stmt.Instr _

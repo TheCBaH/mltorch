@@ -90,7 +90,10 @@ let run ?mutation ~configuration d plan =
   let* w =
     Result.map_error (Fmt.str "%a" P.Refusal.pp) (P.check ~budget d plan)
   in
-  let* helper = Coralnpu_kernels.Rvv_contraction.module_ ?mutation ~plan:w d in
+  let* helper =
+    Result.map_error Coralnpu_kernels.Kernel_refusal.to_string
+      (Coralnpu_kernels.Rvv_contraction.module_ ?mutation ~plan:w d)
+  in
   let* call = caller d in
   let slot placement size =
     {

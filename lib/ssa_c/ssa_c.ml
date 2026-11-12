@@ -190,8 +190,11 @@ let kernel ?buffers ?sites ~name:fname (p : Ssa_program.t) =
         (Fmt.str "Ssa_c.kernel: the program does not verify: %a"
            Ssa_verify.pp_error e));
   let buffers = Option.value buffers ~default:(arguments p) in
-  let cx = Ssa_c_ctx.create ?site_table:sites buffers in
-  match
+  Err.export ~pos:__POS__ ~pp_error
+  @@ Err.Escape.with_escape
+  @@ fun esc ->
+  let cx = Ssa_c_ctx.create ?site_table:sites ~esc buffers in
+  let params, limits =
     let params =
       List.map
         (fun (b : Ssa_buffer.t) ->
@@ -209,72 +212,65 @@ let kernel ?buffers ?sites ~name:fname (p : Ssa_program.t) =
     List.iter (fun v -> ignore (define cx v)) entry.Ssa_region.params;
     region cx 1 ~limits entry;
     (params, limits)
-  with
-  | exception Refused e -> Error e
-  | params, limits ->
-      let body = Buffer.contents cx.out in
-      let decls = List.rev cx.decls in
-      let meter =
-        if uses_meter p.Ssa_program.entry then
-          [
-            Printf.sprintf "  int64_t scan_remaining = %s;"
-              (i64_lit (Expr.Scan_limits.max_updates limits));
-            "  int64_t scan_live = 0;";
-            "  (void)scan_remaining;";
-            "  (void)scan_live;";
-          ]
-        else []
-      in
-      let decl_lines =
-        List.map
-          (fun (n, t, init) -> Printf.sprintf "  %s %s = %s;" t n init)
-          decls
-        @ List.map (fun (n, _, _) -> Printf.sprintf "  (void)%s;" n) decls
-      in
-      let voids =
-        "  (void)err; (void)local;"
-        :: List.map
-             (fun (b : Ssa_buffer.t) ->
-               Printf.sprintf "  (void)%s;" (buffer_name cx b.Ssa_buffer.id))
-             buffers
-      in
-      let params_text =
-        String.concat ", "
-          ("struct model_error *err" :: "double *local" :: params)
-      in
-      let fn =
-        String.concat "\n"
-          ([ Printf.sprintf "static int %s(%s) {" fname params_text ]
-          @ voids @ decl_lines @ meter
-          @ [ body ^ "  return 0;"; "}"; "" ])
-      in
-      (* the emitter's own types and functions, each block guarded so that the
+  in
+  let body = Buffer.contents cx.out in
+  let decls = List.rev cx.decls in
+  let meter =
+    if uses_meter p.Ssa_program.entry then
+      [
+        Printf.sprintf "  int64_t scan_remaining = %s;"
+          (i64_lit (Expr.Scan_limits.max_updates limits));
+        "  int64_t scan_live = 0;";
+        "  (void)scan_remaining;";
+        "  (void)scan_live;";
+      ]
+    else []
+  in
+  let decl_lines =
+    List.map (fun (n, t, init) -> Printf.sprintf "  %s %s = %s;" t n init) decls
+    @ List.map (fun (n, _, _) -> Printf.sprintf "  (void)%s;" n) decls
+  in
+  let voids =
+    "  (void)err; (void)local;"
+    :: List.map
+         (fun (b : Ssa_buffer.t) ->
+           Printf.sprintf "  (void)%s;" (buffer_name cx b.Ssa_buffer.id))
+         buffers
+  in
+  let params_text =
+    String.concat ", " ("struct model_error *err" :: "double *local" :: params)
+  in
+  let fn =
+    String.concat "\n"
+      ([ Printf.sprintf "static int %s(%s) {" fname params_text ]
+      @ voids @ decl_lines @ meter
+      @ [ body ^ "  return 0;"; "}"; "" ])
+  in
+  (* the emitter's own types and functions, each block guarded so that the
          kernels of one translation unit can all carry theirs *)
-      let guarded (name, text) =
-        Printf.sprintf "#ifndef SSA_C_%s\n#define SSA_C_%s\n%s\n#endif" name
-          name text
-      in
-      let prelude =
-        String.concat "\n"
-          (List.map guarded (cx.vector_types @ cx.vector_helpers))
-      in
-      if cx.f32 then use cx R.Name.F32_prelude;
-      let used = cx.used in
-      Ok
-        ( {
-            Loop_ir.Loop_c.source = fn;
-            prelude;
-            helpers = List.filter (fun n -> List.mem n used) R.Name.all;
-            local_doubles = cx.local_doubles;
-            precision =
-              (if cx.f32 then Loop_ir.Loop_numerics.Precision.F32
-               else Loop_ir.Loop_numerics.Precision.F64);
-            refusal = None;
-            buffer_types =
-              List.map
-                (fun (b : Ssa_buffer.t) -> cell_type b.Ssa_buffer.format)
-                buffers;
-          },
-          match sites with
-          | Some table -> table
-          | None -> Array.of_list (List.rev cx.sites) )
+  let guarded (name, text) =
+    Printf.sprintf "#ifndef SSA_C_%s\n#define SSA_C_%s\n%s\n#endif" name name
+      text
+  in
+  let prelude =
+    String.concat "\n" (List.map guarded (cx.vector_types @ cx.vector_helpers))
+  in
+  if cx.f32 then use cx R.Name.F32_prelude;
+  let used = cx.used in
+  ( {
+      Loop_ir.Loop_c.source = fn;
+      prelude;
+      helpers = List.filter (fun n -> List.mem n used) R.Name.all;
+      local_doubles = cx.local_doubles;
+      precision =
+        (if cx.f32 then Loop_ir.Loop_numerics.Precision.F32
+         else Loop_ir.Loop_numerics.Precision.F64);
+      refusal = None;
+      buffer_types =
+        List.map
+          (fun (b : Ssa_buffer.t) -> cell_type b.Ssa_buffer.format)
+          buffers;
+    },
+    match sites with
+    | Some table -> table
+    | None -> Array.of_list (List.rev cx.sites) )

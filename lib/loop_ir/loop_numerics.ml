@@ -111,98 +111,104 @@ end
    read is the explicit operations over binary32 parameters ([q] to float, minus
    the zero point, times the scale, each rounded once). What stays refused is a
    payload with no binary32 decode: none today. *)
-exception Refused of Refusal.t
 
 let fmt_name (b : Loop_buffer.t) =
   let (Payload.Fmt f) = b.Loop_buffer.sg.Tensor_sig.fmt in
   Payload.fmt_name f
 
-let check_load (b : Loop_buffer.t) =
+let check_load (esc : Refusal.t Err.Escape.t) (b : Loop_buffer.t) =
   match fmt_name b with
   | "bf16" | "bool" | "f16" | "f32" | "f64" | "i16" | "i32" | "i64" | "i8" -> ()
-  | f -> raise (Refused (Refusal.Wide_load (b.Loop_buffer.id, f)))
+  | f ->
+      Err.Escape.throw esc ~pp_error:Refusal.pp
+        (Refusal.Wide_load (b.Loop_buffer.id, f))
 
-let rec expr : type a. a Loop_expr.t -> unit = function
+let rec expr : type a. Refusal.t Err.Escape.t -> a Loop_expr.t -> unit =
+ fun esc -> function
   | Loop_expr.Array_get _ | Loop_expr.Const _ | Loop_expr.I64_const _
   | Loop_expr.I64_of_index _ | Loop_expr.Load_i64 _ | Loop_expr.Load_i64_flat _
   | Loop_expr.Temp _ ->
       ()
   | Loop_expr.Binary (_, a, b) | Loop_expr.Float_max (a, b) ->
-      expr a;
-      expr b
+      expr esc a;
+      expr esc b
   | Loop_expr.Fma (a, b, c) ->
-      expr a;
-      expr b;
-      expr c
+      expr esc a;
+      expr esc b;
+      expr esc c
   | Loop_expr.Float_to_i64 a | Loop_expr.Round_f32 a | Loop_expr.Unary (_, a) ->
-      expr a
+      expr esc a
   | Loop_expr.I64_binary (_, a, b) ->
-      expr a;
-      expr b
-  | Loop_expr.I64_to_float a -> expr a
-  | Loop_expr.Load (b, _) | Loop_expr.Load_flat (b, _) -> check_load b
+      expr esc a;
+      expr esc b
+  | Loop_expr.I64_to_float a -> expr esc a
+  | Loop_expr.Load (b, _) | Loop_expr.Load_flat (b, _) -> check_load esc b
   | Loop_expr.Select (p, a, b) ->
-      pred p;
-      expr a;
-      expr b
+      pred esc p;
+      expr esc a;
+      expr esc b
   | Loop_expr.Value_of_index _ -> ()
 
-and pred : Loop_expr.pred -> unit = function
+and pred : Refusal.t Err.Escape.t -> Loop_expr.pred -> unit =
+ fun esc -> function
   | Loop_bool.I64_eq (a, b) | Loop_bool.I64_lt (a, b) ->
-      expr a;
-      expr b
+      expr esc a;
+      expr esc b
   | Loop_bool.Pool_better (a, b)
   | Loop_bool.Value_eq (a, b)
   | Loop_bool.Value_lt (a, b) ->
-      expr a;
-      expr b
-  | Loop_bool.Not p -> pred p
+      expr esc a;
+      expr esc b
+  | Loop_bool.Not p -> pred esc p
   | Loop_bool.Or (p, q) ->
-      pred p;
-      pred q
+      pred esc p;
+      pred esc q
   | Loop_bool.Index_eq _ | Loop_bool.Index_lt _ | Loop_bool.Index_overflows _
   | Loop_bool.Out_of_range _ ->
       ()
 
-let failure : Loop_failure.t -> unit = function
-  | Loop_failure.Gather_out_of_range { raw; _ } -> expr raw
-  | Loop_failure.I64_from_float { value } -> expr value
+let failure : Refusal.t Err.Escape.t -> Loop_failure.t -> unit =
+ fun esc -> function
+  | Loop_failure.Gather_out_of_range { raw; _ } -> expr esc raw
+  | Loop_failure.I64_from_float { value } -> expr esc value
   | Loop_failure.I64_division_by_zero | Loop_failure.I64_division_overflow
   | Loop_failure.Index_overflow _ | Loop_failure.Load_out_of_range _
   | Loop_failure.Local_out_of_range _ | Loop_failure.Scan_lane_out_of_range _
   | Loop_failure.Scan_row_out_of_range _ ->
       ()
 
-let stored : Loop_stored.t -> unit = function
-  | Loop_stored.Bf16 e | Loop_stored.Bool e | Loop_stored.F32 e -> expr e
-  | Loop_stored.I64 e -> expr e
+let stored : Refusal.t Err.Escape.t -> Loop_stored.t -> unit =
+ fun esc -> function
+  | Loop_stored.Bf16 e | Loop_stored.Bool e | Loop_stored.F32 e -> expr esc e
+  | Loop_stored.I64 e -> expr esc e
 
-let rec stmt : Loop_stmt.t -> unit = function
-  | Loop_stmt.Array_set (_, _, e) -> expr e
-  | Loop_stmt.Assign (_, _, e) -> expr e
-  | Loop_stmt.Assign_index_of_i64 (_, e) -> expr e
+let rec stmt : Refusal.t Err.Escape.t -> Loop_stmt.t -> unit =
+ fun esc -> function
+  | Loop_stmt.Array_set (_, _, e) -> expr esc e
+  | Loop_stmt.Assign (_, _, e) -> expr esc e
+  | Loop_stmt.Assign_index_of_i64 (_, e) -> expr esc e
   | Loop_stmt.Fail_if (p, f) ->
-      pred p;
-      failure f
-  | Loop_stmt.For { body; _ } -> List.iter stmt body
+      pred esc p;
+      failure esc f
+  | Loop_stmt.For { body; _ } -> List.iter (stmt esc) body
   | Loop_stmt.Reduce_sum { body; term; _ } ->
-      List.iter stmt body;
-      expr term
+      List.iter (stmt esc) body;
+      expr esc term
   | Loop_stmt.If (p, yes, no) ->
-      pred p;
-      List.iter stmt yes;
-      List.iter stmt no
+      pred esc p;
+      List.iter (stmt esc) yes;
+      List.iter (stmt esc) no
   | Loop_stmt.Store { value; _ } | Loop_stmt.Store_flat { value; _ } ->
-      stored value
+      stored esc value
   | Loop_stmt.Alloc _ | Loop_stmt.Assign_index _ | Loop_stmt.Charge_scan_update
   | Loop_stmt.Mark _ | Loop_stmt.Release_scan_state _
   | Loop_stmt.Reserve_scan_state _ | Loop_stmt.Reset_meter ->
       ()
 
 let admit (p : Loop_program.t) =
-  match List.iter stmt p.Loop_program.body with
-  | () -> Ok ()
-  | exception Refused r -> Error r
+  Err.export ~pos:__POS__ ~pp_error:Refusal.pp
+  @@ Err.Escape.with_escape
+  @@ fun esc -> List.iter (stmt esc) p.Loop_program.body
 
 let coverage ~numerics ~f32_kernels ~kernels ~f32_invocations ~invocations
     ~refusals =

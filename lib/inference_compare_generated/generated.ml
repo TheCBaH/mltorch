@@ -13,12 +13,9 @@ module Tid = Graph_ir.Tensor_id
 let text pp e = Format.asprintf "%a" pp e
 
 let identity ~engine ~route ~configuration ~environment : Engine_identity.t =
-  let id mk s =
-    match mk s with Ok v -> v | Error _ -> invalid_arg "identity"
-  in
   {
-    engine = id Id.Engine.of_string engine;
-    route = id Id.Engine_route.of_string route;
+    engine = Id.Engine.of_literal engine;
+    route = Id.Engine_route.of_literal route;
     build_digest =
       P.Aten_runner.sha_digest Digest.Build.make
         ("inference-compare-generated/" ^ engine ^ "/v1");

@@ -852,7 +852,7 @@ let program ?mutation ~planning (p : Ssa_program.t) =
     | Some _ | None -> (p, Ssa_cfg_lower.Accumulate.Add)
   in
   let cfg =
-    match Ssa_cfg_lower.program ~accumulate fused with
+    match Err.payload (Ssa_cfg_lower.program ~accumulate fused) with
     | Ok c -> c
     | Error e -> refuse (Refusal.Cfg e)
   in

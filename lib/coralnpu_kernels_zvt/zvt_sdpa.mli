@@ -34,11 +34,13 @@ module Mutation : sig
     | V_tail_unzeroed  (** V's rows past the valid keys not zeroed *)
 end
 
-val panel_bytes : Attention_block.t -> (int, string) result
+val panel_bytes :
+  Attention_block.t -> (int, Coralnpu_kernels.Kernel_refusal.t) result
 (** The [.bss] the function declares, or why the descriptor is outside what it
     computes. *)
 
-val block_queries : Attention_block.t -> (int, string) result
+val block_queries :
+  Attention_block.t -> (int, Coralnpu_kernels.Kernel_refusal.t) result
 (** The queries a block holds (16), or why the descriptor is refused. *)
 
 val module_ :
@@ -47,6 +49,8 @@ val module_ :
   ?dtcm:int * int ->
   ?skip:Phase.t list ->
   Attention_block.t ->
-  (Riscv32_encode.Instruction.t Asm_core.Normalized_ast.module_, string) result
+  ( Riscv32_encode.Instruction.t Asm_core.Normalized_ast.module_,
+    Coralnpu_kernels.Kernel_refusal.t )
+  result
 (** [budget] bounds {!panel_bytes}; [dtcm] is the DTCM's base and size, for the
     mutation that reads V in place there. *)

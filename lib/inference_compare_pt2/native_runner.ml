@@ -32,12 +32,9 @@ type t =
    is not the default. *)
 let identity ?artifact ?(dots = Direct.Binary64) ?config () : Engine_identity.t
     =
-  let id mk s =
-    match mk s with Ok v -> v | Error _ -> invalid_arg "identity"
-  in
   {
-    engine = id Id.Engine.of_string "native";
-    route = id Id.Engine_route.of_string "eval-direct";
+    engine = Id.Engine.of_literal "native";
+    route = Id.Engine_route.of_literal "eval-direct";
     build_digest =
       Aten_runner.sha_digest Digest.Build.make
         "inference-compare-pt2/native/eval-direct/v1";
@@ -146,12 +143,9 @@ let create ?artifact ?(dots = Direct.Binary64) () : t =
                     | Some packed -> (
                         let local = Printf.sprintf "t%d" (Tid.to_int id) in
                         let tref =
-                          match
-                            Native_model.tensor_ref ~key:body.key
-                              ~scope:body.scope id
-                          with
-                          | Ok t -> t
-                          | Error m -> invalid_arg (m ^ local)
+                          Model_error.or_raise ~what:("tensor " ^ local)
+                            (Native_model.tensor_ref ~key:body.key
+                               ~scope:body.scope id)
                         in
                         match Native_model.sig_of body.graph id with
                         | Error m -> fail (Native m)

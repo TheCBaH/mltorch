@@ -7,46 +7,54 @@ module Reg = R.Rv32_kernel_reg
 module Vtype = R.Rv32_kernel_vtype
 module Gpr = Reg.Gpr
 module C = Contraction
+module Kernel_refusal = Coralnpu_kernels.Kernel_refusal
 
 module Mutation = struct
   type t = Full_tn | Swapped_operands
 end
 
-exception Refused of string
-
-let refuse why = raise (Refused why)
 let tile = 16
 
-let bytes ?(size = 4L) (n : int64) =
+let bytes esc ?(size = 4L) (n : int64) =
   let b = Int64.mul size n in
-  if Int64.compare b 0x7FFF_FFFFL > 0 then refuse "an offset past 31 bits"
+  if Int64.compare b 0x7FFF_FFFFL > 0 then
+    Kernel_refusal.refuse esc Offset_past_31_bits
   else Int64.to_int b
 
-let ok = function Ok x -> x | Error _ -> refuse "a register or immediate"
+let ok esc = function
+  | Ok x -> x
+  | Error _ -> Kernel_refusal.refuse esc Register_or_immediate
+
 let insn i = Item.insn i
 
 (* [rd = n] for any 32-bit [n] *)
-let li rd n =
+let li esc rd n =
   match Err.payload (Insn.load_imm rd n) with
   | Ok is -> List.map insn is
-  | Error _ -> refuse "a constant"
+  | Error _ -> Kernel_refusal.refuse esc Constant
 
 (* [rd = rs + n], through [t0] when [n] is past an [addi] *)
-let add_from rd rs n =
+let add_from esc rd rs n =
   if Imm.Imm12.(in_range (of_int n)) then
     [ insn (Insn.Addi { dst = rd; src = rs; imm = Imm.Imm12.of_int n }) ]
-  else li Gpr.t0 n @ [ insn (Insn.Add { dst = rd; lhs = rs; rhs = Gpr.t0 }) ]
+  else
+    li esc Gpr.t0 n @ [ insn (Insn.Add { dst = rd; lhs = rs; rhs = Gpr.t0 }) ]
 
-let msettn n =
-  li Gpr.t3 n @ [ insn (Insn.Msettn { dst = Gpr.zero; avl = Gpr.t3 }) ]
+let msettn esc n =
+  li esc Gpr.t3 n @ [ insn (Insn.Msettn { dst = Gpr.zero; avl = Gpr.t3 }) ]
 
-let items ?mutation (d : C.t) =
+let items esc ?mutation (d : C.t) =
+  let ok x = ok esc x
+  and li rd n = li esc rd n
+  and bytes ?size n = bytes esc ?size n
+  and add_from rd rs n = add_from esc rd rs n
+  and msettn n = msettn esc n in
   (match (d.C.numerics, d.C.format, d.C.seed) with
   | C.Numerics.Fused_sequential, _, _ ->
-      refuse "the fused requirement: the engine rounds each product"
+      Kernel_refusal.refuse esc Fused_requirement
   | C.Numerics.Ordered, C.Element.Bf16, _ ->
-      refuse "bfloat16 ordered: the engine sums two k steps first"
-  | _, _, C.Seed.Tensor -> refuse "a contraction seeded from its output"
+      Kernel_refusal.refuse esc Bf16_ordered
+  | _, _, C.Seed.Tensor -> Kernel_refusal.refuse esc Seeded_from_output
   | (C.Numerics.Ordered | C.Numerics.Paired), _, C.Seed.Zero -> ());
   (* an integer product: [vtmms] for a signed A, [vtmmu] for an unsigned one,
      [altfmt] for a signed B; four k steps a tile multiply at e8 m1, their
@@ -68,11 +76,12 @@ let items ?mutation (d : C.t) =
   let size = C.Element.bytes d.C.format in
   let tk = if Option.is_some int8 then 4 else if bf16 then 2 else 1 in
   let slice_gap = if bf16 then 4 else 2 in
-  if bytes d.C.c.C.Output.col <> 4 then refuse "C's columns not contiguous";
+  if bytes d.C.c.C.Output.col <> 4 then
+    Kernel_refusal.refuse esc C_columns_not_contiguous;
   let m = Int64.to_int d.C.m and n = Int64.to_int d.C.n in
   let k = Int64.to_int d.C.k and batch = Int64.to_int d.C.batch in
   let blocks = (m + tile - 1) / tile * ((n + tile - 1) / tile) * batch in
-  if blocks > 256 then refuse "more than 256 output tiles";
+  if blocks > 256 then Kernel_refusal.refuse esc Too_many_output_tiles;
   let a_outer = bytes ~size d.C.a.C.Operand.outer
   and a_k = bytes ~size d.C.a.C.Operand.k in
   let b_outer = bytes ~size d.C.b.C.Operand.outer
@@ -275,22 +284,23 @@ let zvt =
     (Coral_isa.Coral_zvt.definition ())
 
 let module_ ?mutation d =
-  match items ?mutation d with
-  | exception Refused why -> Error why
-  | items -> (
-      match zvt with
-      | Error _ -> Error "no Zvt encoder"
-      | Ok ext -> (
-          match
-            Err.payload (R.Rv32_kernel.finalize ~name:(C.symbol d) items)
-          with
-          | Error e -> Error (Fmt.str "%a" R.Rv32_kernel.pp_error e)
-          | Ok k -> (
-              match
-                Err.payload
-                  (R.Rv32_kernel_lower.module_ ~extensions:[ ext ]
-                     ~profile:R.Rv32_profile.Rv32imf_zve32f_ilp32f k)
-              with
-              | Ok m -> Ok m
-              | Error e -> Error (Fmt.str "%a" R.Rv32_kernel_lower.pp_error e)))
-      )
+  Kernel_refusal.generate @@ fun esc ->
+  let encoder pp e = Kernel_refusal.refuse esc (Encoder (Fmt.str "%a" pp e)) in
+  let items = items esc ?mutation d in
+  let ext =
+    match zvt with
+    | Ok ext -> ext
+    | Error _ -> Kernel_refusal.refuse esc (Encoder "no Zvt encoder")
+  in
+  let k =
+    match Err.payload (R.Rv32_kernel.finalize ~name:(C.symbol d) items) with
+    | Ok k -> k
+    | Error e -> encoder R.Rv32_kernel.pp_error e
+  in
+  match
+    Err.payload
+      (R.Rv32_kernel_lower.module_ ~extensions:[ ext ]
+         ~profile:R.Rv32_profile.Rv32imf_zve32f_ilp32f k)
+  with
+  | Ok m -> m
+  | Error e -> encoder R.Rv32_kernel_lower.pp_error e

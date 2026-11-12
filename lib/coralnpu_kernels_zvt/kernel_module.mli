@@ -6,7 +6,9 @@ val of_items :
   ?zvt:bool ->
   name:string ->
   Machine_rivet_riscv32.Rv32_kernel_item.t list ->
-  (Riscv32_encode.Instruction.t Asm_core.Normalized_ast.module_, string) result
+  ( Riscv32_encode.Instruction.t Asm_core.Normalized_ast.module_,
+    Coralnpu_kernels.Kernel_refusal.t )
+  result
 (** [name] is the kernel's (and its module's) name; [zvt] (default true) gives
     the Zvt encoder, so a function using no tile instruction may pass [false]
-    and need no matrix configuration. A refusal is rendered. *)
+    and need no matrix configuration. A refusal is an [Encoder] reason. *)

@@ -66,9 +66,8 @@ let right_graph t = t.native.desc
 let initial t =
   List.map
     (fun (name, v) ->
-      match Id.Canonical_value.of_string name with
-      | Ok k -> (k, v)
-      | Error _ -> invalid_arg "Pair.initial")
+      ( Err.or_raise ~pp_error:Text_error.pp (Id.Canonical_value.of_string name),
+        v ))
     t.case.values
 
 let node_attributes t side (r : Node_ref.t) =

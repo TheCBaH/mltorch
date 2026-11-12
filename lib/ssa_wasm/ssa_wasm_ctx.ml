@@ -32,9 +32,6 @@ let pp_error ppf : [< error ] -> unit = function
       Fmt.pf ppf "a %d-lane vector does not fill 128-bit registers" n
   | `Unsupported_operation o -> Fmt.pf ppf "%s has no WebAssembly form" o
 
-exception Refused of error
-
-let refuse e = raise (Refused e)
 let static_cap = 0x4000_0000L
 
 type mask_shape =
@@ -44,6 +41,7 @@ type mask_shape =
           [f64x2] comparison), [Narrow] is [i32x4] (an [f32x4] one). *)
 
 type t = {
+  esc : error Err.Escape.t;
   mutable extra : Wasm_type.t list;  (** locals past the parameters, reversed *)
   n_params : int;
   values : (int, int array) Hashtbl.t;
@@ -65,6 +63,8 @@ type t = {
   site_table : LF.t array option;
 }
 
+(* Exits the kernel's emission with the reason it has no WebAssembly form. *)
+let refuse st e = Err.Escape.throw st.esc ~pp_error e
 let n op = I.Numeric op
 let i32 k = I.I32_const (Int32.of_int k)
 let i64c k = I.I64_const k
@@ -118,9 +118,9 @@ let lanes_per_register : Ssa_type.scalar -> int = function
 
 (* How many registers a vector or mask type takes. A mask is counted in the
    registers of the shape it is held in, which the caller says. *)
-let registers_of_lanes lanes per =
+let registers_of_lanes st lanes per =
   let n = Ssa_type.Lanes.to_int lanes in
-  if n < per || n mod per <> 0 then refuse (`Unsupported_lanes n);
+  if n < per || n mod per <> 0 then refuse st (`Unsupported_lanes n);
   n / per
 
 let local_types st (v : Ssa_value.t) ~shape : Wasm_type.t list =
@@ -136,11 +136,11 @@ let local_types st (v : Ssa_value.t) ~shape : Wasm_type.t list =
   | Ssa_type.Vec (s, l) ->
       if s = Ssa_type.F32 then st.f32 <- true;
       List.init
-        (registers_of_lanes l (lanes_per_register s))
+        (registers_of_lanes st l (lanes_per_register s))
         (fun _ -> Wasm_type.V128)
   | Ssa_type.Mask l ->
       let per = match shape with Wide -> 2 | Narrow -> 4 in
-      List.init (registers_of_lanes l per) (fun _ -> Wasm_type.V128)
+      List.init (registers_of_lanes st l per) (fun _ -> Wasm_type.V128)
 
 (* Defines a value: one local per register. *)
 let define ?(shape = Wide) st (v : Ssa_value.t) =
@@ -291,6 +291,7 @@ let align8 x = Int64.logand (Int64.add x 7L) (Int64.lognot 7L)
 let reserve_local st bytes =
   let off = align8 st.local_top in
   let top = Int64.add off bytes in
-  if Int64.compare top static_cap > 0 then refuse (`Local_arrays_too_large top);
+  if Int64.compare top static_cap > 0 then
+    refuse st (`Local_arrays_too_large top);
   st.local_top <- top;
   Int64.to_int off

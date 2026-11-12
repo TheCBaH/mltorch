@@ -138,7 +138,8 @@ let%expect_test "exp over vector registers on the core" =
       | Error e -> Fmt.pr "lmul %d: %s@." lmul e
       | Ok (plan, items) -> (
           match Z.Kernel_module.of_items ~zvt:false ~name items with
-          | Error e -> Fmt.pr "lmul %d: %s@." lmul e
+          | Error e ->
+              Fmt.pr "lmul %d: %a@." lmul Coralnpu_kernels.Kernel_refusal.pp e
           | Ok m -> (
               match
                 H.run ~symbol:name ~modules:[ m ]

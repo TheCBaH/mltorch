@@ -192,7 +192,12 @@ let no_index = { idx = (fun acc _ -> acc) }
      [size] and [depth] are this same walk with both budgets at [max_int], which
      never trip — so there is exactly one description of what counts as a node
      and what counts as a level. *)
-exception Over of [ `Depth | `Size ]
+let pp_over fmt : [ `Depth | `Size ] -> unit = function
+  | `Depth -> Fmt.string fmt "depth"
+  | `Size -> Fmt.string fmt "size"
+
+(* The exit of one metered walk: the limit that was passed. *)
+type over = [ `Depth | `Size ] Err.Escape.t
 
 (* The node budget is THREADED, not held in a ref: every traversal takes the
      count still available and returns what it left, so a sibling is measured
@@ -203,14 +208,14 @@ exception Over of [ `Depth | `Size ]
    mutually-recursive group once and hands back BOTH entry points, so the
    int64-rooted measure is not a second copy of this traversal -- just a
    different root call into the same one. *)
-let measure_with_locals_gen ~local =
+let measure_with_locals_gen (esc : over) ~local =
   (* Charged once per node, before descending: that is what keeps the
        recursion inside the budget rather than merely reporting on it. *)
   let node budget left ~cost ~depth =
     if cost <= 0 || depth <= 0 then
       invalid_arg "Expr.Fold.measure_with_locals: non-positive local measure";
-    if budget < depth then raise_notrace (Over `Depth);
-    if left < cost then raise_notrace (Over `Size);
+    if budget < depth then Err.Escape.throw esc ~pp_error:pp_over `Depth;
+    if left < cost then Err.Escape.throw esc ~pp_error:pp_over `Size;
     left - cost
   in
   let rec index : type r. int -> int -> r Index.t -> int * int =
@@ -406,16 +411,28 @@ let measure_with_locals_gen ~local =
   in
   (value, value_i64)
 
-let measure_with_locals ~local ~max_size ~max_depth e =
-  let value, _ = measure_with_locals_gen ~local in
+let metered esc ~local ~max_size ~max_depth e =
+  let value, _ = measure_with_locals_gen esc ~local in
   let d, left = value Local_var.Set.empty max_depth max_size e in
   (max_size - left, d)
 
-(* [measure_with_locals]' int64-rooted twin, for a bare [int64 Value.t]. *)
-let measure_with_locals_i64 ~local ~max_size ~max_depth e =
-  let _, value_i64 = measure_with_locals_gen ~local in
+let metered_i64 esc ~local ~max_size ~max_depth e =
+  let _, value_i64 = measure_with_locals_gen esc ~local in
   let d, left = value_i64 Local_var.Set.empty max_depth max_size e in
   (max_size - left, d)
+
+(* A caller that passes a bound has to have preflighted it ([exceeds_with_locals]
+   under the same bounds): a bound passed here raises [Err.Exn.E]. *)
+let measure_with_locals ~local ~max_size ~max_depth e =
+  Err.or_raise ~pp_error:pp_over
+    (Err.Escape.with_escape (fun esc ->
+         metered esc ~local ~max_size ~max_depth e))
+
+(* [measure_with_locals]' int64-rooted twin, for a bare [int64 Value.t]. *)
+let measure_with_locals_i64 ~local ~max_size ~max_depth e =
+  Err.or_raise ~pp_error:pp_over
+    (Err.Escape.with_escape (fun esc ->
+         metered_i64 esc ~local ~max_size ~max_depth e))
 
 let measure ~max_size ~max_depth e =
   measure_with_locals ~local:(fun _ -> (1, 1)) ~max_size ~max_depth e
@@ -438,18 +455,26 @@ let depth_i64 e = snd (unmetered_i64 e)
      together for the reason above, so an absent limit is [max_int] rather than
      a skipped budget. *)
 let exceeds_with_locals ~local ~max_size ~max_depth e =
-  match measure_with_locals ~local ~max_size ~max_depth e with
-  | _ -> None
-  | exception Over w -> Some w
+  match
+    Err.payload
+      (Err.Escape.with_escape (fun esc ->
+           metered esc ~local ~max_size ~max_depth e))
+  with
+  | Ok _ -> None
+  | Error w -> Some w
 
 let exceeds ~max_size ~max_depth e =
   exceeds_with_locals ~local:(fun _ -> (1, 1)) ~max_size ~max_depth e
 
 (* [exceeds_with_locals]/[exceeds]' int64-rooted twins. *)
 let exceeds_with_locals_i64 ~local ~max_size ~max_depth e =
-  match measure_with_locals_i64 ~local ~max_size ~max_depth e with
-  | _ -> None
-  | exception Over w -> Some w
+  match
+    Err.payload
+      (Err.Escape.with_escape (fun esc ->
+           metered_i64 esc ~local ~max_size ~max_depth e))
+  with
+  | Ok _ -> None
+  | Error w -> Some w
 
 let exceeds_i64 ~max_size ~max_depth e =
   exceeds_with_locals_i64 ~local:(fun _ -> (1, 1)) ~max_size ~max_depth e

@@ -21,4 +21,6 @@ end
 val module_ :
   ?mutation:Mutation.t ->
   Contraction.t ->
-  (Riscv32_encode.Instruction.t Asm_core.Normalized_ast.module_, string) result
+  ( Riscv32_encode.Instruction.t Asm_core.Normalized_ast.module_,
+    Coralnpu_kernels.Kernel_refusal.t )
+  result

@@ -13,7 +13,7 @@ let typed_array = Ssa_js_ctx.typed_array
 
 (* ---- one instruction ----------------------------------------------------------- *)
 
-let refuse what = raise (Refused (`Unsupported_operation what))
+let refuse cx what = Ssa_js_ctx.refuse cx (`Unsupported_operation what)
 
 let unary cx ~f32 (op : Expr.Value.unary_op) a =
   ignore cx;
@@ -21,11 +21,11 @@ let unary cx ~f32 (op : Expr.Value.unary_op) a =
     match op with
     | Expr.Value.Cos -> math "cos" [ a ]
     | Expr.Value.Erf ->
-        if f32 then refuse "a binary32 erf" else runtime R.Name.Erf [ a ]
+        if f32 then refuse cx "a binary32 erf" else runtime R.Name.Erf [ a ]
     | Expr.Value.Exp ->
         if f32 then runtime R.Name.Exp_f32 [ a ] else math "exp" [ a ]
     | Expr.Value.Log -> math "log" [ a ]
-    | Expr.Value.Round_bf16 -> refuse "a bfloat16 rounding as an operation"
+    | Expr.Value.Round_bf16 -> refuse cx "a bfloat16 rounding as an operation"
     | Expr.Value.Sin -> math "sin" [ a ]
     | Expr.Value.Sqrt -> math "sqrt" [ a ]
     | Expr.Value.Trunc -> math "trunc" [ a ]
@@ -55,13 +55,13 @@ let contract cx (d : Contraction.t) ~a ~b ~c =
   (match d.Contraction.format with
   | Contraction.Element.F32 -> ()
   | Contraction.Element.Bf16 | Contraction.Element.I8 _ ->
-      refuse "a contraction over other than binary32");
+      refuse cx "a contraction over other than binary32");
   (match d.Contraction.numerics with
   | Contraction.Numerics.Ordered | Contraction.Numerics.Fused_sequential -> ()
-  | Contraction.Numerics.Paired -> refuse "a paired contraction");
+  | Contraction.Numerics.Paired -> refuse cx "a paired contraction");
   let stride what (x : int64) =
     if Int64.compare x 0x7FFF_FFFFL > 0 then
-      refuse ("a contraction " ^ what ^ " past 31 bits")
+      refuse cx ("a contraction " ^ what ^ " past 31 bits")
     else idx_lit x
   in
   let ao = d.Contraction.a and bo = d.Contraction.b in
@@ -155,7 +155,7 @@ let instr cx ~(limits : Expr.Scan_limits.t) (i : Ssa_instr.t) : A.Stmt.t list =
   let set e = assign cx (first_result i) e in
   match op with
   | Ssa_op.Mark _ | Ssa_op.Mark_lanes _ -> []
-  | Ssa_op.Attend _ -> refuse "an attention"
+  | Ssa_op.Attend _ -> refuse cx "an attention"
   | Ssa_op.Contract { desc = d; a; b; c; _ } -> contract cx d ~a ~b ~c
   | Ssa_op.Check_access { buffer; at } -> (
       let b = find_buffer cx buffer in
@@ -251,7 +251,8 @@ let instr cx ~(limits : Expr.Scan_limits.t) (i : Ssa_instr.t) : A.Stmt.t list =
         | Ssa_op.Convert.F32_to_f64 -> v a
         | Ssa_op.Convert.F64_to_f32 -> math "fround" [ v a ]
         | Ssa_op.Convert.I64_to_f64 -> number_of (v a)
-        | Ssa_op.Convert.I64_to_f32 -> refuse "an int64 to binary32 conversion"
+        | Ssa_op.Convert.I64_to_f32 ->
+            refuse cx "an int64 to binary32 conversion"
         | Ssa_op.Convert.Index_to_f64 -> float_of_index (v a)
         | Ssa_op.Convert.Index_to_i64 -> big_of (v a))
   | Ssa_op.Float_binary (o, a, b) ->
@@ -261,7 +262,7 @@ let instr cx ~(limits : Expr.Scan_limits.t) (i : Ssa_instr.t) : A.Stmt.t list =
   | Ssa_op.Float_fma (a, b, c) ->
       if is_f32 (first_result i) then
         set (runtime R.Name.Fma_f32 [ v a; v b; v c ])
-      else refuse "a binary64 fused multiply-add"
+      else refuse cx "a binary64 fused multiply-add"
   | Ssa_op.Float_max (a, b) -> set (math "max" [ v a; v b ])
   | Ssa_op.Float_to_i64 a ->
       let x = v a in
@@ -342,7 +343,7 @@ let instr cx ~(limits : Expr.Scan_limits.t) (i : Ssa_instr.t) : A.Stmt.t list =
             ];
         ]
   | Ssa_op.Index_scale_in_domain (k, a) -> set (bin A.Mul (idx_lit k) (v a))
-  | Ssa_op.Lanewise _ -> refuse "a lane-wise operation"
+  | Ssa_op.Lanewise _ -> refuse cx "a lane-wise operation"
   | Ssa_op.Load { buffer; at; decode = d }
   | Ssa_op.Load_in_bounds { buffer; at; decode = d } ->
       let b = find_buffer cx buffer in
@@ -445,7 +446,7 @@ let instr cx ~(limits : Expr.Scan_limits.t) (i : Ssa_instr.t) : A.Stmt.t list =
       ]
   | Ssa_op.Vec_extract _ | Ssa_op.Vec_insert _ | Ssa_op.Vec_iota _
   | Ssa_op.Vec_load _ | Ssa_op.Vec_splat _ | Ssa_op.Vec_store _ ->
-      refuse "a vector operation"
+      refuse cx "a vector operation"
 
 (* ---- control flow -------------------------------------------------------------- *)
 
@@ -645,8 +646,12 @@ let program ?buffers ?sites (p : Ssa_program.t) =
         (Fmt.str "Ssa_js.program: the program does not verify: %a"
            Ssa_verify.pp_error e));
   let buffers = Option.value buffers ~default:(arguments p) in
+  Err.export ~pos:__POS__ ~pp_error
+  @@ Err.Escape.with_escape
+  @@ fun esc ->
   let cx =
     {
+      esc;
       names = Hashtbl.create 64;
       decls = [];
       next_name = 0;
@@ -659,48 +664,39 @@ let program ?buffers ?sites (p : Ssa_program.t) =
       site_table = sites;
     }
   in
-  match
+  let body, limits =
     let limits = p.Ssa_program.scan_limits in
     let entry = p.Ssa_program.entry in
     List.iter (fun v -> ignore (define cx v)) entry.Ssa_region.params;
     (region cx ~limits entry, limits)
-  with
-  | exception Refused e -> Error e
-  | body, limits ->
-      let params = List.mapi (fun i _ -> id ("b" ^ string_of_int i)) buffers in
-      let decls =
-        List.rev_map (fun (n, init) -> A.Stmt.Let (n, init)) cx.decls
-      in
-      let meter =
-        if uses_meter p.Ssa_program.entry then
-          [
-            A.Stmt.Let
-              ( scan_remaining,
-                exact_number (Expr.Scan_limits.max_updates limits) );
-            A.Stmt.Let (scan_live, num 0.);
-          ]
-        else []
-      in
-      let entry_fn =
-        {
-          A.Func.name = id function_name;
-          params;
-          body =
-            decls @ cx.tables @ meter @ body @ [ A.Stmt.Return (Some A.Null) ];
-        }
-      in
-      let program =
-        { A.Program.prelude = prelude entry_fn; entry = entry_fn }
-      in
-      (match Js_check.closed program with
-      | Ok () -> ()
-      | Error faults ->
-          invalid_arg
-            (Fmt.str "Ssa_js.program: the program is not closed: %a"
-               Fmt.(list ~sep:(any "; ") Js_check.Fault.pp)
-               faults));
-      Ok
-        ( program,
-          match sites with
-          | Some table -> table
-          | None -> Array.of_list (List.rev cx.sites) )
+  in
+  let params = List.mapi (fun i _ -> id ("b" ^ string_of_int i)) buffers in
+  let decls = List.rev_map (fun (n, init) -> A.Stmt.Let (n, init)) cx.decls in
+  let meter =
+    if uses_meter p.Ssa_program.entry then
+      [
+        A.Stmt.Let
+          (scan_remaining, exact_number (Expr.Scan_limits.max_updates limits));
+        A.Stmt.Let (scan_live, num 0.);
+      ]
+    else []
+  in
+  let entry_fn =
+    {
+      A.Func.name = id function_name;
+      params;
+      body = decls @ cx.tables @ meter @ body @ [ A.Stmt.Return (Some A.Null) ];
+    }
+  in
+  let program = { A.Program.prelude = prelude entry_fn; entry = entry_fn } in
+  (match Js_check.closed program with
+  | Ok () -> ()
+  | Error faults ->
+      invalid_arg
+        (Fmt.str "Ssa_js.program: the program is not closed: %a"
+           Fmt.(list ~sep:(any "; ") Js_check.Fault.pp)
+           faults));
+  ( program,
+    match sites with
+    | Some table -> table
+    | None -> Array.of_list (List.rev cx.sites) )

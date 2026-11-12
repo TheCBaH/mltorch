@@ -170,10 +170,7 @@ let seal ~hashers ~algorithm structural extractions
       final_values = Plan.Structural.final_values structural;
       consumers;
       coverage = Plan.Structural.coverage structural;
-      plan_digest =
-        (match Digest.Plan.make algorithm ~hex:(String.make 64 '0') with
-        | Ok d -> d
-        | Error _ -> invalid_arg "Sealed_plan.seal");
+      plan_digest = Digest.Plan.placeholder algorithm;
     }
   in
   let* plan_digest =

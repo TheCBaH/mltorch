@@ -25,9 +25,7 @@ let bufs =
   ]
 
 let cfg_of p =
-  match Ssa_cfg_lower.program p with
-  | Ok c -> c
-  | Error e -> Fmt.failwith "%a" Ssa_cfg_lower.pp_error e
+  Err.or_raise ~pp_error:Ssa_cfg_lower.pp_error (Ssa_cfg_lower.program p)
 
 let result_text = function
   | Ok () -> "ok"
@@ -485,3 +483,36 @@ let%expect_test "a parallel copy is ordered so every source is read first" =
     (assignments m n);
   Fmt.pr "%d copies, %d wrong, %d temporaries@." !total !wrong !temps;
   [%expect {| 64 copies, 0 wrong, 14 temporaries |}]
+
+(* The increment on the back edge is an in-domain addition, so a loop whose
+   last induction value plus its step passes the index maximum has no graph
+   form; the refusal reaches the caller as an [Err.t], not an exception. *)
+let%expect_test
+    "a loop whose last increment leaves the index domain has no graph form" =
+  let lower hi =
+    let p =
+      build ~buffers:bufs (fun bld ->
+          let B.Nil =
+            B.for_ bld ~lo:(idx bld 0) ~hi:(B.index bld hi) ~init:B.Nil
+              (fun _ _ B.Nil -> B.Nil)
+          in
+          ())
+    in
+    let entry = p.Ssa_program.entry in
+    let stepped =
+      List.map
+        (function
+          | Ssa_stmt.For f -> Ssa_stmt.For { f with step = 2L } | s -> s)
+        entry.Ssa_region.body
+    in
+    let p = { p with entry = { entry with Ssa_region.body = stepped } } in
+    match Err.payload (Ssa_cfg_lower.program p) with
+    | Ok _ -> Fmt.pr "a graph@."
+    | Error e -> Fmt.pr "refused: %a@." Ssa_cfg_lower.pp_error e
+  in
+  lower 4L;
+  lower Ssa_const.index_max;
+  [%expect
+    {|
+    a graph
+    refused: a loop's last increment may leave the index domain, so it has no in-domain form |}]

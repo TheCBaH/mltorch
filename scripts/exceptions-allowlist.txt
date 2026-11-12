@@ -6,33 +6,18 @@
 # invariant         a broken module invariant, not a recoverable error
 # local-control     a non-error exit within one function
 # public-api        part of a published signature
-ceiling|escape-candidate|21
+ceiling|escape-candidate|0
 
 lib/aten/aten_tensor.ml|Error|ffi
-lib/coralnpu_kernels/rvv_contraction.ml|Refused|escape-candidate
-lib/coralnpu_kernels_zvt/vexpr.ml|Out_of_registers|escape-candidate
-lib/coralnpu_kernels_zvt/zvt_contraction.ml|Refused|escape-candidate
-lib/coralnpu_kernels_zvt/zvt_packed_contraction.ml|Refused|escape-candidate
-lib/coralnpu_kernels_zvt/zvt_sdpa.ml|Refused|escape-candidate
-lib/coralnpu_kernels_zvt/zvt_sdpa_geometry.ml|Refused|escape-candidate
 lib/coralnpu_rv32/coral_spi.ml|Failed|public-api
 lib/coralnpu_rv32/coral_spi.mli|Failed|public-api
 lib/expr/expr_api.ml|Supply_exhausted|invariant
 lib/expr_internal/builder.ml|Supply_exhausted|invariant
-lib/expr_internal/fold.ml|Over|escape-candidate
-lib/inference_compare_codecs/recipe_kernels.ml|Stop|escape-candidate
-lib/loop_ir/loop_numerics.ml|Refused|escape-candidate
-lib/machine_rivet_riscv32/rv32_asm.ml|Refused|escape-candidate
-lib/model_explorer_export/me_build.ml|Capped|escape-candidate
+# rv32_asm: a mistyped register or an unencodable form is a bug in the hand-built
+# generator, not a property of its input. The builders (reg, insn, mem) are
+# plain value constructors with ~55 call sites across the Coral generators, and
+# the one frame that sees the exit is module_; a token would thread through
+# every call for no case a caller can handle.
+lib/machine_rivet_riscv32/rv32_asm.ml|Refused|invariant
 lib/native4d/lower_region.ml|Abort|local-control
-lib/native4d/lower_relabel.ml|Abort|escape-candidate
-lib/native4d/wide_permute.ml|Abort|escape-candidate
 lib/native_interp/native_interp_tensor.ml|Range_overflow|local-control
-lib/ssa_c/ssa_c_ctx.ml|Refused|escape-candidate
-lib/ssa_ir/ssa_cfg_lower.ml|Refused|escape-candidate
-lib/ssa_ir/ssa_contract.ml|Refuse|escape-candidate
-lib/ssa_ir/ssa_opt_collapse.ml|Refused|escape-candidate
-lib/ssa_ir/ssa_vector_body.ml|Refuse|escape-candidate
-lib/ssa_ir/ssa_vector_sum.ml|Kept|escape-candidate
-lib/ssa_js/ssa_js_ctx.ml|Refused|escape-candidate
-lib/ssa_wasm/ssa_wasm_ctx.ml|Refused|escape-candidate

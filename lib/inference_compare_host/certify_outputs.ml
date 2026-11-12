@@ -74,9 +74,8 @@ let compare_outputs stage ~ctx ~algorithm ~(contract : Computation_contract.t)
                       (Printf.sprintf "output %s has no final policy" name)
                 | Some policy -> (
                     let comparison_id =
-                      match Id.Comparison.of_string ("final:" ^ name) with
-                      | Ok c -> c
-                      | Error _ -> invalid_arg "Certify.compare_outputs"
+                      Err.or_raise ~pp_error:Text_error.pp
+                        (Id.Comparison.of_string ("final:" ^ name))
                     in
                     match
                       M.Comparison.compare ctx M.Tensor_metrics.empty_env policy

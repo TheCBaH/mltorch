@@ -3,6 +3,7 @@ module type S = sig
 
   val make : Id.Digest_algorithm.t -> hex:string -> (t, Digest_error.t) Err.t
   val of_string : string -> (t, Digest_error.t) Err.t
+  val placeholder : Id.Digest_algorithm.t -> t
   val to_string : t -> string
   val algorithm : t -> Id.Digest_algorithm.t
   val hex : t -> string
@@ -37,6 +38,7 @@ module Make () : S = struct
               (Digest_error.Invalid_algorithm (Err.Error.kind e))
         | Ok algorithm -> make algorithm ~hex)
 
+  let placeholder algorithm = { algorithm; hex = String.make 64 '0' }
   let algorithm d = d.algorithm
   let hex d = d.hex
   let to_string d = Id.Digest_algorithm.to_string d.algorithm ^ ":" ^ d.hex

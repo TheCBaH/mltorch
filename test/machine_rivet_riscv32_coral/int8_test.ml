@@ -80,6 +80,8 @@ let run ~configuration ~engine d =
       (Err.payload (Coral_profile.load ~dir configuration))
   in
   let* helper =
+    Result.map_error Coralnpu_kernels.Kernel_refusal.to_string
+    @@
     if engine then Coralnpu_kernels_zvt.Zvt_contraction.module_ d
     else Coralnpu_kernels.Rvv_contraction.module_ d
   in

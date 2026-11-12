@@ -63,7 +63,10 @@ val reuses_b : Contraction.t -> bool
 (** B is read in place and by more than one block of A: where staging it into
     the DTCM pays when it lies in SRAM. *)
 
-val panel_bytes : ?stage_b:Stage.t -> Contraction.t -> (int, string) result
+val panel_bytes :
+  ?stage_b:Stage.t ->
+  Contraction.t ->
+  (int, Coralnpu_kernels.Kernel_refusal.t) result
 (** The [.bss] the function declares: B's packed panels and the largest block of
     A's, none for an operand read in place. *)
 
@@ -71,4 +74,6 @@ val module_ :
   ?mutation:Mutation.t ->
   ?stage_b:Stage.t ->
   Contraction.t ->
-  (Riscv32_encode.Instruction.t Asm_core.Normalized_ast.module_, string) result
+  ( Riscv32_encode.Instruction.t Asm_core.Normalized_ast.module_,
+    Coralnpu_kernels.Kernel_refusal.t )
+  result

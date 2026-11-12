@@ -18,10 +18,7 @@ let make_digest make algorithm hex =
       (* A backend returned non-canonical hex: a registration fault. *)
       Err.fail ~pp_error (Hasher (Unknown_algorithm algorithm))
 
-let placeholder algorithm =
-  match Digest.Comparison_policy.make algorithm ~hex:(String.make 64 '0') with
-  | Ok d -> d
-  | Error _ -> invalid_arg "Seal.placeholder"
+let placeholder = Digest.Comparison_policy.placeholder
 
 let selection_digest ~hashers ~algorithm selection =
   let* hex = hex ~hashers ~algorithm (Policy_selection.preimage selection) in
@@ -44,12 +41,7 @@ let seal ~hashers ~algorithm ~selection bindings =
   let unsealed : Policy_bindings.t =
     {
       selection_digest;
-      bindings_digest =
-        (match
-           Digest.Policy_bindings.make algorithm ~hex:(String.make 64 '0')
-         with
-        | Ok d -> d
-        | Error _ -> invalid_arg "Seal.seal");
+      bindings_digest = Digest.Policy_bindings.placeholder algorithm;
       bindings;
     }
   in

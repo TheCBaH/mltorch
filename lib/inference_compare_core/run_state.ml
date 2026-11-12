@@ -26,15 +26,12 @@ let create ~run_id ~case_id ~experiment_id ~emit =
 
 let instance t =
   t.instances <- t.instances + 1;
-  match
-    Id.Value_instance.of_string
-      (Printf.sprintf "%s.%s.v%d"
-         (Id.Run.to_string t.run_id)
-         (Id.Experiment.to_string t.experiment_id)
-         t.instances)
-  with
-  | Ok i -> i
-  | Error _ -> invalid_arg "Run_state.instance"
+  Err.or_raise ~pp_error:Text_error.pp
+    (Id.Value_instance.of_string
+       (Printf.sprintf "%s.%s.v%d"
+          (Id.Run.to_string t.run_id)
+          (Id.Experiment.to_string t.experiment_id)
+          t.instances))
 
 let failure ?side ?unit ?node ?tensor ?rule ?comparison ?text code phase :
     Failure.t =

@@ -9,7 +9,27 @@ type step =
 let max_blocks = 6
 let max_permutes = 3
 
-exception Abort
+(* Why the planner declines a run. A decline is the [None] of [plan]; the reason
+   is carried to the frame that makes it, never branched on. *)
+module Refusal = struct
+  type t =
+    | Cut_not_divisible  (** an atom cut by an extent that does not divide it *)
+    | Extent_overflow  (** a run's product does not fit *)
+    | Reshape_leftover  (** atoms remain once the target is formed *)
+    | Reshape_short  (** the target needs more atoms than the run holds *)
+    | Too_many_blocks  (** more blocks than the planner keeps apart *)
+
+  let pp fmt r =
+    Fmt.string fmt
+      (match r with
+      | Cut_not_divisible -> "cut_not_divisible"
+      | Extent_overflow -> "extent_overflow"
+      | Reshape_leftover -> "reshape_leftover"
+      | Reshape_short -> "reshape_short"
+      | Too_many_blocks -> "too_many_blocks")
+end
+
+let refuse esc r = Err.Escape.throw esc ~pp_error:Refusal.pp r
 
 (* The three numberings this planner keeps apart. An ATOM is a piece of an axis
    no reshape cuts across; a BLOCK is a maximal run of atoms that stay adjacent
@@ -38,8 +58,10 @@ module Run =
     ()
 
 (* A product that does not fit is a run this planner declines. *)
-let product extents =
-  match Extent_product.bounded extents with Some p -> p | None -> raise Abort
+let product esc extents =
+  match Extent_product.bounded extents with
+  | Some p -> p
+  | None -> refuse esc Refusal.Extent_overflow
 
 type state = {
   mutable next : Atom.t;
@@ -55,10 +77,12 @@ let is_one e = Dim.equal e Dim.one
 (* Cut atom [a] into a major part of extent [first] and the rest, everywhere it
    is held. A cut is the same in every tensor of the run because an atom's
    pieces keep their order wherever it sits. *)
-let split st a ~(first : Dim.extent Dim.t) =
+let split esc st a ~(first : Dim.extent Dim.t) =
   let e = extent st a in
   let rest =
-    match Dim.div_exact e ~by:first with Some r -> r | None -> raise Abort
+    match Dim.div_exact e ~by:first with
+    | Some r -> r
+    | None -> refuse esc Refusal.Cut_not_divisible
   in
   let a1 = st.next in
   let a2 = Atom.succ a1 in
@@ -73,21 +97,21 @@ let split st a ~(first : Dim.extent Dim.t) =
 
 let flat st = List.concat_map snd st.groups
 
-let reshape st target =
+let reshape esc st target =
   let rec take need atoms acc =
     if is_one need then (List.rev acc, atoms)
     else
       match atoms with
-      | [] -> raise Abort
+      | [] -> refuse esc Refusal.Reshape_short
       | a :: rest -> (
           let e = extent st a in
           match Dim.div_exact need ~by:e with
           | Some quotient -> take quotient rest (a :: acc)
           | None ->
               if Dim.divides ~by:need e then
-                let a1, a2 = split st a ~first:need in
+                let a1, a2 = split esc st a ~first:need in
                 take Dim.one (a2 :: rest) (a1 :: acc)
-              else raise Abort)
+              else refuse esc Refusal.Cut_not_divisible)
   in
   let groups, rest =
     List.fold_left
@@ -100,7 +124,7 @@ let reshape st target =
       ([], flat st)
       Axis.all
   in
-  if rest <> [] then raise Abort;
+  if rest <> [] then refuse esc Refusal.Reshape_leftover;
   st.groups <- List.rev groups
 
 let permute st perm =
@@ -117,7 +141,7 @@ let permute st perm =
 (* Maximal runs of source-adjacent atoms that are also adjacent, in the same
    order, in the result. Returns each block's extent and the result as a
    sequence of blocks. *)
-let blocks st =
+let blocks esc st =
   let cur = flat st in
   let rec follows a = function
     | x :: (y :: _ as rest) -> if x = a then Some y else follows a rest
@@ -142,7 +166,7 @@ let blocks st =
     List.fold_left
       (fun sizes k ->
         Block.Map.add k
-          (product
+          (product esc
              (List.filter_map
                 (fun (a, j) ->
                   if Block.equal j k then Some (extent st a) else None)
@@ -240,7 +264,7 @@ let shape_of_extents es =
     (Shape4.of_ints ~n:1 ~h:1 ~w:1 ~c:1)
     labels es
 
-let steps_of ~sizes ~x ~y path =
+let steps_of esc ~sizes ~x ~y path =
   let size b = Block.Map.find b sizes in
   let cur = ref x in
   let out = ref [] in
@@ -252,7 +276,7 @@ let steps_of ~sizes ~x ~y path =
   in
   List.iter
     (fun (_, { runs; order }) ->
-      let run_size r = product (List.map size r) in
+      let run_size r = product esc (List.map size r) in
       reshape_to (shape_of_extents (List.map run_size runs));
       let k = List.length runs in
       let labels = List.filteri (fun i _ -> i >= 4 - k) Axis4.all in
@@ -281,31 +305,37 @@ let steps_of ~sizes ~x ~y path =
   List.rev !out
 
 let plan ?source ~x ~y ops =
-  try
-    let x6 = Option.value source ~default:(Shape4.to_vec6 x) in
-    let st = { next = Atom.of_int 0; extents = []; base = []; groups = [] } in
-    List.iter
-      (fun axis ->
-        let e = Vec6.get x6 axis in
-        if not (is_one e) then begin
-          let a = st.next in
-          st.next <- Atom.succ a;
-          st.extents <- (a, e) :: st.extents;
-          st.base <- st.base @ [ a ];
-          st.groups <- st.groups @ [ (axis, [ a ]) ]
-        end)
-      Axis.all;
-    List.iter
-      (function
-        | Clone -> ()
-        | Permute perm -> permute st perm
-        | Reshape target -> reshape st target)
-      ops;
-    let sizes, order = blocks st in
-    let block_count = Block.Map.cardinal sizes in
-    if block_count > max_blocks then raise Abort;
-    let start = List.init block_count Block.of_int in
-    match search ~start ~goal:order with
-    | None -> None
-    | Some path -> Some (steps_of ~sizes ~x ~y path)
-  with Abort -> None
+  match
+    Err.payload @@ Err.Escape.with_escape
+    @@ fun esc ->
+    begin
+      let x6 = Option.value source ~default:(Shape4.to_vec6 x) in
+      let st = { next = Atom.of_int 0; extents = []; base = []; groups = [] } in
+      List.iter
+        (fun axis ->
+          let e = Vec6.get x6 axis in
+          if not (is_one e) then begin
+            let a = st.next in
+            st.next <- Atom.succ a;
+            st.extents <- (a, e) :: st.extents;
+            st.base <- st.base @ [ a ];
+            st.groups <- st.groups @ [ (axis, [ a ]) ]
+          end)
+        Axis.all;
+      List.iter
+        (function
+          | Clone -> ()
+          | Permute perm -> permute st perm
+          | Reshape target -> reshape esc st target)
+        ops;
+      let sizes, order = blocks esc st in
+      let block_count = Block.Map.cardinal sizes in
+      if block_count > max_blocks then refuse esc Refusal.Too_many_blocks;
+      let start = List.init block_count Block.of_int in
+      match search ~start ~goal:order with
+      | None -> None
+      | Some path -> Some (steps_of esc ~sizes ~x ~y path)
+    end
+  with
+  | Ok plan -> plan
+  | Error _ -> None

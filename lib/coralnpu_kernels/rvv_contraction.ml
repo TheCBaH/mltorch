@@ -16,15 +16,12 @@ let symbol = C.symbol
 let i = A.insn
 let r = A.reg
 
-exception Refused of string
-
-let refuse why = raise (Refused why)
-
 (* A byte offset of [n] elements of [size] bytes (binary32 by default) as an
    [int], refused past 31 bits. *)
-let bytes ?(size = 4L) (n : int64) =
+let bytes esc ?(size = 4L) (n : int64) =
   let b = Int64.mul size n in
-  if Int64.compare b 0x7FFF_FFFFL > 0 then refuse "an offset past 31 bits"
+  if Int64.compare b 0x7FFF_FFFFL > 0 then
+    Kernel_refusal.refuse esc Offset_past_31_bits
   else Int64.to_int b
 
 let small n = n >= -2048 && n < 2048
@@ -59,7 +56,7 @@ module T = Coral_transfer.Transfer_plan
    an operand it writes itself from its arguments; the panels then stand for
    the operands. A source not 16-byte aligned, or a chain that ends in error,
    leaves every operand where it is. *)
-let staging ?mutation (d : C.t) ~name (st : T.t) =
+let staging esc ?mutation (d : C.t) ~name (st : T.t) =
   let operands =
     List.filter_map Fun.id
       [
@@ -83,7 +80,8 @@ let staging ?mutation (d : C.t) ~name (st : T.t) =
   else (
     List.iter
       (fun (_, size, _) ->
-        if size > 0xFF_FFF0 then refuse "an operand past one DMA transfer")
+        if size > 0xFF_FFF0 then
+          Kernel_refusal.refuse esc Operand_past_dma_transfer)
       operands;
     let la rd sym = i "la" [ r rd; A.sym sym ] in
     let flags len = len lor (4 lsl 24) in
@@ -182,20 +180,20 @@ let staging ?mutation (d : C.t) ~name (st : T.t) =
     in
     (code, data))
 
-let items ?mutation ?plan (d : C.t) () =
+let items esc ?mutation ?plan (d : C.t) () =
   let stage =
     match plan with
     | None -> T.in_place
     | Some w ->
         if C.name (T.Witness.contraction w) <> C.name d then
-          refuse "a transfer plan checked for another contraction";
+          Kernel_refusal.refuse esc Transfer_plan_mismatch;
         T.Witness.plan w
   in
   (match d.C.seed with
   | C.Seed.Zero -> ()
-  | C.Seed.Tensor -> refuse "a contraction seeded from its output");
+  | C.Seed.Tensor -> Kernel_refusal.refuse esc Seeded_from_output);
   if d.C.numerics = C.Numerics.Paired then
-    refuse "the paired requirement: only the matrix engine rounds pairs";
+    Kernel_refusal.refuse esc Paired_requirement;
   let n = Int64.to_int d.C.n and m = Int64.to_int d.C.m in
   let k = Int64.to_int d.C.k and batch = Int64.to_int d.C.batch in
   let fused = d.C.numerics = C.Numerics.Fused_sequential in
@@ -210,12 +208,13 @@ let items ?mutation ?plan (d : C.t) () =
   let accs = [ "v8"; "v16"; "v24" ] in
   let fregs = [ "fa0"; "fa1"; "fa2" ] in
   let a_outer =
-    bytes ~size d.C.a.C.Operand.outer
+    bytes esc ~size d.C.a.C.Operand.outer
     + if mutation = Some Mutation.A_row_stride then Int64.to_int size else 0
-  and a_k = bytes ~size d.C.a.C.Operand.k in
-  let b_outer = bytes ~size d.C.b.C.Operand.outer
-  and b_k = bytes ~size d.C.b.C.Operand.k in
-  let c_row = bytes d.C.c.C.Output.row and c_col = bytes d.C.c.C.Output.col in
+  and a_k = bytes esc ~size d.C.a.C.Operand.k in
+  let b_outer = bytes esc ~size d.C.b.C.Operand.outer
+  and b_k = bytes esc ~size d.C.b.C.Operand.k in
+  let c_row = bytes esc d.C.c.C.Output.row
+  and c_col = bytes esc d.C.c.C.Output.col in
   let labels = ref 0 in
   let fresh () =
     incr labels;
@@ -260,7 +259,7 @@ let items ?mutation ?plan (d : C.t) () =
     (* an integer A value goes to an integer register: t1, t2 and s4, free
        when the rows share t0 *)
     if Option.is_some int8 && not shared then
-      refuse "integer A rows too far apart for one pointer";
+      Kernel_refusal.refuse esc Int_rows_too_far_apart;
     let xs = List.filteri (fun j _ -> j < nrows) [ "t1"; "t2"; "s4" ] in
     let zero = List.map (fun v -> i "vmv.v.i" [ r v; A.imm 0 ]) accs in
     let start =
@@ -406,7 +405,7 @@ let items ?mutation ?plan (d : C.t) () =
         let fail = name ^ "_dma_failed" in
         let blocks = (m + rb - 1) / rb in
         let last = m - ((blocks - 1) * rb) in
-        let row = bytes ~size d.C.k in
+        let row = bytes esc ~size d.C.k in
         let flags len = len lor (4 lsl 24) in
         let block_bytes = rb * row
         and last_bytes = ((last * row) + 15) land lnot 15 in
@@ -431,7 +430,7 @@ let items ?mutation ?plan (d : C.t) () =
             ]
         in
         if block_bytes > 0xFF_FFF0 then
-          refuse "a ring block past one DMA transfer";
+          Kernel_refusal.refuse esc Ring_block_past_dma_transfer;
         let go ~src ~dst ~len =
           [
             la "t0" rd;
@@ -599,11 +598,11 @@ let items ?mutation ?plan (d : C.t) () =
   in
   let per_batch =
     (match streamed with Some (code, _) -> code | None -> tiles ~m)
-    @ add_const "a0" (bytes ~size d.C.a.C.Operand.batch)
-    @ add_const "a1" (bytes ~size d.C.b.C.Operand.batch)
-    @ add_const "a2" (bytes d.C.c.C.Output.batch)
+    @ add_const "a0" (bytes esc ~size d.C.a.C.Operand.batch)
+    @ add_const "a1" (bytes esc ~size d.C.b.C.Operand.batch)
+    @ add_const "a2" (bytes esc d.C.c.C.Output.batch)
   in
-  let stage_code, stage_data = staging ?mutation d ~name stage in
+  let stage_code, stage_data = staging esc ?mutation d ~name stage in
   (* s4 widens A's bfloat16 scalars; s5-s11 run the ring *)
   let saved =
     [ "s0"; "s1"; "s2"; "s3" ]
@@ -631,6 +630,8 @@ let items ?mutation ?plan (d : C.t) () =
   @ stage_data @ ring_data
 
 let module_ ?mutation ?plan d =
-  match items ?mutation ?plan d () with
-  | items -> A.module_ (symbol d) (fun () -> items)
-  | exception Refused why -> Error why
+  Kernel_refusal.generate @@ fun esc ->
+  let items = items esc ?mutation ?plan d () in
+  match A.module_ (symbol d) (fun () -> items) with
+  | Ok m -> m
+  | Error what -> Kernel_refusal.refuse esc (Assembler what)

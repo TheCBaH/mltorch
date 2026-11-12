@@ -36,6 +36,8 @@ module Refusal = struct
     | Operand_written -> "operand_written"
     | Seed -> "seed"
     | Shape -> "shape"
+
+  let pp fmt r = Fmt.string fmt (name r)
 end
 
 (* A recognized product: its descriptor, its operand buffers, and the loop
@@ -62,9 +64,6 @@ module Outcome = struct
   type t = Found of Found.t | Refused of Refusal.t
 end
 
-exception Refuse of Refusal.t
-
-let refuse r = raise (Refuse r)
 let key (v : Ssa_value.t) = (v.Ssa_value.id :> int)
 
 (* Every constant of the program, by the value it defines. *)
@@ -120,6 +119,8 @@ let strides (e : int64 Expr.Coord.t) =
 
 let recognize ~numerics ?bf16 ~consts ~ranges ~buffer ~(loops : loop list)
     ~nest_stores (lo, hi, seed, results, (body : Ssa_region.t)) =
+  Err.Escape.with_escape @@ fun esc ->
+  let refuse r = Err.Escape.throw esc ~pp_error:Refusal.pp r in
   (* a value the program or its range analysis fixes *)
   let known (v : Ssa_value.t) =
     match index_const consts v with
@@ -393,11 +394,13 @@ let census ~numerics ?bf16 (p : Ssa_program.t) =
           match nest with Some st -> st | None -> stored [ s ]
         in
         match
-          recognize ~numerics ?bf16 ~consts ~ranges ~buffer ~loops ~nest_stores
-            (lo, hi, seed, results, body)
+          Err.payload
+            (recognize ~numerics ?bf16 ~consts ~ranges ~buffer ~loops
+               ~nest_stores
+               (lo, hi, seed, results, body))
         with
-        | f -> out := Outcome.Found f :: !out
-        | exception Refuse r ->
+        | Ok f -> out := Outcome.Found f :: !out
+        | Error r ->
             out := Outcome.Refused r :: !out;
             region ~loops ~nest body)
   in

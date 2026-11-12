@@ -10,11 +10,7 @@ module Nid = Graph_ir.Node_id
 type graph = Native_model.t
 type body = { graph : Graph_ir.graph; key : Graph_key.t; scope : Scope.t }
 
-let dialect =
-  match Id.Dialect.of_string "native" with
-  | Ok d -> d
-  | Error _ -> invalid_arg "Native_dialect"
-
+let dialect = Id.Dialect.of_literal "native"
 let describe (m : graph) = m.desc
 
 let id_of prefix local =
@@ -101,13 +97,10 @@ let extract (m : graph) (plan : Ex.Extraction.t) :
       Ok { graph; key = plan.body.key; scope }
 
 let describe_body (b : body) : Graph_desc.t =
-  match
-    Native_model.describe ~key:b.key ~scope:b.scope ~g:b.graph
-      ~nodes:b.graph.nodes ~inputs:b.graph.inputs ~outputs:b.graph.outputs
-      ~roles:`Body
-  with
-  | Ok d -> d
-  | Error m -> invalid_arg ("Native_dialect.describe_body: " ^ m)
+  Model_error.or_raise ~what:"Native_dialect.describe_body"
+    (Native_model.describe ~key:b.key ~scope:b.scope ~g:b.graph
+       ~nodes:b.graph.nodes ~inputs:b.graph.inputs ~outputs:b.graph.outputs
+       ~roles:`Body)
 
 let validate (_ : body) = Ok ()
 

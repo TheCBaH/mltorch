@@ -24,6 +24,9 @@ module Profile = Machine_rivet_riscv32.Rv32_profile
 
 let ( let* ) = Result.bind
 
+(* A generator's refusal as this route's text error. *)
+let text r = Result.map_error Coralnpu_kernels.Kernel_refusal.to_string r
+
 (* Where and on what the route runs: the extracted emulators archive, one of
    its configurations, the wall-clock limit of one call (seconds), and the
    simulator's extra flags. *)
@@ -248,14 +251,16 @@ let image ?mutation ?kernel_mutation ?home ?(engine = true) ?engine_mutation
         match fitting stage_b with Some _ as f -> f | None -> fitting None
       with
       | Some (stage_b, bytes) -> (
-          match P.module_ ?stage_b d with
+          match text (P.module_ ?stage_b d) with
           | Ok _ as m ->
               left := !left - bytes;
               slack := max !slack (P.overread d);
               Some m
           | Error _ ->
-              Some (Z.Zvt_contraction.module_ ?mutation:engine_mutation d))
-      | None -> Some (Z.Zvt_contraction.module_ ?mutation:engine_mutation d)
+              Some
+                (text (Z.Zvt_contraction.module_ ?mutation:engine_mutation d)))
+      | None ->
+          Some (text (Z.Zvt_contraction.module_ ?mutation:engine_mutation d))
     else None
   in
   (* each function asks [transfer] for its plan within what is left, and a
@@ -281,12 +286,12 @@ let image ?mutation ?kernel_mutation ?home ?(engine = true) ?engine_mutation
     if not capabilities.Contraction.Select.Capabilities.matrix then
       Error "the core has no matrix engine"
     else
-      match Coralnpu_kernels_zvt.Zvt_sdpa.panel_bytes d with
+      match text (Coralnpu_kernels_zvt.Zvt_sdpa.panel_bytes d) with
       | Error why -> Error why
       | Ok bytes when bytes > !left ->
           Error (Fmt.str "the panels need %d bytes, %d available" bytes !left)
       | Ok bytes -> (
-          match Coralnpu_kernels_zvt.Zvt_sdpa.module_ d with
+          match text (Coralnpu_kernels_zvt.Zvt_sdpa.module_ d) with
           | Ok md as m ->
               left := !left - bytes;
               attended := (Attention_block.symbol d, md) :: !attended;

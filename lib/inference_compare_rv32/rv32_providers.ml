@@ -11,8 +11,6 @@ module P = Inference_compare_pt2
 module Q = Loop_c_embed_compcert_rv32.Compcert_rv32_loader
 module Profile = Machine_rivet_riscv32.Rv32_profile
 
-let id mk s = match mk s with Ok v -> v | Error _ -> invalid_arg "identity"
-
 (* The pinned components, as the CompCert embedding's lock and the submodules
    record them. *)
 let pins =
@@ -29,8 +27,8 @@ let pins =
 let identity ?artifact ~engine ~route ~configuration ~environment () :
     Engine_identity.t =
   {
-    engine = id Id.Engine.of_string engine;
-    route = id Id.Engine_route.of_string route;
+    engine = Id.Engine.of_literal engine;
+    route = Id.Engine_route.of_literal route;
     build_digest =
       P.Aten_runner.sha_digest Digest.Build.make
         ("inference-compare-rv32/" ^ engine ^ "/v1\n" ^ pins);
@@ -40,12 +38,8 @@ let identity ?artifact ~engine ~route ~configuration ~environment () :
     artifact_digest =
       Option.map
         (fun hex ->
-          id
-            (fun hex ->
-              Err.payload
-                (Digest.Engine_artifact.make Inference_compare_sha256.algorithm
-                   ~hex))
-            hex)
+          Err.or_raise ~pp_error:Digest_error.pp
+            (Digest.Engine_artifact.make Inference_compare_sha256.algorithm ~hex))
         artifact;
     environment_digest =
       P.Aten_runner.sha_digest Digest.Environment.make environment;

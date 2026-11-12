@@ -6,10 +6,8 @@ module Insn = R.Rv32_kernel_insn
 module A = Attention_block
 module P = Peak_zvt
 module K = Coralnpu_kernels.Peak_kernels
+module Kernel_refusal = Coralnpu_kernels.Kernel_refusal
 
-exception Refused of string
-
-let refuse why = raise (Refused why)
 let bq = 16
 
 (* The shape of a block product, as the packed contraction plans it. *)
@@ -45,23 +43,23 @@ module Geometry = struct
     k_tail : int;
   }
 
-  let make (t : A.t) =
+  let make esc (t : A.t) =
     let narrow name x =
       if Int64.compare x 0L < 0 || Int64.compare x 0x7FFF_FFFFL > 0 then
-        refuse (name ^ " past 31 bits")
+        Kernel_refusal.refuse esc (Past_31_bits name)
       else Int64.to_int x
     in
     if t.A.precision <> A.Precision.Bf16_paired then
-      refuse "a precision other than bfloat16 with paired sums";
+      Kernel_refusal.refuse esc Precision_not_paired_bf16;
     let d = narrow "d" t.A.d and bk = narrow "block_keys" t.A.block_keys in
     let tq = narrow "tq" t.A.tq and tk = narrow "tk" t.A.tk in
-    if d > 128 then refuse "d past 128";
-    if d mod 2 <> 0 then refuse "an odd d";
+    if d > 128 then Kernel_refusal.refuse esc D_past_128;
+    if d mod 2 <> 0 then Kernel_refusal.refuse esc D_odd;
     if bk > 32 || (bk > 16 && bk <> 32) then
-      refuse "block_keys that is neither at most 16 nor 32";
+      Kernel_refusal.refuse esc Block_keys_unsupported;
     let col (s : A.Strides.t) = Int64.equal s.A.Strides.col 1L in
     if not (col t.A.q && col t.A.k && col t.A.v && col t.A.o) then
-      refuse "a feature stride other than one element";
+      Kernel_refusal.refuse esc Feature_stride_not_one;
     let depth = (d + 3) / 4 * 4 in
     let ceil_div a b = (a + b - 1) / b in
     let q_blocks = ceil_div tq bq and k_blocks = ceil_div tk bk in

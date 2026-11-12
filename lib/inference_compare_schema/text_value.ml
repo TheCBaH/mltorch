@@ -2,6 +2,7 @@ module type S = sig
   type t
 
   val of_string : string -> (t, Text_error.t) Err.t
+  val of_literal : string -> t
   val to_string : t -> string
   val compare : t -> t -> int
   val equal : t -> t -> bool
@@ -44,6 +45,14 @@ module Make
     | None -> Ok s
     | Some reason ->
         Err.fail ~pp_error:Text_error.pp { Text_error.role = R.role; reason }
+
+  let of_literal s =
+    match C.check s with
+    | None -> s
+    | Some reason ->
+        invalid_arg
+          (Format.asprintf "%s.of_literal %S: %a" R.role s Text_error.pp_reason
+             reason)
 
   let to_string s = s
   let compare = String.compare

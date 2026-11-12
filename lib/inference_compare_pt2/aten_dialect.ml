@@ -16,11 +16,7 @@ type body = {
   outputs : string list;
 }
 
-let dialect =
-  match Id.Dialect.of_string "aten" with
-  | Ok d -> d
-  | Error _ -> invalid_arg "Aten_dialect"
-
+let dialect = Id.Dialect.of_literal "aten"
 let describe (m : graph) = m.desc
 let ( let* ) = Result.bind
 
@@ -78,19 +74,16 @@ let describe_body (b : body) : Graph_desc.t =
       (fun name ->
         let spec = List.assoc name b.model.specs in
         let role =
-          match Name.User_input.of_string name with
-          | Ok n -> Input_role.User_input n
-          | Error _ -> invalid_arg "Aten_dialect.describe_body"
+          Input_role.User_input
+            (Err.or_raise ~pp_error:Text_error.pp
+               (Name.User_input.of_string name))
         in
         { Aten_model.name; role; spec; captured = None })
       b.inputs
   in
-  match
-    Aten_model.describe ~key:b.key ~scope:b.scope ~specs:b.model.specs
-      ~nodes:b.nodes ~sources ~outputs:b.outputs
-  with
-  | Ok d -> d
-  | Error m -> invalid_arg ("Aten_dialect.describe_body: " ^ m)
+  Model_error.or_raise ~what:"Aten_dialect.describe_body"
+    (Aten_model.describe ~key:b.key ~scope:b.scope ~specs:b.model.specs
+       ~nodes:b.nodes ~sources ~outputs:b.outputs)
 
 let validate (b : body) =
   if b.nodes = [] then

@@ -111,7 +111,7 @@ let%expect_test "the softmax's vector forms on the core" =
     |]
   in
   match Z.Kernel_module.of_items ~zvt:false ~name items with
-  | Error e -> Fmt.pr "%s@." e
+  | Error e -> Fmt.pr "%a@." Coralnpu_kernels.Kernel_refusal.pp e
   | Ok m ->
       (match
          H.run ~symbol:name ~modules:[ m ]

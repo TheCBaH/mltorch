@@ -46,7 +46,10 @@ let tag_of : Tensor.packed -> (int, string) result =
 let axes = Axis.all
 
 let tensor b (Tensor.Tensor t as packed) =
-  let tag = match tag_of packed with Ok k -> k | Error m -> invalid_arg m in
+  let tag =
+    Err.or_raise ~pp_error:Format.pp_print_string
+      (Err.import Fun.id (tag_of packed))
+  in
   u8 b tag;
   List.iter (fun a -> u32 b (Vec6.get t.Tensor.shape a :> int)) axes;
   let p = t.Tensor.payload in

@@ -5,10 +5,7 @@
 
 open Inference_compare_schema
 
-let node_id i =
-  match Id.Conversion_node.of_string (Printf.sprintf "n%d" i) with
-  | Ok n -> n
-  | Error _ -> invalid_arg "Recipe_ops.node_id"
+let node_id i = Id.Conversion_node.of_literal (Printf.sprintf "n%d" i)
 
 let same_argument a b =
   match (a, b) with
@@ -110,11 +107,8 @@ let boundaries (r : Recipe.t) =
    merging [inner]'s nodes. *)
 let inline ~(outer : Recipe.t) ~argument ~(inner : Recipe.t) : Recipe.t =
   let prefix p id =
-    match
-      Id.Conversion_node.of_string (p ^ Id.Conversion_node.to_string id)
-    with
-    | Ok n -> n
-    | Error _ -> invalid_arg "Recipe_ops.inline"
+    Err.or_raise ~pp_error:Text_error.pp
+      (Id.Conversion_node.of_string (p ^ Id.Conversion_node.to_string id))
   in
   let rename p = function
     | Recipe.Conversion_result id -> Recipe.Conversion_result (prefix p id)

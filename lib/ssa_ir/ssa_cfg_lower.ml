@@ -6,8 +6,6 @@ let pp_error fmt = function
         "a loop's last increment may leave the index domain, so it has no \
          in-domain form"
 
-exception Refused of error
-
 module Accumulate = struct
   type t = Add | Fuse_products
 end
@@ -23,6 +21,7 @@ type builder = {
   mutable body : Ssa_instr.t list;
   ranges : Ssa_range.t;
   accumulate : Accumulate.t;
+  esc : error Err.Escape.t;
 }
 
 let fresh_value b ty =
@@ -68,7 +67,7 @@ let next_index b ~(iv : Ssa_value.t) ~step =
   | Ssa_range.Empty -> ()
   | Ssa_range.Range r ->
       if Int64.compare (Int64.add r.hi step) Ssa_const.index_max > 0 then
-        raise (Refused Step_leaves_domain));
+        Err.Escape.throw b.esc ~pos:__POS__ ~pp_error Step_leaves_domain);
   let s = pure b index (Ssa_op.Const (Ssa_const.Index step)) in
   pure b index (Ssa_op.Index_add_in_domain (iv, s))
 
@@ -186,6 +185,7 @@ let program ?(accumulate = Accumulate.Add) (p : Ssa_program.t) =
   let entry = p.Ssa_program.entry in
   let first = Ssa_id.Block.Next.first in
   let id, next_block = Ssa_id.Block.Next.alloc first in
+  Err.Escape.with_escape @@ fun esc ->
   let b =
     {
       next_value = p.Ssa_program.next_value;
@@ -196,21 +196,17 @@ let program ?(accumulate = Accumulate.Add) (p : Ssa_program.t) =
       body = [];
       ranges = Ssa_range.analyze p;
       accumulate;
+      esc;
     }
   in
-  match
-    stmts b entry.Ssa_region.body;
-    match entry.Ssa_region.yields with
-    | [ e ] -> finish b (Ssa_cfg_terminator.Return e) ~next:id ~params:[]
-    | _ -> invalid_arg "Ssa_cfg_lower: the entry yields the effect alone"
-  with
-  | exception Refused e -> Error e
-  | () ->
-      Ok
-        {
-          Ssa_cfg.buffers = p.Ssa_program.buffers;
-          entry = id;
-          blocks = List.rev b.finished;
-          scan_limits = p.Ssa_program.scan_limits;
-          next_value = b.next_value;
-        }
+  stmts b entry.Ssa_region.body;
+  (match entry.Ssa_region.yields with
+  | [ e ] -> finish b (Ssa_cfg_terminator.Return e) ~next:id ~params:[]
+  | _ -> invalid_arg "Ssa_cfg_lower: the entry yields the effect alone");
+  {
+    Ssa_cfg.buffers = p.Ssa_program.buffers;
+    entry = id;
+    blocks = List.rev b.finished;
+    scan_limits = p.Ssa_program.scan_limits;
+    next_value = b.next_value;
+  }

@@ -74,7 +74,35 @@ let access_counts r =
         m (accesses i.Ssa_instr.op))
     Id_map.empty r
 
-exception Refused
+(* Why a pair of loops is left unmerged. The pass only needs to know that it
+   was, so a reason is data for the detection record, never branched on. *)
+module Refusal = struct
+  type t =
+    | Axis_conflict  (** the buffer would merge at two different axes *)
+    | Axis_not_adjacent  (** the two loop variables are not adjacent axes *)
+    | Bound_names_index  (** an inner loop's bound or input names a variable *)
+    | Buffer_shared  (** a merged buffer is accessed outside the body *)
+    | Buffer_unknown  (** an access to a buffer the program does not declare *)
+    | Inner_not_whole  (** the inner axis is not the whole inner trip count *)
+    | Not_rewritable  (** an access that is not a single rewritable one *)
+    | Per_channel  (** a per-channel format cannot merge axes *)
+    | Term_names_index  (** a variable used somewhere but the merged access *)
+    | Yield_names_index  (** a region yields a variable *)
+
+  let name = function
+    | Axis_conflict -> "axis_conflict"
+    | Axis_not_adjacent -> "axis_not_adjacent"
+    | Bound_names_index -> "bound_names_index"
+    | Buffer_shared -> "buffer_shared"
+    | Buffer_unknown -> "buffer_unknown"
+    | Inner_not_whole -> "inner_not_whole"
+    | Not_rewritable -> "not_rewritable"
+    | Per_channel -> "per_channel"
+    | Term_names_index -> "term_names_index"
+    | Yield_names_index -> "yield_names_index"
+
+  let pp fmt r = Fmt.string fmt (name r)
+end
 
 let axis_after a =
   let rec go = function
@@ -91,9 +119,11 @@ let axis_of c (v : Ssa_value.t) =
   | [ a ] -> Some a
   | _ -> None
 
-(* The merge [B] needs: buffer id -> axis [a], or [Refused]. *)
+(* The merge [B] needs: buffer id -> axis [a], or a {!Refusal.t}. *)
 let plan ~(buffers : Ssa_buffer.t Id_map.t) ~total ~v1 ~v2 ~n2
     (body : Ssa_region.t) =
+  Err.Escape.with_escape @@ fun esc ->
+  let refuse r = Err.Escape.throw esc ~pp_error:Refusal.pp r in
   let local = access_counts body in
   let merges =
     fold_instrs
@@ -110,9 +140,10 @@ let plan ~(buffers : Ssa_buffer.t Id_map.t) ~total ~v1 ~v2 ~n2
               let buf =
                 match Id_map.find_opt (bid b) buffers with
                 | Some buf -> buf
-                | None -> raise Refused
+                | None -> refuse Refusal.Buffer_unknown
               in
-              if Ssa_format.per_channel buf.Ssa_buffer.format then raise Refused;
+              if Ssa_format.per_channel buf.Ssa_buffer.format then
+                refuse Refusal.Per_channel;
               (* each of [v1], [v2] is one coordinate, the only ones naming
                  them, on adjacent axes, the inner one whole *)
               match (axis_of c v1, axis_of c v2) with
@@ -122,19 +153,20 @@ let plan ~(buffers : Ssa_buffer.t Id_map.t) ~total ~v1 ~v2 ~n2
                       (Int64.equal
                          (Expr.Coord.get buf.Ssa_buffer.extents a2)
                          n2)
-                  then raise Refused;
+                  then refuse Refusal.Inner_not_whole;
                   (match Id_map.find_opt (bid b) m with
-                  | Some a' when a' <> a -> raise Refused
+                  | Some a' when a' <> a -> refuse Refusal.Axis_conflict
                   | _ -> ());
                   Id_map.add (bid b) a m
-              | _ -> raise Refused)
-          | _ -> raise Refused)
+              | _ -> refuse Refusal.Axis_not_adjacent)
+          | _ -> refuse Refusal.Not_rewritable)
       Id_map.empty body
   in
   (* a merged buffer is accessed nowhere else *)
   Id_map.iter
     (fun b _ ->
-      if Id_map.find_opt b total <> Id_map.find_opt b local then raise Refused)
+      if Id_map.find_opt b total <> Id_map.find_opt b local then
+        refuse Refusal.Buffer_shared)
     merges;
   merges
 
@@ -199,10 +231,12 @@ let pass (p : Ssa_program.t) =
               Int64.compare n1 (Int64.div Ssa_buffer.max_elements n2) <= 0
             in
             match
-              if fits then Some (plan ~buffers ~total ~v1 ~v2 ~n2 inner)
+              if fits then
+                match Err.payload (plan ~buffers ~total ~v1 ~v2 ~n2 inner) with
+                | Ok merges -> Some merges
+                | Error _ -> None
               else None
             with
-            | exception Refused -> [ s ]
             | None -> [ s ]
             | Some merges when Id_map.is_empty merges -> [ s ]
             | Some merges
@@ -248,34 +282,42 @@ let pass (p : Ssa_program.t) =
                     (fun v -> Ssa_value.equal v v1 || Ssa_value.equal v v2)
                     vs
                 in
-                let rec region (r : Ssa_region.t) =
-                  if named r.Ssa_region.yields then raise Refused;
-                  { r with Ssa_region.body = List.map stmt r.Ssa_region.body }
-                and stmt = function
-                  | Ssa_stmt.Instr i ->
-                      let op = rewrite i.Ssa_instr.op in
-                      if List.exists (Ssa_value.equal v1) (Ssa_op.operands op)
-                      then raise Refused;
-                      Ssa_stmt.Instr { i with Ssa_instr.op }
-                  | Ssa_stmt.For f ->
-                      if named (f.lo :: f.hi :: f.inits) then raise Refused;
-                      Ssa_stmt.For { f with body = region f.body }
-                  | Ssa_stmt.Ordered_sum f ->
-                      if named [ f.lo; f.hi; f.seed; f.token ] then
-                        raise Refused;
-                      Ssa_stmt.Ordered_sum { f with body = region f.body }
-                  | Ssa_stmt.If f ->
-                      if named [ f.cond ] then raise Refused;
-                      Ssa_stmt.If
-                        {
-                          f with
-                          then_ = region f.then_;
-                          else_ = region f.else_;
-                        }
+                let rewritten =
+                  Err.Escape.with_escape @@ fun esc ->
+                  let refuse r = Err.Escape.throw esc ~pp_error:Refusal.pp r in
+                  let rec region (r : Ssa_region.t) =
+                    if named r.Ssa_region.yields then
+                      refuse Refusal.Yield_names_index;
+                    { r with Ssa_region.body = List.map stmt r.Ssa_region.body }
+                  and stmt = function
+                    | Ssa_stmt.Instr i ->
+                        let op = rewrite i.Ssa_instr.op in
+                        if List.exists (Ssa_value.equal v1) (Ssa_op.operands op)
+                        then refuse Refusal.Term_names_index;
+                        Ssa_stmt.Instr { i with Ssa_instr.op }
+                    | Ssa_stmt.For f ->
+                        if named (f.lo :: f.hi :: f.inits) then
+                          refuse Refusal.Bound_names_index;
+                        Ssa_stmt.For { f with body = region f.body }
+                    | Ssa_stmt.Ordered_sum f ->
+                        if named [ f.lo; f.hi; f.seed; f.token ] then
+                          refuse Refusal.Bound_names_index;
+                        Ssa_stmt.Ordered_sum { f with body = region f.body }
+                    | Ssa_stmt.If f ->
+                        if named [ f.cond ] then
+                          refuse Refusal.Bound_names_index;
+                        Ssa_stmt.If
+                          {
+                            f with
+                            then_ = region f.then_;
+                            else_ = region f.else_;
+                          }
+                  in
+                  region inner
                 in
-                match region inner with
-                | exception Refused -> [ s ]
-                | body ->
+                match Err.payload rewritten with
+                | Error _ -> [ s ]
+                | Ok body ->
                     Id_map.iter
                       (fun b a -> merged := Id_map.add b a !merged)
                       merges;

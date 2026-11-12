@@ -27,29 +27,27 @@ let over_limit = Me_limits.check ~scope:Me_limits.Scope.Graph
    bound on the work rather than on the result. [Format.asprintf] followed by
    [String.sub] has already paid for everything it then throws away, and for a
    deeply nested op that is the whole cost. *)
-exception Capped
-
 let bounded ~max pp v =
   let buf = Buffer.create (Stdlib.min 256 max) in
-  let out s pos len =
-    let room = max - Buffer.length buf in
-    if len > room then begin
-      Buffer.add_substring buf s pos room;
-      raise Capped
-    end
-    else Buffer.add_substring buf s pos len
+  let printed =
+    Err.payload @@ Err.Escape.with_escape
+    @@ fun esc ->
+    let out s pos len =
+      let room = max - Buffer.length buf in
+      if len > room then begin
+        Buffer.add_substring buf s pos room;
+        Err.Escape.throw esc
+          ~pp_error:(fun fmt () -> Fmt.string fmt "capped")
+          ()
+      end
+      else Buffer.add_substring buf s pos len
+    in
+    let fmt = Format.make_formatter out (fun () -> ()) in
+    Format.pp_print_flush fmt ();
+    pp fmt v;
+    Format.pp_print_flush fmt ()
   in
-  let fmt = Format.make_formatter out (fun () -> ()) in
-  let capped =
-    match
-      Format.pp_print_flush fmt ();
-      pp fmt v;
-      Format.pp_print_flush fmt ()
-    with
-    | () -> false
-    | exception Capped -> true
-  in
-  (Buffer.contents buf, capped)
+  (Buffer.contents buf, Result.is_error printed)
 
 (* The [Group] tree is authoritative, so the namespace is read off it rather
    than off any importer string. Each level goes through

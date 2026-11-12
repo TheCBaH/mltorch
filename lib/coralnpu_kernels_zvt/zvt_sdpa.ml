@@ -10,6 +10,7 @@ module Vreg = Reg.Vreg
 module A = Attention_block
 module P = Peak_zvt
 module K = Coralnpu_kernels.Peak_kernels
+module Kernel_refusal = Coralnpu_kernels.Kernel_refusal
 module M = F32_math.Make (Vexpr.Ops)
 
 (* The phases a measurement may leave out: the result is wrong, the cycles are
@@ -28,26 +29,26 @@ module Mutation = struct
     | V_tail_unzeroed
 end
 
-exception Refused = Zvt_sdpa_geometry.Refused
-
-let refuse = Zvt_sdpa_geometry.refuse
 let bq = Zvt_sdpa_geometry.bq
 let insn i = Item.insn i
 let imm12 = Imm.Imm12.of_int
 let vreg i = match Vreg.of_index i with Ok r -> r | Error _ -> assert false
-let ok = function Ok x -> x | Error _ -> refuse "a register or immediate"
 
-let li rd n =
+let ok esc = function
+  | Ok x -> x
+  | Error _ -> Kernel_refusal.refuse esc Register_or_immediate
+
+let li esc rd n =
   match Err.payload (Insn.load_imm rd n) with
   | Ok is -> List.map insn is
-  | Error _ -> refuse "a constant"
+  | Error _ -> Kernel_refusal.refuse esc Constant
 
 (* [rd = rs + n], through [tmp] when [n] is past an [addi] *)
-let add_from ~tmp rd rs n =
+let add_from esc ~tmp rd rs n =
   if n = 0 && rd = rs then []
   else if Imm.Imm12.(in_range (of_int n)) then
     [ insn (Insn.Addi { dst = rd; src = rs; imm = imm12 n }) ]
-  else li tmp n @ [ insn (Insn.Add { dst = rd; lhs = rs; rhs = tmp }) ]
+  else li esc tmp n @ [ insn (Insn.Add { dst = rd; lhs = rs; rhs = tmp }) ]
 
 let vtype sew lmul =
   {
@@ -65,8 +66,9 @@ let e32m4 = vtype Vtype.Sew.E32 Vtype.Lmul.M4
 let e32m8 = vtype Vtype.Sew.E32 Vtype.Lmul.M8
 
 (* [vl] elements under [vt], the count through [tmp] *)
-let vcfg ~tmp vt vl =
-  li tmp vl @ [ insn (Insn.Vsetvli { avl = Vtype.Avl.Reg tmp; vtype = vt }) ]
+let vcfg esc ~tmp vt vl =
+  li esc tmp vl
+  @ [ insn (Insn.Vsetvli { avl = Vtype.Avl.Reg tmp; vtype = vt }) ]
 
 (* [vl] elements under [vt], the count in [r] *)
 let vcfg_reg r vt =
@@ -79,10 +81,8 @@ module Geometry = Zvt_sdpa_geometry.Geometry
 let plan = Zvt_sdpa_geometry.plan
 
 let panel_bytes t =
-  match Geometry.make t with
-  | exception Refused why -> Error why
-  | exception Invalid_argument why -> Error why
-  | g -> Ok (Geometry.total g)
+  Kernel_refusal.generate_checked @@ fun esc ->
+  Geometry.total (Geometry.make esc t)
 
 let block_queries t =
   match panel_bytes t with Ok _ -> Ok bq | Error why -> Error why
@@ -116,9 +116,13 @@ let sw rs off = insn (Insn.Sw { src = rs; base = Gpr.sp; offset = imm12 off })
 let la dst target = insn (Insn.La { dst; target })
 let addi dst src n = insn (Insn.Addi { dst; src; imm = imm12 n })
 
-let items ?mutation ?dtcm ?(skip = []) (t : A.t) =
+let items esc ?mutation ?dtcm ?(skip = []) (t : A.t) =
+  let ok x = ok esc x
+  and li rd n = li esc rd n
+  and add_from ~tmp rd rs n = add_from esc ~tmp rd rs n
+  and vcfg ~tmp vt vl = vcfg esc ~tmp vt vl in
   let skipped p l = if List.mem p skip then [] else l in
-  let g = Geometry.make t in
+  let g = Geometry.make esc t in
   let d = g.Geometry.d and bk = g.Geometry.bk and depth = g.Geometry.depth in
   let name = A.symbol t in
   let label stem = Label.named (name ^ "_" ^ stem) in
@@ -129,7 +133,7 @@ let items ?mutation ?dtcm ?(skip = []) (t : A.t) =
   in
   let int64 x =
     if Int64.compare x 0L < 0 || Int64.compare x 0x3FFF_FFFFL > 0 then
-      refuse "a stride past 30 bits"
+      Kernel_refusal.refuse esc Stride_past_30_bits
     else Int64.to_int x
   in
   let bytes2 x = 2 * int64 x and bytes4 x = 4 * int64 x in
@@ -455,7 +459,7 @@ let items ?mutation ?dtcm ?(skip = []) (t : A.t) =
         ~inputs:[| (vreg 4, `Consumed); (vreg 8, `Consumed) |]
         expr
     with
-    | Error e -> refuse e
+    | Error e -> Kernel_refusal.refuse esc (Vector_expression e)
     | Ok plan -> plan.Vexpr.Plan.items @ store32 plan.Vexpr.Plan.result dest
   in
   let m_in = Vexpr.input 0 and mn_in = Vexpr.input 1 in
@@ -469,7 +473,7 @@ let items ?mutation ?dtcm ?(skip = []) (t : A.t) =
         ~inputs:[| (vreg 4, `Consumed); (vreg 8, `Consumed) |]
         (M.exp (O.sub (Vexpr.input 0) (Vexpr.input 1)))
     with
-    | Error e -> refuse e
+    | Error e -> Kernel_refusal.refuse esc (Vector_expression e)
     | Ok plan -> plan
   in
   let exp_r = exp_plan.Vexpr.Plan.result in
@@ -560,7 +564,7 @@ let items ?mutation ?dtcm ?(skip = []) (t : A.t) =
     let t1, t2, t3 =
       match without [ r ] with
       | a :: b :: c :: _ -> (a, b, c)
-      | _ -> refuse "no registers left for the rounding"
+      | _ -> Kernel_refusal.refuse esc No_rounding_registers
     in
     let m_reg = if mutation = Some Mutation.Max_stale then m_arr else ms_arr in
     at (tile_l, 0) Gpr.s1
@@ -934,14 +938,14 @@ let items ?mutation ?dtcm ?(skip = []) (t : A.t) =
       ]
 
 let module_ ?mutation ?budget ?dtcm ?skip t =
-  match items ?mutation ?dtcm ?skip t with
-  | exception Refused why -> Error why
-  | exception Invalid_argument why -> Error why
-  | items -> (
-      let g = Geometry.make t in
-      match budget with
-      | Some b when Geometry.total g > b ->
-          Error
-            (Printf.sprintf "the panels need %d bytes, %d available"
-               (Geometry.total g) b)
-      | _ -> Kernel_module.of_items ~name:(A.symbol t) items)
+  let ( let* ) = Result.bind in
+  let* items, total =
+    Kernel_refusal.generate_checked @@ fun esc ->
+    let items = items esc ?mutation ?dtcm ?skip t in
+    (items, Geometry.total (Geometry.make esc t))
+  in
+  match budget with
+  | Some b when total > b ->
+      Error
+        (Kernel_refusal.Panels_over_budget { needed = total; available = b })
+  | _ -> Kernel_module.of_items ~name:(A.symbol t) items

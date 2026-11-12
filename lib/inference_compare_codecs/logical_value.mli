@@ -29,8 +29,8 @@ val element_count : t -> int
 (** Bounded by [Sys.max_string_length] at construction. *)
 
 val codec : Context.t -> t -> Element_codec.t
-(** The element codec of a made value; raises [Invalid_argument] only if the
-    context's registry no longer holds it. *)
+(** The element codec of a made value; raises [Err.Exn.E] only if the context's
+    registry no longer holds it. *)
 
 val equal : t -> t -> bool
 (** Same spec and byte-for-byte equal storage. *)

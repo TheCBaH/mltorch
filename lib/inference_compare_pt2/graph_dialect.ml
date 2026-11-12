@@ -18,11 +18,7 @@ module Make (X : OP) = struct
   type graph = X.op G.t
   type body = X.op Graph_body.t
 
-  let dialect =
-    match Id.Dialect.of_string X.ops.dialect with
-    | Ok d -> d
-    | Error _ -> invalid_arg "Graph_dialect"
-
+  let dialect = Id.Dialect.of_literal X.ops.dialect
   let describe (m : graph) = m.G.desc
 
   let id_of prefix local =
@@ -113,13 +109,10 @@ module Make (X : OP) = struct
         Ok { Graph_body.graph; key = plan.body.key; scope }
 
   let describe_body (b : body) : Graph_desc.t =
-    match
-      G.describe ~ops:X.ops ~key:b.key ~scope:b.scope ~g:b.graph
-        ~nodes:b.graph.nodes ~inputs:b.graph.inputs ~outputs:b.graph.outputs
-        ~roles:`Body
-    with
-    | Ok d -> d
-    | Error m -> invalid_arg ("Graph_dialect.describe_body: " ^ m)
+    Model_error.or_raise ~what:"Graph_dialect.describe_body"
+      (G.describe ~ops:X.ops ~key:b.key ~scope:b.scope ~g:b.graph
+         ~nodes:b.graph.nodes ~inputs:b.graph.inputs ~outputs:b.graph.outputs
+         ~roles:`Body)
 
   let validate (_ : body) = Ok ()
 

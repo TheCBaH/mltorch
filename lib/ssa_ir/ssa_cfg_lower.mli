@@ -32,6 +32,6 @@ module Accumulate : sig
 end
 
 val program :
-  ?accumulate:Accumulate.t -> Ssa_program.t -> (Ssa_cfg.t, error) result
+  ?accumulate:Accumulate.t -> Ssa_program.t -> (Ssa_cfg.t, error) Err.t
 (** The program must verify; the result verifies by {!Ssa_cfg_verify}.
     [accumulate] defaults to [Add]. *)

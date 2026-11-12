@@ -82,7 +82,10 @@ let run ?mutation ~vlen d =
     ~write:(fun off x ->
       Bytes.set_int32_le expected (4 * Int64.to_int off) (Int32.of_float x));
   let ( let* ) = Result.bind in
-  let* helper = K.module_ ?mutation d in
+  let* helper =
+    Result.map_error Coralnpu_kernels.Kernel_refusal.to_string
+      (K.module_ ?mutation d)
+  in
   let* call = caller d in
   let* prepared =
     H.prepare ~profile:Machine_rivet_riscv32.Rv32_profile.Rv32imf_zve32f_ilp32f

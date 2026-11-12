@@ -48,6 +48,8 @@ val module_ :
   ?mutation:Mutation.t ->
   ?plan:Coral_transfer.Transfer_plan.Witness.t ->
   Contraction.t ->
-  (Riscv32_encode.Instruction.t Asm_core.Normalized_ast.module_, string) result
+  ( Riscv32_encode.Instruction.t Asm_core.Normalized_ast.module_,
+    Kernel_refusal.t )
+  result
 (** The function under {!symbol}, or why it cannot be made (a seed the kernel
     does not take, an offset past 32 bits). *)

@@ -24,15 +24,8 @@ let of_scalar_type (t : Pytorch_types.ScalarType.t) : Dtype.t option =
   | BYTE -> Some U8
   | _ -> None
 
-let codec_of_name n =
-  match Id.Codec.of_string n with
-  | Ok c -> c
-  | Error _ -> invalid_arg "Dtypes.codec"
-
-let layout =
-  match Id.Layout.of_string "row_major" with
-  | Ok l -> l
-  | Error _ -> invalid_arg "Dtypes.layout"
+let codec_of_name = Id.Codec.of_literal
+let layout = Id.Layout.of_literal "row_major"
 
 let spec ~(dtype : Dtype.t) ~(shape : int64 list) : Tensor_spec.t option =
   Option.map

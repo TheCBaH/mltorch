@@ -166,6 +166,11 @@ let profile artifact =
   then Profile.Rv32imf_zve32f_ilp32f
   else Profile.Rv32imf_ilp32f
 
+(* The RVV function, its refusal rendered for this route's text errors. *)
+let rvv_module ?mutation ?plan d =
+  Result.map_error Coralnpu_kernels.Kernel_refusal.to_string
+    (Coralnpu_kernels.Rvv_contraction.module_ ?mutation ?plan d)
+
 (* The generated functions' modules: [other]'s realization where it has one
    (a matrix engine's, say), else the RVV one, under [plan]'s checked
    transfer plan for it, if any (one call per function, in the order the
@@ -204,15 +209,13 @@ let helper_modules ?kernel_mutation ?(plan = fun _ -> Ok None)
                     Error "the route cannot realize the planned matrix engine")
             | Some Contraction.Select.Engine.Rvv ->
                 let* plan = plan d in
-                Coralnpu_kernels.Rvv_contraction.module_
-                  ?mutation:kernel_mutation ?plan d
+                rvv_module ?mutation:kernel_mutation ?plan d
             | None -> (
                 match other d with
                 | Some m -> m
                 | None ->
                     let* plan = plan d in
-                    Coralnpu_kernels.Rvv_contraction.module_
-                      ?mutation:kernel_mutation ?plan d))
+                    rvv_module ?mutation:kernel_mutation ?plan d))
         in
         Ok (acc @ [ m ]))
       (Ok []) (generated artifact)

@@ -27,101 +27,96 @@ let attempt ~policy ~elements ~(target : Ssa_target.t) info t
       let body_id = f.body.Ssa_region.id in
       let trips = ref 0L and ops = ref [] in
       let result =
-        try
-          if not (Int64.equal f.step 1L) then refuse Reason.Strided_loop;
-          (match (f.body.Ssa_region.params, f.inits) with
-          | [ _; _ ], [ _ ] -> ()
-          | _ -> refuse Reason.Carries_values);
-          let n =
-            match
-              Ssa_range.trips info.ranges ~lo:f.lo ~hi:f.hi ~step:f.step
-            with
-            | Ssa_range.Exactly n -> n
-            | Ssa_range.Zero | Ssa_range.At_least_one | Ssa_range.Unknown ->
-                refuse Reason.Non_constant_bounds
-          in
-          trips := n;
-          let lo_c, hi_c =
-            match
-              ( Ssa_range.range info.ranges f.lo,
-                Ssa_range.range info.ranges f.hi )
-            with
-            | Ssa_range.Range l, Ssa_range.Range h -> (l.lo, h.lo)
-            | _ -> refuse Reason.Non_constant_bounds
-          in
-          let lanes = target.Ssa_target.lanes in
-          let width = Ssa_type.Lanes.to_int lanes in
-          if Int64.compare n (Int64.of_int width) < 0 then
-            refuse (Reason.Too_short { trips = n; lanes });
-          if (not target.Ssa_target.inner_loops) && has_loop f.body then
-            refuse Reason.Inner_loops_declined;
-          let iv = List.hd f.body.Ssa_region.params in
-          let kinds = Hashtbl.create 64 in
-          set kinds iv (Aff 1L);
-          List.iter (classify_stmt kinds) f.body.Ssa_region.body;
-          check_memory ~policy f.body.Ssa_region.body;
-          let cx =
-            make_ctx ~t ~program:info.program ~kinds ~consts:info.consts ~lanes
-              ~trips:(fun id ->
-                Option.value ~default:16
-                  (Hashtbl.find_opt info.loop_trips (id :> int)))
-          in
-          let body, () =
-            in_region cx (fun () ->
-                List.iter (emit_stmt cx) f.body.Ssa_region.body)
-          in
-          ops := cx.ops;
-          check_elements elements body;
-          if not (Ssa_target.profitable target cx.ops) then
-            refuse Reason.Unprofitable;
-          (* the full groups, then the original loop for what is left *)
-          let groups = Int64.div n (Int64.of_int width) in
-          let full_hi =
-            Int64.add lo_c (Int64.mul groups (Int64.of_int width))
-          in
-          ignore hi_c;
-          let hi_v = Ssa_rewrite.fresh t (Ssa_type.Scalar Ssa_type.Index) in
-          let hi_i =
-            Ssa_stmt.Instr
-              {
-                Ssa_instr.results = [ hi_v ];
-                op = Ssa_op.Const (Ssa_const.Index full_hi);
-                token = None;
-                origin = Ssa_origin.Unknown;
-              }
-          in
-          let tail = not (Int64.equal full_hi hi_c) in
-          let eff_v =
-            if tail then Ssa_rewrite.fresh t Ssa_type.Effect
-            else List.hd f.results
-          in
-          let vector_loop =
-            Ssa_stmt.For
-              {
-                lo = f.lo;
-                hi = hi_v;
-                step = Int64.of_int width;
-                inits = f.inits;
-                results = [ eff_v ];
-                body = { f.body with Ssa_region.body };
-              }
-          in
-          let tail_stmts =
-            if not tail then []
-            else
-              let cl = Ssa_clone.create t ~subst:[] in
-              [
-                Ssa_stmt.For
-                  {
-                    f with
-                    lo = hi_v;
-                    inits = [ eff_v ];
-                    body = Ssa_clone.region cl f.body;
-                  };
-              ]
-          in
-          Ok (hi_i :: vector_loop :: tail_stmts)
-        with Refuse r -> Error r
+        Err.payload @@ Err.Escape.with_escape
+        @@ fun esc ->
+        if not (Int64.equal f.step 1L) then refuse esc Reason.Strided_loop;
+        (match (f.body.Ssa_region.params, f.inits) with
+        | [ _; _ ], [ _ ] -> ()
+        | _ -> refuse esc Reason.Carries_values);
+        let n =
+          match Ssa_range.trips info.ranges ~lo:f.lo ~hi:f.hi ~step:f.step with
+          | Ssa_range.Exactly n -> n
+          | Ssa_range.Zero | Ssa_range.At_least_one | Ssa_range.Unknown ->
+              refuse esc Reason.Non_constant_bounds
+        in
+        trips := n;
+        let lo_c, hi_c =
+          match
+            (Ssa_range.range info.ranges f.lo, Ssa_range.range info.ranges f.hi)
+          with
+          | Ssa_range.Range l, Ssa_range.Range h -> (l.lo, h.lo)
+          | _ -> refuse esc Reason.Non_constant_bounds
+        in
+        let lanes = target.Ssa_target.lanes in
+        let width = Ssa_type.Lanes.to_int lanes in
+        if Int64.compare n (Int64.of_int width) < 0 then
+          refuse esc (Reason.Too_short { trips = n; lanes });
+        if (not target.Ssa_target.inner_loops) && has_loop f.body then
+          refuse esc Reason.Inner_loops_declined;
+        let iv = List.hd f.body.Ssa_region.params in
+        let kinds = Hashtbl.create 64 in
+        set kinds iv (Aff 1L);
+        List.iter (classify_stmt esc kinds) f.body.Ssa_region.body;
+        check_memory esc ~policy f.body.Ssa_region.body;
+        let cx =
+          make_ctx ~esc ~t ~program:info.program ~kinds ~consts:info.consts
+            ~lanes ~trips:(fun id ->
+              Option.value ~default:16
+                (Hashtbl.find_opt info.loop_trips (id :> int)))
+        in
+        let body, () =
+          in_region cx (fun () ->
+              List.iter (emit_stmt cx) f.body.Ssa_region.body)
+        in
+        ops := cx.ops;
+        check_elements esc elements body;
+        if not (Ssa_target.profitable target cx.ops) then
+          refuse esc Reason.Unprofitable;
+        (* the full groups, then the original loop for what is left *)
+        let groups = Int64.div n (Int64.of_int width) in
+        let full_hi = Int64.add lo_c (Int64.mul groups (Int64.of_int width)) in
+        ignore hi_c;
+        let hi_v = Ssa_rewrite.fresh t (Ssa_type.Scalar Ssa_type.Index) in
+        let hi_i =
+          Ssa_stmt.Instr
+            {
+              Ssa_instr.results = [ hi_v ];
+              op = Ssa_op.Const (Ssa_const.Index full_hi);
+              token = None;
+              origin = Ssa_origin.Unknown;
+            }
+        in
+        let tail = not (Int64.equal full_hi hi_c) in
+        let eff_v =
+          if tail then Ssa_rewrite.fresh t Ssa_type.Effect
+          else List.hd f.results
+        in
+        let vector_loop =
+          Ssa_stmt.For
+            {
+              lo = f.lo;
+              hi = hi_v;
+              step = Int64.of_int width;
+              inits = f.inits;
+              results = [ eff_v ];
+              body = { f.body with Ssa_region.body };
+            }
+        in
+        let tail_stmts =
+          if not tail then []
+          else
+            let cl = Ssa_clone.create t ~subst:[] in
+            [
+              Ssa_stmt.For
+                {
+                  f with
+                  lo = hi_v;
+                  inits = [ eff_v ];
+                  body = Ssa_clone.region cl f.body;
+                };
+            ]
+        in
+        hi_i :: vector_loop :: tail_stmts
       in
       let n_ops = !ops in
       let decision outcome =

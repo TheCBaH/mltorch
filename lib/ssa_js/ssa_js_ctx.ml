@@ -14,8 +14,6 @@ let pp_error ppf : [< error ] -> unit = function
         Ssa_id.Buffer.pp b f
   | `Unsupported_operation o -> Fmt.pf ppf "%s has no JavaScript form" o
 
-exception Refused of error
-
 let function_name = Loop_ir.Loop_js.function_name
 let id = Js_ident.v
 
@@ -49,6 +47,7 @@ let float_of_index i = bin A.Add i (num 0.)
 (* ---- state --------------------------------------------------------------------- *)
 
 type t = {
+  esc : error Err.Escape.t;
   names : (int, Js_ident.t) Hashtbl.t;
   mutable decls : (Js_ident.t * A.expr) list;
   mutable next_name : int;
@@ -60,6 +59,9 @@ type t = {
   buffers : Ssa_buffer.t list;
   site_table : LF.t array option;
 }
+
+(* Exits the program's emission with the reason it has no JavaScript form. *)
+let refuse cx e = Err.Escape.throw cx.esc ~pp_error e
 
 let buffer_index cx bid =
   let rec go i = function
@@ -92,7 +94,7 @@ let typed_array (b : Ssa_buffer.t) =
   | Ssa_format.I8 _ -> "Int8Array"
 
 (* The initial value of a variable of this type. *)
-let init_of (ty : Ssa_type.t) =
+let init_of cx (ty : Ssa_type.t) =
   match ty with
   | Ssa_type.Effect -> None
   | Ssa_type.Local -> Some A.Null
@@ -101,7 +103,7 @@ let init_of (ty : Ssa_type.t) =
   | Ssa_type.Scalar Ssa_type.I64 -> Some (big_lit 0L)
   | Ssa_type.Scalar Ssa_type.Pred -> Some (bool false)
   | Ssa_type.Mask _ | Ssa_type.Vec _ ->
-      raise (Refused (`Unsupported_operation "a vector or mask"))
+      refuse cx (`Unsupported_operation "a vector or mask")
 
 let is_erased (v : Ssa_value.t) = Ssa_type.equal v.Ssa_value.ty Ssa_type.Effect
 
@@ -109,7 +111,7 @@ let is_f32 (v : Ssa_value.t) =
   Ssa_type.equal v.Ssa_value.ty (Ssa_type.Scalar Ssa_type.F32)
 
 let define cx (v : Ssa_value.t) =
-  match init_of v.Ssa_value.ty with
+  match init_of cx v.Ssa_value.ty with
   | None -> None
   | Some init ->
       let n = id (Printf.sprintf "v%d" cx.next_name) in

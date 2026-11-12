@@ -224,12 +224,7 @@ let plan ?(node_attributes = fun (_ : Node_ref.t) -> "") ~hashers ~algorithm idx
           original_to_extracted_nodes = node_map;
           original_to_extracted_tensors = tensor_map;
           graph_payload_digest =
-            (match
-               Digest.Extracted_graph_payload.make algorithm
-                 ~hex:(String.make 64 '0')
-             with
-            | Ok d -> d
-            | Error _ -> invalid_arg "Extraction.plan");
+            Digest.Extracted_graph_payload.placeholder algorithm;
         };
       inputs;
       outputs = body.final_outputs;

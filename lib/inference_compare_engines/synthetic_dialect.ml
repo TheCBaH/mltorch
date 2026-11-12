@@ -12,10 +12,7 @@ type fault =
   | Rename_operator
   | Reorder_outputs
 
-let dialect_id =
-  match Id.Dialect.of_string "synthetic" with
-  | Ok d -> d
-  | Error _ -> invalid_arg "Synthetic_dialect"
+let dialect_id = Id.Dialect.of_literal "synthetic"
 
 let make ?fault () :
     (module Ex.Dialect.S

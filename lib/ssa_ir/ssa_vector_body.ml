@@ -42,9 +42,12 @@ module Reason = struct
   let pp ppf r = Fmt.string ppf (name r)
 end
 
-exception Refuse of Reason.t
+(* The exit of one attempt to vectorize a body: the walks below throw a reason
+   to the frame their caller opened ([Err.Escape.with_escape]), and the token is
+   threaded so the reach shows in their types. *)
+type escape = Reason.t Err.Escape.t
 
-let refuse r = raise (Refuse r)
+let refuse (esc : escape) r = Err.Escape.throw esc ~pp_error:Reason.pp r
 
 (* ---- what varies with the iteration ------------------------------------------
 
@@ -65,61 +68,61 @@ let set kinds (v : Ssa_value.t) k =
 
 let stride_ok s = Ssa_const.in_index_domain s
 
-let add_kinds a b =
+let add_kinds esc a b =
   match (a, b) with
   | Uni, Uni -> Uni
   | Aff s, Uni | Uni, Aff s -> Aff s
   | Aff s, Aff t ->
       let u = Int64.add s t in
-      if not (stride_ok u) then refuse Reason.Non_affine_access
+      if not (stride_ok u) then refuse esc Reason.Non_affine_access
       else if Int64.equal u 0L then Uni
       else Aff u
-  | Vec, _ | _, Vec -> refuse Reason.Non_affine_access
+  | Vec, _ | _, Vec -> refuse esc Reason.Non_affine_access
 
-let scale_kind k = function
+let scale_kind esc k = function
   | Uni -> Uni
   | Aff s ->
       let p = Int64.mul k s in
-      if not (stride_ok p) then refuse Reason.Non_affine_access
+      if not (stride_ok p) then refuse esc Reason.Non_affine_access
       else if Int64.equal p 0L then Uni
       else Aff p
-  | Vec -> refuse Reason.Non_affine_access
+  | Vec -> refuse esc Reason.Non_affine_access
 
-let all_uniform kinds op ~otherwise =
+let all_uniform esc kinds op ~otherwise =
   if List.for_all (fun v -> kind_of kinds v = Uni) (Ssa_op.operands op) then Uni
-  else refuse otherwise
+  else refuse esc otherwise
 
 let float_result (r : Ssa_value.t) =
   match r.Ssa_value.ty with
   | Ssa_type.Scalar (Ssa_type.F32 | Ssa_type.F64 | Ssa_type.Pred) -> true
   | _ -> false
 
-let classify_instr kinds (i : Ssa_instr.t) =
+let classify_instr esc kinds (i : Ssa_instr.t) =
   let op = i.Ssa_instr.op in
   let result () = List.hd i.Ssa_instr.results in
   let kind v = kind_of kinds v in
   match op with
   | Ssa_op.Const _ -> set kinds (result ()) Uni
   | Ssa_op.Index_add_in_domain (a, b) ->
-      set kinds (result ()) (add_kinds (kind a) (kind b))
+      set kinds (result ()) (add_kinds esc (kind a) (kind b))
   | Ssa_op.Index_scale_in_domain (k, a) ->
-      set kinds (result ()) (scale_kind k (kind a))
+      set kinds (result ()) (scale_kind esc k (kind a))
   | Ssa_op.Convert (Ssa_op.Convert.Index_to_f64, a) ->
       set kinds (result ())
         (match kind a with
         | Uni -> Uni
         | Aff _ -> Vec
-        | Vec -> refuse Reason.Non_affine_access)
+        | Vec -> refuse esc Reason.Non_affine_access)
   | Ssa_op.Convert ((Ssa_op.Convert.F32_to_f64 | Ssa_op.Convert.F64_to_f32), _)
   | Ssa_op.Float_binary _ | Ssa_op.Float_compare _ | Ssa_op.Float_fma _
   | Ssa_op.Float_max _ | Ssa_op.Float_unary _ | Ssa_op.Pool_better _
   | Ssa_op.Pred_not _ | Ssa_op.Pred_or _ | Ssa_op.Select _ ->
       let ks = List.map kind (Ssa_op.operands op) in
       if List.exists (function Aff _ -> true | Uni | Vec -> false) ks then
-        refuse (Reason.No_vector_form op)
+        refuse esc (Reason.No_vector_form op)
       else if List.mem Vec ks then
         if float_result (result ()) then set kinds (result ()) Vec
-        else refuse (Reason.No_vector_form op)
+        else refuse esc (Reason.No_vector_form op)
       else set kinds (result ()) Uni
   | Ssa_op.Convert
       ( ( Ssa_op.Convert.Index_to_i64 | Ssa_op.Convert.I64_to_f64
@@ -127,26 +130,26 @@ let classify_instr kinds (i : Ssa_instr.t) =
         _ )
   | Ssa_op.I64_arith _ | Ssa_op.I64_compare _ ->
       set kinds (result ())
-        (all_uniform kinds op ~otherwise:(Reason.No_vector_form op))
+        (all_uniform esc kinds op ~otherwise:(Reason.No_vector_form op))
   | Ssa_op.Index_ceil_div _ | Ssa_op.Index_clamp_low _ | Ssa_op.Index_compare _
   | Ssa_op.Index_floor_div _ | Ssa_op.Index_max _ | Ssa_op.Index_min _ ->
       set kinds (result ())
-        (all_uniform kinds op ~otherwise:Reason.Non_affine_access)
+        (all_uniform esc kinds op ~otherwise:Reason.Non_affine_access)
   | Ssa_op.Load_in_bounds { at; decode; _ } -> (
       match at with
       | Ssa_access.Flat v ->
           if kind v = Uni then set kinds (result ()) Uni
-          else refuse Reason.Non_affine_access
+          else refuse esc Reason.Non_affine_access
       | Ssa_access.Coord c ->
           let ks = List.map kind (Expr.Coord.to_list c) in
-          if List.mem Vec ks then refuse Reason.Non_affine_access
+          if List.mem Vec ks then refuse esc Reason.Non_affine_access
           else if List.for_all (fun k -> k = Uni) ks then
             set kinds (result ()) Uni
           else (
             (match decode with
             | Ssa_op.Decode.I64 ->
                 (* an integer: no vector form *)
-                refuse (Reason.No_vector_form op)
+                refuse esc (Reason.No_vector_form op)
             | Ssa_op.Decode.I16_dequant32 | Ssa_op.Decode.I8_dequant32 -> ()
             | Ssa_op.Decode.Bf16_to_f64 | Ssa_op.Decode.Bool_to_f64
             | Ssa_op.Decode.F16_to_f64 | Ssa_op.Decode.F32_exact
@@ -167,17 +170,17 @@ let classify_instr kinds (i : Ssa_instr.t) =
   | Ssa_op.Meter_release _ | Ssa_op.Meter_reserve _ | Ssa_op.Meter_reset
   | Ssa_op.Vec_extract _ | Ssa_op.Vec_insert _ | Ssa_op.Vec_iota _
   | Ssa_op.Vec_load _ | Ssa_op.Vec_splat _ | Ssa_op.Vec_store _ ->
-      refuse (Reason.No_vector_form op)
+      refuse esc (Reason.No_vector_form op)
 
 (* The kind of a carried value: a vector once anything that can reach it is one.
    Iterated to a fixed point, because a yield that varies makes its parameter
    vary, which can make another yield vary in turn. *)
-let rec classify_stmt kinds : Ssa_region.t Ssa_stmt.t -> unit = function
-  | Ssa_stmt.Instr i -> classify_instr kinds i
-  | Ssa_stmt.If _ -> refuse Reason.Branch
+let rec classify_stmt esc kinds : Ssa_region.t Ssa_stmt.t -> unit = function
+  | Ssa_stmt.Instr i -> classify_instr esc kinds i
+  | Ssa_stmt.If _ -> refuse esc Reason.Branch
   | Ssa_stmt.For f -> (
       if kind_of kinds f.lo <> Uni || kind_of kinds f.hi <> Uni then
-        refuse Reason.Varying_bounds;
+        refuse esc Reason.Varying_bounds;
       match f.body.Ssa_region.params with
       | [] -> invalid_arg "Ssa_vectorize: a loop without an induction value"
       | iv :: carried ->
@@ -187,10 +190,10 @@ let rec classify_stmt kinds : Ssa_region.t Ssa_stmt.t -> unit = function
               match kind_of kinds init with
               | Uni -> set kinds p Uni
               | Vec -> set kinds p Vec
-              | Aff _ -> refuse Reason.Non_affine_access)
+              | Aff _ -> refuse esc Reason.Non_affine_access)
             carried f.inits;
           let rec fix () =
-            List.iter (classify_stmt kinds) f.body.Ssa_region.body;
+            List.iter (classify_stmt esc kinds) f.body.Ssa_region.body;
             let changed = ref false in
             List.iter2
               (fun p y ->
@@ -199,7 +202,7 @@ let rec classify_stmt kinds : Ssa_region.t Ssa_stmt.t -> unit = function
                     if kind_of kinds p <> Vec then (
                       set kinds p Vec;
                       changed := true)
-                | Aff _ -> refuse Reason.Non_affine_access
+                | Aff _ -> refuse esc Reason.Non_affine_access
                 | Uni -> ())
               carried f.body.Ssa_region.yields;
             if !changed then fix ()
@@ -210,17 +213,17 @@ let rec classify_stmt kinds : Ssa_region.t Ssa_stmt.t -> unit = function
             f.results carried)
   | Ssa_stmt.Ordered_sum f ->
       if kind_of kinds f.lo <> Uni || kind_of kinds f.hi <> Uni then
-        refuse Reason.Varying_bounds;
+        refuse esc Reason.Varying_bounds;
       (match f.body.Ssa_region.params with
       | iv :: _ -> set kinds iv Uni
       | [] -> invalid_arg "Ssa_vectorize: a sum without an induction value");
-      List.iter (classify_stmt kinds) f.body.Ssa_region.body;
+      List.iter (classify_stmt esc kinds) f.body.Ssa_region.body;
       let term = List.hd f.body.Ssa_region.yields in
       let k =
         match (kind_of kinds f.seed, kind_of kinds term) with
         | Uni, Uni -> Uni
         | (Uni | Vec), (Uni | Vec) -> Vec
-        | Aff _, _ | _, Aff _ -> refuse Reason.Non_affine_access
+        | Aff _, _ | _, Aff _ -> refuse esc Reason.Non_affine_access
       in
       set kinds (List.hd f.results) k
 
@@ -238,7 +241,7 @@ type access = {
   write : bool;
 }
 
-let accesses body =
+let accesses esc body =
   let out = ref [] in
   let coords (c : Ssa_value.t Expr.Coord.t) =
     List.map
@@ -258,26 +261,27 @@ let accesses body =
               { buffer; coords = [ (v.Ssa_value.id :> int) ]; write = false }
               :: !out
         | Ssa_op.Store { at = Ssa_access.Flat _; _ } ->
-            refuse Reason.Non_affine_access
+            refuse esc Reason.Non_affine_access
         | _ -> ())
     | Ssa_stmt.For { body; _ } | Ssa_stmt.Ordered_sum { body; _ } -> region body
-    | Ssa_stmt.If _ -> refuse Reason.Branch
+    | Ssa_stmt.If _ -> refuse esc Reason.Branch
   in
   List.iter stmt body;
   List.rev !out
 
-let check_memory ~policy body =
-  let all = accesses body in
+let check_memory esc ~policy body =
+  let all = accesses esc body in
   let stores = List.filter (fun a -> a.write) all in
   List.iter
     (fun (s : access) ->
       List.iter
         (fun (a : access) ->
           if Ssa_id.Buffer.equal a.buffer s.buffer then (
-            if a.coords <> s.coords then refuse (Reason.Loop_carried s.buffer))
+            if a.coords <> s.coords then
+              refuse esc (Reason.Loop_carried s.buffer))
           else
             match policy with
-            | Ssa_effects.Conservative -> refuse (Reason.Aliasing a.buffer)
+            | Ssa_effects.Conservative -> refuse esc (Reason.Aliasing a.buffer)
             | Ssa_effects.Distinct_buffers -> ())
         all)
     stores
@@ -285,6 +289,7 @@ let check_memory ~policy body =
 (* ---- emission ----------------------------------------------------------------- *)
 
 type ctx = {
+  esc : escape;
   t : Ssa_rewrite.t;
   program : Ssa_program.t;
   kinds : (int, kind) Hashtbl.t;
@@ -324,7 +329,7 @@ let in_region cx f =
 let vector_type cx (ty : Ssa_type.t) =
   match Ssa_typing.vector_of cx.lanes ty with
   | Ok t -> t
-  | Error _ -> refuse Reason.Non_affine_access
+  | Error _ -> refuse cx.esc Reason.Non_affine_access
 
 let vec_of cx (v : Ssa_value.t) =
   match kind_of cx.kinds v with
@@ -332,7 +337,7 @@ let vec_of cx (v : Ssa_value.t) =
       match Hashtbl.find_opt cx.vmap (v.Ssa_value.id :> int) with
       | Some w -> w
       | None -> invalid_arg "Ssa_vectorize: a vector with no definition")
-  | Aff _ -> refuse Reason.Non_affine_access
+  | Aff _ -> refuse cx.esc Reason.Non_affine_access
   | Uni -> (
       count cx
         (if Hashtbl.mem cx.consts (v.Ssa_value.id :> int) then
@@ -362,7 +367,7 @@ let steps_of cx (c : Ssa_value.t Expr.Coord.t) =
       match kind_of cx.kinds v with
       | Uni -> 0L
       | Aff s -> s
-      | Vec -> refuse Reason.Non_affine_access)
+      | Vec -> refuse cx.esc Reason.Non_affine_access)
     c
 
 (* How a vector memory access reaches its cells: one element apart, or not. *)
@@ -444,7 +449,7 @@ let emit_instr cx (i : Ssa_instr.t) =
   | Ssa_op.Store { buffer; at = Ssa_access.Coord at; encode; value } ->
       let steps = steps_of cx at in
       if List.for_all (Int64.equal 0L) (Expr.Coord.to_list steps) then
-        refuse Reason.Store_through_broadcast;
+        refuse cx.esc Reason.Store_through_broadcast;
       let v = vec_of cx value in
       count cx (store_op cx buffer steps encode);
       push cx
@@ -473,7 +478,7 @@ let emit_instr cx (i : Ssa_instr.t) =
                   count cx Ssa_target.Op.Index_value;
                   finish ~results:[ r ]
                     (Ssa_op.Vec_iota { base = a; step; lanes = cx.lanes })
-              | Uni | Vec -> refuse Reason.Non_affine_access)
+              | Uni | Vec -> refuse cx.esc Reason.Non_affine_access)
           | Ssa_op.Load_in_bounds { buffer; at = Ssa_access.Coord at; decode }
             ->
               let steps = steps_of cx at in
@@ -483,7 +488,7 @@ let emit_instr cx (i : Ssa_instr.t) =
               | Some b
                 when Ssa_format.per_channel b.Ssa_buffer.format
                      && not (Int64.equal steps.Expr.Coord.c 0L) ->
-                  refuse (Reason.Channel_varies buffer)
+                  refuse cx.esc (Reason.Channel_varies buffer)
               | Some _ | None -> ());
               let r = define (vector_type cx (Ssa_op.Decode.result decode)) in
               Hashtbl.replace cx.vmap (result.Ssa_value.id :> int) r;
@@ -500,11 +505,11 @@ let emit_instr cx (i : Ssa_instr.t) =
                   let r = define ty in
                   Hashtbl.replace cx.vmap (result.Ssa_value.id :> int) r;
                   finish ~results:[ r ] lanewise
-              | Ok _ | Error _ -> refuse (Reason.No_vector_form op))))
+              | Ok _ | Error _ -> refuse cx.esc (Reason.No_vector_form op))))
 
 let rec emit_stmt cx : Ssa_region.t Ssa_stmt.t -> unit = function
   | Ssa_stmt.Instr i -> emit_instr cx i
-  | Ssa_stmt.If _ -> refuse Reason.Branch
+  | Ssa_stmt.If _ -> refuse cx.esc Reason.Branch
   | Ssa_stmt.For f ->
       let iv, carried =
         match f.body.Ssa_region.params with
@@ -597,11 +602,12 @@ let rec emit_stmt cx : Ssa_region.t Ssa_stmt.t -> unit = function
 (* Every vector element of an emitted body is one the plan admits: a loop whose
    vector form needs any other stays scalar. A mask's lanes take the width of
    what it compares, so a mask is never refused on its own. *)
-let check_elements elements (body : Ssa_region.t Ssa_stmt.t list) =
+let check_elements esc elements (body : Ssa_region.t Ssa_stmt.t list) =
   let value (v : Ssa_value.t) =
     match v.Ssa_value.ty with
     | Ssa_type.Vec (e, _) ->
-        if not (List.mem e elements) then refuse (Reason.Element_not_admitted e)
+        if not (List.mem e elements) then
+          refuse esc (Reason.Element_not_admitted e)
     | Ssa_type.Effect | Ssa_type.Local | Ssa_type.Mask _ | Ssa_type.Scalar _ ->
         ()
   in
@@ -733,8 +739,9 @@ let rec work info (s : Ssa_region.t Ssa_stmt.t) =
       Int64.mul (trips body) (inner body)
   | Ssa_stmt.If _ | Ssa_stmt.Instr _ -> 0L
 
-let make_ctx ~t ~program ~kinds ~consts ~lanes ~trips =
+let make_ctx ~esc ~t ~program ~kinds ~consts ~lanes ~trips =
   {
+    esc;
     t;
     program;
     kinds;

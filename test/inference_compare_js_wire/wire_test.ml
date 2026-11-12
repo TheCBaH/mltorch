@@ -151,5 +151,5 @@ let%expect_test "an unsupported format is refused when sent" =
       }
   in
   (try ignore (W.encode_response (W.Outputs [ half ]))
-   with Invalid_argument m -> print_endline m);
+   with Err.Exn.E e -> Format.printf "%a@." Err.Exn.pp_kind e);
   [%expect {| the wire carries f32, f64, i32, i64 and bool tensors |}]

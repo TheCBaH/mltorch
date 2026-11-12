@@ -83,9 +83,7 @@ let storage v = v.storage
 let element_count v = v.elements
 
 let codec (ctx : Context.t) v =
-  match lookup ctx v.spec with
-  | Ok c -> c
-  | Error _ -> invalid_arg "Logical_value.codec: unregistered codec"
+  Err.or_raise ~pp_error:Codec_error.pp (lookup ctx v.spec)
 
 let equal a b =
   Tensor_spec.equal a.spec b.spec

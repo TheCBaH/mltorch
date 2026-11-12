@@ -157,6 +157,8 @@ let run ?(sram = false) ?(engine = Engine.plain) ?operands ?seed ~spread d =
       (Err.payload (Coral_profile.load ~dir configuration))
   in
   let* helper =
+    Result.map_error Coralnpu_kernels.Kernel_refusal.to_string
+    @@
     match engine with
     | Engine.Packed mutation -> Z.Zvt_packed_contraction.module_ ?mutation d
     | Plain mutation -> Z.Zvt_contraction.module_ ?mutation d

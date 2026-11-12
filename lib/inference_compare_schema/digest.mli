@@ -12,6 +12,10 @@ module type S = sig
   val of_string : string -> (t, Digest_error.t) Err.t
   (** Parses [algorithm:hex]. *)
 
+  val placeholder : Id.Digest_algorithm.t -> t
+  (** The all-zero digest under the algorithm: the value a record holds while
+      its real digest is being computed from the record itself. *)
+
   val to_string : t -> string
   val algorithm : t -> Id.Digest_algorithm.t
   val hex : t -> string

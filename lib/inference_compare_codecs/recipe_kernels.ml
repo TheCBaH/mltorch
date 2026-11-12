@@ -142,8 +142,11 @@ let narrow64_nan bits =
   Int32.logor (Int32.shift_left sign 31) (Int32.logor 0x7F800000l top)
 
 let cast ~(source : E.t) ~(target : E.t) ~rounding ~overflow ~count src =
+  Err.export ~pos:__POS__ ~pp_error:Codec_error.pp
+  @@ Err.Escape.with_escape
+  @@ fun esc ->
   let dst = Bytes.create (count * target.byte_width) in
-  let exception Stop of Codec_error.t in
+  let stop e = Err.Escape.throw esc ~pp_error:Codec_error.pp e in
   let int_target i (v : int64) =
     (* [v] is the exact integer result before the range policy. *)
     let v =
@@ -153,69 +156,64 @@ let cast ~(source : E.t) ~(target : E.t) ~rounding ~overflow ~count src =
           if Int64.compare v lo >= 0 && Int64.compare v hi <= 0 then v
           else
             match (overflow : Conversion_step.overflow) with
-            | Reject ->
-                raise (Stop (Cast_overflow { element = Int64.of_int i }))
+            | Reject -> stop (Cast_overflow { element = Int64.of_int i })
             | Saturate -> if Int64.compare v lo < 0 then lo else hi
             | Wrap -> wrap target v)
     in
     E.set_bits target dst i v
   in
-  try
-    for i = 0 to count - 1 do
-      match (read source src i, target.element) with
-      | I v, (Signed_integer | Unsigned_integer | Boolean) -> int_target i v
-      | I v, Float_binary64 ->
-          E.set_bits target dst i (Int64.bits_of_float (Int64.to_float v))
-      | I v, Float_binary32 ->
-          (* Sources are at most 32 bits (see {!Cast_law}), so the double is
+  for i = 0 to count - 1 do
+    match (read source src i, target.element) with
+    | I v, (Signed_integer | Unsigned_integer | Boolean) -> int_target i v
+    | I v, Float_binary64 ->
+        E.set_bits target dst i (Int64.bits_of_float (Int64.to_float v))
+    | I v, Float_binary32 ->
+        (* Sources are at most 32 bits (see {!Cast_law}), so the double is
               exact and the single rounding below is the only one. *)
-          E.set_bits target dst i
-            (Int64.of_int32 (Int32.bits_of_float (Int64.to_float v)))
-      | F f, (Signed_integer | Unsigned_integer | Boolean) -> (
-          if not (Float.is_finite f) then
-            raise (Stop (Cast_value_unavailable { element = Int64.of_int i }))
-          else
-            let r = round_float rounding f in
-            (* 2^63 is exactly representable; int64's maximum is not, so the
+        E.set_bits target dst i
+          (Int64.of_int32 (Int32.bits_of_float (Int64.to_float v)))
+    | F f, (Signed_integer | Unsigned_integer | Boolean) -> (
+        if not (Float.is_finite f) then
+          stop (Cast_value_unavailable { element = Int64.of_int i })
+        else
+          let r = round_float rounding f in
+          (* 2^63 is exactly representable; int64's maximum is not, so the
                 upper test is [>= 2^63]. *)
-            if r >= 9223372036854775808.0 then
-              match overflow with
-              | Saturate -> int_target i Int64.max_int
-              | _ -> raise (Stop (Cast_overflow { element = Int64.of_int i }))
-            else if r < -9223372036854775808.0 then
-              match overflow with
-              | Saturate -> int_target i Int64.min_int
-              | _ -> raise (Stop (Cast_overflow { element = Int64.of_int i }))
-            else
-              match overflow with
-              | Wrap ->
-                  raise (Stop (Cast_overflow { element = Int64.of_int i }))
-              | Reject | Saturate -> int_target i (Int64.of_float r))
-      | F _, Float_binary64 ->
-          (* Raw bits, not a round trip through a double: a signalling NaN
-              keeps its payload and its signalling bit. *)
-          let raw = E.bits source src i in
-          E.set_bits target dst i
-            (if source.element = Float_binary32 then widen32 raw else raw)
-      | F _, Float_binary32 when source.element = Float_binary32 ->
-          E.set_bits target dst i (E.bits source src i)
-      | F f, Float_binary32 when Float.is_nan f ->
-          E.set_bits target dst i
-            (Int64.of_int32 (narrow64_nan (E.bits source src i)))
-      | F f, Float_binary32 ->
-          let bits = Int32.bits_of_float f in
-          let narrowed = Int32.float_of_bits bits in
-          if Float.is_finite f && not (Float.is_finite narrowed) then
+          if r >= 9223372036854775808.0 then
             match overflow with
-            | Saturate ->
-                let m = Int32.float_of_bits 0x7F7FFFFFl in
-                let m = if f < 0.0 then -.m else m in
-                E.set_bits target dst i (Int64.of_int32 (Int32.bits_of_float m))
-            | Reject | Wrap ->
-                raise (Stop (Cast_overflow { element = Int64.of_int i }))
-          else E.set_bits target dst i (Int64.of_int32 bits)
-    done;
-    Ok (Bytes.unsafe_to_string dst)
-  with Stop e -> Error e
+            | Saturate -> int_target i Int64.max_int
+            | _ -> stop (Cast_overflow { element = Int64.of_int i })
+          else if r < -9223372036854775808.0 then
+            match overflow with
+            | Saturate -> int_target i Int64.min_int
+            | _ -> stop (Cast_overflow { element = Int64.of_int i })
+          else
+            match overflow with
+            | Wrap -> stop (Cast_overflow { element = Int64.of_int i })
+            | Reject | Saturate -> int_target i (Int64.of_float r))
+    | F _, Float_binary64 ->
+        (* Raw bits, not a round trip through a double: a signalling NaN
+              keeps its payload and its signalling bit. *)
+        let raw = E.bits source src i in
+        E.set_bits target dst i
+          (if source.element = Float_binary32 then widen32 raw else raw)
+    | F _, Float_binary32 when source.element = Float_binary32 ->
+        E.set_bits target dst i (E.bits source src i)
+    | F f, Float_binary32 when Float.is_nan f ->
+        E.set_bits target dst i
+          (Int64.of_int32 (narrow64_nan (E.bits source src i)))
+    | F f, Float_binary32 ->
+        let bits = Int32.bits_of_float f in
+        let narrowed = Int32.float_of_bits bits in
+        if Float.is_finite f && not (Float.is_finite narrowed) then
+          match overflow with
+          | Saturate ->
+              let m = Int32.float_of_bits 0x7F7FFFFFl in
+              let m = if f < 0.0 then -.m else m in
+              E.set_bits target dst i (Int64.of_int32 (Int32.bits_of_float m))
+          | Reject | Wrap -> stop (Cast_overflow { element = Int64.of_int i })
+        else E.set_bits target dst i (Int64.of_int32 bits)
+  done;
+  Bytes.unsafe_to_string dst
 
 let _ = Id.Codec.equal

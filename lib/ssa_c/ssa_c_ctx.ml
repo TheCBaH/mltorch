@@ -15,9 +15,8 @@ let pp_error ppf : [< error ] -> unit = function
       Fmt.pf ppf "a %d-lane vector is not a power of two" n
   | `Unsupported_operation what -> Fmt.pf ppf "C has no form for %s" what
 
-exception Refused of error
-
 type t = {
+  esc : error Err.Escape.t;
   names : (int, string) Hashtbl.t;
   mutable decls : (string * string * string) list;  (** name, type, init *)
   mutable next_name : int;
@@ -36,8 +35,9 @@ type t = {
   site_table : Loop_ir.Loop_failure.t array option;
 }
 
-let create ?site_table buffers =
+let create ?site_table ~esc buffers =
   {
+    esc;
     names = Hashtbl.create 64;
     decls = [];
     next_name = 0;
@@ -55,6 +55,8 @@ let create ?site_table buffers =
     site_table;
   }
 
+(* Exits the kernel's emission with the reason the program has no C form. *)
+let refuse cx e = Err.Escape.throw cx.esc ~pp_error e
 let use cx h = if not (List.mem h cx.used) then cx.used <- h :: cx.used
 
 let call cx h args =
@@ -70,13 +72,13 @@ let line cx depth fmt =
     fmt
 
 (* A power-of-two lane count, the one a generic vector type holds. *)
-let check_lanes lanes =
+let check_lanes cx lanes =
   let n = Ssa_type.Lanes.to_int lanes in
-  if n < 2 || n land (n - 1) <> 0 then raise (Refused (`Unsupported_lanes n));
+  if n < 2 || n land (n - 1) <> 0 then refuse cx (`Unsupported_lanes n);
   n
 
 let vector_type cx ~elem lanes =
-  let n = check_lanes lanes in
+  let n = check_lanes cx lanes in
   let name, text =
     match elem with
     | `F32 ->
