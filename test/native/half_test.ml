@@ -20,3 +20,16 @@ let%expect_test "half decode known + round-trip exact values" =
     [ 1.0; 1.5; -3.0; 0.5; 100.0 ];
   Format.printf "@.";
   [%expect {| 1 1.5 -3 0.5 100 |}]
+
+let%expect_test "bf16 encodes every NaN as a NaN" =
+  (* A NaN whose top single-precision payload bits are all set rounds up
+     through the carry out of the low half; it must stay a NaN. *)
+  List.iter
+    (fun f ->
+      let bits = Half.Bf16.of_float f in
+      Format.printf "0x%04x %b@." bits (Float.is_nan (Half.Bf16.to_float bits)))
+    [ Float.nan; Int64.float_of_bits 0x7FFF_FFFF_FFFF_FFFFL; -.Float.nan ];
+  [%expect {|
+    0x7fc0 true
+    0x7fc0 true
+    0xffc0 true |}]

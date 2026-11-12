@@ -17,6 +17,8 @@ let ( let* ) = Result.bind
 module Proc = C_proc
 module Host = C_host
 
+(* The C compiler command. Process-wide mutable state, not domain-safe: nothing
+   synchronizes it, so a driver replaces it before any compile. *)
 let compiler = ref C_host.default_compiler
 let align = 64
 let round_up n = (n + align - 1) / align * align
@@ -124,6 +126,8 @@ let source ?dialect ?vector ?numerics ?precision ?fuse_reductions p =
 module Blob = C_blob
 module Payload_io = C_payload_io
 
+(* Source text -> compiled artifact path. Process-wide mutable state, not
+   domain-safe: compiles run on one domain, and a repeat only saves work. *)
 let memo : (string, string) Hashtbl.t = Hashtbl.create 16
 
 let build_dir =

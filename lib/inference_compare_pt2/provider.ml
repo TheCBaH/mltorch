@@ -18,6 +18,8 @@ type t = {
   instantiate : unit -> (instance, string) result;
 }
 
+(* Registered providers. Process-wide mutable state, not domain-safe: each
+   engine library's [register ()] runs before any run reads the table. *)
 let table : (string, t) Hashtbl.t = Hashtbl.create 8
 let register t = Hashtbl.replace table t.name t
 let find name = Hashtbl.find_opt table name

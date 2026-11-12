@@ -172,6 +172,41 @@ type key =
 
 type gkey = KLt of Node.t * Node.t | KPoolBetter of Node.t * Node.t
 
+(* The intern table's key holds an [int64] ([KConst]), so it does not go through
+   the polymorphic [Hashtbl]: structural equality and hashing of an [int64]
+   depend on the backend's boxed representation. Equality compares the bits
+   with [Int64.equal]; the hash folds the two 32-bit halves, each of which fits
+   a 32-bit [int]. The remaining fields are closed constant variants, tagged
+   ids and a [Cell.t], which has its own [compare]. *)
+module Key_tbl = Hashtbl.Make (struct
+  type t = key
+
+  let equal a b =
+    match (a, b) with
+    | KBinary (o, x, y), KBinary (o', x', y') ->
+        o = o' && Node.equal x x' && Node.equal y y'
+    | KCell c, KCell c' -> Cell.compare c c' = 0
+    | KConst a, KConst b -> Int64.equal a b
+    | KMax (o, x, y), KMax (o', x', y') ->
+        o = o' && Node.equal x x' && Node.equal y y'
+    | KRound a, KRound b -> Node.equal a b
+    | KSelect (g, x, y), KSelect (g', x', y') ->
+        Gnode.equal g g' && Node.equal x x' && Node.equal y y'
+    | KUnary (o, a), KUnary (o', a') -> o = o' && Node.equal a a'
+    | ( ( KBinary _ | KCell _ | KConst _ | KMax _ | KRound _ | KSelect _
+        | KUnary _ ),
+        _ ) ->
+        false
+
+  let hash = function
+    | KConst bits ->
+        Hashtbl.hash
+          ( 2,
+            Int64.to_int32 (Int64.shift_right_logical bits 32),
+            Int64.to_int32 bits )
+    | k -> Hashtbl.hash k
+end)
+
 let tag_of = function
   | NBinary _ -> 0
   | NCell _ -> 1
@@ -187,13 +222,15 @@ module Arena = struct
     mutable nodes : node array;
     mutable digests : int array;
     mutable n_count : int;
-    intern : (key, Node.t) Hashtbl.t;
+    intern : Node.t Key_tbl.t;
     mutable gnodes : gnode array;
     mutable gdigests : int array;
     mutable g_count : int;
     gintern : (gkey, Gnode.t) Hashtbl.t;
   }
 
+  (* Process-wide mutable state, not domain-safe: arenas are created on one
+     domain, and a token only has to differ between arenas. *)
   let next_token = ref 0
 
   let create () =
@@ -203,7 +240,7 @@ module Arena = struct
       nodes = Array.make 16 (NConst 0.);
       digests = Array.make 16 0;
       n_count = 0;
-      intern = Hashtbl.create 64;
+      intern = Key_tbl.create 64;
       gnodes = Array.make 4 (GLt (Node.of_int 0, Node.of_int 0));
       gdigests = Array.make 4 0;
       g_count = 0;
@@ -267,7 +304,7 @@ let ensure_g_capacity (arena : Arena.t) needed =
   end
 
 let intern (arena : Arena.t) (k : key) (mk : unit -> node) : Node.t =
-  match Hashtbl.find_opt arena.Arena.intern k with
+  match Key_tbl.find_opt arena.Arena.intern k with
   | Some id -> id
   | None ->
       if arena.Arena.n_count >= hard_cap then
@@ -279,7 +316,7 @@ let intern (arena : Arena.t) (k : key) (mk : unit -> node) : Node.t =
       arena.Arena.nodes.(n) <- mk ();
       arena.Arena.digests.(n) <- dig;
       arena.Arena.n_count <- n + 1;
-      Hashtbl.add arena.Arena.intern k id;
+      Key_tbl.add arena.Arena.intern k id;
       id
 
 let intern_g (arena : Arena.t) (k : gkey) (mk : unit -> gnode) : Gnode.t =

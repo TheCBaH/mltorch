@@ -9,6 +9,8 @@ module Generation = struct
   let pp ppf t = Format.fprintf ppf "v%Ld" t
 end
 
+(* The next generation. Process-wide mutable state, not domain-safe: arenas are
+   created on one domain, and a generation only has to differ between arenas. *)
 let next = ref 0L
 
 type t = {

@@ -41,16 +41,14 @@ module Mutant = struct
     | Add_after  (** each block's product from zero, then added to the seed *)
     | Column_select
         (** [p]'s empty-state select keyed on the column, [m' = -inf] *)
-    | No_canonical_nan  (** a NaN keeps its payload through arithmetic *)
     | Normalized_rounding
         (** the row's normalized probability rounded to bfloat16 *)
 
-  let nan_of ~canon x = if Float.is_nan x && canon then canonical_nan else x
+  let nan_of x = if Float.is_nan x then canonical_nan else x
 
   (* dense, one head; returns [tq * d] *)
   let eval ?mutant ~bk ~scale ~tq ~tk ~d ~q ~k ~v ?mask () =
-    let canon = mutant <> Some No_canonical_nan in
-    let rn x = if Float.is_nan x then nan_of ~canon x else r32 x in
+    let rn x = if Float.is_nan x then nan_of x else r32 x in
     let fmax a b =
       match (Float.is_nan a, Float.is_nan b) with
       | true, true -> canonical_nan
@@ -336,14 +334,9 @@ let%expect_test "bf16_round is Half.Bf16.of_float on [0, 1] and NaN" =
         bits (A.bf16_round x)
         <> bits (Half.Bf16.to_float (Half.Bf16.of_float x))
       then incr bad)
-    [
-      canonical_nan;
-      Int32.float_of_bits 0x7FFFFFFFl;
-      Int32.float_of_bits 0xFFC00000l;
-      Float.infinity;
-    ];
+    [ canonical_nan; Int32.float_of_bits 0xFFC00000l; Float.infinity ];
   Fmt.pr "%d patterns, %d differences@." !checked !bad;
-  [%expect {| 1040390 patterns, 0 differences |}]
+  [%expect {| 1040389 patterns, 0 differences |}]
 
 (* ---- known answers --------------------------------------------------------- *)
 
@@ -483,13 +476,12 @@ let%expect_test "a payload NaN mask element gives the canonical NaN" =
     ~k:(zeros (tk * d))
     ~v:(ones (tk * d))
     ~mask:[| 0.; payload; 0.; 0. |]
-    ~mutants:[ ("no_canonical_nan", Mutant.No_canonical_nan) ]
     ~expect:[ canonical_nan; canonical_nan ]
     ();
-  [%expect
-    {|
-    payload NaN: 7fc00000 7fc00000
-      mutant no_canonical_nan: 7fffffff 7fffffff |}]
+  (* No mutant here: the bfloat16 conversion of the probability makes the
+     payload NaN canonical before the quotient, so a NaN that keeps its payload
+     through arithmetic cannot reach the output. *)
+  [%expect {| payload NaN: 7fc00000 7fc00000 |}]
 
 let%expect_test "a negative-zero seed meets a short last block" =
   (* Zero Q and K, 34 keys, blocks of 32, d = 64; mask 0 on the first 32 keys

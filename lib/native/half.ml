@@ -31,12 +31,18 @@ module Bf16 = struct
 
   let of_float (f : float) : int =
     let hi, lo = f32_halves f in
-    (* Round to nearest even on the 16-bit boundary. Adding 0x7FFF + lsb to the
-       full pattern only ever perturbs [hi] through the carry out of [lo], so
-       propagating that carry is the same computation without the wide value. *)
-    let lsb = hi land 1 in
-    let carry = (lo + 0x7FFF + lsb) lsr 16 in
-    (hi + carry) land 0xFFFF
+    if Float.is_nan f then
+      (* A NaN keeps its sign and becomes the quiet NaN: rounding would carry a
+         saturated payload out of [hi] and turn it into negative zero. *)
+      hi land 0x8000 lor 0x7FC0
+    else
+      (* Round to nearest even on the 16-bit boundary. Adding 0x7FFF + lsb to
+         the full pattern only ever perturbs [hi] through the carry out of
+         [lo], so propagating that carry is the same computation without the
+         wide value. *)
+      let lsb = hi land 1 in
+      let carry = (lo + 0x7FFF + lsb) lsr 16 in
+      (hi + carry) land 0xFFFF
 
   let pp fmt bits = Format.fprintf fmt "0x%04x(%g)" bits (to_float bits)
 end

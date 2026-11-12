@@ -16,6 +16,8 @@ and desc =
   | Input of int
   | Select of cmp * t * t * t * t
 
+(* Node ids come from a process-wide counter, not domain-safe: expressions are
+   built on one domain, and an id only distinguishes nodes within a build. *)
 let counter = ref 0
 
 let node desc =

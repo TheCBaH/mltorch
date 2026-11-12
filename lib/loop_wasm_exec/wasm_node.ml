@@ -1,6 +1,8 @@
 open Loop_ir
 module Proc = Loop_c_exec.Proc
 
+(* The node command line. Process-wide mutable state, not domain-safe: nothing
+   synchronizes it, so a driver replaces it before any run starts. *)
 let node = ref [ "node" ]
 
 (* A feature a default node 20 has off: the flag that enables it. *)

@@ -165,6 +165,8 @@ module Executor = struct
     (Tensor.packed Tensor_id.Map.t, error) Err.t
 end
 
+(* The installed executor. Process-wide mutable state, not domain-safe: the host
+   that links an executor installs it before any check runs. *)
 let installed : Executor.t option ref = ref None
 let install e = installed := e
 

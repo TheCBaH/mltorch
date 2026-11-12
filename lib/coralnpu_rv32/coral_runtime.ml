@@ -58,7 +58,9 @@ let addr r (v : int64) =
 
 let word s at = Int64.of_int32 (String.get_int32_le s at)
 
-(* Fresh labels, numbered from 1 for each module built. *)
+(* Fresh labels, numbered from 1 for each module built. Process-wide mutable
+   state, not domain-safe: a module is built on one domain, and a label only has
+   to be unique inside it. *)
 let next_label = ref 0
 
 let fresh name =
