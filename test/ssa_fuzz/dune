@@ -1,0 +1,25 @@
+; A seeded generator of well-typed SSA programs and the differential it drives:
+; the structured interpreter is the oracle, and the CFG interpreter and each
+; emitter (test/ssa_fuzz_c, test/ssa_fuzz_js, test/ssa_fuzz_wasm) must agree
+; with it, row and cells. This library and its own tests are plain OCaml that
+; assume no int wider than 32 bits, so they also run under js_of_ocaml: the same
+; seed must build the same program on every runtime.
+
+(library
+ (name ssa_fuzz)
+ (libraries
+  core
+  err_trace
+  expr
+  fmt
+  loop_ir
+  loop_ir_test
+  native
+  ssa_bridge
+  ssa_ir
+  ssa_ir_test
+  walk_core)
+ (inline_tests
+  (modes native js))
+ (preprocess
+  (pps ppx_expect)))

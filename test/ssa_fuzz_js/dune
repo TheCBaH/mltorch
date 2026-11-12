@@ -1,0 +1,23 @@
+; The JavaScript emitter against the structured interpreter on seeded programs:
+; each program is emitted by [Ssa_js], compiled by the engine and run in this
+; process. js_of_ocaml only (loop_js_exec cannot link natively): run under node
+; by `make jsoo.inline-runtest`.
+
+(library
+ (name ssa_fuzz_js)
+ (libraries
+  err_trace
+  fmt
+  js_ast
+  js_of_ocaml
+  loop_ir
+  loop_js_exec
+  native
+  ssa_bridge
+  ssa_fuzz
+  ssa_ir
+  ssa_js)
+ (inline_tests
+  (modes js))
+ (preprocess
+  (pps ppx_expect)))

@@ -1,0 +1,19 @@
+; The C emitter against the structured interpreter on seeded programs. Needs a C
+; compiler (gcc): a missing one is a failure, never a skip.
+
+(library
+ (name ssa_fuzz_c)
+ (libraries
+  err_trace
+  fmt
+  loop_c_exec
+  loop_ir
+  native
+  ssa_bridge
+  ssa_c
+  ssa_fuzz
+  ssa_ir
+  unix)
+ (inline_tests)
+ (preprocess
+  (pps ppx_expect)))

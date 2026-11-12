@@ -1,0 +1,23 @@
+; The Wasm emitter against the structured interpreter on seeded programs: each
+; program is lowered by [Ssa_wasm], validated and run under node. Needs node, so
+; it runs under `make wasm.runtest` (which sets MLTORCH_WASM), not plain
+; `make runtest`; inside it a missing node is a failure, never a skip.
+
+(library
+ (name ssa_fuzz_wasm)
+ (libraries
+  err_trace
+  fmt
+  loop_ir
+  loop_wasm_exec
+  native
+  ssa_bridge
+  ssa_fuzz
+  ssa_ir
+  ssa_wasm
+  unix)
+ (inline_tests
+  (enabled_if
+   (<> %{env:MLTORCH_WASM=} "")))
+ (preprocess
+  (pps ppx_expect)))

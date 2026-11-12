@@ -683,6 +683,41 @@ generated C (native, part of `runtest`), the direct Wasm emitter (under node,
 A correctness-sensitive rule is considered tested only after reverting it and
 watching a test go red.
 
+**Seeded programs (2026-11-12).** `test/ssa_fuzz` generates well-typed programs
+from a PCG seed through the typed builder, so the verifier checks the
+generator rather than filtering it. A case is `(seed, size)`; minimizing
+regenerates the same seed at smaller sizes. The structured interpreter is the
+oracle, and each backend is compared with it, never with another backend:
+failure row and bitwise-portable cells. The CFG interpreter runs 2,000 seeds,
+the C emitter 200 (`test/ssa_fuzz_c`, one compiler run each, part of `runtest`),
+generated JavaScript 500 (`test/ssa_fuzz_js`, in process under node,
+`make jsoo.inline-runtest`) and the Wasm emitter 100 (`test/ssa_fuzz_wasm`, one
+node start each, `make wasm.runtest`). The generator library and its own tests
+assume no wide `int`, so the same seeds also run under js_of_ocaml, where a
+committed digest of the first programs must come out the same as on native code.
+An emitter with no form for an operation (`Ssa_js`: a binary64 fused multiply-add
+and an int64 to binary32 conversion; `Ssa_wasm`: the fused multiply-add) refuses
+it with a typed error; its driver generates a profile without that operation and
+requires no refusal, and a separate test requires that the full profile still
+shows the refusal, so a capability gap stays visible instead of being skipped.
+The generator covers the scalar core, then structured control (loops carrying
+binary64 and int64 values, branches and ordered sums, nested two deep, with
+constant or computed bounds that may make a range empty, a store allowed inside
+a region) and the memory and accounting operations that fail with a row of
+their own (one scratch local per program, the checks of a local, a scan
+projection and a gather index, the scan meter under limits the program is built
+with). Targeted idioms guarantee every integer-division, float-to-integer,
+index overflow, coordinate, gather, local, scan-projection and scan-meter row is
+reached, and the double rounding of an integer to binary32 is exercised; the
+test asserts both that every row is reached and that a quarter of the programs
+run to the end, since cells are compared only then. `MLTORCH_FUZZ_SEEDS`
+rescales the budget. The suite can fail: `scripts/ssa-fuzz-mutation-check.sh`
+seeds defects into each of the C, JavaScript and Wasm emitters, one at a time
+(a wrong guard constant, a double rounding, a dropped loop-carried transfer, an
+off-by-one scan limit among them), and requires a disagreement, not a build
+failure, for each. Not yet generated: integer and bfloat16 buffers (`load_i64`,
+`store_i64`, `store_bf16`) and vectors.
+
 **Contraction engine planning (2026-11-08).** `Contract.engine` is optional
 implementation metadata; the descriptor remains the operation's generic
 semantics. `Ssa_contract_plan.program ~capabilities` uses the shared

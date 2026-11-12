@@ -1358,7 +1358,7 @@ wasm.runtest: wasm.toolchain
 	MLTORCH_WASM=1 MLTORCH_WASI_SYSROOT="$(WASI_SYSROOT)" NO_COLOR=1 opam exec -- dune build --force \
 	  @test/wasm_ir/runtest @test/wasm_ir/runtest-js \
 	  @test/loop_wasm/runtest @test/loop_wasm_vector/runtest @test/loop_native4d_wasm/runtest \
-	  @test/ssa_projection/wasm/runtest \
+	  @test/ssa_projection/wasm/runtest @test/ssa_fuzz_wasm/runtest \
 	  @test/loop_ir/runtest-js
 
 # The wasm32 C library and compiler runtime the C-to-Wasm baseline links with:
@@ -1429,36 +1429,80 @@ wasm.browser.runtest: jsoo.pt2.download
 # runs the schedule repeatedly on one instance and reports the phases.
 WASM_PT2_EXE = _build/default/bin/loop_wasm_pt2.exe
 
-wasm.pt2.exe:
-	opam exec -- dune build bin/loop_wasm_pt2.exe
+# The whole-model target family shared by the C and Wasm backends, written once.
+# PT2_BACKEND takes the backend name (c|wasm), the NAME of its executable
+# variable, and its model list as unexpanded text, so the generated recipes keep
+# the same $(...) references a hand-written rule would. Inside the template a
+# make variable is $$(X) and a shell variable $$$$m. Per backend it makes:
+#   pt2.exe              build the executable
+#   pt2.runtest          every model, bitwise against the reference (--shadow),
+#                        the release ranking (--strict), workspace poisoned
+#   pt2.perf             the default policy within the frozen tolerance
+#                        (--shadow-numeric, see c.pt2.perf)
+#   pt2.ssa.runtest      the same through the structured SSA backend, every
+#                        pipeline in SSA_PIPELINES (see c.pt2.ssa.runtest)
+#   pt2.ssa.perf         the planned pipeline under the default policy
+#   pt2.native4d.runtest, pt2.native4d.ssa.runtest
+#                        the Native4D dialect on NATIVE4D_PT2_MODEL (see
+#                        c.pt2.native4d.runtest)
+#   pt2.run              fastvit_sa12 alone, manual
+# pt2.bench and the san/simd/c variants differ between backends and stay written
+# out beside the backend that has them.
+# $(PT2_BACKSLASH) is one backslash: $(call) collapses a backslash-newline in a
+# template body, which would join the recipe lines, so the template ends its
+# continuation lines with the variable instead.
+PT2_BACKSLASH := $(patsubst %x,%,\x)
+define PT2_BACKEND
+$(1).pt2.exe:
+	opam exec -- dune build bin/loop_$(1)_pt2.exe
 
-wasm.pt2.runtest: wasm.pt2.exe
-	for m in $(PT2_MODELS_CRAM) csatv2; do \
-	  $(MAKE) pt2.download PT2_MODEL=$$m && \
-	  (cd $(PT2_DIR)/$$m && echo "== $$m" && $(CURDIR)/$(WASM_PT2_EXE) $$m.pt2 inputs.pt expected.json outputs.pt --reference --strict --shadow --poison --samples=1) || exit 1; \
+$(1).pt2.runtest: $(1).pt2.exe
+	for m in $(3); do $(PT2_BACKSLASH)
+	  $$(MAKE) pt2.download PT2_MODEL=$$$$m && $(PT2_BACKSLASH)
+	  (cd $$(PT2_DIR)/$$$$m && echo "== $$$$m" && $$(CURDIR)/$$($(2)) $$$$m.pt2 inputs.pt expected.json outputs.pt --reference --strict --shadow --poison --samples=1) || exit 1; $(PT2_BACKSLASH)
 	done
+
+$(1).pt2.perf: $(1).pt2.exe
+	for m in $(3); do $(PT2_BACKSLASH)
+	  $$(MAKE) pt2.download PT2_MODEL=$$$$m && $(PT2_BACKSLASH)
+	  (cd $$(PT2_DIR)/$$$$m && echo "== $$$$m" && $$(CURDIR)/$$($(2)) $$$$m.pt2 inputs.pt expected.json outputs.pt --strict --shadow-numeric --poison --samples=1) || exit 1; $(PT2_BACKSLASH)
+	done
+
+$(1).pt2.ssa.runtest: $(1).pt2.exe
+	for m in $(3); do $(PT2_BACKSLASH)
+	  $$(MAKE) pt2.download PT2_MODEL=$$$$m && $(PT2_BACKSLASH)
+	  for p in $$(SSA_PIPELINES); do $(PT2_BACKSLASH)
+	    (cd $$(PT2_DIR)/$$$$m && echo "== $$$$m (ssa $$$$p)" && $$(CURDIR)/$$($(2)) $$$$m.pt2 inputs.pt expected.json outputs.pt --reference --strict --shadow --poison --samples=1 --ssa=$$$$p) || exit 1; $(PT2_BACKSLASH)
+	  done; $(PT2_BACKSLASH)
+	done
+
+$(1).pt2.ssa.perf: $(1).pt2.exe
+	for m in $(3); do $(PT2_BACKSLASH)
+	  $$(MAKE) pt2.download PT2_MODEL=$$$$m && $(PT2_BACKSLASH)
+	  (cd $$(PT2_DIR)/$$$$m && echo "== $$$$m (ssa planned)" && $$(CURDIR)/$$($(2)) $$$$m.pt2 inputs.pt expected.json outputs.pt --strict --shadow-numeric --poison --samples=1 --ssa=planned) || exit 1; $(PT2_BACKSLASH)
+	done
+
+$(1).pt2.native4d.runtest: $(1).pt2.exe
+	$$(MAKE) pt2.download PT2_MODEL=$$(NATIVE4D_PT2_MODEL) && $(PT2_BACKSLASH)
+	(cd $$(PT2_DIR)/$$(NATIVE4D_PT2_MODEL) && echo "== $$(NATIVE4D_PT2_MODEL) (native4d)" && $$(CURDIR)/$$($(2)) $$(NATIVE4D_PT2_MODEL).pt2 inputs.pt expected.json outputs.pt --dialect=native4d --reference --strict --shadow --poison --samples=1)
+
+$(1).pt2.native4d.ssa.runtest: $(1).pt2.exe
+	$$(MAKE) pt2.download PT2_MODEL=$$(NATIVE4D_PT2_MODEL) && $(PT2_BACKSLASH)
+	for p in $$(SSA_PIPELINES); do $(PT2_BACKSLASH)
+	  (cd $$(PT2_DIR)/$$(NATIVE4D_PT2_MODEL) && echo "== $$(NATIVE4D_PT2_MODEL) (native4d, ssa $$$$p)" && $$(CURDIR)/$$($(2)) $$(NATIVE4D_PT2_MODEL).pt2 inputs.pt expected.json outputs.pt --dialect=native4d --reference --strict --shadow --poison --samples=1 --ssa=$$$$p) || exit 1; $(PT2_BACKSLASH)
+	done
+
+$(1).pt2.run: $(1).pt2.exe
+	$$(MAKE) pt2.download PT2_MODEL=fastvit_sa12
+	cd $$(PT2_DIR)/fastvit_sa12 && $$(CURDIR)/$$($(2)) fastvit_sa12.pt2 inputs.pt expected.json outputs.pt --reference --strict --shadow --poison --samples=1
+endef
+
+$(eval $(call PT2_BACKEND,wasm,WASM_PT2_EXE,$$(PT2_MODELS_CRAM) csatv2))
 
 wasm.simd.pt2.runtest: wasm.pt2.exe
 	for m in $(PT2_MODELS_CRAM) csatv2; do \
 	  $(MAKE) pt2.download PT2_MODEL=$$m && \
 	  (cd $(PT2_DIR)/$$m && echo "== $$m (simd)" && $(CURDIR)/$(WASM_PT2_EXE) $$m.pt2 inputs.pt expected.json outputs.pt --reference --simd --strict --shadow --poison --samples=1) || exit 1; \
-	done
-
-# The same for the Wasm backend, under node: the default policy against the frozen
-# tolerance (see c.pt2.perf).
-wasm.pt2.perf: wasm.pt2.exe
-	for m in $(PT2_MODELS_CRAM) csatv2; do \
-	  $(MAKE) pt2.download PT2_MODEL=$$m && \
-	  (cd $(PT2_DIR)/$$m && echo "== $$m" && $(CURDIR)/$(WASM_PT2_EXE) $$m.pt2 inputs.pt expected.json outputs.pt --strict --shadow-numeric --poison --samples=1) || exit 1; \
-	done
-
-# The same through the structured SSA backend (see c.pt2.ssa.runtest), under node.
-wasm.pt2.ssa.runtest: wasm.pt2.exe
-	for m in $(PT2_MODELS_CRAM) csatv2; do \
-	  $(MAKE) pt2.download PT2_MODEL=$$m && \
-	  for p in $(SSA_PIPELINES); do \
-	    (cd $(PT2_DIR)/$$m && echo "== $$m (ssa $$p)" && $(CURDIR)/$(WASM_PT2_EXE) $$m.pt2 inputs.pt expected.json outputs.pt --reference --strict --shadow --poison --samples=1 --ssa=$$p) || exit 1; \
-	  done; \
 	done
 
 # Binary32 for every kernel (the Fp32_ordered policy): each CI model through
@@ -1515,28 +1559,6 @@ fp32.pt2.census: wasm.pt2.exe
 	  _build/default/bin/machine_rivet_a64_census.exe $(PT2_DIR)/$$m/$$m.pt2 --planned=fp32 --asm --run=0 \
 	    | grep "binary64 assembly" | tee /dev/stderr | grep -qF "$(FP32_CENSUS_ZERO_ASM)" || exit 1; \
 	done
-
-# The Native4D dialect through direct Wasm, under node (see
-# c.pt2.native4d.runtest).
-wasm.pt2.native4d.runtest: wasm.pt2.exe
-	$(MAKE) pt2.download PT2_MODEL=$(NATIVE4D_PT2_MODEL) && \
-	(cd $(PT2_DIR)/$(NATIVE4D_PT2_MODEL) && echo "== $(NATIVE4D_PT2_MODEL) (native4d)" && $(CURDIR)/$(WASM_PT2_EXE) $(NATIVE4D_PT2_MODEL).pt2 inputs.pt expected.json outputs.pt --dialect=native4d --reference --strict --shadow --poison --samples=1)
-
-wasm.pt2.native4d.ssa.runtest: wasm.pt2.exe
-	$(MAKE) pt2.download PT2_MODEL=$(NATIVE4D_PT2_MODEL) && \
-	for p in $(SSA_PIPELINES); do \
-	  (cd $(PT2_DIR)/$(NATIVE4D_PT2_MODEL) && echo "== $(NATIVE4D_PT2_MODEL) (native4d, ssa $$p)" && $(CURDIR)/$(WASM_PT2_EXE) $(NATIVE4D_PT2_MODEL).pt2 inputs.pt expected.json outputs.pt --dialect=native4d --reference --strict --shadow --poison --samples=1 --ssa=$$p) || exit 1; \
-	done
-
-wasm.pt2.ssa.perf: wasm.pt2.exe
-	for m in $(PT2_MODELS_CRAM) csatv2; do \
-	  $(MAKE) pt2.download PT2_MODEL=$$m && \
-	  (cd $(PT2_DIR)/$$m && echo "== $$m (ssa planned)" && $(CURDIR)/$(WASM_PT2_EXE) $$m.pt2 inputs.pt expected.json outputs.pt --strict --shadow-numeric --poison --samples=1 --ssa=planned) || exit 1; \
-	done
-
-wasm.pt2.run: wasm.pt2.exe
-	$(MAKE) pt2.download PT2_MODEL=fastvit_sa12
-	cd $(PT2_DIR)/fastvit_sa12 && $(CURDIR)/$(WASM_PT2_EXE) fastvit_sa12.pt2 inputs.pt expected.json outputs.pt --reference --strict --shadow --poison --samples=1
 
 wasm.pt2.bench: wasm.pt2.exe
 	for m in mobilenetv2_050 fastvit_sa12; do \
@@ -2015,18 +2037,9 @@ c.runtest.all: c.runtest.o0 c.runtest.san
 C_PT2_EXE = _build/default/bin/loop_c_pt2.exe
 C_PT2_SAN = --cc=gcc -std=c11 -O1 -fsanitize=address,undefined -fno-sanitize-recover=all -ffp-contract=off -fno-strict-aliasing -Wall -Wextra -Werror -Wno-psabi
 
-c.pt2.exe:
-	opam exec -- dune build bin/loop_c_pt2.exe
-
 # Every model CI downloads (the cram set plus csatv2): ~3.5 min, dominated by
 # the reference evaluator on fastvit_sa12 and efficientnet_b0.
 C_PT2_CI_MODELS = $(PT2_MODELS_CRAM) csatv2
-
-c.pt2.runtest: c.pt2.exe
-	for m in $(C_PT2_CI_MODELS); do \
-	  $(MAKE) pt2.download PT2_MODEL=$$m && \
-	  (cd $(PT2_DIR)/$$m && echo "== $$m" && $(CURDIR)/$(C_PT2_EXE) $$m.pt2 inputs.pt expected.json outputs.pt --reference --strict --shadow --poison --samples=1) || exit 1; \
-	done
 
 # The Native4D dialect: the model after the canonical passes and the four-axis
 # lowering, compiled to a host binary, every output bitwise equal to
@@ -2036,31 +2049,11 @@ c.pt2.runtest: c.pt2.exe
 # refusal, never a Native run.
 NATIVE4D_PT2_MODEL := mobilenetv2_050
 
-c.pt2.native4d.runtest: c.pt2.exe
-	$(MAKE) pt2.download PT2_MODEL=$(NATIVE4D_PT2_MODEL) && \
-	(cd $(PT2_DIR)/$(NATIVE4D_PT2_MODEL) && echo "== $(NATIVE4D_PT2_MODEL) (native4d)" && $(CURDIR)/$(C_PT2_EXE) $(NATIVE4D_PT2_MODEL).pt2 inputs.pt expected.json outputs.pt --dialect=native4d --reference --strict --shadow --poison --samples=1)
-
-# The same through the structured SSA backend (see c.pt2.ssa.runtest).
-c.pt2.native4d.ssa.runtest: c.pt2.exe
-	$(MAKE) pt2.download PT2_MODEL=$(NATIVE4D_PT2_MODEL) && \
-	for p in $(SSA_PIPELINES); do \
-	  (cd $(PT2_DIR)/$(NATIVE4D_PT2_MODEL) && echo "== $(NATIVE4D_PT2_MODEL) (native4d, ssa $$p)" && $(CURDIR)/$(C_PT2_EXE) $(NATIVE4D_PT2_MODEL).pt2 inputs.pt expected.json outputs.pt --dialect=native4d --reference --strict --shadow --poison --samples=1 --ssa=$$p) || exit 1; \
-	done
-
-c.pt2.run: c.pt2.exe
-	$(MAKE) pt2.download PT2_MODEL=fastvit_sa12
-	cd $(PT2_DIR)/fastvit_sa12 && $(CURDIR)/$(C_PT2_EXE) fastvit_sa12.pt2 inputs.pt expected.json outputs.pt --reference --strict --shadow --poison --samples=1
-
 # The performance path (the default policy, simd_fp32_relaxed) on every CI model:
 # the release ranking, the workspace poisoned, and every graph output within the
 # frozen tolerance of the binary64 reference (--shadow-numeric: |actual - ref| <=
 # 1e-4 + 1e-4 |ref|, nonfinite cells matched by kind), with the per-precision
-# kernel coverage printed. The strict gates above stay bitwise on --reference.
-c.pt2.perf: c.pt2.exe
-	for m in $(C_PT2_CI_MODELS); do \
-	  $(MAKE) pt2.download PT2_MODEL=$$m && \
-	  (cd $(PT2_DIR)/$$m && echo "== $$m" && $(CURDIR)/$(C_PT2_EXE) $$m.pt2 inputs.pt expected.json outputs.pt --strict --shadow-numeric --poison --samples=1) || exit 1; \
-	done
+# kernel coverage printed. The strict gates stay bitwise on --reference.
 
 # The same models through the structured SSA backend (--ssa=): each invocation's
 # kernel lowered to SSA, optimized, and emitted by the direct C consumer instead
@@ -2070,19 +2063,9 @@ c.pt2.perf: c.pt2.exe
 # Loop emitter stays the default.
 SSA_PIPELINES = exact planned
 
-c.pt2.ssa.runtest: c.pt2.exe
-	for m in $(C_PT2_CI_MODELS); do \
-	  $(MAKE) pt2.download PT2_MODEL=$$m && \
-	  for p in $(SSA_PIPELINES); do \
-	    (cd $(PT2_DIR)/$$m && echo "== $$m (ssa $$p)" && $(CURDIR)/$(C_PT2_EXE) $$m.pt2 inputs.pt expected.json outputs.pt --reference --strict --shadow --poison --samples=1 --ssa=$$p) || exit 1; \
-	  done; \
-	done
-
-c.pt2.ssa.perf: c.pt2.exe
-	for m in $(C_PT2_CI_MODELS); do \
-	  $(MAKE) pt2.download PT2_MODEL=$$m && \
-	  (cd $(PT2_DIR)/$$m && echo "== $$m (ssa planned)" && $(CURDIR)/$(C_PT2_EXE) $$m.pt2 inputs.pt expected.json outputs.pt --strict --shadow-numeric --poison --samples=1 --ssa=planned) || exit 1; \
-	done
+# c.pt2.{exe,runtest,perf,ssa.runtest,ssa.perf,native4d.runtest,
+# native4d.ssa.runtest,run}, from the template above.
+$(eval $(call PT2_BACKEND,c,C_PT2_EXE,$$(C_PT2_CI_MODELS)))
 
 # Binary64 against binary32 SIMD kernels on dense programs (native C): raw
 # samples as JSON lines on stdout, a table on stderr. Each result is verified
