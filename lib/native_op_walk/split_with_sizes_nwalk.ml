@@ -5,7 +5,7 @@
    split axis, [Unbind] drops it), so their walk files mirror each other. *)
 
 module M = struct
-  module Wk = Split.Split_with_sizes.Walk (Walk_limits.L)
+  module Wk = Split_walk.Split_with_sizes.Walk (Walk_limits.L)
   include Wk
 
   type subject = Native_subject.t

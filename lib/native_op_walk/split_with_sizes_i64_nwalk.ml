@@ -3,7 +3,7 @@
    [Split.Split_with_sizes.Compute_i64], not the default float-pixel one. *)
 
 module M = struct
-  module Wk = Split.Split_with_sizes.Walk (Walk_limits.L)
+  module Wk = Split_walk.Split_with_sizes.Walk (Walk_limits.L)
   include Wk
 
   type subject = Native_subject.t

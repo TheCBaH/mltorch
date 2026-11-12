@@ -1,8 +1,8 @@
-(* Assembles Hardtanh's walk: its config space (Pointwise.Hardtanh.Walk, applied to the
+(* Assembles Hardtanh's walk: its config space (Pointwise_activation_walk.Hardtanh.Walk, applied to the
    shared limits) plus the native-graph [build]. *)
 
 module M = struct
-  module W = Pointwise.Hardtanh.Walk (Walk_limits.L)
+  module W = Pointwise_activation_walk.Hardtanh.Walk (Walk_limits.L)
   include W
 
   type subject = Native_subject.t

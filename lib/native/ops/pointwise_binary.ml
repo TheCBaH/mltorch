@@ -103,29 +103,6 @@ module Bin = struct
 
   let pp ~op (pp_ref : Tensor_ref.t Fmt.t) fmt (t : t) =
     Fmt.pf fmt "@[<hv 2>%s@ a=%a@ b=%a@]" op pp_ref t.a pp_ref t.b
-
-  (* Walk config space shared by the binary pointwise ops (Add/Mul): one shape
-     used for both operands (equal-shape; broadcast not exercised). A functor
-     over the global Limits; no constraint, so [cascade] is identity. *)
-  module Walk (L : Walk_core.Limits.S) = struct
-    type cfg = { shape : Walk_core.Shape.t }
-
-    let initial =
-      { shape = { Walk_core.Shape.n = 1; t = 1; d = 1; h = 4; w = 4; c = 3 } }
-
-    let cascade c = c
-    let shape (c : cfg) = Walk_bridge.vec6 c.shape
-
-    let axes =
-      Walk_core.Walk.
-        [
-          shape_axis "input" L.limits
-            ~get:(fun c -> c.shape)
-            ~set:(fun _ s -> { shape = s });
-        ]
-
-    let pp fmt (c : cfg) = Walk_core.Shape.pp fmt c.shape
-  end
 end
 
 (* Payload shared by the scalar-operand pointwise ops [Add_scalar]/[Div_scalar]:
@@ -164,39 +141,6 @@ module Scalar_bin = struct
 
   let pp ~op (pp_ref : Tensor_ref.t Fmt.t) fmt (t : t) =
     Fmt.pf fmt "@[<hv 2>%s@ x=%a@ scalar=%a@]" op pp_ref t.x Fmt.float t.scalar
-
-  (* Walk config shared by the scalar pointwise ops: one shape plus a scalar
-     drawn from a finite candidate set. Zero is deliberately absent so the same
-     space is safe for [Div_scalar] — unlike [Div], whose random *tensor*
-     divisor is what makes it unwalkable. Explicit zero behaviour is pinned by
-     the direct unit tests instead. The list mixes integer-like values (what
-     MobileNet actually serialises), a negative, and an f32-inexact value. *)
-  module Walk (L : Walk_core.Limits.S) = struct
-    type cfg = { shape : Walk_core.Shape.t; scalar : float }
-
-    let candidates = [ 3.; 6.; -2.; 0.5; 0.1 ]
-
-    let initial =
-      {
-        shape = { Walk_core.Shape.n = 1; t = 1; d = 1; h = 4; w = 4; c = 3 };
-        scalar = 3.;
-      }
-
-    let cascade c = c
-    let shape (c : cfg) = Walk_bridge.vec6 c.shape
-
-    let axes =
-      Walk_core.Walk.
-        [
-          shape_axis "input" L.limits
-            ~get:(fun c -> c.shape)
-            ~set:(fun c s -> { c with shape = s });
-          field_axis "scalar" candidates (fun c v -> { c with scalar = v });
-        ]
-
-    let pp fmt (c : cfg) =
-      Fmt.pf fmt "%a scalar=%a" Walk_core.Shape.pp c.shape Fmt.float c.scalar
-  end
 end
 
 (* A scalar elementwise op: the operand already has the output shape, so it is

@@ -11,7 +11,7 @@
    the ATen walk. *)
 
 module M = struct
-  module Wk = Split.Slice.Walk (Walk_limits.L)
+  module Wk = Split_walk.Slice.Walk (Walk_limits.L)
   include Wk
 
   type subject = Native_subject.t

@@ -4,7 +4,7 @@
    operand to declare a format on). *)
 
 module M = struct
-  module W = Factory.Zeros.Walk (Walk_limits.L)
+  module W = Factory_walk.Zeros.Walk (Walk_limits.L)
   include W
 
   type subject = Native_subject.t

@@ -1,4 +1,4 @@
-(* Assembles Gelu's walk: its config space (Pointwise.Gelu.Walk, applied to
+(* Assembles Gelu's walk: its config space (Pointwise_activation_walk.Gelu.Walk, applied to
    the shared limits) plus the native-graph [build], over both [approximate]
    values. The [Exact] arm's [Direct.erf] and grounded [Symbolic]'s [erf]
    share one implementation (see the [erf] primitive in expr.ml), and the
@@ -8,7 +8,7 @@
    [native_bridge_test.ml]'s [verify_print]. *)
 
 module M = struct
-  module W = Pointwise.Gelu.Walk (Walk_limits.L)
+  module W = Pointwise_activation_walk.Gelu.Walk (Walk_limits.L)
   include W
 
   type subject = Native_subject.t

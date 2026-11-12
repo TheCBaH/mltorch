@@ -1,8 +1,8 @@
-(* Assembles Hardswish's walk: its config space (Pointwise.Hardswish.Walk,
+(* Assembles Hardswish's walk: its config space (Pointwise_activation_walk.Hardswish.Walk,
    applied to the shared limits) plus the native-graph [build]. *)
 
 module M = struct
-  module W = Pointwise.Hardswish.Walk (Walk_limits.L)
+  module W = Pointwise_activation_walk.Hardswish.Walk (Walk_limits.L)
   include W
 
   type subject = Native_subject.t

@@ -5,7 +5,7 @@
    round-tripping through the engine's f32 compute domain. *)
 
 module M = struct
-  module Wk = Split.Unbind.Walk (Walk_limits.L)
+  module Wk = Split_walk.Unbind.Walk (Walk_limits.L)
   include Wk
 
   type subject = Native_subject.t

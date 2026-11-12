@@ -2,7 +2,7 @@
    the rationale, identical here. *)
 
 module M = struct
-  module W = Factory.Eye.Walk (Walk_limits.L)
+  module W = Factory_walk.Eye.Walk (Walk_limits.L)
   include W
 
   type subject = Native_subject.t

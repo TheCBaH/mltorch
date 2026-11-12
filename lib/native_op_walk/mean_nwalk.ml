@@ -1,8 +1,8 @@
-(* Assembles Mean's walk: config space from Reduce.Mean.Walk, one-input graph
+(* Assembles Mean's walk: config space from Reduce_walk.Mean.Walk, one-input graph
    reducing over the config's axis subset. *)
 
 module M = struct
-  module W = Reduce.Mean.Walk (Walk_limits.L)
+  module W = Reduce_walk.Mean.Walk (Walk_limits.L)
   include W
 
   type subject = Native_subject.t

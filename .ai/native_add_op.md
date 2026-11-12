@@ -242,8 +242,10 @@ alphabetical position at every site below; don't append.
      `Validation_failure` rather than dropping it.
 
 8. **Random-walk fuzzing** (optional) — `lib/native_op_walk/`
-   A `<op>_nwalk.ml` assembling the op's `Walk` config space into a subject, plus
-   an entry in `native_op_walk.ml`'s list. Optional because it is a fuzz harness,
+   The op's `Walk` config space in the `<op file>_walk.ml` for its source file
+   (a functor over `Walk_core.Limits.S` that opens the op's module), and a
+   `<op>_nwalk.ml` assembling it into a subject, plus an entry in
+   `native_op_walk.ml`'s list. Optional because it is a fuzz harness,
    not a correctness site, and it is not always appropriate: `Div` is deliberately
    not registered, since a random divisor hits zero and the resulting inf/NaN
    would make the walk flaky rather than informative.

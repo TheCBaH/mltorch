@@ -2,7 +2,7 @@
    [Reshape_i64_nwalk]'s own comment for the rationale, identical here. *)
 
 module M = struct
-  module W = Permute.Permute.Walk (Walk_limits.L)
+  module W = Permute_walk.Permute.Walk (Walk_limits.L)
   include W
 
   type subject = Native_subject.t

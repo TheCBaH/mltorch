@@ -1,8 +1,8 @@
-(* Assembles Add's walk: config space from Pointwise.Bin.Walk (shared binary
+(* Assembles Add's walk: config space from Pointwise_binary_walk.Bin.Walk (shared binary
    pointwise space, applied to the shared limits), two-input native graph. *)
 
 module M = struct
-  module W = Pointwise.Bin.Walk (Walk_limits.L)
+  module W = Pointwise_binary_walk.Bin.Walk (Walk_limits.L)
   include W
 
   type subject = Native_subject.t

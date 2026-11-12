@@ -1,4 +1,4 @@
-(* Assembles Sqrt's walk: reuses [Pointwise.Relu.Walk] for the shape space
+(* Assembles Sqrt's walk: reuses [Pointwise_activation_walk.Relu.Walk] for the shape space
    (a single tensor of any shape -- generic, not relu-specific; see its own
    comment), since [Sqrt] has no [Walk] submodule of its own. [x] is drawn via
    [Native_tensor.synth_nonneg] rather than [Native_tensor.synth]: sqrt's
@@ -7,7 +7,7 @@
    comparator can't call "matched". *)
 
 module M = struct
-  module W = Pointwise.Relu.Walk (Walk_limits.L)
+  module W = Pointwise_activation_walk.Relu.Walk (Walk_limits.L)
   include W
 
   type subject = Native_subject.t

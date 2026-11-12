@@ -1,7 +1,7 @@
-(* Assembles Mul's walk: config space from Pointwise.Bin.Walk, two-input graph. *)
+(* Assembles Mul's walk: config space from Pointwise_binary_walk.Bin.Walk, two-input graph. *)
 
 module M = struct
-  module W = Pointwise.Bin.Walk (Walk_limits.L)
+  module W = Pointwise_binary_walk.Bin.Walk (Walk_limits.L)
   include W
 
   type subject = Native_subject.t

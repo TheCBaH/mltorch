@@ -2,7 +2,7 @@
    comment for the rationale, identical here. *)
 
 module M = struct
-  module W = Pointwise.Bin.Walk (Walk_limits.L)
+  module W = Pointwise_binary_walk.Bin.Walk (Walk_limits.L)
   include W
 
   type subject = Native_subject.t

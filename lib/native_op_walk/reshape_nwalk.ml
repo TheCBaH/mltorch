@@ -1,9 +1,9 @@
-(* Assembles Reshape's walk: config from Reshape.Reshape.Walk (vary the input
+(* Assembles Reshape's walk: config from Reshape_walk.Reshape.Walk (vary the input
    shape; the target flattens all elements onto C), one-input graph. Exercises
    the flat-offset + delinearize index math under Direct==Symbolic. *)
 
 module M = struct
-  module W = Reshape.Reshape.Walk (Walk_limits.L)
+  module W = Reshape_walk.Reshape.Walk (Walk_limits.L)
   include W
 
   type subject = Native_subject.t

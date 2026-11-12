@@ -7,7 +7,7 @@
    Direct/Symbolic agreement on values small enough for either carrier. *)
 
 module M = struct
-  module W = Factory.Arange.Walk (Walk_limits.L)
+  module W = Factory_walk.Arange.Walk (Walk_limits.L)
   include W
 
   type subject = Native_subject.t

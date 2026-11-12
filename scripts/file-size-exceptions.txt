@@ -7,19 +7,4 @@
 # A file listed here is exempt from both the 1000-line tree check and the
 # 750-line new-file check. Splitting a listed file back under the threshold
 # should remove its line here in the same change.
-lib/native/ops/lstm.ml|2026-12-01|Landed as a single commit that consolidates the op's incremental development; under the 1000-line tree cap on its own.
-lib/wasm_ir/wasm_op.ml|2026-12-01|Landed as a single commit that consolidates the backend's incremental development; under the 1000-line tree cap on its own.
-lib/ssa_wasm/ssa_wasm.ml|2026-12-01|Landed as a single commit that consolidates the emitter's incremental development; under the 1000-line tree cap on its own.
-lib/native4d/ops4.ml|2026-12-01|Formatting expanded this established payload module; split its reduction payloads before this review date.
-lib/native_interp/native_interp_lower_shape.ml|2026-12-01|Formatting expanded this established importer module; split its shape families before this review date.
-lib/expr/expr_api.ml|2026-12-01|GADT-indexing Value.t for the int64/bool
-evaluator work expanded this established, deliberately single-file
-mutually-recursive signature; re-justify or split before this review date.
-lib/native/transform/ground_eval.ml|2026-12-01|Grounding an int64 stage (a bare Float_to_i64 cast as trunc) pushed this established module 11 lines over; split Env and the scan grounding into their own modules before this review date.
-bin/arena_alloc_eval.ml|2026-12-01|A single-purpose evaluation driver landed whole; split its strategy tables from its report rendering before this review date.
-lib/native/transform/rewrite.ml|2026-12-01|Was already at 999/1000 lines; the bulk merge_all pushed it 35 over. Every version-bound abstraction lives in this one module by design (wrapped false gives no internal visibility, so a type defined elsewhere could forge an allocator or recipe) — re-justify a split, or the design constraint, before this review date.
-lib/machine_target_aarch64/a64_op.ml|2026-12-01|The closed set of selected AArch64 forms, alphabetical by convention with its per-form typing, uses and printing beside each constructor; the vector mask and register-offset forms put it 53 lines over. Split typing from the variant before this review date.
-lib/inference_compare_core/coordinator.ml|2026-12-01|Landed as a single commit that consolidates the module's incremental development; under the 1000-line tree cap on its own.
-lib/coralnpu_kernels/peak_kernels.ml|2026-12-01|Moved unchanged from test/coralnpu_peak/kernels, whose byte baseline pins its code; split its RVV GEMM from its harness before this review date.
-lib/coralnpu_kernels_zvt/dma_gemm.ml|2026-12-01|Moved from test/coralnpu_dma/kernels, whose byte baseline pins its code; split its chain building from its step emitters before this review date.
-lib/coralnpu_kernels_zvt/zvt_sdpa.ml|2026-12-01|One generator whose phases share a closure of labels, buffers and strides; split the softmax passes from the loop nest before this review date.
+lib/expr/expr_api.ml|2027-03-01|One `module type S`, the whole public Expr surface. About 290 lines are the recursive Bool/Reduction/Scan/Value group, whose private types the other ~700 lines (Builder, Fold, Rewrite, Check, Eval, Pp, Scan_*) name (75 `Value.t`/`Index.t`/`Scan`/`Reduction.t` uses); a module type cannot name a sibling signature's abstract types without a functor parameter or restated types, and aliasing Expr_internal would expose the raw constructors. Re-justify, or split once the façade can alias the internal types, before this review date.

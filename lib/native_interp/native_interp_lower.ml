@@ -143,10 +143,12 @@ let lower_captured program =
             Native_interp_lower_compute.dispatch;
             Native_interp_lower_diff.dispatch;
             Native_interp_lower_embedding.dispatch;
+            Native_interp_lower_factory.dispatch;
             Native_interp_lower_pointwise.dispatch;
             Native_interp_lower_pool.dispatch;
             Native_interp_lower_recurrent.dispatch;
             Native_interp_lower_reduce.dispatch;
+            Native_interp_lower_resample.dispatch;
             Native_interp_lower_shape.dispatch;
           ]
       with

@@ -3,7 +3,7 @@
    covers the argmax/value_of_index path too. *)
 
 module M = struct
-  module Wk = Pool.MaxPool2dWithIndices.Walk (Walk_limits.L)
+  module Wk = Pool_walk.MaxPool2dWithIndices.Walk (Walk_limits.L)
   include Wk
 
   type subject = Native_subject.t

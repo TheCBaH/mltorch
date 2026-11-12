@@ -1,4 +1,4 @@
-(* Assembles Expand's walk: shape config space from [Pointwise.Clone.Walk]
+(* Assembles Expand's walk: shape config space from [Pointwise_unary_walk.Clone.Walk]
    (Expand has no [Walk] submodule of its own, the same reason [Sqrt_nwalk]
    reuses [Relu]'s). The drawn shape is the TARGET [size]; the source is the
    same shape with [H] forced to 1, so every step exercises a real broadcast
@@ -6,7 +6,7 @@
    self-equals-target case. *)
 
 module M = struct
-  module W = Pointwise.Clone.Walk (Walk_limits.L)
+  module W = Pointwise_unary_walk.Clone.Walk (Walk_limits.L)
   include W
 
   type subject = Native_subject.t

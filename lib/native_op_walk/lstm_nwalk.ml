@@ -1,14 +1,14 @@
-(* Assembles Lstm's walk: config space from Lstm.Lstm.Walk, recursively
+(* Assembles Lstm's walk: config space from Lstm_walk.Walk, recursively
    declaring one graph input per layer/direction's weight_ih/weight_hh/
    [bias_ih/bias_hh] (the LSTM lowering analysis's ordering) and synthesizing a matching
    concrete tensor in the same order, so [List.combine] against
    [g.Graph_ir.Graph.inputs] pairs each declared input with its tensor. Both
    recursions are independent walks over the same [layer]/[bidirectional]
-   structure -- see Lstm.Lstm.Walk.direction_shapes's comment for why this
+   structure -- see Lstm_walk.Walk.direction_shapes for why this
    file, not that module, owns the graph-building half. *)
 
 module M = struct
-  module W = Lstm.Lstm.Walk (Walk_limits.L)
+  module W = Lstm_walk.Walk (Walk_limits.L)
   include W
 
   type subject = Native_subject.t

@@ -1,4 +1,4 @@
-(* Assembles Div's walk: config space from Pointwise.Bin.Walk (shared binary
+(* Assembles Div's walk: config space from Pointwise_binary_walk.Bin.Walk (shared binary
    pointwise space), two-input native graph -- same shape as [Sub_nwalk]/
    [Mul_nwalk], except [b] (the divisor) is drawn via [Native_tensor.
    synth_nonzero] rather than [Native_tensor.synth]: see its doc comment.
@@ -7,7 +7,7 @@
    walk flaky, not wrong. *)
 
 module M = struct
-  module W = Pointwise.Bin.Walk (Walk_limits.L)
+  module W = Pointwise_binary_walk.Bin.Walk (Walk_limits.L)
   include W
 
   type subject = Native_subject.t

@@ -1,11 +1,11 @@
 (* [Eq_scalar]'s first walk (plan S6/T6.4/W; design §2's own unwalked-op
-   list). Config space from [Pointwise.Scalar_bin.Walk] (shared with
+   list). Config space from [Pointwise_binary_walk.Scalar_bin.Walk] (shared with
    [Add_scalar]/[Mul_scalar] etc.); output is unconditionally Bool
    ([Graph_builder.eq_scalar]), landing through
    [Kernel.Result_conversion.Nonzero_bool] on an ordinary float stage. *)
 
 module M = struct
-  module W = Pointwise.Scalar_bin.Walk (Walk_limits.L)
+  module W = Pointwise_binary_walk.Scalar_bin.Walk (Walk_limits.L)
   include W
 
   type subject = Native_subject.t

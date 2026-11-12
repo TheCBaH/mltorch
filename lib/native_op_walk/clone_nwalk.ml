@@ -1,8 +1,8 @@
-(* Assembles Clone's walk: its config space (Pointwise.Clone.Walk, applied to the
+(* Assembles Clone's walk: its config space (Pointwise_unary_walk.Clone.Walk, applied to the
    shared limits) plus the native-graph [build]. *)
 
 module M = struct
-  module W = Pointwise.Clone.Walk (Walk_limits.L)
+  module W = Pointwise_unary_walk.Clone.Walk (Walk_limits.L)
   include W
 
   type subject = Native_subject.t

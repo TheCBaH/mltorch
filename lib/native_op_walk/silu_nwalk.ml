@@ -1,8 +1,8 @@
-(* Assembles Silu's walk: its config space (Pointwise.Silu.Walk, applied to the
+(* Assembles Silu's walk: its config space (Pointwise_activation_walk.Silu.Walk, applied to the
    shared limits) plus the native-graph [build]. *)
 
 module M = struct
-  module W = Pointwise.Silu.Walk (Walk_limits.L)
+  module W = Pointwise_activation_walk.Silu.Walk (Walk_limits.L)
   include W
 
   type subject = Native_subject.t

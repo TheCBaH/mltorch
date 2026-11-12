@@ -1,8 +1,8 @@
-(* Assembles AvgPool2d's walk: config space from Pool.AvgPool2d.Walk, one-input
+(* Assembles AvgPool2d's walk: config space from Pool_walk.AvgPool2d.Walk, one-input
    graph. *)
 
 module M = struct
-  module Wk = Pool.AvgPool2d.Walk (Walk_limits.L)
+  module Wk = Pool_walk.AvgPool2d.Walk (Walk_limits.L)
   include Wk
 
   type subject = Native_subject.t

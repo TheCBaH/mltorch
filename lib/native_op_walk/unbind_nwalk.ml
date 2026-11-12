@@ -5,7 +5,7 @@
    — the axis mutation changes how many stages the symbolic program has. *)
 
 module M = struct
-  module Wk = Split.Unbind.Walk (Walk_limits.L)
+  module Wk = Split_walk.Unbind.Walk (Walk_limits.L)
   include Wk
 
   type subject = Native_subject.t

@@ -1,4 +1,4 @@
-(* Assembles Sdpa's walk: config space from Attention.Sdpa.Walk, a graph with
+(* Assembles Sdpa's walk: config space from Attention_walk.Sdpa.Walk, a graph with
    three or four inputs depending on whether the config has a mask.
    [Graph_ir]'s [Sdpa] carries [mask : Tensor_ref.t option] and [Eval_op]
    fills the absent case at the all-ones shape (op8-impl.md F11), a
@@ -13,7 +13,7 @@
    [Recipe_sdpa]. *)
 
 module M = struct
-  module W = Attention.Sdpa.Walk (Walk_limits.L)
+  module W = Attention_walk.Sdpa.Walk (Walk_limits.L)
   include W
 
   type subject = Native_subject.t

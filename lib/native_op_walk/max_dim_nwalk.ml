@@ -1,10 +1,10 @@
-(* Assembles MaxDim's walk: config space from Reduce.MaxDim.Walk, a one-input
+(* Assembles MaxDim's walk: config space from Reduce_walk.MaxDim.Walk, a one-input
    graph with BOTH outputs (values, indices) so the Direct==Symbolic check
    covers the paired [max_dim]/[max_dim_index] fold too, the same reason
    [Max_pool2d_with_indices_nwalk] builds both of its own outputs. *)
 
 module M = struct
-  module W = Reduce.MaxDim.Walk (Walk_limits.L)
+  module W = Reduce_walk.MaxDim.Walk (Walk_limits.L)
   include W
 
   type subject = Native_subject.t

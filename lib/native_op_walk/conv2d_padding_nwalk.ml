@@ -1,8 +1,8 @@
-(* Assembles Conv2d_padding's walk: config space from Conv.Conv2d_padding.Walk
+(* Assembles Conv2d_padding's walk: config space from Conv_padding_walk.Conv2d_padding.Walk
    (string padding mode), x/weight/bias graph. *)
 
 module M = struct
-  module W = Conv.Conv2d_padding.Walk (Walk_limits.L)
+  module W = Conv_padding_walk.Conv2d_padding.Walk (Walk_limits.L)
   include W
 
   type subject = Native_subject.t

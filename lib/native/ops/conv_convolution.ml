@@ -44,43 +44,6 @@ module Convolution = struct
       (Op_config.Hw.pp Op_config.Nonneg.pp)
       p.output_padding Op_config.Pos.pp p.groups
 
-  (* Reuses Conv2d's config space (a non-transposed convolution is shape-
-     identical); only the [params] form differs (Hw fields, transposed=false,
-     output_padding=0). *)
-  module Walk (L : Walk_core.Limits.S) = struct
-    module W = Conv2d.Walk (L)
-    include W
-
-    let params (c : W.cfg) : params =
-      let { Walk_core.Walk.h = sh; w = sw } = c.stride in
-      let { Walk_core.Walk.h = ph; w = pw } = c.pad in
-      let { Walk_core.Walk.h = dh; w = dw } = c.dilation in
-      {
-        stride =
-          {
-            Op_config.Hw.h = Op_config.Pos.of_int sh;
-            w = Op_config.Pos.of_int sw;
-          };
-        padding =
-          {
-            Op_config.Hw.h = Op_config.Nonneg.of_int ph;
-            w = Op_config.Nonneg.of_int pw;
-          };
-        dilation =
-          {
-            Op_config.Hw.h = Op_config.Pos.of_int dh;
-            w = Op_config.Pos.of_int dw;
-          };
-        transposed = false;
-        output_padding =
-          {
-            Op_config.Hw.h = Op_config.Nonneg.of_int 0;
-            w = Op_config.Nonneg.of_int 0;
-          };
-        groups = Op_config.Pos.of_int c.groups;
-      }
-  end
-
   type t = {
     params : params;
     x : Tensor_ref.t;

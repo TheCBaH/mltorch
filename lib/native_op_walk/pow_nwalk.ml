@@ -1,4 +1,4 @@
-(* Assembles Pow's walk: reuses [Pointwise.Scalar_bin.Walk] for the
+(* Assembles Pow's walk: reuses [Pointwise_binary_walk.Scalar_bin.Walk] for the
    shape/scalar config space (shared with Add_scalar/Div_scalar/Mul_scalar).
    [x] is drawn via [Native_tensor.synth_positive] rather than [synth]: two of
    the shared candidates (0.5, -2.) are undefined or singular at a
@@ -6,7 +6,7 @@
    avoid. *)
 
 module M = struct
-  module W = Pointwise.Scalar_bin.Walk (Walk_limits.L)
+  module W = Pointwise_binary_walk.Scalar_bin.Walk (Walk_limits.L)
   include W
 
   type subject = Native_subject.t

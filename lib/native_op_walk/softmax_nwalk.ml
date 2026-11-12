@@ -1,8 +1,8 @@
-(* Assembles Softmax's walk: config space from Reduce.Softmax.Walk, one-input
+(* Assembles Softmax's walk: config space from Reduce_walk.Softmax.Walk, one-input
    graph softmaxed over the config's axis. *)
 
 module M = struct
-  module W = Reduce.Softmax.Walk (Walk_limits.L)
+  module W = Reduce_walk.Softmax.Walk (Walk_limits.L)
   include W
 
   type subject = Native_subject.t

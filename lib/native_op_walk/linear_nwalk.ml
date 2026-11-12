@@ -1,5 +1,5 @@
 (* Assembles Linear's walk: config space + native-layout shape derivations from
-   Linear.Linear.Walk (applied to the shared limits); the graph wires
+   Linear_walk.Linear.Walk (applied to the shared limits); the graph wires
    x/weight/bias (in that order, matching [Graph.inputs]) into one linear node.
 
    The bias is an AXIS, not a fixture: [Graph_ir]'s [Linear] carries it as an
@@ -8,7 +8,7 @@
    walked. *)
 
 module M = struct
-  module W = Linear.Linear.Walk (Walk_limits.L)
+  module W = Linear_walk.Linear.Walk (Walk_limits.L)
   include W
 
   type subject = Native_subject.t

@@ -1,8 +1,8 @@
-(* Assembles Clamp's walk: its config space (Pointwise.Clamp.Walk, applied to the
+(* Assembles Clamp's walk: its config space (Pointwise_unary_walk.Clamp.Walk, applied to the
    shared limits) plus the native-graph [build]. *)
 
 module M = struct
-  module W = Pointwise.Clamp.Walk (Walk_limits.L)
+  module W = Pointwise_unary_walk.Clamp.Walk (Walk_limits.L)
   include W
 
   type subject = Native_subject.t

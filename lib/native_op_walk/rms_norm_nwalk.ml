@@ -1,10 +1,10 @@
-(* Assembles RmsNorm's walk: config space from Norm.RmsNorm.Walk, a graph with
+(* Assembles RmsNorm's walk: config space from Norm_rms_walk.RmsNorm.Walk, a graph with
    one or two inputs depending on whether the config has a weight. The absent
    case is a genuinely different graph -- [Graph_ir]'s [Rms_norm] carries
    [weight : Tensor_ref.t option] -- so both must be walked. *)
 
 module M = struct
-  module W = Norm.RmsNorm.Walk (Walk_limits.L)
+  module W = Norm_rms_walk.RmsNorm.Walk (Walk_limits.L)
   include W
 
   type subject = Native_subject.t

@@ -1,8 +1,8 @@
 (* Assembles Convolution's walk (non-transposed): config space from
-   Conv.Convolution.Walk (reuses Conv2d's space), x/weight/bias graph. *)
+   Conv_convolution_walk.Convolution.Walk (reuses Conv2d's space), x/weight/bias graph. *)
 
 module M = struct
-  module Wk = Conv.Convolution.Walk (Walk_limits.L)
+  module Wk = Conv_convolution_walk.Convolution.Walk (Walk_limits.L)
   include Wk
 
   type subject = Native_subject.t

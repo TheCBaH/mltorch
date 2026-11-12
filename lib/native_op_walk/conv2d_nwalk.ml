@@ -1,9 +1,9 @@
 (* Assembles Conv2d's walk: config space + native-layout shape derivations from
-   Conv.Conv2d.Walk (applied to the shared limits); the graph wires x/weight/bias
+   Conv_conv2d_walk.Conv2d.Walk (applied to the shared limits); the graph wires x/weight/bias
    (in that order, matching [Graph.inputs]) into one conv2d node. *)
 
 module M = struct
-  module W = Conv.Conv2d.Walk (Walk_limits.L)
+  module W = Conv_conv2d_walk.Conv2d.Walk (Walk_limits.L)
   include W
 
   type subject = Native_subject.t

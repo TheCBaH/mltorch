@@ -5,7 +5,7 @@
    int64 carrier involved (see [Arange_i64_nwalk] for that arm). *)
 
 module M = struct
-  module W = Factory.Arange.Walk (Walk_limits.L)
+  module W = Factory_walk.Arange.Walk (Walk_limits.L)
   include W
 
   type subject = Native_subject.t

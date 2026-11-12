@@ -1,8 +1,8 @@
-(* Assembles Sum's walk: config space from Reduce.Sum.Walk, one-input graph
+(* Assembles Sum's walk: config space from Reduce_walk.Sum.Walk, one-input graph
    reducing over the config's axis subset. *)
 
 module M = struct
-  module W = Reduce.Sum.Walk (Walk_limits.L)
+  module W = Reduce_walk.Sum.Walk (Walk_limits.L)
   include W
 
   type subject = Native_subject.t

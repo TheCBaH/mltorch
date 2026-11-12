@@ -146,46 +146,6 @@ module Mean = struct
      [Dims_keepdim.reduced_count]. *)
   let output_shape = Dims_keepdim.output_shape
 
-  (* This op's random-walk config space: a 4D NHWC tensor reduced over a curated
-     set of axis subsets with keepdim toggled. Any non-empty subset is valid, so
-     [cascade] is identity. Lives with the op (per backend). *)
-  module Walk (L : Walk_core.Limits.S) = struct
-    type cfg = { shape : Walk_core.Shape.t; dims : Axis.t list; keepdim : bool }
-
-    let initial =
-      {
-        shape = { Walk_core.Shape.n = 2; t = 1; d = 1; h = 4; w = 4; c = 4 };
-        dims = [ Axis.H; Axis.W ];
-        keepdim = false;
-      }
-
-    let cascade c = c
-    let shape (c : cfg) = Walk_bridge.vec6 c.shape
-    let params (c : cfg) : params = { dims = c.dims; keepdim = c.keepdim }
-
-    let dim_sets =
-      Axis.[ [ H; W ]; [ H; W; C ]; [ C ]; [ H ]; [ W ]; [ N; H; W ] ]
-
-    let axes =
-      Walk_core.Walk.
-        [
-          shape_axis "input" L.limits
-            ~get:(fun c -> c.shape)
-            ~set:(fun c s -> { c with shape = s });
-          field_axis "dims" dim_sets (fun r v -> { r with dims = v });
-          field_axis "keepdim" [ true; false ] (fun r v ->
-              { r with keepdim = v });
-        ]
-
-    let pp fmt (c : cfg) =
-      Format.fprintf fmt "{shape=%a dims=[%a] keepdim=%b}" Walk_core.Shape.pp
-        c.shape
-        (Format.pp_print_list
-           ~pp_sep:(fun fmt () -> Format.fprintf fmt ",")
-           Axis.pp)
-        c.dims c.keepdim
-  end
-
   module Compute (S : Semantics.SEMANTICS) = struct
     let pixel (p : params) ~(x_shape : Vec6.shape) ~x
         (out : Semantics.position S.index Vec6.t) =
@@ -261,45 +221,6 @@ module Sum = struct
   let kept_map = Dims_keepdim.kept_map
   let output_shape = Dims_keepdim.output_shape
 
-  (* Same config space as [Mean]'s walk, minus the divisor concern -- any
-     non-empty dim subset is valid, so [cascade] is identity. *)
-  module Walk (L : Walk_core.Limits.S) = struct
-    type cfg = { shape : Walk_core.Shape.t; dims : Axis.t list; keepdim : bool }
-
-    let initial =
-      {
-        shape = { Walk_core.Shape.n = 2; t = 1; d = 1; h = 4; w = 4; c = 4 };
-        dims = [ Axis.H; Axis.W ];
-        keepdim = false;
-      }
-
-    let cascade c = c
-    let shape (c : cfg) = Walk_bridge.vec6 c.shape
-    let params (c : cfg) : params = { dims = c.dims; keepdim = c.keepdim }
-
-    let dim_sets =
-      Axis.[ [ H; W ]; [ H; W; C ]; [ C ]; [ H ]; [ W ]; [ N; H; W ] ]
-
-    let axes =
-      Walk_core.Walk.
-        [
-          shape_axis "input" L.limits
-            ~get:(fun c -> c.shape)
-            ~set:(fun c s -> { c with shape = s });
-          field_axis "dims" dim_sets (fun r v -> { r with dims = v });
-          field_axis "keepdim" [ true; false ] (fun r v ->
-              { r with keepdim = v });
-        ]
-
-    let pp fmt (c : cfg) =
-      Format.fprintf fmt "{shape=%a dims=[%a] keepdim=%b}" Walk_core.Shape.pp
-        c.shape
-        (Format.pp_print_list
-           ~pp_sep:(fun fmt () -> Format.fprintf fmt ",")
-           Axis.pp)
-        c.dims c.keepdim
-  end
-
   module Compute (S : Semantics.SEMANTICS) = struct
     let pixel (p : params) ~(x_shape : Vec6.shape) ~x
         (out : Semantics.position S.index Vec6.t) =
@@ -364,45 +285,6 @@ module Amax = struct
 
   let kept_map = Dims_keepdim.kept_map
   let output_shape = Dims_keepdim.output_shape
-
-  (* Same config space as [Mean]'s walk, minus the divisor -- any non-empty
-     dim subset is valid, so [cascade] is identity. *)
-  module Walk (L : Walk_core.Limits.S) = struct
-    type cfg = { shape : Walk_core.Shape.t; dims : Axis.t list; keepdim : bool }
-
-    let initial =
-      {
-        shape = { Walk_core.Shape.n = 2; t = 1; d = 1; h = 4; w = 4; c = 4 };
-        dims = [ Axis.H; Axis.W ];
-        keepdim = false;
-      }
-
-    let cascade c = c
-    let shape (c : cfg) = Walk_bridge.vec6 c.shape
-    let params (c : cfg) : params = { dims = c.dims; keepdim = c.keepdim }
-
-    let dim_sets =
-      Axis.[ [ H; W ]; [ H; W; C ]; [ C ]; [ H ]; [ W ]; [ N; H; W ] ]
-
-    let axes =
-      Walk_core.Walk.
-        [
-          shape_axis "input" L.limits
-            ~get:(fun c -> c.shape)
-            ~set:(fun c s -> { c with shape = s });
-          field_axis "dims" dim_sets (fun r v -> { r with dims = v });
-          field_axis "keepdim" [ true; false ] (fun r v ->
-              { r with keepdim = v });
-        ]
-
-    let pp fmt (c : cfg) =
-      Format.fprintf fmt "{shape=%a dims=[%a] keepdim=%b}" Walk_core.Shape.pp
-        c.shape
-        (Format.pp_print_list
-           ~pp_sep:(fun fmt () -> Format.fprintf fmt ",")
-           Axis.pp)
-        c.dims c.keepdim
-  end
 
   module Compute (S : Semantics.SEMANTICS) = struct
     let pixel (p : params) ~(x_shape : Vec6.shape) ~x
@@ -497,38 +379,6 @@ module MaxDim = struct
   let pp (pp_ref : Tensor_ref.t Fmt.t) fmt (t : t) =
     Fmt.pf fmt "@[<hv 2>max_dim@ x=%a@ params=%a@]" pp_ref t.x pp_params
       t.params
-
-  (* Same config space as [Softmax]'s walk (any axis, any extent), plus
-     [Amax]'s [keepdim] toggle. *)
-  module Walk (L : Walk_core.Limits.S) = struct
-    type cfg = { shape : Walk_core.Shape.t; axis : Axis.t; keepdim : bool }
-
-    let initial =
-      {
-        shape = { Walk_core.Shape.n = 2; t = 1; d = 1; h = 4; w = 4; c = 4 };
-        axis = Axis.C;
-        keepdim = false;
-      }
-
-    let cascade c = c
-    let shape (c : cfg) = Walk_bridge.vec6 c.shape
-    let params (c : cfg) : params = { axis = c.axis; keepdim = c.keepdim }
-
-    let axes =
-      Walk_core.Walk.
-        [
-          shape_axis "input" L.limits
-            ~get:(fun c -> c.shape)
-            ~set:(fun c s -> { c with shape = s });
-          field_axis "axis" Axis.all (fun c v -> { c with axis = v });
-          field_axis "keepdim" [ true; false ] (fun c v ->
-              { c with keepdim = v });
-        ]
-
-    let pp fmt (c : cfg) =
-      Format.fprintf fmt "{shape=%a axis=%a keepdim=%b}" Walk_core.Shape.pp
-        c.shape Axis.pp c.axis c.keepdim
-  end
 
   module Compute (S : Semantics.SEMANTICS) = struct
     (* The output coordinate with [p.axis] zeroed and every surviving axis
@@ -656,43 +506,6 @@ module Vector_norm = struct
   let kept_map = Dims_keepdim.kept_map
   let output_shape = Dims_keepdim.output_shape
 
-  module Walk (L : Walk_core.Limits.S) = struct
-    type cfg = { shape : Walk_core.Shape.t; dims : Axis.t list; keepdim : bool }
-
-    let initial =
-      {
-        shape = { Walk_core.Shape.n = 2; t = 1; d = 1; h = 4; w = 4; c = 4 };
-        dims = [ Axis.H; Axis.W ];
-        keepdim = false;
-      }
-
-    let cascade c = c
-    let shape (c : cfg) = Walk_bridge.vec6 c.shape
-    let params (c : cfg) : params = { dims = c.dims; keepdim = c.keepdim }
-
-    let dim_sets =
-      Axis.[ [ H; W ]; [ H; W; C ]; [ C ]; [ H ]; [ W ]; [ N; H; W ] ]
-
-    let axes =
-      Walk_core.Walk.
-        [
-          shape_axis "input" L.limits
-            ~get:(fun c -> c.shape)
-            ~set:(fun c s -> { c with shape = s });
-          field_axis "dims" dim_sets (fun r v -> { r with dims = v });
-          field_axis "keepdim" [ true; false ] (fun r v ->
-              { r with keepdim = v });
-        ]
-
-    let pp fmt (c : cfg) =
-      Format.fprintf fmt "{shape=%a dims=[%a] keepdim=%b}" Walk_core.Shape.pp
-        c.shape
-        (Format.pp_print_list
-           ~pp_sep:(fun fmt () -> Format.fprintf fmt ",")
-           Axis.pp)
-        c.dims c.keepdim
-  end
-
   module Compute (S : Semantics.SEMANTICS) = struct
     let pixel (p : params) ~(x_shape : Vec6.shape) ~x
         (out : Semantics.position S.index Vec6.t) =
@@ -782,37 +595,6 @@ module Softmax = struct
      [Kernel.Limits.Hard.extent]; there is no product of several extents for
      a mid-fold wrap to hide in. *)
   let output_shape ~(x_shape : Vec6.shape) (_p : params) = Err.return x_shape
-
-  (* This op's random-walk config space: a 4D NHWC tensor, softmaxed over one
-     of the six frame axes. Any axis is valid at any extent (unlike
-     [Mean]/[Amax]'s [dims] SUBSET, there is nothing to combine), so
-     [cascade] is identity. Lives with the op (per backend). *)
-  module Walk (L : Walk_core.Limits.S) = struct
-    type cfg = { shape : Walk_core.Shape.t; axis : Axis.t }
-
-    let initial =
-      {
-        shape = { Walk_core.Shape.n = 2; t = 1; d = 1; h = 4; w = 4; c = 4 };
-        axis = Axis.C;
-      }
-
-    let cascade c = c
-    let shape (c : cfg) = Walk_bridge.vec6 c.shape
-    let params (c : cfg) : params = { axis = c.axis }
-
-    let axes =
-      Walk_core.Walk.
-        [
-          shape_axis "input" L.limits
-            ~get:(fun c -> c.shape)
-            ~set:(fun c s -> { c with shape = s });
-          field_axis "axis" Axis.all (fun c v -> { c with axis = v });
-        ]
-
-    let pp fmt (c : cfg) =
-      Format.fprintf fmt "{shape=%a axis=%a}" Walk_core.Shape.pp c.shape Axis.pp
-        c.axis
-  end
 
   (* Test-only scalar oracle retained for differential coverage of the
      authoritative [Computation] Region program below. *)
@@ -924,36 +706,6 @@ module Cumsum = struct
   (* Cumsum rescales nothing and drops no axis -- the output keeps the
      input's full shape, exactly [Softmax.output_shape]'s reasoning. *)
   let output_shape ~(x_shape : Vec6.shape) (_p : params) = Err.return x_shape
-
-  (* This op's random-walk config space: a 4D NHWC tensor, cumulatively
-     summed over one of the six frame axes. Any axis is valid at any extent
-     (same as [Softmax.Walk]: nothing to combine), so [cascade] is identity. *)
-  module Walk (L : Walk_core.Limits.S) = struct
-    type cfg = { shape : Walk_core.Shape.t; axis : Axis.t }
-
-    let initial =
-      {
-        shape = { Walk_core.Shape.n = 2; t = 1; d = 1; h = 4; w = 4; c = 4 };
-        axis = Axis.C;
-      }
-
-    let cascade c = c
-    let shape (c : cfg) = Walk_bridge.vec6 c.shape
-    let params (c : cfg) : params = { axis = c.axis }
-
-    let axes =
-      Walk_core.Walk.
-        [
-          shape_axis "input" L.limits
-            ~get:(fun c -> c.shape)
-            ~set:(fun c s -> { c with shape = s });
-          field_axis "axis" Axis.all (fun c v -> { c with axis = v });
-        ]
-
-    let pp fmt (c : cfg) =
-      Format.fprintf fmt "{shape=%a axis=%a}" Walk_core.Shape.pp c.shape Axis.pp
-        c.axis
-  end
 
   module Compute (S : Semantics.SEMANTICS) = struct
     (* [out]'s own position along [axis], read back as a DELTA index via

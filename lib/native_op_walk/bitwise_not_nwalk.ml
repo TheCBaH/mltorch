@@ -1,12 +1,12 @@
 (* [Bitwise_not]'s first walk (plan S6/T6.4/W; design §2's own unwalked-op
-   list). Config space reused from [Pointwise.Clone.Walk] (shape-only,
+   list). Config space reused from [Pointwise_unary_walk.Clone.Walk] (shape-only,
    matching [Bitwise_not]'s own single shape-only operand); its output is
    unconditionally Bool ([Graph_builder.bitwise_not]), landing through
    [Kernel.Result_conversion.Nonzero_bool] on an ordinary float stage --
    already-working machinery, not gated on T6.0's I64-output question. *)
 
 module M = struct
-  module W = Pointwise.Clone.Walk (Walk_limits.L)
+  module W = Pointwise_unary_walk.Clone.Walk (Walk_limits.L)
   include W
 
   type subject = Native_subject.t

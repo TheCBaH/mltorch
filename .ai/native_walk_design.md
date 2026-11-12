@@ -40,16 +40,20 @@ Numeric dimensions are **domains, not lists**, bounded by one shared config:
   (`lib/native_op_walk/walk_limits.ml`) bounds every op's tensor sizes.
 - `Shape.t` — a neutral 6-axis (N T D H W C) tensor shape carried as **one** compound config entry;
   `valid`/`resize` clamp to the per-axis cap and the total-numel budget, so a shape is valid by
-  construction. `lib/native/walk_bridge.ml` maps it to the engine's `Vec6` (direct field map).
+  construction. `lib/native_op_walk/walk_shape.ml` maps it to the engine's `Vec6` (direct field map).
 - Axis combinators: `int_axis ~lo ~hi` (draw any int in range), `hw_axis ~lo ~hi` (an H/W pair as
   one entry setting two fields — kernel/stride/pad/dilation), `shape_axis` (mutate one axis of the
   shape within limits). `field_axis` (enumerated) stays for non-numeric axes (padding mode, dim
   subsets, bool). This collapses conv's ~27 scalar axes to ~7 compound ones.
 
-A native op's walk properties (`cfg`/`axes`/`cascade`) live **inside the op module** (its `Walk`
-functor in `lib/native/ops/*.ml`) — they are NOT shared with the ATen backend, whose constraints can
-differ. Only the machinery above is shared. The graph `build` (which needs `Graph_builder`, above
-the op modules in the dep graph) and the Direct-vs-Symbolic `verify` live in `lib/native_op_walk`.
+A native op's walk properties (`cfg`/`axes`/`cascade`) live in `lib/native_op_walk`, in one
+`<op file>_walk.ml` per op module file (`Reduce_walk.Mean.Walk`, `Pointwise_binary_walk.Bin.Walk`,
+`Lstm_walk.Walk`), each a functor over `Limits.S` that opens its op's module for the `params`
+type and shape rules. The op modules in `lib/native/ops` carry no walk code, so `lib/native` does
+not depend on `walk_core`. The walk configs are NOT shared with the ATen backend, whose
+constraints can differ. Only the machinery above is shared. The graph `build` (which needs
+`Graph_builder`, above the op modules in the dep graph) and the Direct-vs-Symbolic `verify` sit
+beside them, in the `*_nwalk.ml` files.
 
 > The rest of this document describes the **ATen backend**'s generated walk modules. The native
 > backend reuses the same `walk_core` engine + language; Phase C will move the ATen backend onto the
@@ -203,7 +207,7 @@ applied after every mutation — not by filtering candidate values. Examples:
   negative, equal, leading and trailing pairs across ranks 2, 3 and 4; `cascade` is identity since
   every candidate is already a whole valid triple.
 
-  The **native** side gets its first `Permute` walk in the same commit (`lib/native/ops/permute.ml`'s
+  The **native** side gets its first `Permute` walk in the same commit (`lib/native_op_walk/permute_walk.ml`'s
   `Permute.Walk`, assembled by `Permute_nwalk`): a full 6-axis shape plus a permutation drawn from a
   *fixed* candidate list (not generated combinatorially — a full 6-axis bijection has 720 elements,
   most meaningless for a rank-4-visible tensor), **weighted away from identity** — none of the
@@ -221,7 +225,7 @@ applied after every mutation — not by filtering candidate values. Examples:
   fields: mutating each operand's shape on its own axis would generate genuine broadcast mismatches
   ATen rejects, degrading to skips that read as coverage and are none — the same failure mode the
   `RmsNorm` bullet above warns about, for the same reason. `cascade` is identity: every `pattern` is
-  valid for every base shape. The native side's `Sub_nwalk` reuses `Pointwise.Bin.Walk`, which walks
+  valid for every base shape. The native side's `Sub_nwalk` reuses `Pointwise_binary_walk.Bin.Walk`, which walks
   **one** shape for both operands (no broadcast) — deliberately narrower than the ATen recipe, since
   broadcasting both operands independently in the native walk too would move goldens for `add`/`mul`
   (which share `Bin.Walk`) to prove a property neither of those rows claims. Broadcast evidence for

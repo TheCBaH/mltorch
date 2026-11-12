@@ -1,8 +1,8 @@
-(* Assembles MaxPool2d's walk: config space from Pool.MaxPool2d.Walk (the shared
+(* Assembles MaxPool2d's walk: config space from Pool_walk.MaxPool2d.Walk (the shared
    pool window cfg, applied to the shared limits), one-input graph. *)
 
 module M = struct
-  module Wk = Pool.MaxPool2d.Walk (Walk_limits.L)
+  module Wk = Pool_walk.MaxPool2d.Walk (Walk_limits.L)
   include Wk
 
   type subject = Native_subject.t

@@ -4,7 +4,7 @@
    float-pixel arm [Reshape_nwalk]'s own F32 input reaches. *)
 
 module M = struct
-  module W = Reshape.Reshape.Walk (Walk_limits.L)
+  module W = Reshape_walk.Reshape.Walk (Walk_limits.L)
   include W
 
   type subject = Native_subject.t

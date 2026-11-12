@@ -31,8 +31,7 @@
   fmt
   interval_alloc
   jsont
-  jsont.bytesrw
-  walk_core)
+  jsont.bytesrw)
  (private_modules kernel_hard_shared kernel_hard)
  (wrapped false))
 
@@ -49,8 +48,7 @@
   interval_alloc
   jsont
   jsont.bytesrw
-  landmarks
-  walk_core)
+  landmarks)
  (preprocess
   (pps landmarks-ppx --auto))
  (private_modules kernel_hard_shared kernel_hard)

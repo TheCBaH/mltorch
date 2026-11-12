@@ -3,12 +3,12 @@
    ([Value.i64_of_float]: truncate toward zero, reject NaN/infinities/
    out-of-range magnitudes) -- an I64-declared [stages_i64] producer, unlike
    [To_copy_bool_nwalk]'s Bool-storage-on-a-float-stage shape. Reuses
-   [Pointwise.To_copy.Walk] like the other two [To_copy] walks. [synth]'s
+   [Pointwise_unary_walk.To_copy.Walk] like the other two [To_copy] walks. [synth]'s
    uniform(-1,1) draw is always in [Compute_to_long]'s accepted range, so
    every step succeeds without needing a bespoke draw. *)
 
 module M = struct
-  module W = Pointwise.To_copy.Walk (Walk_limits.L)
+  module W = Pointwise_unary_walk.To_copy.Walk (Walk_limits.L)
   include W
 
   type subject = Native_subject.t

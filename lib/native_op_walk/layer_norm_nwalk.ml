@@ -1,4 +1,4 @@
-(* Assembles LayerNorm's walk: config space from Norm.LayerNorm.Walk, and a
+(* Assembles LayerNorm's walk: config space from Norm_layer_walk.LayerNorm.Walk, and a
    graph with one, two or three inputs depending on which affine operands the
    config has. All four combinations are genuinely different graphs --
    [Graph_ir]'s [Layer_norm] carries [weight] and [bias] as INDEPENDENT options
@@ -12,7 +12,7 @@
    test/native/compute_test.ml. *)
 
 module M = struct
-  module W = Norm.LayerNorm.Walk (Walk_limits.L)
+  module W = Norm_layer_walk.LayerNorm.Walk (Walk_limits.L)
   include W
 
   type subject = Native_subject.t

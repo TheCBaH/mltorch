@@ -1,8 +1,8 @@
-(* Assembles Sigmoid's walk: its config space (Pointwise.Sigmoid.Walk, applied
+(* Assembles Sigmoid's walk: its config space (Pointwise_activation_walk.Sigmoid.Walk, applied
    to the shared limits) plus the native-graph [build]. *)
 
 module M = struct
-  module W = Pointwise.Sigmoid.Walk (Walk_limits.L)
+  module W = Pointwise_activation_walk.Sigmoid.Walk (Walk_limits.L)
   include W
 
   type subject = Native_subject.t

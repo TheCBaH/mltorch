@@ -5,7 +5,7 @@
    stays F32, same promotion shape as [Mul_scalar_i64_nwalk]. *)
 
 module M = struct
-  module W = Pointwise.To_copy.Walk (Walk_limits.L)
+  module W = Pointwise_unary_walk.To_copy.Walk (Walk_limits.L)
   include W
 
   type subject = Native_subject.t

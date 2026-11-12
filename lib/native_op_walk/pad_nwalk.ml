@@ -11,7 +11,7 @@
    independent oracle is the ATen walk. *)
 
 module M = struct
-  module Wk = Pad.Pad.Walk (Walk_limits.L)
+  module Wk = Pad_walk.Pad.Walk (Walk_limits.L)
   include Wk
 
   type subject = Native_subject.t

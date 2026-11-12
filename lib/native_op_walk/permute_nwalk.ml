@@ -1,10 +1,10 @@
-(* Assembles Permute's walk: config from Permute.Permute.Walk (a full 6-axis
+(* Assembles Permute's walk: config from Permute_walk.Permute.Walk (a full 6-axis
    shape plus a permutation drawn from a fixed candidate set, weighted away
    from identity), one-input graph. The first Permute walk -- op3-impl.md row
    3.3b, F5. *)
 
 module M = struct
-  module W = Permute.Permute.Walk (Walk_limits.L)
+  module W = Permute_walk.Permute.Walk (Walk_limits.L)
   include W
 
   type subject = Native_subject.t

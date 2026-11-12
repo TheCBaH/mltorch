@@ -1,8 +1,8 @@
-(* Assembles Relu's walk: its config space (Pointwise.Relu.Walk, applied to the
+(* Assembles Relu's walk: its config space (Pointwise_activation_walk.Relu.Walk, applied to the
    shared limits) plus the native-graph [build]. *)
 
 module M = struct
-  module W = Pointwise.Relu.Walk (Walk_limits.L)
+  module W = Pointwise_activation_walk.Relu.Walk (Walk_limits.L)
   include W
 
   type subject = Native_subject.t

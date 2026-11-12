@@ -1,11 +1,11 @@
 (* [To_copy]'s [Bool] target on an F32 operand (plan S6/T6.4/W): the real
    ATen `.bool()` cast, [Compute]'s [Bool] arm ([S.eq]-based nonzero test),
    landing through [Kernel.Result_conversion.Nonzero_bool] on an ordinary
-   float stage -- reuses [Pointwise.To_copy.Walk] like
+   float stage -- reuses [Pointwise_unary_walk.To_copy.Walk] like
    [To_copy_float_i64_nwalk]. *)
 
 module M = struct
-  module W = Pointwise.To_copy.Walk (Walk_limits.L)
+  module W = Pointwise_unary_walk.To_copy.Walk (Walk_limits.L)
   include W
 
   type subject = Native_subject.t

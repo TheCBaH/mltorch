@@ -7,7 +7,7 @@
    output side. *)
 
 module M = struct
-  module W = Pointwise.Scalar_bin.Walk (Walk_limits.L)
+  module W = Pointwise_binary_walk.Scalar_bin.Walk (Walk_limits.L)
   include W
 
   type subject = Native_subject.t

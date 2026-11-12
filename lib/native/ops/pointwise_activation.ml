@@ -39,26 +39,6 @@ module Hardsigmoid = struct
         (C.apply hard_clamp (S.add (S.load x out) (S.const 3.)))
         (S.const 6.)
   end
-
-  module Walk (L : Walk_core.Limits.S) = struct
-    type cfg = { shape : Walk_core.Shape.t }
-
-    let initial =
-      { shape = { Walk_core.Shape.n = 1; t = 1; d = 1; h = 4; w = 4; c = 3 } }
-
-    let cascade c = c
-    let shape (c : cfg) = Walk_bridge.vec6 c.shape
-
-    let axes =
-      Walk_core.Walk.
-        [
-          shape_axis "input" L.limits
-            ~get:(fun c -> c.shape)
-            ~set:(fun _ s -> { shape = s });
-        ]
-
-    let pp fmt (c : cfg) = Walk_core.Shape.pp fmt c.shape
-  end
 end
 
 module Hardswish = struct
@@ -98,26 +78,6 @@ module Hardswish = struct
       let module C = Clamp.Compute (S) in
       let v = S.load x out in
       S.div (S.mul v (C.apply hard_clamp (S.add v (S.const 3.)))) (S.const 6.)
-  end
-
-  module Walk (L : Walk_core.Limits.S) = struct
-    type cfg = { shape : Walk_core.Shape.t }
-
-    let initial =
-      { shape = { Walk_core.Shape.n = 1; t = 1; d = 1; h = 4; w = 4; c = 3 } }
-
-    let cascade c = c
-    let shape (c : cfg) = Walk_bridge.vec6 c.shape
-
-    let axes =
-      Walk_core.Walk.
-        [
-          shape_axis "input" L.limits
-            ~get:(fun c -> c.shape)
-            ~set:(fun _ s -> { shape = s });
-        ]
-
-    let pp fmt (c : cfg) = Walk_core.Shape.pp fmt c.shape
   end
 end
 
@@ -179,40 +139,6 @@ module Hardtanh = struct
 
     let pixel (p : params) x out = C.pixel (clamp_params p) x out
   end
-
-  module Walk (L : Walk_core.Limits.S) = struct
-    type cfg = { shape : Walk_core.Shape.t; bounds : params }
-
-    (* Atomic bound pair, as in [Clamp.Walk]: the schema default, MobileNet-v2's
-       relu6 window, and a reversed pair. *)
-    let candidates =
-      [
-        { min_val = -1.; max_val = 1. };
-        { min_val = 0.; max_val = 6. };
-        { min_val = 1.; max_val = -1. };
-      ]
-
-    let initial =
-      {
-        shape = { Walk_core.Shape.n = 1; t = 1; d = 1; h = 4; w = 4; c = 3 };
-        bounds = { min_val = 0.; max_val = 6. };
-      }
-
-    let cascade c = c
-    let shape (c : cfg) = Walk_bridge.vec6 c.shape
-
-    let axes =
-      Walk_core.Walk.
-        [
-          shape_axis "input" L.limits
-            ~get:(fun c -> c.shape)
-            ~set:(fun c s -> { c with shape = s });
-          field_axis "bounds" candidates (fun c b -> { c with bounds = b });
-        ]
-
-    let pp fmt (c : cfg) =
-      Fmt.pf fmt "%a %a" Walk_core.Shape.pp c.shape pp_params c.bounds
-  end
 end
 
 module Leaky_relu = struct
@@ -261,32 +187,6 @@ module Leaky_relu = struct
       let v = S.load x out in
       S.select (S.lt v (S.const 0.)) (S.mul (S.const p.negative_slope) v) v
   end
-
-  module Walk (L : Walk_core.Limits.S) = struct
-    type cfg = { shape : Walk_core.Shape.t; params : params }
-
-    let initial =
-      {
-        shape = { Walk_core.Shape.n = 1; t = 1; d = 1; h = 4; w = 4; c = 3 };
-        params = { negative_slope = 0.01 };
-      }
-
-    let cascade c = c
-    let shape (c : cfg) = Walk_bridge.vec6 c.shape
-
-    let axes =
-      Walk_core.Walk.
-        [
-          shape_axis "input" L.limits
-            ~get:(fun c -> c.shape)
-            ~set:(fun c s -> { c with shape = s });
-          field_axis "negative_slope" [ 0.; 0.01; 0.2 ] (fun c negative_slope ->
-              { c with params = { negative_slope } });
-        ]
-
-    let pp fmt (c : cfg) =
-      Fmt.pf fmt "%a %a" Walk_core.Shape.pp c.shape pp_params c.params
-  end
 end
 
 module Relu = struct
@@ -317,30 +217,6 @@ module Relu = struct
     let pixel x (out : Semantics.position S.index Vec6.t) =
       let v = S.load x out in
       S.select (S.lt v (S.const 0.)) (S.const 0.) v
-  end
-
-  (* This op's own random-walk config space: a single tensor of any shape (relu
-     imposes no constraint, so [cascade] is identity). A functor over the global
-     Limits; the shape is one compound entry mutated within the limits' budget.
-     Lives with the op so it can diverge from any other backend's walk. *)
-  module Walk (L : Walk_core.Limits.S) = struct
-    type cfg = { shape : Walk_core.Shape.t }
-
-    let initial =
-      { shape = { Walk_core.Shape.n = 1; t = 1; d = 1; h = 4; w = 4; c = 3 } }
-
-    let cascade c = c
-    let shape (c : cfg) = Walk_bridge.vec6 c.shape
-
-    let axes =
-      Walk_core.Walk.
-        [
-          shape_axis "input" L.limits
-            ~get:(fun c -> c.shape)
-            ~set:(fun _ s -> { shape = s });
-        ]
-
-    let pp fmt (c : cfg) = Walk_core.Shape.pp fmt c.shape
   end
 end
 
@@ -373,26 +249,6 @@ module Sigmoid = struct
     let pixel x (out : Semantics.position S.index Vec6.t) =
       let v = S.load x out in
       S.div (S.const 1.) (S.add (S.const 1.) (S.exp (S.sub (S.const 0.) v)))
-  end
-
-  module Walk (L : Walk_core.Limits.S) = struct
-    type cfg = { shape : Walk_core.Shape.t }
-
-    let initial =
-      { shape = { Walk_core.Shape.n = 1; t = 1; d = 1; h = 4; w = 4; c = 3 } }
-
-    let cascade c = c
-    let shape (c : cfg) = Walk_bridge.vec6 c.shape
-
-    let axes =
-      Walk_core.Walk.
-        [
-          shape_axis "input" L.limits
-            ~get:(fun c -> c.shape)
-            ~set:(fun _ s -> { shape = s });
-        ]
-
-    let pp fmt (c : cfg) = Walk_core.Shape.pp fmt c.shape
   end
 end
 
@@ -432,26 +288,6 @@ module Tanh = struct
       in
       S.select (S.eq v (S.const 0.)) v t
   end
-
-  module Walk (L : Walk_core.Limits.S) = struct
-    type cfg = { shape : Walk_core.Shape.t }
-
-    let initial =
-      { shape = { Walk_core.Shape.n = 1; t = 1; d = 1; h = 4; w = 4; c = 3 } }
-
-    let cascade c = c
-    let shape (c : cfg) = Walk_bridge.vec6 c.shape
-
-    let axes =
-      Walk_core.Walk.
-        [
-          shape_axis "input" L.limits
-            ~get:(fun c -> c.shape)
-            ~set:(fun _ s -> { shape = s });
-        ]
-
-    let pp fmt (c : cfg) = Walk_core.Shape.pp fmt c.shape
-  end
 end
 
 module Silu = struct
@@ -483,26 +319,6 @@ module Silu = struct
     let pixel x (out : Semantics.position S.index Vec6.t) =
       let v = S.load x out in
       S.div v (S.add (S.const 1.) (S.exp (S.sub (S.const 0.) v)))
-  end
-
-  module Walk (L : Walk_core.Limits.S) = struct
-    type cfg = { shape : Walk_core.Shape.t }
-
-    let initial =
-      { shape = { Walk_core.Shape.n = 1; t = 1; d = 1; h = 4; w = 4; c = 3 } }
-
-    let cascade c = c
-    let shape (c : cfg) = Walk_bridge.vec6 c.shape
-
-    let axes =
-      Walk_core.Walk.
-        [
-          shape_axis "input" L.limits
-            ~get:(fun c -> c.shape)
-            ~set:(fun _ s -> { shape = s });
-        ]
-
-    let pp fmt (c : cfg) = Walk_core.Shape.pp fmt c.shape
   end
 end
 
@@ -601,34 +417,6 @@ module Gelu = struct
           in
           let tanh_inner = S.sub (S.mul (S.const 2.) sigmoid_2y) (S.const 1.) in
           S.mul (S.mul (S.const 0.5) v) (S.add (S.const 1.) tanh_inner)
-  end
-
-  module Walk (L : Walk_core.Limits.S) = struct
-    type cfg = { shape : Walk_core.Shape.t; approximate : approximate }
-
-    let candidates = [ Exact; Tanh ]
-
-    let initial =
-      {
-        shape = { Walk_core.Shape.n = 1; t = 1; d = 1; h = 4; w = 4; c = 3 };
-        approximate = Exact;
-      }
-
-    let cascade c = c
-    let shape (c : cfg) = Walk_bridge.vec6 c.shape
-
-    let axes =
-      Walk_core.Walk.
-        [
-          shape_axis "input" L.limits
-            ~get:(fun c -> c.shape)
-            ~set:(fun c s -> { c with shape = s });
-          field_axis "approximate" candidates (fun c a ->
-              { c with approximate = a });
-        ]
-
-    let pp fmt (c : cfg) =
-      Fmt.pf fmt "%a %a" Walk_core.Shape.pp c.shape pp_approximate c.approximate
   end
 end
 

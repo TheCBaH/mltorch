@@ -3,7 +3,7 @@
    the saved mean and inverse standard deviation, not merely the activations. *)
 
 module M = struct
-  module W = Norm.BatchNormNoStats.Walk (Walk_limits.L)
+  module W = Norm_batch_walk.BatchNormNoStats.Walk (Walk_limits.L)
   include W
 
   type subject = Native_subject.t

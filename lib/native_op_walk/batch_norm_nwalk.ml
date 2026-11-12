@@ -1,10 +1,10 @@
-(* Assembles BatchNorm's walk: config space from Norm.BatchNorm.Walk, a
+(* Assembles BatchNorm's walk: config space from Norm_batch_walk.BatchNorm.Walk, a
    five-input graph (x + the per-channel weight/bias/running_mean/running_var
    [C] vectors). running_var is forced non-negative so sqrt(var+eps) is real —
    otherwise both backends produce nan, which compares unequal. *)
 
 module M = struct
-  module W = Norm.BatchNorm.Walk (Walk_limits.L)
+  module W = Norm_batch_walk.BatchNorm.Walk (Walk_limits.L)
   include W
 
   type subject = Native_subject.t

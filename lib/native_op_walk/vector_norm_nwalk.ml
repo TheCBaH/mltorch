@@ -1,10 +1,10 @@
-(* Assembles Vector_norm's walk: config space from Reduce.Vector_norm.Walk,
+(* Assembles Vector_norm's walk: config space from Reduce_walk.Vector_norm.Walk,
    one-input graph reducing over the config's axis subset. The squared leaf
    keeps the summed value nonnegative regardless of the drawn input's sign, so
    no [synth_nonneg] is needed the way [Sqrt]'s own walk needs one. *)
 
 module M = struct
-  module W = Reduce.Vector_norm.Walk (Walk_limits.L)
+  module W = Reduce_walk.Vector_norm.Walk (Walk_limits.L)
   include W
 
   type subject = Native_subject.t
