@@ -54,7 +54,7 @@ let dispatch ~(aten_env : aten_env) (node : Node.t) :
                    let* y' = conv1d params ~x:x' ~weight:w' ~bias:b_id () in
                    let+ y = permute perm_conv1d y' in
                    [ y ]
-               | _ -> assert false)
+               | operands -> arity_mismatch ~op:node.Node.target operands)
            with Invalid_argument msg -> fail (`Validation_failure msg))
   | "torch.ops.aten.conv2d.default" ->
       Some
@@ -112,7 +112,7 @@ let dispatch ~(aten_env : aten_env) (node : Node.t) :
                    let* y' = conv2d params ~x:x' ~weight:w' ~bias:b_id () in
                    let+ y = permute perm_nhwc_to_nchw y' in
                    [ y ]
-               | _ -> assert false)
+               | operands -> arity_mismatch ~op:node.Node.target operands)
            with Invalid_argument msg -> fail (`Validation_failure msg))
   | "torch.ops.aten.conv3d.default" ->
       Some
@@ -160,7 +160,7 @@ let dispatch ~(aten_env : aten_env) (node : Node.t) :
                    let* y' = conv3d params ~x:x' ~weight:w' ~bias:b_id () in
                    let+ y = permute perm_conv3d_inv y' in
                    [ y ]
-               | _ -> assert false)
+               | operands -> arity_mismatch ~op:node.Node.target operands)
            with Invalid_argument msg -> fail (`Validation_failure msg))
   | "torch.ops.aten.conv2d.padding" ->
       Some
@@ -209,7 +209,7 @@ let dispatch ~(aten_env : aten_env) (node : Node.t) :
                    in
                    let+ y = permute perm_nhwc_to_nchw y' in
                    [ y ]
-               | _ -> assert false)
+               | operands -> arity_mismatch ~op:node.Node.target operands)
            with Invalid_argument msg -> fail (`Validation_failure msg))
   | "torch.ops.aten.convolution.default" ->
       Some
@@ -264,6 +264,6 @@ let dispatch ~(aten_env : aten_env) (node : Node.t) :
                    in
                    let+ y = permute perm_nhwc_to_nchw y' in
                    [ y ]
-               | _ -> assert false)
+               | operands -> arity_mismatch ~op:node.Node.target operands)
            with Invalid_argument msg -> fail (`Validation_failure msg))
   | _ -> None

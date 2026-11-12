@@ -28,7 +28,12 @@
    run itself is unchanged.
 
    Neither setting ever holds an index output nothing reads: it is not
-   allocated. See .ai/ (tensor release). *)
+   allocated. See .ai/ (tensor release).
+
+   [?policy] (default {!Direct.Policy.default}) picks the numeric policy of the
+   evaluator instance the run uses: how a dot accumulates and how a float casts
+   to int64. It is the run's own, never ambient, so two policies can run in
+   one process. It is unrelated to the allocation [alignment] policy. *)
 
 open Graph_ir
 
@@ -110,6 +115,7 @@ val storage_script :
     inputs added and the run's boundaries marked. See [Storage_script]. *)
 
 val run_storage :
+  ?policy:Direct.Policy.t ->
   arenas:Arena.t list ->
   script:Storage_script.t ->
   ?hooks:hooks ->
@@ -132,6 +138,7 @@ val run_storage :
     result may be a view into an arena. *)
 
 val run :
+  ?policy:Direct.Policy.t ->
   ?arena:Arena.t ->
   ?hooks:hooks ->
   ?trace:(Alloc_script.Event.t -> unit) ->

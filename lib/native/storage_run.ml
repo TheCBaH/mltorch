@@ -145,8 +145,8 @@ let bind_inputs t ~arena_of (g : graph) inputs =
       | _ -> Err.return (id, src))
     (List.filter (fun (id, _) -> List.mem id g.Graph.inputs) inputs)
 
-let run t ?hooks ?region_executor ?region_group_executor ?node_executor ?limits
-    ?retain (g : graph) ~inputs =
+let run t ?policy ?hooks ?region_executor ?region_group_executor ?node_executor
+    ?limits ?retain (g : graph) ~inputs =
   let open Err.Syntax in
   let* results = acquire_results t |> Err.map_error (fun e -> (e :> error)) in
   let release_results () = Option.iter Arena.release results in
@@ -164,7 +164,7 @@ let run t ?hooks ?region_executor ?region_group_executor ?node_executor ?limits
           bind_inputs t ~arena_of g inputs
           |> Err.map_error (fun e -> (e :> error))
         in
-        Eval_direct.run_storage
+        Eval_direct.run_storage ?policy
           ~arenas:(List.map snd t.scratch @ Option.to_list results)
           ~script:(Storage_plan.script t.plan)
           ?hooks ?region_executor ?region_group_executor ?node_executor ?limits

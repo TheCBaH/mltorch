@@ -23,8 +23,12 @@ val pp_error : Format.formatter -> [< error ] -> unit
 
 (* [dst] is the tensor the result is written into, of [out_shape] and the
    format the edge declares: the arm fills it and returns it. A destination of
-   another format is a [Dst_format_mismatch] row, never a conversion. *)
+   another format is a [Dst_format_mismatch] row, never a conversion.
+
+   [policy] picks the evaluator instance ([Direct.Make]): dot accumulation and
+   float-to-int casts are part of the instance, so nothing is ambient. *)
 val compute :
+  policy:Direct.Policy.t ->
   graph ->
   op ->
   output:Output_ordinal.t ->

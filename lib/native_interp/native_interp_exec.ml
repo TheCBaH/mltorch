@@ -112,8 +112,9 @@ let eval_in_arena ?arena ?on_arena ?schedule ~retain graph ~eval =
 (* Runs [graph] in role arenas under [layout], constants and inputs copied, and
    returns the results copied out of their lease. [hooks] is given the graph
    the run follows, which a [schedule] may have reordered. *)
-let eval_in_storage ~layout ?on_storage ?schedule ~hooks ?region_executor
-    ?region_group_executor ?node_executor ~retain graph ~constants ~inputs =
+let eval_in_storage ~layout ?on_storage ?schedule ~hooks ~policy
+    ?region_executor ?region_group_executor ?node_executor ~retain graph
+    ~constants ~inputs =
   let open Err.Syntax in
   let arena r =
     Err.map_error ~pos:__POS__ (fun e -> `Arena (e :> Arena_run.error)) r
@@ -151,7 +152,7 @@ let eval_in_storage ~layout ?on_storage ?schedule ~hooks ?region_executor
   let* runner = arena (Storage_run.create plan prepared) in
   let* lease =
     arena
-      (Storage_run.run runner ?hooks:(hooks graph) ?region_executor
+      (Storage_run.run runner ~policy ?hooks:(hooks graph) ?region_executor
          ?region_group_executor ?node_executor ~retain graph ~inputs)
   in
   let* env, _ =
@@ -336,18 +337,17 @@ let run_lowered ?arena ?layout ?schedule ?on_arena ?on_storage ?hooks
          (Tensor_id.Map.bindings lowered.captured_targets))
   in
   let retain = Release_schedule.Retain.Only Tensor_id.Set.empty in
+  let policy = { Direct.Policy.dot_accumulation; float_to_int } in
   let* env =
-    Direct.with_dot_accumulation dot_accumulation @@ fun () ->
-    Direct.with_float_to_int float_to_int @@ fun () ->
     match layout with
     | Some layout ->
-        eval_in_storage ~layout ?on_storage ?schedule ~hooks:eval_hooks
+        eval_in_storage ~layout ?on_storage ?schedule ~hooks:eval_hooks ~policy
           ?region_executor ?region_group_executor ?node_executor ~retain graph
           ~constants ~inputs
     | None ->
         eval_in_arena ?arena ?on_arena ?schedule ~retain graph
           ~eval:(fun run_graph arena ->
-            Eval_direct.run ?arena ?hooks:(eval_hooks run_graph)
+            Eval_direct.run ~policy ?arena ?hooks:(eval_hooks run_graph)
               ?region_executor ?region_group_executor ?node_executor ~retain
               ~constants run_graph ~inputs
             |> Err.map_error ~pos:__POS__ (fun e -> `Eval e))

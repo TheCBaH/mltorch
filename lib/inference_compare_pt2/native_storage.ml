@@ -196,9 +196,9 @@ let eval = function
         (Format.asprintf "Native: %a" Eval_direct.pp_error (Err.Error.kind e))
   | Ok env -> Ok env
 
-let execute ~(notes : Notes.t) c ~inputs =
+let execute ?(policy = Direct.Policy.default) ~(notes : Notes.t) c ~inputs =
   match c.mode with
-  | Release_only -> eval (Eval_direct.run ~retain c.graph ~inputs)
+  | Release_only -> eval (Eval_direct.run ~policy ~retain c.graph ~inputs)
   | Arena_plan (plan, admission) -> (
       match Arena_run.acquire_plan ~admission plan |> arena_text with
       | Error m -> Error m
@@ -206,10 +206,10 @@ let execute ~(notes : Notes.t) c ~inputs =
           notes.Notes.arena_declined <-
             Format.asprintf "%a" Arena_run.pp_error reason
             :: notes.arena_declined;
-          eval (Eval_direct.run ~retain c.graph ~inputs)
+          eval (Eval_direct.run ~policy ~retain c.graph ~inputs)
       | Ok (Arena a) ->
           notes.arena_used <- notes.arena_used + 1;
-          eval (Eval_direct.run ~arena:a ~retain c.graph ~inputs))
+          eval (Eval_direct.run ~policy ~arena:a ~retain c.graph ~inputs))
   | Role_plan plan ->
       let* prepared =
         Constant_arena.create plan ~constants:[]
@@ -219,7 +219,7 @@ let execute ~(notes : Notes.t) c ~inputs =
       in
       let* runner = Storage_run.create plan prepared |> arena_text in
       let* lease =
-        Storage_run.run runner ~retain c.graph ~inputs |> arena_text
+        Storage_run.run runner ~policy ~retain c.graph ~inputs |> arena_text
       in
       let* env, _ =
         Result_lease.copy_out lease
@@ -242,7 +242,9 @@ let create ~dots ~config ~notes ~identity :
 
     let execute c _ ~inputs =
       let* env =
-        Direct.with_dot_accumulation dots (fun () -> execute ~notes c ~inputs)
+        execute
+          ~policy:{ Direct.Policy.default with dot_accumulation = dots }
+          ~notes c ~inputs
       in
       let rec outs acc = function
         | [] -> Ok (List.rev acc)

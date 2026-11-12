@@ -4,7 +4,7 @@
    one live entry. That entry becomes [index] here; [axis] is the frame
    position its list index [p] maps to (computed by the importer from ATen's
    dim position and [self]'s real rank, via the shared `dims_arg`/
-   `axes_for_rank` machinery -- see op_bridge_shape.ml/
+   `axes_for_rank` machinery -- see op_bridge_gather.ml/
    native_interp_lower_shape.ml).
 
    [index_rank] (the live entry's own ATen rank, read once at import time,

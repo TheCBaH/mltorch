@@ -31,7 +31,7 @@ let dispatch ~(aten_env : aten_env) (node : Node.t) :
                  let* y' = max_pool2d params x' in
                  let+ y = permute perm_nhwc_to_nchw y' in
                  [ y ]
-             | _ -> assert false)
+             | operands -> arity_mismatch ~op:node.Node.target operands)
          with Invalid_argument msg -> fail (`Validation_failure msg))
   | "torch.ops.aten.avg_pool2d.default" ->
       Some
@@ -56,7 +56,7 @@ let dispatch ~(aten_env : aten_env) (node : Node.t) :
                  let* y' = avg_pool2d params x' in
                  let+ y = permute perm_nhwc_to_nchw y' in
                  [ y ]
-             | _ -> assert false)
+             | operands -> arity_mismatch ~op:node.Node.target operands)
          with Invalid_argument msg -> fail (`Validation_failure msg))
   | "torch.ops.aten.adaptive_avg_pool2d.default" ->
       Some
@@ -83,7 +83,7 @@ let dispatch ~(aten_env : aten_env) (node : Node.t) :
                let* y' = adaptive_avg_pool2d params x' in
                let+ y = permute perm_nhwc_to_nchw y' in
                [ y ]
-           | _ -> assert false))
+           | operands -> arity_mismatch ~op:node.Node.target operands))
   | "torch.ops.aten.adaptive_max_pool2d.default" ->
       Some
         ((* ATen has no value-only overload here (unlike max_pool2d's genuine
@@ -120,7 +120,7 @@ let dispatch ~(aten_env : aten_env) (node : Node.t) :
                  let* () = discard indices in
                  let+ y = permute perm_nhwc_to_nchw values in
                  [ y ]
-             | _ -> assert false)
+             | operands -> arity_mismatch ~op:node.Node.target operands)
          with Invalid_argument msg -> fail (`Validation_failure msg))
   | "torch.ops.aten.max_pool2d_with_indices.default" ->
       Some
@@ -148,6 +148,6 @@ let dispatch ~(aten_env : aten_env) (node : Node.t) :
                  let* () = discard indices in
                  let+ y = permute perm_nhwc_to_nchw values in
                  [ y ]
-             | _ -> assert false)
+             | operands -> arity_mismatch ~op:node.Node.target operands)
          with Invalid_argument msg -> fail (`Validation_failure msg))
   | _ -> None

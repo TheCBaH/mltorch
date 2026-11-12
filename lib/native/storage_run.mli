@@ -40,6 +40,7 @@ val plan : t -> Storage_plan.t
 
 val run :
   t ->
+  ?policy:Direct.Policy.t ->
   ?hooks:Eval_direct.hooks ->
   ?region_executor:Region_executor.t ->
   ?region_group_executor:Region_executor.group ->

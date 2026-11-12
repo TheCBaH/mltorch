@@ -512,8 +512,8 @@ let settle ~backed ~dst id result =
   | Some a -> widen (Arena.settle a id ~dst ~result)
   | None -> Err.return result
 
-let rec run_graph ~arenas ?hooks ?trace ?on_format_mismatch ?region_counters
-    ?region_executor ?region_group_executor ?node_executor
+let rec run_graph ~policy ~arenas ?hooks ?trace ?on_format_mismatch
+    ?region_counters ?region_executor ?region_group_executor ?node_executor
     ?(limits = Kernel.Limits.default) ?(retain = Release_schedule.Retain.All)
     ~constants (g : graph) (env : Tensor.packed Tensor_id.Map.t) :
     (Tensor.packed Tensor_id.Map.t, error) Err.t =
@@ -528,13 +528,13 @@ let rec run_graph ~arenas ?hooks ?trace ?on_format_mismatch ?region_counters
   let eval node env =
     match hooks with
     | None ->
-        eval_node ~arenas ?on_format_mismatch ?region_counters ?region_executor
-          ?region_group_executor ?node_executor ~limits ~synthetic_ids ~sched g
-          env node
+        eval_node ~policy ~arenas ?on_format_mismatch ?region_counters
+          ?region_executor ?region_group_executor ?node_executor ~limits
+          ~synthetic_ids ~sched g env node
     | Some (Hooks h) ->
         let state = h.on_start node in
         let+ env =
-          eval_node ~arenas ?on_format_mismatch ?region_counters
+          eval_node ~policy ~arenas ?on_format_mismatch ?region_counters
             ?region_executor ?region_group_executor ?node_executor ~limits
             ~synthetic_ids ~sched g env node
         in
@@ -576,10 +576,10 @@ let rec run_graph ~arenas ?hooks ?trace ?on_format_mismatch ?region_counters
       in
       walk ~sched g ~step ~release:free env
 
-and eval_node ~arenas ?on_format_mismatch ?region_counters ?region_executor
-    ?region_group_executor ?node_executor ~limits ~synthetic_ids ~sched
-    (g : graph) (env : Tensor.packed Tensor_id.Map.t) (node : node) :
-    (Tensor.packed Tensor_id.Map.t, error) Err.t =
+and eval_node ~policy ~arenas ?on_format_mismatch ?region_counters
+    ?region_executor ?region_group_executor ?node_executor ~limits
+    ~synthetic_ids ~sched (g : graph) (env : Tensor.packed Tensor_id.Map.t)
+    (node : node) : (Tensor.packed Tensor_id.Map.t, error) Err.t =
   let open Err.Syntax in
   let op = node.Node.op in
   let node_executor =
@@ -620,8 +620,8 @@ and eval_node ~arenas ?on_format_mismatch ?region_counters ?region_executor
   | Attention_layer layer, [ (_, oid, _) ] ->
       let* dst, backed = dst_for ~arenas g oid in
       let* result =
-        decomposed ?on_format_mismatch ?region_executor ?region_group_executor
-          ~node_executor ~limits g ~operand_env layer
+        decomposed ~policy ?on_format_mismatch ?region_executor
+          ?region_group_executor ~node_executor ~limits g ~operand_env layer
       in
       let* result = settle ~backed ~dst oid result in
       check_format ?on_format_mismatch g node oid result;
@@ -665,16 +665,16 @@ and eval_node ~arenas ?on_format_mismatch ?region_counters ?region_executor
               widen
                 (node_executor.Node_executor.run g node ~output ~out_shape
                    ~operands:operand_env ~dst ~direct:(fun ~dst ->
-                     Eval_direct_compute.compute g op ~output ~out_shape ~dst
-                       ~operand_env ~shape_env ~fill))
+                     Eval_direct_compute.compute ~policy g op ~output ~out_shape
+                       ~dst ~operand_env ~shape_env ~fill))
           in
           let* result = settle ~backed ~dst oid result in
           check_format ?on_format_mismatch g node oid result;
           Err.return (Tensor_id.Map.add oid result env))
         env outs
 
-and decomposed ?on_format_mismatch ?region_executor ?region_group_executor
-    ~node_executor ~limits (g : graph) ~operand_env
+and decomposed ~policy ?on_format_mismatch ?region_executor
+    ?region_group_executor ~node_executor ~limits (g : graph) ~operand_env
     (layer : Attention_layer.Attention_layer.t) =
   let open Err.Syntax in
   let module L = Attention_layer.Attention_layer in
@@ -723,7 +723,7 @@ and decomposed ?on_format_mismatch ?region_executor ?region_group_executor
   let* out =
     (* no region counters: they are keyed by the outer graph's edges, and the
        subgraph numbers its own from zero *)
-    run_graph ~arenas:[] ?on_format_mismatch ?region_executor
+    run_graph ~policy ~arenas:[] ?on_format_mismatch ?region_executor
       ?region_group_executor ~node_executor ~limits ~constants:[] sub env
   in
   find_tensor out (List.hd sub.Graph.outputs) ~context:Operand
@@ -860,10 +860,10 @@ let bind_inputs g inputs =
       | Some tensor -> Err.return (Tensor_id.Map.add id tensor env))
     Tensor_id.Map.empty (input_ids g)
 
-let run_storage ~arenas ~script ?hooks ?on_format_mismatch ?region_counters
-    ?region_executor ?region_group_executor ?node_executor
-    ?(limits = Kernel.Limits.default) ?retain ?(constants = []) (g : graph)
-    ~(inputs : (Tensor_id.t * Tensor.packed) list) =
+let run_storage ?(policy = Direct.Policy.default) ~arenas ~script ?hooks
+    ?on_format_mismatch ?region_counters ?region_executor ?region_group_executor
+    ?node_executor ?(limits = Kernel.Limits.default) ?retain ?(constants = [])
+    (g : graph) ~(inputs : (Tensor_id.t * Tensor.packed) list) =
   let open Err.Syntax in
   let* env0 = bind_inputs g inputs in
   (* Before any node runs: a storage plan is valid only for the run whose
@@ -878,20 +878,20 @@ let run_storage ~arenas ~script ?hooks ?on_format_mismatch ?region_counters
   match Storage_script.first_difference script own with
   | Some position -> Err.fail ~pos:__POS__ (`Storage_script_mismatch position)
   | None ->
-      run_graph ~arenas ?hooks ?on_format_mismatch ?region_counters
+      run_graph ~policy ~arenas ?hooks ?on_format_mismatch ?region_counters
         ?region_executor ?region_group_executor ?node_executor ~limits ?retain
         ~constants g env0
 
-let run ?arena ?hooks ?trace ?on_format_mismatch ?region_counters
-    ?region_executor ?region_group_executor ?node_executor
-    ?(limits = Kernel.Limits.default) ?retain ?(constants = []) (g : graph)
-    ~(inputs : (Tensor_id.t * Tensor.packed) list) =
+let run ?(policy = Direct.Policy.default) ?arena ?hooks ?trace
+    ?on_format_mismatch ?region_counters ?region_executor ?region_group_executor
+    ?node_executor ?(limits = Kernel.Limits.default) ?retain ?(constants = [])
+    (g : graph) ~(inputs : (Tensor_id.t * Tensor.packed) list) =
   let open Err.Syntax in
   let* env0 = bind_inputs g inputs in
   let go () =
-    run_graph ~arenas:(Option.to_list arena) ?hooks ?trace ?on_format_mismatch
-      ?region_counters ?region_executor ?region_group_executor ?node_executor
-      ~limits ?retain ~constants g env0
+    run_graph ~policy ~arenas:(Option.to_list arena) ?hooks ?trace
+      ?on_format_mismatch ?region_counters ?region_executor
+      ?region_group_executor ?node_executor ~limits ?retain ~constants g env0
   in
   match arena with
   | None -> go ()

@@ -21,7 +21,7 @@ let dump label json =
 
 (* No argument to decode besides [self] and no shape check that can fail --
    [alias.default] always legalizes to the existing [Clone] node (paramless,
-   shape-preserving; see op_bridge_shape.ml's arm for why [Clone] rather than
+   shape-preserving; see op_bridge_copy.ml's arm for why [Clone] rather than
    [Reshape]), so unlike view_test.ml's coverage there is no rejection path to
    pin, only the identity node it builds at a few ranks. *)
 let%expect_test "alias.default lowers to an identity Clone, several ranks" =

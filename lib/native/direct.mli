@@ -1,12 +1,10 @@
 (* Concrete evaluation: values are floats, indices are ['role Dim.t] (see
-   direct.ml), an input is a real tensor. See .ai/native_compute_design.md §3. *)
+   direct.ml), an input is a real tensor. See .ai/native_compute_design.md §3.
 
-include
-  Semantics.SEMANTICS
-    with type t = float
-     and type b = bool
-     and type 'role index = 'role Dim.t
-     and type input = Tensor.packed
+   The two numeric policies below are part of the evaluator instance, never
+   ambient: [Make (P)] is the evaluator under policy [P], and the module
+   itself is the instance under {!Policy.default}. Two policies coexist in one
+   process; nothing is set and restored. *)
 
 (** How {!dot} accumulates. [Binary64] (the default) sums the exact products in
     binary64, so one rounding to binary32 happens on store.
@@ -24,21 +22,41 @@ type dot_accumulation = Binary64 | Binary32_sequential
     caller opts into and a report names. *)
 type float_to_int = Checked | Saturating
 
-val with_float_to_int : float_to_int -> (unit -> 'a) -> 'a
-(** Scoped like {!with_dot_accumulation}. *)
+module Policy : sig
+  type t = { dot_accumulation : dot_accumulation; float_to_int : float_to_int }
 
-val with_dot_accumulation : dot_accumulation -> (unit -> 'a) -> 'a
-(** Runs the thunk with the policy, restoring the previous one even if it
-    raises. Scoped state: the engine is single-threaded. *)
+  val default : t
+  (** [Binary64] dots, [Checked] casts. *)
+end
 
-include
-  Semantics.TYPED_SEMANTICS
-    with type 'a repr = 'a
-     and type 'role index := 'role Dim.t
-     and type input := Tensor.packed
-     and type b := bool
+module type POLICY = sig
+  val policy : Policy.t
+end
 
-(* [i64_load]'s [Bool] counterpart -- not part of [Semantics.TYPED_SEMANTICS]
-   since only [Eval_direct]'s [To_copy(Long)] dispatch reads a Bool operand
-   today; no [Symbolic] twin exists yet. *)
-val bool_load : Tensor.packed -> Semantics.position Dim.t Vec6.t -> bool
+module type S = sig
+  include
+    Semantics.SEMANTICS
+      with type t = float
+       and type b = bool
+       and type 'role index = 'role Dim.t
+       and type input = Tensor.packed
+
+  include
+    Semantics.TYPED_SEMANTICS
+      with type 'a repr = 'a
+       and type 'role index := 'role Dim.t
+       and type input := Tensor.packed
+       and type b := bool
+
+  (* [i64_load]'s [Bool] counterpart -- not part of
+     [Semantics.TYPED_SEMANTICS] since only [Eval_direct]'s [To_copy(Long)]
+     dispatch reads a Bool operand today; no [Symbolic] twin exists yet. *)
+  val bool_load : Tensor.packed -> Semantics.position Dim.t Vec6.t -> bool
+end
+
+(** The evaluator under a policy. Applied once per policy, not per run: a
+    functor application builds the whole evaluator. *)
+module Make (_ : POLICY) : S
+
+include S
+(** The instance under {!Policy.default}. *)

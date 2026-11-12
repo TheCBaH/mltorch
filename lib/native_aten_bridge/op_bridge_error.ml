@@ -302,3 +302,15 @@ let pp_error ppf : [< error ] -> unit = function
   | `Unsupported_padding_mode s ->
       Fmt.pf ppf "padding mode %S is neither \"valid\" nor \"same\"" s
   | `Validation_failure msg -> Fmt.string ppf msg
+
+(* The operand list an arm hands [build_g] comes back as one id per operand, in
+   order, so an arm's match over that list can only miss through a bug in the
+   arm itself -- never through the model. That is a module invariant, which
+   stays [invalid_arg] (CLAUDE.md), but it names the op and the count rather
+   than reporting [Assert_failure] at a source position. [op] is the node's
+   target. *)
+let arity_mismatch ~op operands =
+  invalid_arg
+    (Printf.sprintf
+       "%s: an operand list of %d entries matched none of the arm's patterns" op
+       (List.length operands))

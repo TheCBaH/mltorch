@@ -32,7 +32,7 @@ let dispatch ~(aten_env : aten_env) (node : Node.t) :
                    let* w' = permute perm_addmm_weight w_id in
                    let+ y = linear params ~x:x_id ~weight:w' ~bias:bias_id () in
                    [ y ]
-               | _ -> assert false)
+               | operands -> arity_mismatch ~op:node.Node.target operands)
            with Invalid_argument msg -> fail (`Validation_failure msg))
   | "torch.ops.aten.bmm.default" -> (
       match
@@ -46,7 +46,7 @@ let dispatch ~(aten_env : aten_env) (node : Node.t) :
                 let open Graph_builder in
                 let+ y = bmm a_id b_id in
                 [ y ]
-            | _ -> assert false)
+            | operands -> arity_mismatch ~op:node.Node.target operands)
           |> some_graph)
   (* Two shape families (`.ai/matmul_softmax_design.md` §4-5), both binding to
      an EXISTING/new node unchanged rather than a relayout:
@@ -91,7 +91,7 @@ let dispatch ~(aten_env : aten_env) (node : Node.t) :
                  let open Graph_builder in
                  let+ y = bmm a_id b_id in
                  [ y ]
-             | _ -> assert false)
+             | operands -> arity_mismatch ~op:node.Node.target operands)
          else if rank_a >= 2 && rank_b >= 2 then
            let* a = native_of_aten "self" aten_a in
            let* b = native_of_aten "other" aten_b in
@@ -100,7 +100,7 @@ let dispatch ~(aten_env : aten_env) (node : Node.t) :
                  let open Graph_builder in
                  let+ y = batched_matmul a_id b_id in
                  [ y ]
-             | _ -> assert false)
+             | operands -> arity_mismatch ~op:node.Node.target operands)
          else
            fail
              (`Matmul_unsupported_shape
@@ -132,7 +132,7 @@ let dispatch ~(aten_env : aten_env) (node : Node.t) :
                    let open Graph_builder in
                    let+ y = einsum plan self_id other_id in
                    [ y ]
-               | _ -> assert false)
+               | operands -> arity_mismatch ~op:node.Node.target operands)
          | _ ->
              fail
                (`Einsum_unsupported
@@ -174,6 +174,6 @@ let dispatch ~(aten_env : aten_env) (node : Node.t) :
                    let* w' = permute perm_linear_weight w_id in
                    let+ y = linear params ~x:x_id ~weight:w' ~bias:b_id () in
                    [ y ]
-               | _ -> assert false)
+               | operands -> arity_mismatch ~op:node.Node.target operands)
            with Invalid_argument msg -> fail (`Validation_failure msg))
   | _ -> None

@@ -38,7 +38,7 @@ let dispatch ~(aten_env : aten_env) (node : Node.t) :
                let* values, indices = max_dim params x_id in
                let+ () = discard indices in
                [ values ]
-           | _ -> assert false))
+           | operands -> arity_mismatch ~op:node.Node.target operands))
   | "torch.ops.aten.amax.default" ->
       Some
         (let* t = tensor_arg aten_env node "self" in
@@ -52,7 +52,7 @@ let dispatch ~(aten_env : aten_env) (node : Node.t) :
                let open Graph_builder in
                let+ y = amax params x_id in
                [ y ]
-           | _ -> assert false))
+           | operands -> arity_mismatch ~op:node.Node.target operands))
   | "torch.ops.aten.mean.dim" ->
       Some
         (let* t = tensor_arg aten_env node "self" in
@@ -66,7 +66,7 @@ let dispatch ~(aten_env : aten_env) (node : Node.t) :
                let open Graph_builder in
                let+ y = mean params x_id in
                [ y ]
-           | _ -> assert false))
+           | operands -> arity_mismatch ~op:node.Node.target operands))
   (* `dtype` is decoded and rejected rather than silently dropped when
      present, the same treatment `linalg_vector_norm.default`'s gets below. *)
   | "torch.ops.aten.sum.dim_IntList" ->
@@ -85,7 +85,7 @@ let dispatch ~(aten_env : aten_env) (node : Node.t) :
                let open Graph_builder in
                let+ y = sum params x_id in
                [ y ]
-           | _ -> assert false))
+           | operands -> arity_mismatch ~op:node.Node.target operands))
   (* ord=2 (the schema default) only: general ord needs its own `pow`, out of
      scope. `dtype` is decoded and rejected rather than silently dropped
      when present -- the same treatment `cudnn_enable` gets on
@@ -119,7 +119,7 @@ let dispatch ~(aten_env : aten_env) (node : Node.t) :
                let open Graph_builder in
                let+ y = vector_norm params x_id in
                [ y ]
-           | _ -> assert false))
+           | operands -> arity_mismatch ~op:node.Node.target operands))
   (* [dim] is required by the schema (no default) -- unlike [dims_arg]'s
      dim-LIST convention for [amax]/[mean]/[vector_norm], which treats an
      absent/empty/None list as "all dims", softmax always names exactly one
@@ -142,7 +142,7 @@ let dispatch ~(aten_env : aten_env) (node : Node.t) :
                let open Graph_builder in
                let+ y = softmax params x_id in
                [ y ]
-           | _ -> assert false))
+           | operands -> arity_mismatch ~op:node.Node.target operands))
   (* [dim] is required by the schema (no default), the same singleton-axis
      convention [softmax.int]'s arm just above takes. `dtype` is decoded and
      restricted to the schema default (None) or FLOAT: Native's compute
@@ -173,5 +173,5 @@ let dispatch ~(aten_env : aten_env) (node : Node.t) :
                let open Graph_builder in
                let+ y = cumsum params x_id in
                [ y ]
-           | _ -> assert false))
+           | operands -> arity_mismatch ~op:node.Node.target operands))
   | _ -> None

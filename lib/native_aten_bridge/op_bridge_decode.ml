@@ -1,9 +1,7 @@
 (* Argument-decoding, permutation, and conv2d/pool2d parameter helpers for
    [Op_bridge], split from op_bridge.ml. Internal to the
-   per-operation-family dispatch modules (op_bridge_pointwise.ml,
-   op_bridge_linalg.ml, op_bridge_conv.ml, op_bridge_pool.ml,
-   op_bridge_reduce.ml, op_bridge_norm.ml, op_bridge_attention.ml,
-   op_bridge_shape.ml); not part of [Op_bridge]'s own external surface. *)
+   per-operation-family dispatch modules (the other op_bridge_*.ml
+   files); not part of [Op_bridge]'s own external surface. *)
 
 open Pytorch_types
 open Op_bridge_error

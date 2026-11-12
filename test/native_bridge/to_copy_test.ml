@@ -1,6 +1,6 @@
 (* _to_copy.default, through the ATen-linked bridge. Restricted to the
    three-way [Pointwise.To_copy.target] domain the corpus actually uses
-   (bool/float/long) -- see op_bridge_shape.ml's own comment.
+   (bool/float/long) -- see op_bridge_copy.ml's own comment.
    Promote with [dune promote test/native_bridge/to_copy_test.ml]. *)
 
 open Helpers
@@ -18,7 +18,7 @@ let dispatch_to_copy ?dtype ?(non_blocking = false) self =
 
 (* dtype=None keeps self's own (float) values unchanged, the same as an
    explicit FLOAT target -- Native has no per-tensor dtype tag to fall back
-   on (see op_bridge_shape.ml's own comment), so both read as the identity. *)
+   on (see op_bridge_copy.ml's own comment), so both read as the identity. *)
 let%expect_test "dispatch: _to_copy with no dtype is the identity" =
   let self = float_tensor [ 3 ] [ 1.5; -2.7; 0. ] in
   dispatch_to_copy self;
@@ -73,7 +73,7 @@ let%expect_test "dispatch: _to_copy ignores non_blocking" =
     tensor i64 [C=3] {1, -2, 0} |}]
 
 (* Outside the three-way corpus-evidenced domain: no Native value
-   representation this op would target (see op_bridge_shape.ml's comment). *)
+   representation this op would target (see op_bridge_copy.ml's comment). *)
 let%expect_test "dispatch: _to_copy rejects an unsupported dtype" =
   let self = float_tensor [ 3 ] [ 1.; 2.; 3. ] in
   dispatch_to_copy ~dtype:PT.ScalarType.INT self;

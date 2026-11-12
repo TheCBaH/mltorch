@@ -161,6 +161,6 @@ let dispatch ~(aten_env : aten_env) (node : Node.t) :
                        ~c0:c0_id ()
                    in
                    return [ out_id; hn_id; cn_id ]
-               | _ -> assert false)
+               | operands -> arity_mismatch ~op:node.Node.target operands)
          with Invalid_argument msg -> fail (`Validation_failure msg))
   | _ -> None

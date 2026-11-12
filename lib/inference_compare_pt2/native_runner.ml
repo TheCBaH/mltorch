@@ -127,8 +127,9 @@ let create ?artifact ?(dots = Direct.Binary64) () : t =
             List.map (fun (i, (v : Value.t)) -> (Option.get i, v.packed)) bound
           in
           match
-            Direct.with_dot_accumulation dots (fun () ->
-                Eval_direct.run body.graph ~inputs)
+            Eval_direct.run
+              ~policy:{ Direct.Policy.default with dot_accumulation = dots }
+              body.graph ~inputs
           with
           | Error e ->
               fail

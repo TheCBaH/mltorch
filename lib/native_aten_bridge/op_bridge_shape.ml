@@ -1,5 +1,7 @@
-(* Shape/view family (permute/slice/cat/...) op-dispatch arms for [Op_bridge], split from op_bridge.ml. See op_bridge.ml for the [dispatch] facade that
-   folds every family module (including this one) into one lookup. *)
+(* Shape and view family (permute/pad/slice/squeeze/view/expand/repeat...)
+   op-dispatch arms for [Op_bridge], split from op_bridge.ml. See op_bridge.ml
+   for the [dispatch] facade that folds every family module (including this
+   one) into one lookup. *)
 
 open Pytorch_types
 open Op_bridge_error
@@ -10,269 +12,6 @@ let dispatch ~(aten_env : aten_env) (node : Node.t) :
     (Graph_ir.graph * (Graph_ir.Tensor_id.t * Tensor.packed) list, error) Err.t
     option =
   match node.target with
-  | "torch.ops.aten.col2im.default" ->
-      Some
-        (let op = "col2im.default" in
-         let* x = native_tensor_arg aten_env node "self" in
-         let* output_size = ints_arg node "output_size" in
-         let* kernel_size = ints_arg node "kernel_size" in
-         let* dilation = ints_arg node "dilation" in
-         let* padding = ints_arg node "padding" in
-         let* stride = ints_arg node "stride" in
-         let* out_h, out_w = hw2 "output_size" output_size in
-         let* kh, kw = hw2 "kernel_size" kernel_size in
-         let* dh, dw = hw2 "dilation" dilation in
-         let* ph, pw = hw2 "padding" padding in
-         let* sh, sw = hw2 "stride" stride in
-         let* out_h = extent ~op ~param:`Output_size out_h in
-         let* out_w = extent ~op ~param:`Output_size out_w in
-         let* kh = extent ~op ~param:`Kernel_size kh in
-         let* kw = extent ~op ~param:`Kernel_size kw in
-         let* dh = pos ~op ~param:`Dilation dh in
-         let* dw = pos ~op ~param:`Dilation dw in
-         let* ph = nonneg ~op ~param:`Padding ph in
-         let* pw = nonneg ~op ~param:`Padding pw in
-         let* sh = pos ~op ~param:`Stride sh in
-         let* sw = pos ~op ~param:`Stride sw in
-         let window =
-           Im2col.Params.
-             {
-               h =
-                 {
-                   Im2col.Window.kernel = kh;
-                   dilation = dh;
-                   pad = ph;
-                   stride = sh;
-                 };
-               w =
-                 {
-                   Im2col.Window.kernel = kw;
-                   dilation = dw;
-                   pad = pw;
-                   stride = sw;
-                 };
-             }
-         in
-         let params =
-           Im2col.Col2im.{ window; output_h = out_h; output_w = out_w }
-         in
-         build_g ~name:"col2im" [ x ] (function
-           | [ x_id ] ->
-               let open Graph_builder in
-               let* y' = col2im params x_id in
-               let+ y = permute perm_nhwc_to_nchw y' in
-               [ y ]
-           | _ -> assert false))
-  | "torch.ops.aten.im2col.default" ->
-      Some
-        (let op = "im2col.default" in
-         let* x = native_tensor_arg aten_env node "self" in
-         let* kernel_size = ints_arg node "kernel_size" in
-         let* dilation = ints_arg node "dilation" in
-         let* padding = ints_arg node "padding" in
-         let* stride = ints_arg node "stride" in
-         let* kh, kw = hw2 "kernel_size" kernel_size in
-         let* dh, dw = hw2 "dilation" dilation in
-         let* ph, pw = hw2 "padding" padding in
-         let* sh, sw = hw2 "stride" stride in
-         let* kh = extent ~op ~param:`Kernel_size kh in
-         let* kw = extent ~op ~param:`Kernel_size kw in
-         let* dh = pos ~op ~param:`Dilation dh in
-         let* dw = pos ~op ~param:`Dilation dw in
-         let* ph = nonneg ~op ~param:`Padding ph in
-         let* pw = nonneg ~op ~param:`Padding pw in
-         let* sh = pos ~op ~param:`Stride sh in
-         let* sw = pos ~op ~param:`Stride sw in
-         let params =
-           Im2col.Params.
-             {
-               h =
-                 {
-                   Im2col.Window.kernel = kh;
-                   dilation = dh;
-                   pad = ph;
-                   stride = sh;
-                 };
-               w =
-                 {
-                   Im2col.Window.kernel = kw;
-                   dilation = dw;
-                   pad = pw;
-                   stride = sw;
-                 };
-             }
-         in
-         build_g ~name:"im2col" [ x ] (function
-           | [ x_id ] ->
-               let open Graph_builder in
-               let* x' = permute perm_nchw_to_nhwc x_id in
-               let+ y = im2col params x' in
-               [ y ]
-           | _ -> assert false))
-  | "torch.ops.aten.clone.default" ->
-      Some
-        (let* x = native_tensor_arg aten_env node "self" in
-         (* Native's engine has exactly one physical layout per shape --
-            there is no channels-last stride concept anywhere in the six-axis
-            frame -- so a request to make the result CONTIGUOUS, or to
-            PRESERVE whatever format the input already has, is always already
-            true: every native tensor is already in that one dense layout.
-            (Confirmed against the corpus: every `clone.default` occurrence
-            across the 100-model sweep requests either no format or exactly
-            `ContiguousFormat` -- see `.ai/pt2_model_support.md`.) A request
-            for an actual different physical arrangement (channels-last) asks
-            for something this engine cannot represent, so it is refused
-            rather than silently treated as a no-op. *)
-         let* mf =
-           decode_result (D.memory_format_opt_arg_result node "memory_format")
-         in
-         match mf with
-         | None | Some (Aten_memory_format.Contiguous | Preserve) ->
-             build_g ~name:"clone" [ x ] (function
-               | [ x_id ] ->
-                   let open Graph_builder in
-                   let+ y = clone x_id in
-                   [ y ]
-               | _ -> assert false)
-         | Some Aten_memory_format.ChannelsLast ->
-             fail (`Unsupported_memory_format `Channels_last)
-         | Some Aten_memory_format.ChannelsLast3d ->
-             fail (`Unsupported_memory_format `Channels_last_3d))
-  (* `_to_copy(Tensor self, *, ScalarType? dtype=None, Layout? layout=None,
-     Device? device=None, bool? pin_memory=None, bool non_blocking=False,
-     MemoryFormat? memory_format=None) -> Tensor`. Restricted to the
-     three-way [Pointwise.To_copy.target] domain the corpus actually uses
-     (bool/float/long) -- see that module's own comment for why there is no
-     Native value representation to target outside it. [dtype=None] means
-     "keep self's own dtype", which this engine cannot distinguish from the
-     float target (there is no per-tensor dtype tag on an ordinary compute
-     edge -- see graph_builder.ml's "op-output edges are F32" note), so it
-     is treated as [Float], the identity. [non_blocking] is a
-     device-transfer hint, read-and-discarded the same way it is in
-     [copy.default]'s arm above; [layout]/[device]/[pin_memory] are rejected
-     unless omitted/default, the same [zeros.default] precedent;
-     [memory_format] is rejected the same way [clone.default]'s own arm
-     rejects a real relayout request. *)
-  | "torch.ops.aten._to_copy.default" ->
-      Some
-        (let* x = native_tensor_arg aten_env node "self" in
-         let* target =
-           match D.find_arg node "dtype" with
-           | None | Some (Argument.None _) -> return Pointwise.To_copy.Float
-           | Some (Argument.Scalar_type Pytorch_types.ScalarType.BOOL) ->
-               return Pointwise.To_copy.Bool
-           | Some (Argument.Scalar_type Pytorch_types.ScalarType.FLOAT) ->
-               return Pointwise.To_copy.Float
-           | Some (Argument.Scalar_type Pytorch_types.ScalarType.LONG) ->
-               return Pointwise.To_copy.Long
-           | Some _ ->
-               fail
-                 (`Validation_failure
-                    "_to_copy: only default/BOOL/FLOAT/LONG dtype are supported")
-         in
-         let reject_absent name =
-           match D.find_arg node name with
-           | None | Some (Argument.None _) -> return ()
-           | Some _ ->
-               fail
-                 (`Validation_failure
-                    ("_to_copy: " ^ name ^ " must be omitted or None"))
-         in
-         let* () = reject_absent "layout" in
-         let* () =
-           match D.find_arg node "device" with
-           | None | Some (Argument.None _) -> return ()
-           | Some (Argument.Device { Device.type_ = "cpu"; index = None }) ->
-               return ()
-           | Some _ ->
-               fail
-                 (`Validation_failure
-                    "_to_copy: device must be omitted/None or CPU without an \
-                     index")
-         in
-         let* () =
-           match D.find_arg node "pin_memory" with
-           | None | Some (Argument.None _) | Some (Argument.Bool false) ->
-               return ()
-           | Some _ ->
-               fail
-                 (`Validation_failure
-                    "_to_copy: pin_memory must be omitted/None or false")
-         in
-         let* () = reject_absent "memory_format" in
-         build_g ~name:"to_copy" [ x ] (function
-           | [ x_id ] ->
-               let open Graph_builder in
-               let+ y = to_copy target x_id in
-               [ y ]
-           | _ -> assert false))
-  (* `type_as(Tensor self, Tensor other) -> Tensor` (method): `self.to(
-     other.dtype)`, so this legalizes onto the SAME [Pointwise.To_copy] node
-     [_to_copy.default] above builds -- the target comes from [other]'s own
-     RUNTIME dtype rather than an explicit scalar argument (there is none),
-     restricted to the same three-way bool/float/long domain
-     [Pointwise.To_copy] already covers. The corpus's own occurrence is
-     float-to-float (an identity, matching [To_copy.Float]'s own compute),
-     but the translation is the fully general one regardless. *)
-  | "torch.ops.aten.type_as.default" ->
-      Some
-        (let* self_t = tensor_arg aten_env node "self" in
-         let* other_t = tensor_arg aten_env node "other" in
-         let* target =
-           match Aten_tensor.scalar_type other_t with
-           | Aten_scalar_type.Bool -> return Pointwise.To_copy.Bool
-           | Aten_scalar_type.Float -> return Pointwise.To_copy.Float
-           | Aten_scalar_type.Long -> return Pointwise.To_copy.Long
-           | dtype ->
-               fail
-                 (`Validation_failure
-                    (Printf.sprintf
-                       "type_as: other's dtype %s is not supported (only \
-                        Bool/Float/Long)"
-                       (Aten_scalar_type.to_string dtype)))
-         in
-         let* x = native_of_aten "self" self_t in
-         build_g ~name:"type_as" [ x ] (function
-           | [ x_id ] ->
-               let open Graph_builder in
-               let+ y = to_copy target x_id in
-               [ y ]
-           | _ -> assert false))
-  (* `copy(Tensor self, Tensor src, bool non_blocking=False) -> Tensor`.
-     [self]'s VALUE never matters -- real ATen's [copy_]/[copy] fully
-     OVERWRITES [self] with [src] broadcast to [self]'s shape, so the result
-     depends only on [src]'s values and [self]'s declared shape/dtype, never
-     on what [self] held before. [non_blocking] is a device-transfer hint,
-     irrelevant to this single-device engine, read-and-discarded the same
-     way [implicit] is in [expand.default]'s arm below. Binds directly to
-     the EXISTING [Pointwise.Expand] node -- the corpus's own occurrences
-     are exclusively the functionalized form of `tensor[idx] = value`
-     (`self` is a [select.int] view, immediately followed by a
-     [select_scatter.default] writing the result back), where [self] and
-     [src] always share one shape (verified: zero broadcasts, zero dtype
-     casts across every occurrence in the 100-model corpus), but the
-     translation is the fully general one regardless: `Expand{size=self's
-     shape}` applied to [src] computes exactly ATen's own broadcast, not an
-     overfit to the observed equal-shape case. The same "map onto an
-     existing op after translating parameters" route [sub.Tensor]'s scalar
-     form takes to [Add_scalar] -- one node, [copy.default]'s own identity
-     not preserved in the graph, same as that arm's. *)
-  | "torch.ops.aten.copy.default" ->
-      Some
-        (let* self_t = tensor_arg aten_env node "self" in
-         let* (_ : bool) = bool_arg node "non_blocking" in
-         let* target =
-           Err.map_error
-             (fun e -> `Aten_shape e)
-             (Aten_shape.of_aten (aten_dims self_t))
-         in
-         let* src = native_tensor_arg aten_env node "src" in
-         build_g ~name:"copy" [ src ] (function
-           | [ src_id ] ->
-               let open Graph_builder in
-               let+ y = expand { Pointwise.Expand.size = target } src_id in
-               [ y ]
-           | _ -> assert false))
   | "torch.ops.aten.permute.default" ->
       Some
         (let* t = tensor_arg aten_env node "self" in
@@ -288,7 +27,7 @@ let dispatch ~(aten_env : aten_env) (node : Node.t) :
                let open Graph_builder in
                let+ y = permute perm x_id in
                [ y ]
-           | _ -> assert false))
+           | operands -> arity_mismatch ~op:node.Node.target operands))
   (* Reuses [native_perm_of_aten], the same permute machinery
      [permute.default] builds on, rather than a new builder -- outer padding
      axes stay identity because that helper already does that. Equal dims are
@@ -316,7 +55,7 @@ let dispatch ~(aten_env : aten_env) (node : Node.t) :
                let open Graph_builder in
                let+ y = permute perm x_id in
                [ y ]
-           | _ -> assert false))
+           | operands -> arity_mismatch ~op:node.Node.target operands))
   (* The only arm returning a variable number of outputs, and the only one whose
      count is fixed by the OPERAND rather than the op. Every slice is exposed:
      unlike a fixed tuple's dead output, there is nothing here to drop, and
@@ -349,7 +88,7 @@ let dispatch ~(aten_env : aten_env) (node : Node.t) :
                let open Graph_builder in
                let+ y = pad params x_id in
                [ y ]
-           | _ -> assert false))
+           | operands -> arity_mismatch ~op:node.Node.target operands))
   (* The bounds come from the LIVE tensor's extent, which is the whole reason
      this arm and the importer's differ at all: everything after
      [Aten_shape.resolve_slice] is shared, and the extent is the one thing the
@@ -389,184 +128,13 @@ let dispatch ~(aten_env : aten_env) (node : Node.t) :
                    x_id
                in
                [ y ]
-           | _ -> assert false))
+           | operands -> arity_mismatch ~op:node.Node.target operands))
   (* The variadic Native [Concat] op, direct: every operand keeps its rank,
      [dim] names an existing axis. ATen requires every tensor to share one
      rank (no broadcasting across the list), checked explicitly rather than
      left to [Concat.output_shape]'s own axis-agreement rule — see
      [Concat_rank_mismatch]'s doc comment for why that rule would report the
      wrong fault. *)
-  | "torch.ops.aten.cat.default" ->
-      Some
-        (let* aten_xs = tensors_arg aten_env node "tensors" in
-         let* () = Err.List.iter (require_f32 "tensors") aten_xs in
-         let* dim = dim_arg ~default:0 node "dim" in
-         match aten_xs with
-         | [] -> fail (`Concat_no_tensors "cat.default")
-         | aten_x0 :: _ ->
-             let rank = aten_rank aten_x0 in
-             let* () =
-               Err.List.iter
-                 (fun t ->
-                   let got = aten_rank t in
-                   if Rank.equal got rank then return ()
-                   else
-                     fail
-                       (`Concat_rank_mismatch
-                          {
-                            Concat_rank_mismatch.op = "cat.default";
-                            first = rank;
-                            other = got;
-                          }))
-                 aten_xs
-             in
-             let* d = norm_dim ~op:"cat.default" ~rank dim in
-             let axis = Aten_shape.axis_of_dim ~rank (Aten_int.Dim.of_int d) in
-             let* xs = Err.List.map (native_of_aten "tensors") aten_xs in
-             build_g ~name:"cat" xs (fun ids ->
-                 let open Graph_builder in
-                 let+ y = concat { Concat.Concat.axis } ids in
-                 [ y ]))
-  (* One [Stack] node: inserts a size-1 axis per operand at [axis], then joins
-     them — ATen's own definition is exactly
-     `cat([t.unsqueeze(dim) for t in tensors], dim)`, which [Stack]'s shape
-     rule/[Compute] reuse from [Concat]/[Split.Select]'s implementations
-     rather than materializing as separate [Reshape] nodes. [dim] is judged
-     against rank+1 valid positions, the OUTPUT rank, same reasoning as
-     [norm_unsqueeze_dim]. *)
-  | "torch.ops.aten.stack.default" ->
-      Some
-        (let* aten_xs = tensors_arg aten_env node "tensors" in
-         let* () = Err.List.iter (require_f32 "tensors") aten_xs in
-         let* dim = dim_arg ~default:0 node "dim" in
-         match aten_xs with
-         | [] -> fail (`Concat_no_tensors "stack.default")
-         | aten_x0 :: _ ->
-             let rank = aten_rank aten_x0 in
-             let* () =
-               Err.List.iter
-                 (fun t ->
-                   let got = aten_rank t in
-                   if Rank.equal got rank then return ()
-                   else
-                     fail
-                       (`Concat_rank_mismatch
-                          {
-                            Concat_rank_mismatch.op = "stack.default";
-                            first = rank;
-                            other = got;
-                          }))
-                 aten_xs
-             in
-             let* d = norm_unsqueeze_dim ~op:"stack.default" ~rank dim in
-             let* xs = Err.List.map (native_of_aten "tensors") aten_xs in
-             let axis =
-               Aten_shape.axis_of_dim
-                 ~rank:(Rank.of_int ((rank :> int) + 1))
-                 (Aten_int.Dim.of_int d)
-             in
-             build_g ~name:"stack" xs (fun ids ->
-                 let open Graph_builder in
-                 let+ y = stack { Concat.Stack.axis } ids in
-                 [ y ]))
-  (* [meshgrid.indexing(Tensor[] tensors, *, str indexing) -> Tensor[]],
-     restricted to the corpus's own shape -- see [Meshgrid.Meshgrid]'s own
-     comment: every input rank-1, [indexing="ij"] only ("xy" swaps the first
-     two OUTPUT axes for every output, a different rule with no corpus
-     evidence). Rank itself is [Graph_shape]'s own check
-     ([Meshgrid.Meshgrid.output_shapes]), not restated here. *)
-  | "torch.ops.aten.meshgrid.indexing" ->
-      Some
-        (let* aten_xs = tensors_arg aten_env node "tensors" in
-         let* indexing = string_arg ~default:"ij" node "indexing" in
-         let* () =
-           if String.equal indexing "ij" then return ()
-           else
-             fail
-               (`Validation_failure
-                  (Printf.sprintf
-                     "meshgrid.indexing: indexing=%S is not supported (only \
-                      \"ij\")"
-                     indexing))
-         in
-         let* xs = Err.List.map (native_of_aten "tensors") aten_xs in
-         build_g ~name:"meshgrid" xs (fun ids ->
-             let open Graph_builder in
-             meshgrid ids))
-  (* One [Select] node: picks index [idx] along [axis] and drops it. Unlike
-     [slice.Tensor], ATen REJECTS an out-of-range [index] rather than clamping
-     it -- [Aten_shape.resolve_index], not [resolve_slice]. *)
-  | "torch.ops.aten.select.int" ->
-      Some
-        (let* aten_x = tensor_arg aten_env node "self" in
-         let* () = require_f32 "self" aten_x in
-         let rank = aten_rank aten_x in
-         let* dim = dim_arg node "dim" in
-         let* index = int_arg node "index" in
-         let index = Aten_int.Index.of_int index in
-         let* x = native_of_aten "self" aten_x in
-         let* d = norm_dim ~op:"select.int" ~rank dim in
-         let axis = Aten_shape.axis_of_dim ~rank (Aten_int.Dim.of_int d) in
-         let extent = Vec6.get (packed_shape x) axis in
-         let* idx =
-           Err.map_error
-             (fun e -> `Aten_shape e)
-             (Aten_shape.resolve_index ~extent ~index)
-         in
-         build_g ~name:"select" [ x ] (function
-           | [ x_id ] ->
-               let open Graph_builder in
-               let+ y = select { Split.Select.axis; index = idx } x_id in
-               [ y ]
-           | _ -> assert false))
-  (* One [Select_scatter] node: [self] with [src] written at [idx] along
-     [axis], and every other position carried through from [self] unchanged
-     -- the write-back counterpart of [select.int] just above, sharing its
-     [Aten_shape.resolve_index] canonicalisation (ATen REJECTS an
-     out-of-range index rather than clamping it). [index] is declared
-     [SymInt] in ATen's own schema, same as [select.int]'s plain [int] once
-     traced: the corpus's own occurrences all arrive as [as_int], so
-     [int_arg] reads it unchanged. *)
-  | "torch.ops.aten.select_scatter.default" ->
-      Some
-        (let* aten_self = tensor_arg aten_env node "self" in
-         let* () = require_f32 "self" aten_self in
-         let* aten_src = tensor_arg aten_env node "src" in
-         let* () = require_f32 "src" aten_src in
-         let rank = aten_rank aten_self in
-         let* dim = dim_arg node "dim" in
-         let* index = int_arg node "index" in
-         let index = Aten_int.Index.of_int index in
-         let* self = native_of_aten "self" aten_self in
-         let* src = native_of_aten "src" aten_src in
-         let* d = norm_dim ~op:"select_scatter.default" ~rank dim in
-         let axis = Aten_shape.axis_of_dim ~rank (Aten_int.Dim.of_int d) in
-         let extent = Vec6.get (packed_shape self) axis in
-         let* idx =
-           Err.map_error
-             (fun e -> `Aten_shape e)
-             (Aten_shape.resolve_index ~extent ~index)
-         in
-         build_g ~name:"select_scatter" [ self; src ] (function
-           | [ self_id; src_id ] ->
-               let open Graph_builder in
-               let+ y =
-                 select_scatter
-                   { Split.Select_scatter.axis; index = idx }
-                   ~self:self_id ~src:src_id
-               in
-               [ y ]
-           | _ -> assert false))
-  (* No [require_f32]: legalizes to [Reshape] alone (see [squeeze.dim]'s own
-     comment below), and [Reshape]'s [Eval_direct] arm now dispatches an I64
-     operand through its own exact [Compute_i64] path -- and, since this
-     session, [Graph_builder.reshape] itself declares the OUTPUT edge's
-     format/quant from the operand's, not [op1]'s F32 default, so a
-     downstream dtype-branching consumer sees the correct signature too. Any
-     dtype [native_of_aten] cannot represent (i.e. not F32/F64/I64) is
-     already rejected by its own [Unsupported_dtype], with no separate gate
-     needed here -- matching [view.default]/[_unsafe_view.default], which
-     never had one. *)
   | "torch.ops.aten.squeeze.dims" ->
       Some
         (let* aten_x = tensor_arg aten_env node "self" in
@@ -594,7 +162,7 @@ let dispatch ~(aten_env : aten_env) (node : Node.t) :
                let open Graph_builder in
                let+ y = reshape { Reshape.Reshape.shape = target } x_id in
                [ y ]
-           | _ -> assert false))
+           | operands -> arity_mismatch ~op:node.Node.target operands))
   (* [squeeze.dim(self, dim)]: drops the axis at [dim] when its LIVE extent is
      1. Real ATen leaves [self] unchanged (same rank) rather than raising when
      the extent is not 1 -- a genuine per-shape branch, decided here against
@@ -625,7 +193,7 @@ let dispatch ~(aten_env : aten_env) (node : Node.t) :
                let open Graph_builder in
                let+ y = reshape { Reshape.Reshape.shape = target } x_id in
                [ y ]
-           | _ -> assert false))
+           | operands -> arity_mismatch ~op:node.Node.target operands))
   (* Legalized to [Reshape] alone: inserting a size-1 axis never changes the
      linearized data order, so no [Slice] is needed, unlike [select.int]'s
      axis removal. The target is [Aten_shape.to_aten]'s list with a bare [1]
@@ -651,33 +219,7 @@ let dispatch ~(aten_env : aten_env) (node : Node.t) :
                let open Graph_builder in
                let+ y = reshape { Reshape.Reshape.shape = target } x_id in
                [ y ]
-           | _ -> assert false))
-  | "torch.ops.aten.unbind.int" ->
-      Some
-        (let* aten_x = tensor_arg aten_env node "self" in
-         (* Rank comes from the ORIGINAL ATen tensor: [of_aten] right-aligns
-            into the six-axis frame, after which the rank is not recoverable. *)
-         let rank = aten_rank aten_x in
-         let* dim = dim_arg ~default:0 node "dim" in
-         (* Convert BEFORE judging the dim, so a rank Native cannot represent is
-            reported as the rank fault it is rather than as a bad dimension. *)
-         let* x = native_of_aten "self" aten_x in
-         let* axis = dim_axis ~op:"unbind.int" ~rank dim in
-         build_g ~name:"unbind" [ x ] (function
-           | [ x_id ] ->
-               let open Graph_builder in
-               unbind { Split.Unbind.axis } x_id
-           | _ -> assert false))
-  (* `unfold(Tensor(a) self, int dimension, int size, int step) -> Tensor(a)`:
-     a sliding-window view. [dimension] resolves against [self]'s OWN rank
-     exactly like [unbind.int]'s [dim] above, but names the axis the window
-     COUNT lands on in the OUTPUT ([Unfold.Unfold.dest_of]), not the axis of
-     [dimension] itself -- see unfold.ml's own header for why appending an
-     ATen axis relabels every axis already in the frame. [dest_of] raises
-     only when [dimension] resolves to the frame's own [N] (self already
-     uses all six axes at its outermost position), which the six-axis frame
-     categorically cannot grow past; every other rejection (self's [N] not
-     already unit) is [Unfold.output_shape]'s own typed check. *)
+           | operands -> arity_mismatch ~op:node.Node.target operands))
   | "torch.ops.aten.unfold.default" ->
       Some
         (let op = "unfold.default" in
@@ -697,7 +239,7 @@ let dispatch ~(aten_env : aten_env) (node : Node.t) :
                  let open Graph_builder in
                  let+ y = unfold { Unfold.Unfold.axis; size; step } x_id in
                  [ y ]
-             | _ -> assert false)
+             | operands -> arity_mismatch ~op:node.Node.target operands)
          with Invalid_argument msg -> fail (`Validation_failure msg))
   (* One [Split_with_sizes] node: divides [axis] into contiguous windows of
      [split_sizes], KEEPING the axis in every output, unlike [unbind.int]
@@ -708,154 +250,6 @@ let dispatch ~(aten_env : aten_env) (node : Node.t) :
      [Concat.output_shape]'s axis-agreement check follow. Preserves the
      input's own dtype like [unbind.int], not [require_f32]'d like
      [cat.default]/[stack.default]. *)
-  | "torch.ops.aten.split_with_sizes.default" ->
-      Some
-        (let* aten_x = tensor_arg aten_env node "self" in
-         let rank = aten_rank aten_x in
-         let* dim = dim_arg ~default:0 node "dim" in
-         let* sizes = sizes_arg node "split_sizes" in
-         let* x = native_of_aten "self" aten_x in
-         let* axis = dim_axis ~op:"split_with_sizes.default" ~rank dim in
-         let* params =
-           Split.Split_with_sizes.of_aten ~axis
-             ~in_extent:(Vec6.get (packed_shape x) axis)
-             sizes
-           |> Err.map_error (fun e -> `Build e)
-         in
-         build_g ~name:"split_with_sizes" [ x ] (function
-           | [ x_id ] ->
-               let open Graph_builder in
-               split_with_sizes params x_id
-           | _ -> assert false))
-  (* `split.Tensor(self, split_size, dim)` -- the equal-chunk-size sibling of
-     [split_with_sizes.default] just above. Binds to the *existing*
-     [Split_with_sizes] node: [chunk_sizes] derives the same sizes list ATen
-     itself would split into, so this is "translate params, still one node",
-     not a decomposition. *)
-  | "torch.ops.aten.split.Tensor" ->
-      Some
-        (let* aten_x = tensor_arg aten_env node "self" in
-         let rank = aten_rank aten_x in
-         let* dim = dim_arg ~default:0 node "dim" in
-         let* split_size = int_arg node "split_size" in
-         let* x = native_of_aten "self" aten_x in
-         let* axis = dim_axis ~op:"split.Tensor" ~rank dim in
-         let* split_size =
-           pos ~op:"split.Tensor" ~param:`Split_size split_size
-         in
-         let extent = (Vec6.get (packed_shape x) axis :> int) in
-         let sizes =
-           List.map Dim.extent
-             (chunk_sizes ~extent ~split_size:(split_size :> int))
-         in
-         build_g ~name:"split" [ x ] (function
-           | [ x_id ] ->
-               let open Graph_builder in
-               split_with_sizes { Split.Split_with_sizes.axis; sizes } x_id
-           | _ -> assert false))
-  (* Both overloads share this body: after commit 1's checked resolver the body
-     is three calls, and two copies of it is exactly the drift risk this repo
-     keeps warning about. Still exact-target dispatch in op3.md's sense -- both
-     targets are named, there is no fallthrough, and [native_of_aten]/every
-     diagnostic below reads [node.target], so a failure still says which
-     overload it was (op3-impl.md Part IV #2). [Identical] AFTER
-     materialization, not alias-identical: ATen may return a view over the
-     same storage, native graph edges are values. See
-     .ai/native_aten_bridge_layout.md. *)
-  (* Schema: `upsample_bilinear2d.vec(Tensor input, SymInt[]? output_size,
-     bool align_corners, float[]? scale_factors)`. Exactly one of
-     [output_size]/[scale_factors] is ever given (ATen's own
-     `compute_output_size` rejects both-or-neither); a [scale_factors] graph
-     is resolved to an explicit size here, at import time, using ATen's own
-     `floor(input_size * scale_factor)` -- the Native op only ever sees a
-     concrete size, since Native shapes are static. *)
-  (* Schema: `upsample_bicubic2d.vec(Tensor input, SymInt[]? output_size, bool
-     align_corners, float[]? scale_factors)` -- same shape as
-     [upsample_bilinear2d.vec] just below, including the output_size/
-     scale_factors resolution; only the Native op differs. *)
-  | "torch.ops.aten.upsample_bicubic2d.vec" ->
-      Some
-        (let* aten_x = tensor_arg aten_env node "input" in
-         let* () = require_rank "input" ~expected:4 aten_x in
-         let* output_size = ints_arg node "output_size" in
-         let* scale_factors = floats_arg node "scale_factors" in
-         let* align_corners = bool_arg node "align_corners" in
-         let w_shape = Aten_tensor.shape aten_x in
-         let in_h = w_shape.(2) and in_w = w_shape.(3) in
-         let* out_h, out_w =
-           resolve_upsample_size ~op:"upsample_bicubic2d.vec" ~in_h ~in_w
-             output_size scale_factors
-         in
-         let* h = pos ~op:node.Node.target ~param:`Output_size out_h in
-         let* w = pos ~op:node.Node.target ~param:`Output_size out_w in
-         let params =
-           { Resize.Bicubic2d.output_size = { h; w }; align_corners }
-         in
-         let* x = native_of_aten "input" aten_x in
-         build_g ~name:"upsample_bicubic2d_relayout" [ x ] (function
-           | [ x_id ] ->
-               let open Graph_builder in
-               let* x' = permute perm_nchw_to_nhwc x_id in
-               let* y' = upsample_bicubic2d params x' in
-               let+ y = permute perm_nhwc_to_nchw y' in
-               [ y ]
-           | _ -> assert false))
-  | "torch.ops.aten.upsample_bilinear2d.vec" ->
-      Some
-        (let* aten_x = tensor_arg aten_env node "input" in
-         let* () = require_rank "input" ~expected:4 aten_x in
-         let* output_size = ints_arg node "output_size" in
-         let* scale_factors = floats_arg node "scale_factors" in
-         let* align_corners = bool_arg node "align_corners" in
-         let w_shape = Aten_tensor.shape aten_x in
-         let in_h = w_shape.(2) and in_w = w_shape.(3) in
-         let* out_h, out_w =
-           resolve_upsample_size ~op:"upsample_bilinear2d.vec" ~in_h ~in_w
-             output_size scale_factors
-         in
-         let* h = pos ~op:node.Node.target ~param:`Output_size out_h in
-         let* w = pos ~op:node.Node.target ~param:`Output_size out_w in
-         let params =
-           { Resize.Bilinear2d.output_size = { h; w }; align_corners }
-         in
-         let* x = native_of_aten "input" aten_x in
-         build_g ~name:"upsample_bilinear2d_relayout" [ x ] (function
-           | [ x_id ] ->
-               let open Graph_builder in
-               let* x' = permute perm_nchw_to_nhwc x_id in
-               let* y' = upsample_bilinear2d params x' in
-               let+ y = permute perm_nhwc_to_nchw y' in
-               [ y ]
-           | _ -> assert false))
-  (* Schema: `upsample_nearest2d.vec(Tensor input, SymInt[]? output_size,
-     float[]? scale_factors)` -- no [align_corners] at all, unlike
-     [upsample_bilinear2d.vec] just above (nothing to interpolate between;
-     see [Resize.Nearest_axis]'s module doc). Otherwise the identical
-     output_size/scale_factors resolution. *)
-  | "torch.ops.aten.upsample_nearest2d.vec" ->
-      Some
-        (let* aten_x = tensor_arg aten_env node "input" in
-         let* () = require_rank "input" ~expected:4 aten_x in
-         let* output_size = ints_arg node "output_size" in
-         let* scale_factors = floats_arg node "scale_factors" in
-         let w_shape = Aten_tensor.shape aten_x in
-         let in_h = w_shape.(2) and in_w = w_shape.(3) in
-         let* out_h, out_w =
-           resolve_upsample_size ~op:"upsample_nearest2d.vec" ~in_h ~in_w
-             output_size scale_factors
-         in
-         let* h = pos ~op:node.Node.target ~param:`Output_size out_h in
-         let* w = pos ~op:node.Node.target ~param:`Output_size out_w in
-         let params = { Resize.Nearest2d.output_size = { h; w } } in
-         let* x = native_of_aten "input" aten_x in
-         build_g ~name:"upsample_nearest2d_relayout" [ x ] (function
-           | [ x_id ] ->
-               let open Graph_builder in
-               let* x' = permute perm_nchw_to_nhwc x_id in
-               let* y' = upsample_nearest2d params x' in
-               let+ y = permute perm_nhwc_to_nchw y' in
-               [ y ]
-           | _ -> assert false))
   | "torch.ops.aten.view.default" | "torch.ops.aten._unsafe_view.default" ->
       Some
         ((* Contiguous reshape. [of_aten] inputs are already ATen-row-major, so
@@ -886,7 +280,7 @@ let dispatch ~(aten_env : aten_env) (node : Node.t) :
                let open Graph_builder in
                let+ y = reshape params x_id in
                [ y ]
-           | _ -> assert false))
+           | operands -> arity_mismatch ~op:node.Node.target operands))
   (* [alias(self) -> Tensor] is a pure identity view (same storage, same
      size/strides) -- ATen's own schema takes no argument beyond [self]. Binds
      to the *existing* [Clone] node: paramless, [output_shape] the identity,
@@ -894,38 +288,6 @@ let dispatch ~(aten_env : aten_env) (node : Node.t) :
      [clone.default]'s own arm) -- Native4D already elides it entirely
      (`.ai/native4d_design.md` §7.1), so this legalization costs nothing
      there either. *)
-  | "torch.ops.aten.alias.default" ->
-      Some
-        (let* aten_x = tensor_arg aten_env node "self" in
-         let* x = native_of_aten "self" aten_x in
-         build_g ~name:"alias" [ x ] (function
-           | [ x_id ] ->
-               let open Graph_builder in
-               let+ y = clone x_id in
-               [ y ]
-           | _ -> assert false))
-  (* [detach(Tensor(a) self) -> Tensor(a)] drops the autograd history and
-     nothing else, so under inference it is the same functional identity as
-     [alias.default] and binds to the same [Clone] node. *)
-  | "torch.ops.aten.detach.default" ->
-      Some
-        (let* aten_x = tensor_arg aten_env node "self" in
-         let* x = native_of_aten "self" aten_x in
-         build_g ~name:"detach" [ x ] (function
-           | [ x_id ] ->
-               let open Graph_builder in
-               let+ y = clone x_id in
-               [ y ]
-           | _ -> assert false))
-  (* `expand(Tensor(a) self, SymInt[] size, *, bool implicit=False) ->
-     Tensor(a)`. [implicit] is read-and-discarded: ATen's own
-     [at::native::expand] (TensorShape.cpp) takes it as a literally UNUSED
-     parameter, so decoding it proves the schema shape without pretending it
-     affects the result -- the same treatment [cudnn_enabled] gets in the
-     batch_norm arm. Binds to a genuinely new op, [Pointwise.Expand]:
-     broadcasts [self] to the resolved [size] by reading through
-     [Pointwise_binary.broadcast_coord], the same one-sided reduction a
-     binary op's own operand already uses. *)
   | "torch.ops.aten.expand.default" ->
       Some
         (let* t = tensor_arg aten_env node "self" in
@@ -947,7 +309,7 @@ let dispatch ~(aten_env : aten_env) (node : Node.t) :
                let open Graph_builder in
                let+ y = expand { Pointwise.Expand.size = target } x_id in
                [ y ]
-           | _ -> assert false))
+           | operands -> arity_mismatch ~op:node.Node.target operands))
   (* `repeat(Tensor self, SymInt[] repeats) -> Tensor`. [repeats] is checked
      against [self]'s own ATen rank ([Aten_shape.resolve_repeat_size], the
      same split [expand.default]'s arm above makes for [size]) then
@@ -977,7 +339,7 @@ let dispatch ~(aten_env : aten_env) (node : Node.t) :
                let open Graph_builder in
                let+ y = repeat { Repeat.Repeat.repeats = target } x_id in
                [ y ]
-           | _ -> assert false))
+           | operands -> arity_mismatch ~op:node.Node.target operands))
   (* `tile(Tensor self, SymInt[] dims) -> Tensor`: legalizes onto the SAME
      [Repeat.Repeat] node [repeat.default] above builds, the only difference
      being [dims]'s own left-pad rule ([Aten_shape.resolve_tile_size]) --
@@ -1003,7 +365,7 @@ let dispatch ~(aten_env : aten_env) (node : Node.t) :
                let open Graph_builder in
                let+ y = repeat { Repeat.Repeat.repeats = target } x_id in
                [ y ]
-           | _ -> assert false))
+           | operands -> arity_mismatch ~op:node.Node.target operands))
   (* `repeat_interleave.self_int(Tensor self, SymInt repeats, int? dim=None,
      *, SymInt? output_size=None) -> Tensor`, restricted to an explicit
      [dim] -- the [dim=None] flatten-first form is a genuinely different
@@ -1012,164 +374,4 @@ let dispatch ~(aten_env : aten_env) (node : Node.t) :
      read-and-discarded, the same treatment [implicit] gets in the
      [expand.default] arm above: it exists only so a Tensor-valued [repeats]
      can skip a device sync, and this is the SymInt-scalar overload. *)
-  | "torch.ops.aten.repeat_interleave.self_int" ->
-      Some
-        (let op = "repeat_interleave.self_int" in
-         let* t = tensor_arg aten_env node "self" in
-         let rank = aten_rank t in
-         let* dim = int_opt_arg node "dim" in
-         let* dim =
-           match dim with
-           | Some d -> return d
-           | None ->
-               fail
-                 (`Validation_failure
-                    (op ^ ": dim=None (flatten-first) is not yet supported"))
-         in
-         let* axis = dim_axis ~op ~rank (Aten_int.Dim.of_int dim) in
-         let* repeats_int = int_arg node "repeats" in
-         let* repeats = pos ~op ~param:`Repeats repeats_int in
-         let* x = native_of_aten "self" t in
-         build_g ~name:"repeat_interleave" [ x ] (function
-           | [ x_id ] ->
-               let open Graph_builder in
-               let+ y =
-                 repeat_interleave
-                   { Repeat.RepeatInterleave.axis; repeats }
-                   x_id
-               in
-               [ y ]
-           | _ -> assert false))
-  (* `_assert_tensor_metadata(Tensor a, SymInt[]? size=None, SymInt[]?
-     stride=None, ScalarType? dtype=None, *, Device? device=None, Layout?
-     layout=None) -> ()`: a pure debug assertion the exporter inserts to pin
-     a tensor's metadata -- it returns no [Tensor] at all (this repo's own
-     PT2 producer always serializes it with an empty node [outputs] list),
-     so [build_g]'s own body returns [[]] rather than [[y]]. Given an
-     already-successfully-exported graph with shapes resolved at parse time
-     the assertion is unconditionally true, so [a] is routed to the same
-     [Discard] sink [max_pool2d_with_indices.default]'s dead indices edge
-     uses rather than left dangling. [size]/[stride]/[dtype]/[device]/
-     [layout] restate facts already true of [a] and have no existing typed
-     decoder (unlike [implicit]'s or [cudnn_enabled]'s plain [bool_arg]) --
-     decoding them would add new accessor machinery for values Native never
-     acts on, so they are left unread, matching [Native_interp]'s arm. No
-     real ATen C call is made here: unlike every other bridge arm, this op's
-     "computation" is discarding a tensor [aten_env] already holds from an
-     earlier node's real dispatch, so there is nothing to link against and
-     no [bin/aten_ops_gen.ml] entry is needed. *)
-  | "torch.ops.aten._assert_tensor_metadata.default" ->
-      Some
-        (let* x = native_tensor_arg aten_env node "a" in
-         build_g ~name:"assert_tensor_metadata" [ x ] (function
-           | [ x_id ] ->
-               let open Graph_builder in
-               let+ () = discard x_id in
-               []
-           | _ -> assert false))
-  (* `index.Tensor(Tensor self, Tensor?[] indices) -> Tensor`, restricted to
-     the evidenced shape family (`.ai/index_tensor_design.md`): [indices] has
-     at most [self]'s ATen rank many entries (real ATen implicitly full-slices
-     any missing trailing dims), exactly one live (non-None) entry, of ATen
-     rank at least 1, at every other listed position [None]. Unlike
-     [Native_interp] (metadata-only import, below), this bridge is reached
-     with [indices]' live entry ALREADY RESOLVED to a real ATen tensor VALUE
-     by [aten_env] -- whatever node produced it, `clone.default` included,
-     since ATen's own [clone] preserves both value and dtype exactly. So
-     there is no "trace past Clone" step to take here: [Op_bridge.dispatch]
-     sees only this one node (no surrounding graph to trace through, unlike
-     [Native_interp]'s importer, which retains the whole node list), and
-     reading the live entry's real, already-correct value via
-     [native_of_aten] is enough on its own -- the round-6 problem that
-     trace-back exists to solve is specifically about [Native_interp]'s
-     metadata-only import stamping a wrong dtype on a *newly built* [Clone]
-     node's OWN output signature, which never happens here. *)
-  (* `embedding(weight, indices, padding_idx=-1, scale_grad_by_freq=False,
-     sparse=False)`: its own node (see [Embedding]). The indices' real ATen rank
-     is read from the value, and a non-Long indices tensor is refused here as
-     ATen's own lookup requires an integer one. *)
-  | "torch.ops.aten.embedding.default" ->
-      Some
-        (let* weight_t = tensor_arg aten_env node "weight" in
-         let* indices_t = tensor_arg aten_env node "indices" in
-         if aten_rank weight_t <> Rank.of_int 2 then
-           fail (`Validation_failure "embedding: weight must be 2-D")
-         else if Aten_tensor.scalar_type indices_t <> Aten_scalar_type.Long then
-           fail (`Validation_failure "embedding: indices must be int64")
-         else
-           let indices_rank = aten_rank indices_t in
-           let* padding_idx =
-             decode_result (D.int_arg_result ~default:(-1) node "padding_idx")
-           in
-           let* weight_n = native_of_aten "weight" weight_t in
-           let* indices_n = native_of_aten "indices" indices_t in
-           build_g ~name:"embedding" [ weight_n; indices_n ] (function
-             | [ weight_id; indices_id ] ->
-                 let open Graph_builder in
-                 let+ y =
-                   embedding
-                     {
-                       Embedding.Embedding.indices_rank;
-                       padding_idx = Aten_int.Index.of_int padding_idx;
-                     }
-                     ~weight:weight_id ~indices:indices_id
-                 in
-                 [ y ]
-             | _ -> assert false))
-  | "torch.ops.aten.index.Tensor" ->
-      Some
-        (let* self_t = tensor_arg aten_env node "self" in
-         let rank = aten_rank self_t in
-         let* entries =
-           decode_result (D.optional_tensors_arg_result aten_env node "indices")
-         in
-         let got = List.length entries in
-         let index_list_fail (fault : Op_bridge_error.Index_list.fault) =
-           fail (`Index_list { Op_bridge_error.Index_list.fault })
-         in
-         if got > (rank :> int) then
-           index_list_fail
-             (Op_bridge_error.Index_list.Length_mismatch
-                { expected = rank; got })
-         else
-           let live_positions =
-             List.mapi (fun i e -> (i, e)) entries
-             |> List.filter_map (fun (i, e) ->
-                 if Option.is_some e then Some i else None)
-           in
-           match live_positions with
-           | [] -> index_list_fail Op_bridge_error.Index_list.No_live_entry
-           | _ :: _ :: _ ->
-               index_list_fail
-                 (Op_bridge_error.Index_list.Multiple_live_entries
-                    live_positions)
-           | [ p ] ->
-               let index_t = Option.get (List.nth entries p) in
-               let dtype = Aten_tensor.scalar_type index_t in
-               if not (dtype = Aten_scalar_type.Long) then
-                 index_list_fail
-                   (Op_bridge_error.Index_list.Wrong_dtype
-                      { position = p; dtype })
-               else
-                 let index_rank = aten_rank index_t in
-                 if (index_rank :> int) < 1 then
-                   index_list_fail
-                     (Op_bridge_error.Index_list.Wrong_rank
-                        { position = p; rank = index_rank })
-                 else
-                   let* axis =
-                     dim_axis ~op:"index.Tensor" ~rank (Aten_int.Dim.of_int p)
-                   in
-                   let* self_n = native_of_aten "self" self_t in
-                   let* index_n = native_of_aten "index" index_t in
-                   build_g ~name:"index_tensor" [ self_n; index_n ] (function
-                     | [ self_id; index_id ] ->
-                         let open Graph_builder in
-                         let+ y =
-                           index_tensor
-                             { Index_tensor.Index_tensor.axis; index_rank }
-                             ~self:self_id ~index:index_id
-                         in
-                         [ y ]
-                     | _ -> assert false))
   | _ -> None

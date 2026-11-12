@@ -188,28 +188,32 @@ let%expect_test "the binary32-sequential policy reproduces the chain, scoped" =
     policy equals the exact dot: 0 of 6
     the next default run is exact again: 6 of 6 |}]
 
-(* The restore itself, below the run API (which sets the policy on every call):
-   1 + 4 * 2^-24. Exactly, that is 1 + 2^-22, a binary32 value; a binary32 chain
-   loses each 2^-24 to the tie-to-even at 1.0 and stays at 1. *)
-let%expect_test "with_dot_accumulation restores the policy, even on a raise" =
-  let eval () =
-    Direct.dot ~lo:Direct.index_zero ~hi:(Direct.index_const 5)
-      ~a:(fun k -> if (k :> int) = 0 then 1. else ldexp 1. (-24))
-      ~b:(fun _ -> 1.)
-  in
-  Fmt.pr "default: %.10g@." (eval ());
-  Fmt.pr "chain:   %.10g@."
-    (Direct.with_dot_accumulation Direct.Binary32_sequential eval);
-  (try
-     Direct.with_dot_accumulation Direct.Binary32_sequential (fun () ->
-         failwith "boom")
-   with Failure _ -> ());
-  Fmt.pr "after a raise: %.10g@." (eval ());
+(* The policy is part of the evaluator instance, so two coexist in one process:
+   no setter, nothing to restore. 1 + 4 * 2^-24. Exactly, that is 1 + 2^-22, a
+   binary32 value; a binary32 chain loses each 2^-24 to the tie-to-even at 1.0
+   and stays at 1. *)
+module Chain = Direct.Make (struct
+  let policy =
+    { Direct.Policy.default with dot_accumulation = Direct.Binary32_sequential }
+end)
+
+let%expect_test "two dot policies give different results in one process" =
+  let module Eval (D : Direct.S) = struct
+    let dot () =
+      D.dot ~lo:D.index_zero ~hi:(D.index_const 5)
+        ~a:(fun k -> if (k :> int) = 0 then 1. else ldexp 1. (-24))
+        ~b:(fun _ -> 1.)
+  end in
+  let module Exact = Eval (Direct) in
+  let module Sequential = Eval (Chain) in
+  Fmt.pr "default: %.10g@." (Exact.dot ());
+  Fmt.pr "chain:   %.10g@." (Sequential.dot ());
+  Fmt.pr "default again: %.10g@." (Exact.dot ());
   [%expect
     {|
     default: 1.000000238
     chain:   1
-    after a raise: 1.000000238 |}]
+    default again: 1.000000238 |}]
 
 (* Each step of the chain is rounded once. [1 + (2^-24 + 2^-57)] rounds in
    binary64 onto the binary32 midpoint between 1 and [1 + 2^-23]; rounded
@@ -219,9 +223,9 @@ let%expect_test "the binary32-sequential chain rounds each step once" =
   let a = [| 1.; 1. +. u |]
   and b = [| 1.; ldexp 1. (-24) *. (1. -. u +. (u *. u)) |] in
   let chain () =
-    Direct.dot ~lo:Direct.index_zero ~hi:(Direct.index_const 2)
+    Chain.dot ~lo:Chain.index_zero ~hi:(Chain.index_const 2)
       ~a:(fun k -> a.((k :> int)))
       ~b:(fun k -> b.((k :> int)))
   in
-  Fmt.pr "%h@." (Direct.with_dot_accumulation Direct.Binary32_sequential chain);
+  Fmt.pr "%h@." (chain ());
   [%expect {| 0x1.000002p+0 |}]

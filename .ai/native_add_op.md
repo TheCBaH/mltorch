@@ -201,7 +201,8 @@ alphabetical position at every site below; don't append.
    - One `dispatch` arm, alphabetical by op name within its family file
      (`op_bridge_pointwise.ml`, `op_bridge_conv.ml`, `op_bridge_pool.ml`,
      `op_bridge_norm.ml`, `op_bridge_reduce.ml`, `op_bridge_linalg.ml`,
-     `op_bridge_attention.ml`, `op_bridge_shape.ml`) matching the ATen
+     `op_bridge_attention.ml`, `op_bridge_shape.ml`, and the copy, gather,
+     join and resample families) matching the ATen
      `node.target` string(s) — include both the functional and in-place variants
      when they share semantics (e.g. `"…aten.mul.Tensor" | "…aten.mul_.Tensor"`).
      `op_bridge.ml` itself is now a thin facade whose `dispatch` tries every

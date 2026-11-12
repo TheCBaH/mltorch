@@ -5,56 +5,88 @@
    index = Dim.delta Dim.t] stays unchecked/signed, since window arithmetic
    goes negative before [clamp_low]/[assume_index] convert it back. *)
 
-type t = float
-type 'role index = 'role Dim.t
-type input = Tensor.packed
+type dot_accumulation = Binary64 | Binary32_sequential
+type float_to_int = Checked | Saturating
 
-let const x = x
-let add = ( +. )
-let sub = ( -. )
-let mul = ( *. )
-let div = ( /. )
-let exp = Stdlib.exp
-let sqrt = Stdlib.sqrt
-let erf x = Expr.Value.apply_unary Expr.Value.Erf x
-let log = Stdlib.log
-let trunc = Float.trunc
-let cos = Stdlib.cos
-let sin = Stdlib.sin
+module Policy = struct
+  type t = { dot_accumulation : dot_accumulation; float_to_int : float_to_int }
 
-type b = bool
+  let default = { dot_accumulation = Binary64; float_to_int = Checked }
+end
 
-let lt a b = a < b
-let eq a b = a = b
-let select c a b = if c then a else b
-let index_zero : Semantics.position index = Dim.index 0
+module type POLICY = sig
+  val policy : Policy.t
+end
 
-let index_extent (e : Dim.extent Dim.t) : Semantics.delta index =
-  Dim.Delta.of_extent e
+module type S = sig
+  include
+    Semantics.SEMANTICS
+      with type t = float
+       and type b = bool
+       and type 'role index = 'role Dim.t
+       and type input = Tensor.packed
 
-let index_const (n : int) : Semantics.delta index = Dim.delta n
+  include
+    Semantics.TYPED_SEMANTICS
+      with type 'a repr = 'a
+       and type 'role index := 'role Dim.t
+       and type input := Tensor.packed
+       and type b := bool
 
-let of_index (i : Semantics.position index) : Semantics.delta index =
-  Dim.to_delta i
+  val bool_load : Tensor.packed -> Semantics.position Dim.t Vec6.t -> bool
+end
 
-let index_add = Dim.Delta.add
-let index_scale = Dim.Delta.scale
-let index_floor_div_pos n d = Dim_arith.Delta.floor_div_pos n ~by:d
-let index_ceil_div_pos n d = Dim_arith.Delta.ceil_div_pos n ~by:d
-let index_min = Dim.Delta.min
-let index_max = Dim.Delta.max
-let index_eq = Dim.equal
-let clamp_low = Dim.Delta.clamp_low
-let assume_index = Dim.Delta.assume_index
-let value_of_index (x : Semantics.delta index) : t = float_of_int (x :> int)
+module Make (P : POLICY) = struct
+  type t = float
+  type 'role index = 'role Dim.t
+  type input = Tensor.packed
 
-let load inp (v : Semantics.position index Vec6.t) =
-  Tensor.read_at6 inp ~n:v.Vec6.n ~t:v.Vec6.t ~d:v.Vec6.d ~h:v.Vec6.h
-    ~w:v.Vec6.w ~c:v.Vec6.c
+  let const x = x
+  let add = ( +. )
+  let sub = ( -. )
+  let mul = ( *. )
+  let div = ( /. )
+  let exp = Stdlib.exp
+  let sqrt = Stdlib.sqrt
+  let erf x = Expr.Value.apply_unary Expr.Value.Erf x
+  let log = Stdlib.log
+  let trunc = Float.trunc
+  let cos = Stdlib.cos
+  let sin = Stdlib.sin
 
-let load6 inp ~n ~t ~d ~h ~w ~c = Tensor.read_at6 inp ~n ~t ~d ~h ~w ~c
+  type b = bool
 
-(* [Direct]'s pixels already raise out of [Dim.index]/[Tensor.read] for other
+  let lt a b = a < b
+  let eq a b = a = b
+  let select c a b = if c then a else b
+  let index_zero : Semantics.position index = Dim.index 0
+
+  let index_extent (e : Dim.extent Dim.t) : Semantics.delta index =
+    Dim.Delta.of_extent e
+
+  let index_const (n : int) : Semantics.delta index = Dim.delta n
+
+  let of_index (i : Semantics.position index) : Semantics.delta index =
+    Dim.to_delta i
+
+  let index_add = Dim.Delta.add
+  let index_scale = Dim.Delta.scale
+  let index_floor_div_pos n d = Dim_arith.Delta.floor_div_pos n ~by:d
+  let index_ceil_div_pos n d = Dim_arith.Delta.ceil_div_pos n ~by:d
+  let index_min = Dim.Delta.min
+  let index_max = Dim.Delta.max
+  let index_eq = Dim.equal
+  let clamp_low = Dim.Delta.clamp_low
+  let assume_index = Dim.Delta.assume_index
+  let value_of_index (x : Semantics.delta index) : t = float_of_int (x :> int)
+
+  let load inp (v : Semantics.position index Vec6.t) =
+    Tensor.read_at6 inp ~n:v.Vec6.n ~t:v.Vec6.t ~d:v.Vec6.d ~h:v.Vec6.h
+      ~w:v.Vec6.w ~c:v.Vec6.c
+
+  let load6 inp ~n ~t ~d ~h ~w ~c = Tensor.read_at6 inp ~n ~t ~d ~h ~w ~c
+
+  (* [Direct]'s pixels already raise out of [Dim.index]/[Tensor.read] for other
    invariant violations, so a dtype mismatch or an out-of-range gather value
    discovered here follows the identical, already-established contract:
    convert the [Err.t] failure into a raised exception via [Err.or_raise],
@@ -62,235 +94,231 @@ let load6 inp ~n ~t ~d ~h ~w ~c = Tensor.read_at6 inp ~n ~t ~d ~h ~w ~c
    .ai/index_tensor_design.md's Direct/ground split. [Dim.index] is exact
    (never raises) on the result: [resolve_gather_index] already normalized it
    into [0, extent). *)
-let load_index (inp : input) (v : Semantics.position index Vec6.t)
-    ~(extent : Dim.extent Dim.t) : Semantics.position index =
-  let open Err.Syntax in
-  let result =
-    let* raw = Tensor.read_i64_at6 inp (fun a -> (Vec6.get v a :> int)) in
-    Expr.Eval.resolve_gather_index raw ~extent:(extent :> int)
-  in
-  Dim.index
-    (Err.or_raise
-       ~pp_error:(fun fmt -> function
-         | `Wrong_format (Payload.Fmt f) ->
-             Fmt.pf fmt "Data source must be I64, got %s" (Payload.fmt_name f)
-         | `Gather_index_out_of_range e ->
-             Expr.Eval.pp_gather_index_out_of_range fmt e)
-       result)
+  let load_index (inp : input) (v : Semantics.position index Vec6.t)
+      ~(extent : Dim.extent Dim.t) : Semantics.position index =
+    let open Err.Syntax in
+    let result =
+      let* raw = Tensor.read_i64_at6 inp (fun a -> (Vec6.get v a :> int)) in
+      Expr.Eval.resolve_gather_index raw ~extent:(extent :> int)
+    in
+    Dim.index
+      (Err.or_raise
+         ~pp_error:(fun fmt -> function
+           | `Wrong_format (Payload.Fmt f) ->
+               Fmt.pf fmt "Data source must be I64, got %s" (Payload.fmt_name f)
+           | `Gather_index_out_of_range e ->
+               Expr.Eval.pp_gather_index_out_of_range fmt e)
+         result)
 
-let pool_bounds ~out ~kernel ~stride ~pad ~extent =
-  let start = (out * stride) - pad in
-  (Stdlib.max 0 start, Stdlib.min extent (start + kernel))
+  let pool_bounds ~out ~kernel ~stride ~pad ~extent =
+    let start = (out * stride) - pad in
+    (Stdlib.max 0 start, Stdlib.min extent (start + kernel))
 
-let max_pool2d inp ~(x_shape : Vec6.shape)
-    ~(kernel : Dim.extent Dim.t Op_config.Hw.t)
-    ~(stride : Op_config.Pos.t Op_config.Hw.t)
-    ~(pad : Op_config.Nonneg.t Op_config.Hw.t)
-    (out : Semantics.position index Vec6.t) =
-  let kh, kw = ((kernel.Op_config.Hw.h :> int), (kernel.w :> int)) in
-  let sh, sw = ((stride.Op_config.Hw.h :> int), (stride.w :> int)) in
-  let ph, pw = ((pad.Op_config.Hw.h :> int), (pad.w :> int)) in
-  let h, w =
-    ((Vec6.get x_shape Axis.H :> int), (Vec6.get x_shape Axis.W :> int))
-  in
-  let hlo, hhi =
-    pool_bounds ~out:(out.Vec6.h :> int) ~kernel:kh ~stride:sh ~pad:ph ~extent:h
-  in
-  let wlo, whi =
-    pool_bounds ~out:(out.Vec6.w :> int) ~kernel:kw ~stride:sw ~pad:pw ~extent:w
-  in
-  let rec loop_w ih iw best =
-    if iw >= whi then loop_h (ih + 1) best
-    else
-      let v =
-        load6 inp ~n:out.n ~t:out.t ~d:out.d ~h:(Dim.index ih) ~w:(Dim.index iw)
-          ~c:out.c
-      in
-      loop_w ih (iw + 1) (Expr.Max_op.apply Pool_max best v)
-  and loop_h ih best = if ih >= hhi then best else loop_w ih wlo best in
-  loop_h hlo neg_infinity
+  let max_pool2d inp ~(x_shape : Vec6.shape)
+      ~(kernel : Dim.extent Dim.t Op_config.Hw.t)
+      ~(stride : Op_config.Pos.t Op_config.Hw.t)
+      ~(pad : Op_config.Nonneg.t Op_config.Hw.t)
+      (out : Semantics.position index Vec6.t) =
+    let kh, kw = ((kernel.Op_config.Hw.h :> int), (kernel.w :> int)) in
+    let sh, sw = ((stride.Op_config.Hw.h :> int), (stride.w :> int)) in
+    let ph, pw = ((pad.Op_config.Hw.h :> int), (pad.w :> int)) in
+    let h, w =
+      ((Vec6.get x_shape Axis.H :> int), (Vec6.get x_shape Axis.W :> int))
+    in
+    let hlo, hhi =
+      pool_bounds
+        ~out:(out.Vec6.h :> int)
+        ~kernel:kh ~stride:sh ~pad:ph ~extent:h
+    in
+    let wlo, whi =
+      pool_bounds
+        ~out:(out.Vec6.w :> int)
+        ~kernel:kw ~stride:sw ~pad:pw ~extent:w
+    in
+    let rec loop_w ih iw best =
+      if iw >= whi then loop_h (ih + 1) best
+      else
+        let v =
+          load6 inp ~n:out.n ~t:out.t ~d:out.d ~h:(Dim.index ih)
+            ~w:(Dim.index iw) ~c:out.c
+        in
+        loop_w ih (iw + 1) (Expr.Max_op.apply Pool_max best v)
+    and loop_h ih best = if ih >= hhi then best else loop_w ih wlo best in
+    loop_h hlo neg_infinity
 
-let max_pool2d_index inp ~(x_shape : Vec6.shape)
-    ~(kernel : Dim.extent Dim.t Op_config.Hw.t)
-    ~(stride : Op_config.Pos.t Op_config.Hw.t)
-    ~(pad : Op_config.Nonneg.t Op_config.Hw.t)
-    (out : Semantics.position index Vec6.t) =
-  let kh, kw = ((kernel.Op_config.Hw.h :> int), (kernel.w :> int)) in
-  let sh, sw = ((stride.Op_config.Hw.h :> int), (stride.w :> int)) in
-  let ph, pw = ((pad.Op_config.Hw.h :> int), (pad.w :> int)) in
-  let h, w =
-    ((Vec6.get x_shape Axis.H :> int), (Vec6.get x_shape Axis.W :> int))
-  in
-  let hlo, hhi =
-    pool_bounds ~out:(out.Vec6.h :> int) ~kernel:kh ~stride:sh ~pad:ph ~extent:h
-  in
-  let wlo, whi =
-    pool_bounds ~out:(out.Vec6.w :> int) ~kernel:kw ~stride:sw ~pad:pw ~extent:w
-  in
-  let rec loop_w ih iw best best_index =
-    if iw >= whi then loop_h (ih + 1) best best_index
-    else
-      let v =
-        load6 inp ~n:out.n ~t:out.t ~d:out.d ~h:(Dim.index ih) ~w:(Dim.index iw)
-          ~c:out.c
-      in
-      (* One predicate updates value and index together, so they cannot fall out
+  let max_pool2d_index inp ~(x_shape : Vec6.shape)
+      ~(kernel : Dim.extent Dim.t Op_config.Hw.t)
+      ~(stride : Op_config.Pos.t Op_config.Hw.t)
+      ~(pad : Op_config.Nonneg.t Op_config.Hw.t)
+      (out : Semantics.position index Vec6.t) =
+    let kh, kw = ((kernel.Op_config.Hw.h :> int), (kernel.w :> int)) in
+    let sh, sw = ((stride.Op_config.Hw.h :> int), (stride.w :> int)) in
+    let ph, pw = ((pad.Op_config.Hw.h :> int), (pad.w :> int)) in
+    let h, w =
+      ((Vec6.get x_shape Axis.H :> int), (Vec6.get x_shape Axis.W :> int))
+    in
+    let hlo, hhi =
+      pool_bounds
+        ~out:(out.Vec6.h :> int)
+        ~kernel:kh ~stride:sh ~pad:ph ~extent:h
+    in
+    let wlo, whi =
+      pool_bounds
+        ~out:(out.Vec6.w :> int)
+        ~kernel:kw ~stride:sw ~pad:pw ~extent:w
+    in
+    let rec loop_w ih iw best best_index =
+      if iw >= whi then loop_h (ih + 1) best best_index
+      else
+        let v =
+          load6 inp ~n:out.n ~t:out.t ~d:out.d ~h:(Dim.index ih)
+            ~w:(Dim.index iw) ~c:out.c
+        in
+        (* One predicate updates value and index together, so they cannot fall out
          of step (a NaN taken as the value but not as the index). Ties keep the
          incumbent, preserving the first (smallest flat) index. *)
-      let best, best_index =
-        if Expr.Max_op.pool_better ~best ~value:v then (v, (ih * w) + iw)
-        else (best, best_index)
-      in
-      loop_w ih (iw + 1) best best_index
-  and loop_h ih best best_index =
-    if ih >= hhi then best_index else loop_w ih wlo best best_index
-  in
-  float_of_int (loop_h hlo neg_infinity 0)
+        let best, best_index =
+          if Expr.Max_op.pool_better ~best ~value:v then (v, (ih * w) + iw)
+          else (best, best_index)
+        in
+        loop_w ih (iw + 1) best best_index
+    and loop_h ih best best_index =
+      if ih >= hhi then best_index else loop_w ih wlo best best_index
+    in
+    float_of_int (loop_h hlo neg_infinity 0)
 
-(* The reduction loops below test [(i :> int) >= (hi :> int)] as a coercion, not
+  (* The reduction loops below test [(i :> int) >= (hi :> int)] as a coercion, not
    through a [Dim] comparison: this is the per-element inner loop of every
    convolution, and without cross-module inlining a call per iteration measured
    as a slowdown. *)
-let sum ~(lo : Semantics.position index) ~(hi : Semantics.delta index)
-    (f : Semantics.position index -> t) =
-  let rec loop (i : Semantics.position index) acc =
-    if (i :> int) >= (hi :> int) then acc else loop (Dim.succ i) (acc +. f i)
-  in
-  loop lo 0.
+  let sum ~(lo : Semantics.position index) ~(hi : Semantics.delta index)
+      (f : Semantics.position index -> t) =
+    let rec loop (i : Semantics.position index) acc =
+      if (i :> int) >= (hi :> int) then acc else loop (Dim.succ i) (acc +. f i)
+    in
+    loop lo 0.
 
-type dot_accumulation = Binary64 | Binary32_sequential
-
-let dot_accumulation = ref Binary64
-
-let with_dot_accumulation policy f =
-  let before = !dot_accumulation in
-  dot_accumulation := policy;
-  Fun.protect ~finally:(fun () -> dot_accumulation := before) f
-
-(* [Binary64]: exactly [sum] of the products (a product of two binary32 values
+  (* [Binary64]: exactly [sum] of the products (a product of two binary32 values
    is exact in binary64), so the default changes no result. [Binary32_sequential]:
    [acc = fmaf(a k, b k, acc)] at every step, [k] ascending, each step rounded
    once to binary32 ({!F32_math.fma32}) -- the chain a binary32 reference
    accumulates, and the one a vector [vfmacc] chain computes. *)
-let dot ~(lo : Semantics.position index) ~(hi : Semantics.delta index)
-    ~(a : Semantics.position index -> t) ~(b : Semantics.position index -> t) =
-  match !dot_accumulation with
-  | Binary64 ->
-      let rec loop (i : Semantics.position index) acc =
-        if (i :> int) >= (hi :> int) then acc
-        else loop (Dim.succ i) (acc +. (a i *. b i))
-      in
-      loop lo 0.
-  | Binary32_sequential ->
-      let rec loop (i : Semantics.position index) acc =
-        if (i :> int) >= (hi :> int) then acc
-        else loop (Dim.succ i) (F32_math.fma32 (a i) (b i) acc)
-      in
-      loop lo 0.
+  let dot ~(lo : Semantics.position index) ~(hi : Semantics.delta index)
+      ~(a : Semantics.position index -> t) ~(b : Semantics.position index -> t)
+      =
+    match P.policy.Policy.dot_accumulation with
+    | Binary64 ->
+        let rec loop (i : Semantics.position index) acc =
+          if (i :> int) >= (hi :> int) then acc
+          else loop (Dim.succ i) (acc +. (a i *. b i))
+        in
+        loop lo 0.
+    | Binary32_sequential ->
+        let rec loop (i : Semantics.position index) acc =
+          if (i :> int) >= (hi :> int) then acc
+          else loop (Dim.succ i) (F32_math.fma32 (a i) (b i) acc)
+        in
+        loop lo 0.
 
-let max_reduce ~(lo : Semantics.position index) ~(hi : Semantics.delta index)
-    (f : Semantics.position index -> t) =
-  let rec loop (i : Semantics.position index) acc =
-    if (i :> int) >= (hi :> int) then acc
-    else loop (Dim.succ i) (Expr.Max_op.apply Float_max acc (f i))
-  in
-  loop lo neg_infinity
+  let max_reduce ~(lo : Semantics.position index) ~(hi : Semantics.delta index)
+      (f : Semantics.position index -> t) =
+    let rec loop (i : Semantics.position index) acc =
+      if (i :> int) >= (hi :> int) then acc
+      else loop (Dim.succ i) (Expr.Max_op.apply Float_max acc (f i))
+    in
+    loop lo neg_infinity
 
-let max_dim ~(lo : Semantics.position index) ~(hi : Semantics.delta index)
-    (f : Semantics.position index -> t) =
-  let rec loop (i : Semantics.position index) best =
-    if (i :> int) >= (hi :> int) then best
-    else
-      let value = f i in
-      loop (Dim.succ i)
-        (if Expr.Max_op.pool_better ~best ~value then value else best)
-  in
-  loop lo neg_infinity
+  let max_dim ~(lo : Semantics.position index) ~(hi : Semantics.delta index)
+      (f : Semantics.position index -> t) =
+    let rec loop (i : Semantics.position index) best =
+      if (i :> int) >= (hi :> int) then best
+      else
+        let value = f i in
+        loop (Dim.succ i)
+          (if Expr.Max_op.pool_better ~best ~value then value else best)
+    in
+    loop lo neg_infinity
 
-(* One predicate advances value and index together ([Expr.Max_op.pool_better],
+  (* One predicate advances value and index together ([Expr.Max_op.pool_better],
    the same convention [max_pool2d_index] above already relies on), so
    [max_dim]/[max_dim_index] cannot fall out of step as long as both are
    called with the same [lo]/[hi]/[f] -- see [Semantics.SEMANTICS.max_dim]'s
    own doc comment. *)
-let max_dim_index ~(lo : Semantics.position index) ~(hi : Semantics.delta index)
-    (f : Semantics.position index -> t) =
-  let rec loop (i : Semantics.position index) best best_i =
-    if (i :> int) >= (hi :> int) then best_i
-    else
-      let value = f i in
-      if Expr.Max_op.pool_better ~best ~value then
-        loop (Dim.succ i) value (i :> int)
-      else loop (Dim.succ i) best best_i
-  in
-  float_of_int (loop lo neg_infinity (lo :> int))
+  let max_dim_index ~(lo : Semantics.position index)
+      ~(hi : Semantics.delta index) (f : Semantics.position index -> t) =
+    let rec loop (i : Semantics.position index) best best_i =
+      if (i :> int) >= (hi :> int) then best_i
+      else
+        let value = f i in
+        if Expr.Max_op.pool_better ~best ~value then
+          loop (Dim.succ i) value (i :> int)
+        else loop (Dim.succ i) best best_i
+    in
+    float_of_int (loop lo neg_infinity (lo :> int))
 
-(* [Semantics.TYPED_SEMANTICS], [type 'a repr = 'a]: a typed Direct value
+  (* [Semantics.TYPED_SEMANTICS], [type 'a repr = 'a]: a typed Direct value
    already IS the OCaml value it denotes, so [const]/[select] need no case
    analysis on the witness at all -- unlike [Symbolic] below, which must
    build the matching [Expr.Value.t]/[Expr.Bool.t] constructor per carrier. *)
-type 'a repr = 'a
+  type 'a repr = 'a
 
-let typed_const (type a) (_ : a Expr.Scalar.t) (x : a) : a = x
-let typed_select (c : bool) (a : 'a) (b : 'a) : 'a = if c then a else b
+  let typed_const (type a) (_ : a Expr.Scalar.t) (x : a) : a = x
+  let typed_select (c : bool) (a : 'a) (b : 'a) : 'a = if c then a else b
 
-(* Raises through the same [Err.or_raise] boundary as [float_to_i64] below: only
+  (* Raises through the same [Err.or_raise] boundary as [float_to_i64] below: only
    [I64_div] can fail (zero divisor, [min_int / -1]). *)
-let i64_binary op a b : int64 =
-  Err.or_raise ~pp_error:Expr.Value.pp_i64_division_error
-    (Expr.Value.apply_i64_binary op a b)
+  let i64_binary op a b : int64 =
+    Err.or_raise ~pp_error:Expr.Value.pp_i64_division_error
+      (Expr.Value.apply_i64_binary op a b)
 
-let i64_eq (a : int64) (b : int64) : bool = Int64.equal a b
-let i64_lt (a : int64) (b : int64) : bool = Int64.compare a b < 0
+  let i64_eq (a : int64) (b : int64) : bool = Int64.equal a b
+  let i64_lt (a : int64) (b : int64) : bool = Int64.compare a b < 0
 
-(* Total, like [I64_to_float]'s own denotation ([eval.ml]'s
+  (* Total, like [I64_to_float]'s own denotation ([eval.ml]'s
    [Value.I64_to_float a -> Int64.to_float (eval ... a)]) -- Direct mirrors
    the evaluator's arm exactly rather than re-deriving the conversion. *)
-let i64_to_float (i : int64) : float = Int64.to_float i
+  let i64_to_float (i : int64) : float = Int64.to_float i
 
-(* Raises through the same [Err.or_raise] exception boundary [load_index]
+  (* Raises through the same [Err.or_raise] exception boundary [load_index]
    above already uses, per [SEMANTICS]'s doc comment: Direct's "total-looking"
    methods convert a structured [Err.t] failure into an exception at this
    seam rather than inventing a second "Direct can fail" channel. *)
-type float_to_int = Checked | Saturating
-
-let float_to_int = ref Checked
-
-let with_float_to_int policy f =
-  let before = !float_to_int in
-  float_to_int := policy;
-  Fun.protect ~finally:(fun () -> float_to_int := before) f
-
-let float_to_i64 (f : float) : int64 =
-  match !float_to_int with
-  | Checked ->
-      Err.or_raise ~pp_error:Expr.Value.pp_i64_from_float_error
-        (Expr.Value.i64_of_float f)
-  | Saturating ->
-      (* aarch64's [fcvtzs]: NaN gives 0, an out-of-range value the nearest
+  let float_to_i64 (f : float) : int64 =
+    match P.policy.Policy.float_to_int with
+    | Checked ->
+        Err.or_raise ~pp_error:Expr.Value.pp_i64_from_float_error
+          (Expr.Value.i64_of_float f)
+    | Saturating ->
+        (* aarch64's [fcvtzs]: NaN gives 0, an out-of-range value the nearest
          limit, everything else truncates toward zero. *)
-      if Float.is_nan f then 0L
-      else if f >= 9.223372036854775807e18 then Int64.max_int
-      else if f <= -9.223372036854775808e18 then Int64.min_int
-      else Int64.of_float f
+        if Float.is_nan f then 0L
+        else if f >= 9.223372036854775807e18 then Int64.max_int
+        else if f <= -9.223372036854775808e18 then Int64.min_int
+        else Int64.of_float f
 
-(* Same [`Wrong_format] boundary as [load_index], minus [resolve_gather_index]
+  (* Same [`Wrong_format] boundary as [load_index], minus [resolve_gather_index]
    -- an [I64_load] reads a tensor's stored value, not a gather coordinate, so
    there is no extent to bounds-check against. *)
-let i64_load (inp : input) (v : Semantics.position index Vec6.t) : int64 =
-  Err.or_raise
-    ~pp_error:(fun fmt -> function
-      | `Wrong_format (Payload.Fmt f) ->
-          Fmt.pf fmt "Data source must be I64, got %s" (Payload.fmt_name f))
-    (Tensor.read_i64_at6 inp (fun a -> (Vec6.get v a :> int)))
+  let i64_load (inp : input) (v : Semantics.position index Vec6.t) : int64 =
+    Err.or_raise
+      ~pp_error:(fun fmt -> function
+        | `Wrong_format (Payload.Fmt f) ->
+            Fmt.pf fmt "Data source must be I64, got %s" (Payload.fmt_name f))
+      (Tensor.read_i64_at6 inp (fun a -> (Vec6.get v a :> int)))
 
-(* [i64_load]'s [Bool] counterpart: reads via [Tensor.read_bool_at6] (nonzero
+  (* [i64_load]'s [Bool] counterpart: reads via [Tensor.read_bool_at6] (nonzero
    byte reads true, matching [Payload.get_float]'s own policy) rather than a
    generic float read, for the same reason [i64_load] avoids
    [Payload.get_float] -- the destination carrier's cast policy must not
    depend on an intermediate float representation. *)
-let bool_load (inp : input) (v : Semantics.position index Vec6.t) : bool =
-  Err.or_raise
-    ~pp_error:(fun fmt -> function
-      | `Wrong_format (Payload.Fmt f) ->
-          Fmt.pf fmt "Data source must be Bool, got %s" (Payload.fmt_name f))
-    (Tensor.read_bool_at6 inp (fun a -> (Vec6.get v a :> int)))
+  let bool_load (inp : input) (v : Semantics.position index Vec6.t) : bool =
+    Err.or_raise
+      ~pp_error:(fun fmt -> function
+        | `Wrong_format (Payload.Fmt f) ->
+            Fmt.pf fmt "Data source must be Bool, got %s" (Payload.fmt_name f))
+      (Tensor.read_bool_at6 inp (fun a -> (Vec6.get v a :> int)))
+end
+
+include Make (struct
+  let policy = Policy.default
+end)

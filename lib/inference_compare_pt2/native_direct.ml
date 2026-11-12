@@ -22,7 +22,9 @@ Graph_runner.Make (struct
 
   let execute () (g : Graph_ir.graph) ~inputs =
     match
-      Direct.with_dot_accumulation D.dots (fun () -> Eval_direct.run g ~inputs)
+      Eval_direct.run
+        ~policy:{ Direct.Policy.default with dot_accumulation = D.dots }
+        g ~inputs
     with
     | Error e ->
         Error

@@ -130,5 +130,5 @@ let dispatch ~(aten_env : aten_env) (node : Node.t) :
                    sdpa params ~query:q_id ~key:k_id ~value:v_id ~mask:m_id ()
                  in
                  [ y ]
-             | _ -> assert false))
+             | operands -> arity_mismatch ~op:node.Node.target operands))
   | _ -> None

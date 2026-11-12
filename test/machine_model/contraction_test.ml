@@ -89,8 +89,15 @@ let%expect_test "matrix products: the contracted oracle is the sequential dot" =
             Tensor_id.Map.find out (expected o g' b ~constants ~inputs)
           in
           let direct =
-            Direct.with_dot_accumulation Direct.Binary32_sequential (fun () ->
-                get Reference_f64)
+            let policy =
+              {
+                Direct.Policy.default with
+                dot_accumulation = Direct.Binary32_sequential;
+              }
+            in
+            Tensor_id.Map.find out
+              (Err.or_raise ~pp_error:Eval_direct.pp_error
+                 (Eval_direct.run ~policy g' ~constants ~inputs))
           in
           let contracted = get Fp32_contracted and ordered = get Fp32 in
           Fmt.pr "%s, %s: contracted %s the sequential reference; ordered %s@."

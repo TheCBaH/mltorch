@@ -19,7 +19,7 @@ let dispatch ~(aten_env : aten_env) (node : Node.t) :
                let open Graph_builder in
                let+ y = abs x_id in
                [ y ]
-           | _ -> assert false))
+           | operands -> arity_mismatch ~op:node.Node.target operands))
   | "torch.ops.aten.add.Tensor" | "torch.ops.aten.add_.Tensor" ->
       Some
         (let* () = reject_alpha node in
@@ -32,14 +32,14 @@ let dispatch ~(aten_env : aten_env) (node : Node.t) :
                    let open Graph_builder in
                    let+ y = add a_id b_id in
                    [ y ]
-               | _ -> assert false)
+               | operands -> arity_mismatch ~op:node.Node.target operands)
          | `Scalar scalar ->
              build_g ~name:"add_scalar" [ a ] (function
                | [ a_id ] ->
                    let open Graph_builder in
                    let+ y = add_scalar scalar a_id in
                    [ y ]
-               | _ -> assert false))
+               | operands -> arity_mismatch ~op:node.Node.target operands))
   (* Keep addcmul as one Native node so its three loads and multiply-add remain
      available to one fused Pixel kernel. *)
   | "torch.ops.aten.addcmul.default" ->
@@ -53,7 +53,7 @@ let dispatch ~(aten_env : aten_env) (node : Node.t) :
                let open Graph_builder in
                let+ y = addcmul value self_id t1_id t2_id in
                [ y ]
-           | _ -> assert false))
+           | operands -> arity_mismatch ~op:node.Node.target operands))
   (* Restricted to the corpus's own bool operand -- see
      [Pointwise.Bitwise_not]'s own comment for why an integer
      bitwise-complement has no analogue in Native's float domain. *)
@@ -65,7 +65,7 @@ let dispatch ~(aten_env : aten_env) (node : Node.t) :
                let open Graph_builder in
                let+ y = bitwise_not x_id in
                [ y ]
-           | _ -> assert false))
+           | operands -> arity_mismatch ~op:node.Node.target operands))
   | "torch.ops.aten.clamp.default" | "torch.ops.aten.clamp_.default" ->
       Some
         (let* x = native_tensor_arg aten_env node "self" in
@@ -79,7 +79,7 @@ let dispatch ~(aten_env : aten_env) (node : Node.t) :
                let open Graph_builder in
                let+ y = clamp { Pointwise.Clamp.min; max } x_id in
                [ y ]
-           | _ -> assert false))
+           | operands -> arity_mismatch ~op:node.Node.target operands))
   (* clamp_min(self, min) = clamp(self, min=min, max=None): one bound of the
      same node [clamp.default] already builds, not a separate op -- reuses
      [Pointwise.Clamp] unchanged. *)
@@ -95,7 +95,7 @@ let dispatch ~(aten_env : aten_env) (node : Node.t) :
                  clamp { Pointwise.Clamp.min = Some min; max = None } x_id
                in
                [ y ]
-           | _ -> assert false))
+           | operands -> arity_mismatch ~op:node.Node.target operands))
   | "torch.ops.aten.cos.default" ->
       Some
         (let* x = native_tensor_arg aten_env node "self" in
@@ -104,7 +104,7 @@ let dispatch ~(aten_env : aten_env) (node : Node.t) :
                let open Graph_builder in
                let+ y = cos x_id in
                [ y ]
-           | _ -> assert false))
+           | operands -> arity_mismatch ~op:node.Node.target operands))
   | "torch.ops.aten.div.Tensor" | "torch.ops.aten.div_.Tensor" ->
       Some
         (let* a = native_tensor_arg aten_env node "self" in
@@ -116,14 +116,14 @@ let dispatch ~(aten_env : aten_env) (node : Node.t) :
                    let open Graph_builder in
                    let+ y = div a_id b_id in
                    [ y ]
-               | _ -> assert false)
+               | operands -> arity_mismatch ~op:node.Node.target operands)
          | `Scalar scalar ->
              build_g ~name:"div_scalar" [ a ] (function
                | [ a_id ] ->
                    let open Graph_builder in
                    let+ y = div_scalar scalar a_id in
                    [ y ]
-               | _ -> assert false))
+               | operands -> arity_mismatch ~op:node.Node.target operands))
   (* Distinct rounding-mode overload from [div.Tensor] above -- restricted to
      the corpus's own shape (a compile-time scalar [other], floor rounding):
      no evidence for a tensor divisor or any other [rounding_mode], so both
@@ -154,7 +154,7 @@ let dispatch ~(aten_env : aten_env) (node : Node.t) :
                let open Graph_builder in
                let+ y = floor_div_scalar scalar a_id in
                [ y ]
-           | _ -> assert false))
+           | operands -> arity_mismatch ~op:node.Node.target operands))
   | "torch.ops.aten.gelu.default" ->
       Some
         (let* x = native_tensor_arg aten_env node "self" in
@@ -176,7 +176,7 @@ let dispatch ~(aten_env : aten_env) (node : Node.t) :
                let open Graph_builder in
                let+ y = gelu approximate x_id in
                [ y ]
-           | _ -> assert false))
+           | operands -> arity_mismatch ~op:node.Node.target operands))
   (* [eq.Scalar(self, other) -> self == other], real ATen output dtype Bool.
      Same discipline as [gt.Scalar] below: [other] is a
      compile-time constant, no corpus caller today, exercised only by a
@@ -192,7 +192,7 @@ let dispatch ~(aten_env : aten_env) (node : Node.t) :
                let open Graph_builder in
                let+ y = eq_scalar scalar x_id in
                [ y ]
-           | _ -> assert false))
+           | operands -> arity_mismatch ~op:node.Node.target operands))
   (* [gt.Scalar(self, other) -> self > other], real ATen output dtype Bool.
      [other] is a compile-time constant, the same discipline [pow.
      Tensor_Scalar]'s [exponent] follows above -- no corpus caller today, so
@@ -211,7 +211,7 @@ let dispatch ~(aten_env : aten_env) (node : Node.t) :
                let open Graph_builder in
                let+ y = gt_scalar scalar x_id in
                [ y ]
-           | _ -> assert false))
+           | operands -> arity_mismatch ~op:node.Node.target operands))
   (* [eq.Tensor(self, other) -> self == other], real ATen output dtype Bool.
      Tensor-tensor form of [eq.Scalar] above: both operands are
      runtime tensors, no compile-time scalar constant, so no corpus-caller
@@ -227,7 +227,7 @@ let dispatch ~(aten_env : aten_env) (node : Node.t) :
                let open Graph_builder in
                let+ y = eq_tensor a_id b_id in
                [ y ]
-           | _ -> assert false))
+           | operands -> arity_mismatch ~op:node.Node.target operands))
   (* [ne.Tensor(self, other) -> self != other], real ATen output dtype Bool,
      tensor-tensor form of [ne.Scalar] below, same discipline as
      [eq.Tensor] just above. *)
@@ -240,7 +240,7 @@ let dispatch ~(aten_env : aten_env) (node : Node.t) :
                let open Graph_builder in
                let+ y = ne_tensor a_id b_id in
                [ y ]
-           | _ -> assert false))
+           | operands -> arity_mismatch ~op:node.Node.target operands))
   (* [ne.Scalar(self, other) -> self != other], real ATen output dtype Bool.
      Same discipline as [eq.Scalar]/[gt.Scalar] above: [other] is a
      compile-time constant, no corpus caller today, exercised only by a
@@ -256,7 +256,7 @@ let dispatch ~(aten_env : aten_env) (node : Node.t) :
                let open Graph_builder in
                let+ y = ne_scalar scalar x_id in
                [ y ]
-           | _ -> assert false))
+           | operands -> arity_mismatch ~op:node.Node.target operands))
   | "torch.ops.aten.hardsigmoid.default" | "torch.ops.aten.hardsigmoid_.default"
     ->
       Some
@@ -266,7 +266,7 @@ let dispatch ~(aten_env : aten_env) (node : Node.t) :
                let open Graph_builder in
                let+ y = hardsigmoid x_id in
                [ y ]
-           | _ -> assert false))
+           | operands -> arity_mismatch ~op:node.Node.target operands))
   | "torch.ops.aten.hardswish.default" | "torch.ops.aten.hardswish_.default" ->
       Some
         (let* x = native_tensor_arg aten_env node "self" in
@@ -275,7 +275,7 @@ let dispatch ~(aten_env : aten_env) (node : Node.t) :
                let open Graph_builder in
                let+ y = hardswish x_id in
                [ y ]
-           | _ -> assert false))
+           | operands -> arity_mismatch ~op:node.Node.target operands))
   | "torch.ops.aten.hardtanh.default" | "torch.ops.aten.hardtanh_.default" ->
       Some
         (let* x = native_tensor_arg aten_env node "self" in
@@ -292,7 +292,7 @@ let dispatch ~(aten_env : aten_env) (node : Node.t) :
                let open Graph_builder in
                let+ y = hardtanh { Pointwise.Hardtanh.min_val; max_val } x_id in
                [ y ]
-           | _ -> assert false))
+           | operands -> arity_mismatch ~op:node.Node.target operands))
   | "torch.ops.aten.leaky_relu.default" ->
       Some
         (let* x = native_tensor_arg aten_env node "self" in
@@ -306,7 +306,7 @@ let dispatch ~(aten_env : aten_env) (node : Node.t) :
                  leaky_relu { Pointwise.Leaky_relu.negative_slope } x_id
                in
                [ y ]
-           | _ -> assert false))
+           | operands -> arity_mismatch ~op:node.Node.target operands))
   | "torch.ops.aten.mul.Tensor" | "torch.ops.aten.mul_.Tensor" ->
       Some
         (let* a = native_tensor_arg aten_env node "self" in
@@ -318,14 +318,14 @@ let dispatch ~(aten_env : aten_env) (node : Node.t) :
                    let open Graph_builder in
                    let+ y = mul a_id b_id in
                    [ y ]
-               | _ -> assert false)
+               | operands -> arity_mismatch ~op:node.Node.target operands)
          | `Scalar scalar ->
              build_g ~name:"mul_scalar" [ a ] (function
                | [ a_id ] ->
                    let open Graph_builder in
                    let+ y = mul_scalar scalar a_id in
                    [ y ]
-               | _ -> assert false))
+               | operands -> arity_mismatch ~op:node.Node.target operands))
   | "torch.ops.aten.mul.Scalar" ->
       Some
         (let* a = native_tensor_arg aten_env node "self" in
@@ -336,7 +336,7 @@ let dispatch ~(aten_env : aten_env) (node : Node.t) :
                let open Graph_builder in
                let+ y = mul_scalar scalar a_id in
                [ y ]
-           | _ -> assert false))
+           | operands -> arity_mismatch ~op:node.Node.target operands))
   (* [-x] legalizes to [x * -1]: exact IEEE negation, so this is bit-identical
      to a genuine negate. No dedicated node, the same reasoning
      [sub.Tensor]'s scalar form takes for [add_scalar]. *)
@@ -348,7 +348,7 @@ let dispatch ~(aten_env : aten_env) (node : Node.t) :
                let open Graph_builder in
                let+ y = mul_scalar (-1.) x_id in
                [ y ]
-           | _ -> assert false))
+           | operands -> arity_mismatch ~op:node.Node.target operands))
   (* Reverse of [pow.Tensor_Scalar] below: the compile-time constant is the
      BASE, the tensor is the exponent -- see [Pointwise.Rpow_scalar]. *)
   | "torch.ops.aten.pow.Scalar" ->
@@ -361,7 +361,7 @@ let dispatch ~(aten_env : aten_env) (node : Node.t) :
                let open Graph_builder in
                let+ y = rpow_scalar base exponent_id in
                [ y ]
-           | _ -> assert false))
+           | operands -> arity_mismatch ~op:node.Node.target operands))
   | "torch.ops.aten.pow.Tensor_Scalar" ->
       Some
         (let* a = native_tensor_arg aten_env node "self" in
@@ -372,7 +372,7 @@ let dispatch ~(aten_env : aten_env) (node : Node.t) :
                let open Graph_builder in
                let+ y = pow exponent a_id in
                [ y ]
-           | _ -> assert false))
+           | operands -> arity_mismatch ~op:node.Node.target operands))
   | "torch.ops.aten.relu.default" | "torch.ops.aten.relu_.default" -> (
       match native_tensor_arg aten_env node "self" with
       | Error e -> Some (Error e)
@@ -382,7 +382,7 @@ let dispatch ~(aten_env : aten_env) (node : Node.t) :
                 let open Graph_builder in
                 let+ y = relu x_id in
                 [ y ]
-            | _ -> assert false)
+            | operands -> arity_mismatch ~op:node.Node.target operands)
           |> some_graph)
   (* rsqrt(x) = x ** -0.5: [Pow]'s own [Compute] already special-cases exponent
      -0.5 as [reciprocal (sqrt x)], the same reciprocal-of-sqrt kernel ATen's
@@ -398,7 +398,7 @@ let dispatch ~(aten_env : aten_env) (node : Node.t) :
                let open Graph_builder in
                let+ y = pow (-0.5) x_id in
                [ y ]
-           | _ -> assert false))
+           | operands -> arity_mismatch ~op:node.Node.target operands))
   (* [rsub.Scalar(self, other, alpha=1) -> other - alpha * self]: genuinely
      its own node, not a legalization onto [Add_scalar]/[Mul_scalar] --
      composing those would decompose one ATen node into two Native ones.
@@ -417,7 +417,7 @@ let dispatch ~(aten_env : aten_env) (node : Node.t) :
                  rsub_scalar { Pointwise.Rsub_scalar.other; alpha } a_id
                in
                [ y ]
-           | _ -> assert false))
+           | operands -> arity_mismatch ~op:node.Node.target operands))
   | "torch.ops.aten.sigmoid.default" ->
       Some
         (let* x = native_tensor_arg aten_env node "self" in
@@ -426,7 +426,7 @@ let dispatch ~(aten_env : aten_env) (node : Node.t) :
                let open Graph_builder in
                let+ y = sigmoid x_id in
                [ y ]
-           | _ -> assert false))
+           | operands -> arity_mismatch ~op:node.Node.target operands))
   | "torch.ops.aten.silu.default" | "torch.ops.aten.silu_.default" ->
       Some
         (let* x = native_tensor_arg aten_env node "self" in
@@ -435,7 +435,7 @@ let dispatch ~(aten_env : aten_env) (node : Node.t) :
                let open Graph_builder in
                let+ y = silu x_id in
                [ y ]
-           | _ -> assert false))
+           | operands -> arity_mismatch ~op:node.Node.target operands))
   | "torch.ops.aten.sin.default" ->
       Some
         (let* x = native_tensor_arg aten_env node "self" in
@@ -444,7 +444,7 @@ let dispatch ~(aten_env : aten_env) (node : Node.t) :
                let open Graph_builder in
                let+ y = sin x_id in
                [ y ]
-           | _ -> assert false))
+           | operands -> arity_mismatch ~op:node.Node.target operands))
   | "torch.ops.aten.sqrt.default" | "torch.ops.aten.sqrt_.default" -> (
       match native_tensor_arg aten_env node "self" with
       | Error e -> Some (Error e)
@@ -454,7 +454,7 @@ let dispatch ~(aten_env : aten_env) (node : Node.t) :
                 let open Graph_builder in
                 let+ y = sqrt x_id in
                 [ y ]
-            | _ -> assert false)
+            | operands -> arity_mismatch ~op:node.Node.target operands)
           |> some_graph)
   (* [x - s] legalizes to [x + (-s)]: IEEE negation is exact and the builder
      narrows to f32 on both spellings either way, so the two are bit-identical
@@ -472,12 +472,12 @@ let dispatch ~(aten_env : aten_env) (node : Node.t) :
                    let open Graph_builder in
                    let+ y = sub a_id b_id in
                    [ y ]
-               | _ -> assert false)
+               | operands -> arity_mismatch ~op:node.Node.target operands)
          | `Scalar scalar ->
              build_g ~name:"sub_scalar" [ a ] (function
                | [ a_id ] ->
                    let open Graph_builder in
                    let+ y = add_scalar (-.scalar) a_id in
                    [ y ]
-               | _ -> assert false))
+               | operands -> arity_mismatch ~op:node.Node.target operands))
   | _ -> None

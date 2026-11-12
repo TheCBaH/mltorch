@@ -53,7 +53,7 @@ let dispatch ~(aten_env : aten_env) (node : Node.t) :
                in
                let+ y = permute from_channel_last y' in
                [ y ]
-           | _ -> assert false))
+           | operands -> arity_mismatch ~op:node.Node.target operands))
   | "torch.ops.aten._native_batch_norm_legit.no_stats" ->
       Some
         (let* training = bool_arg node "training" in
@@ -91,7 +91,7 @@ let dispatch ~(aten_env : aten_env) (node : Node.t) :
              let weight, bias =
                match affine with
                | [ weight; bias ] -> (weight, bias)
-               | _ -> assert false
+               | operands -> arity_mismatch ~op:node.Node.target operands
              in
              let params = { Norm.BatchNormNoStats.channel = Axis.C; eps } in
              build_g ~name:"batch_norm_no_stats_relayout"
@@ -105,7 +105,7 @@ let dispatch ~(aten_env : aten_env) (node : Node.t) :
                    | [ x_id; weight ], Some _, None -> (x_id, Some weight, None)
                    | [ x_id; bias ], None, Some _ -> (x_id, None, Some bias)
                    | [ x_id ], None, None -> (x_id, None, None)
-                   | _ -> assert false
+                   | _ -> arity_mismatch ~op:node.Node.target ids
                  in
                  let* x' = permute to_channel_last x_id in
                  let* ys = batch_norm_no_stats params ~x:x' ?weight ?bias () in
@@ -113,7 +113,7 @@ let dispatch ~(aten_env : aten_env) (node : Node.t) :
                  | [ y'; mean; invstd ] ->
                      let+ y = permute from_channel_last y' in
                      [ y; mean; invstd ]
-                 | _ -> assert false))
+                 | operands -> arity_mismatch ~op:node.Node.target operands))
   (* [input] is right-aligned NCHW like [batch_norm]'s, so the same
      [perm_nchw_to_nhwc]/[perm_nhwc_to_nchw] pair relays it around the op --
      [Group_norm.Compute] reads its window on native C, which is where the
@@ -163,7 +163,9 @@ let dispatch ~(aten_env : aten_env) (node : Node.t) :
              [ "weight"; "bias" ]
          in
          let weight_opt, bias_opt =
-           match affine with [ w; b ] -> (w, b) | _ -> assert false
+           match affine with
+           | [ w; b ] -> (w, b)
+           | operands -> arity_mismatch ~op:node.Node.target operands
          in
          (* The bridge relayouts an NCHW input: the sample axis is the frame's [D]. *)
          let params =
@@ -184,7 +186,7 @@ let dispatch ~(aten_env : aten_env) (node : Node.t) :
                | [ x_id; w_id ], Some _, None -> (x_id, Some w_id, None)
                | [ x_id; b_id ], None, Some _ -> (x_id, None, Some b_id)
                | [ x_id ], None, None -> (x_id, None, None)
-               | _ -> assert false
+               | _ -> arity_mismatch ~op:node.Node.target ids
              in
              let* x' = permute perm_nchw_to_nhwc x_id in
              let* y' = group_norm params ~x:x' ?weight ?bias () in
@@ -268,7 +270,9 @@ let dispatch ~(aten_env : aten_env) (node : Node.t) :
              [ "weight"; "bias" ]
          in
          let weight_opt, bias_opt =
-           match affine with [ w; b ] -> (w, b) | _ -> assert false
+           match affine with
+           | [ w; b ] -> (w, b)
+           | operands -> arity_mismatch ~op:node.Node.target operands
          in
          build_g ~name:"layer_norm"
            (([ x ] @ Option.to_list weight_opt) @ Option.to_list bias_opt)
@@ -285,7 +289,7 @@ let dispatch ~(aten_env : aten_env) (node : Node.t) :
                | [ x; w ], Some _, None -> (x, Some w, None)
                | [ x; b ], None, Some _ -> (x, None, Some b)
                | [ x; w; b ], Some _, Some _ -> (x, Some w, Some b)
-               | _ -> assert false
+               | _ -> arity_mismatch ~op:node.Node.target ids
              in
              let+ y = layer_norm params ~x:x_id ?weight ?bias () in
              [ y ]))
@@ -332,5 +336,5 @@ let dispatch ~(aten_env : aten_env) (node : Node.t) :
                  let open Graph_builder in
                  let+ y = rms_norm params ~x:x_id ~weight:w_id () in
                  [ y ]
-             | _ -> assert false))
+             | operands -> arity_mismatch ~op:node.Node.target operands))
   | _ -> None

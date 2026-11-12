@@ -53,7 +53,7 @@ let longs shape values =
 
 (* Build [f] over the named inputs and run it, returning the graph's single
    output. [inputs] are (shape, fmt, tensor) in declaration order. *)
-let run ~inputs f =
+let run ?policy ~inputs f =
   let open Err.Syntax in
   let* g =
     lift_build
@@ -71,7 +71,7 @@ let run ~inputs f =
   in
   let* env =
     lift_eval
-      (Eval_direct.run g
+      (Eval_direct.run ?policy g
          ~inputs:
            (List.combine g.Graph.inputs (List.map (fun (_, _, t) -> t) inputs)))
   in
@@ -610,8 +610,8 @@ let%expect_test "an int64 times a whole scalar stays int64 and exact" =
 let%expect_test "float to int64: checked rejects, saturating follows aarch64" =
   let xs = [ 2.9; -2.9; inf; -.inf; nan; 1e30 ] in
   let shape = s1c (List.length xs) in
-  let cast () =
-    run
+  let cast ?policy () =
+    run ?policy
       ~inputs:[ (shape, f32, floats shape xs) ]
       (function
         | [ x ] -> Graph_builder.to_copy Pointwise.To_copy.Long x
@@ -620,7 +620,9 @@ let%expect_test "float to int64: checked rejects, saturating follows aarch64" =
   (try Format.printf "checked: %a@." (pp_result pp_longs) (cast ())
    with Err.Exn.E e -> Format.printf "checked: raised: %a@." Err.Exn.pp_kind e);
   Format.printf "saturating: %a@." (pp_result pp_longs)
-    (Direct.with_float_to_int Direct.Saturating cast);
+    (cast
+       ~policy:{ Direct.Policy.default with float_to_int = Direct.Saturating }
+       ());
   [%expect
     {|
     checked: raised: Float-to-I64 cast of an infinite value

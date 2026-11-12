@@ -1,5 +1,5 @@
 (* copy.default, through the ATen-linked bridge. Binds directly to the
-   existing Expand node -- see op_bridge_shape.ml's own comment for why.
+   existing Expand node -- see op_bridge_copy.ml's own comment for why.
    Promote with [dune promote test/native_bridge/copy_test.ml]. *)
 
 open Helpers

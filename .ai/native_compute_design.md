@@ -584,6 +584,29 @@ module Direct : SEMANTICS with type t = float = struct
 end
 ```
 
+### 3a. Numeric policy belongs to the evaluator instance
+
+Two `Direct` behaviours are policy, not semantics: how a `dot` accumulates
+(`Binary64`, or a `Binary32_sequential` chain of fused multiply-adds that
+reproduces a binary32 reference) and how a float casts to int64 (`Checked`, or
+aarch64's `Saturating`). They are chosen by instance, never ambiently:
+
+- `Direct.Make (P : POLICY)` is the evaluator under `P.policy : Direct.Policy.t`;
+  the `Direct` module itself is the instance under `Policy.default`.
+- `Eval_direct_compute` is a functor over `Direct.S` with the four pre-applied
+  instances (a closed 2×2 set); `compute ~policy` picks one, so there is no
+  runtime dispatch per `dot`.
+- `Eval_direct.run`/`run_storage` and `Storage_run.run` take `?policy`;
+  `Native_interp`'s `?dot_accumulation`/`?float_to_int` build the record and
+  pass it down.
+
+There is no global ref and no scoped setter (`with_*`): state that survives a
+call is what let a policy leak into an unrelated evaluation on an exception
+path, and it cannot be exercised by two policies in one process. A new numeric
+policy is a new field of `Policy.t` and a new instance, not a setter. The
+alternative of a policy field in every `SEMANTICS` context was rejected: it
+touches `Symbolic` for a Direct-only concern.
+
 ## 4. `Symbolic` — an expression IR for codegen/fusion
 
 `t = Expr.Value.t Expr.Builder.t` — a *construction computation* producing a pure
