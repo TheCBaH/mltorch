@@ -10,14 +10,23 @@ test's JSON-Lines golden is the source of truth for the "Native graph builds"/
 `make pt2.runtest`, so read this table as commentary, not as the thing to
 trust if the two disagree.
 
-| Model | Nodes | Native graph builds | Native4D converts (`to4d --fold`) | Native-vs-ATen numeric match (`native-infer-verify`) |
+Status (2026-11-12): the table is taken from the cram golden as committed; the
+dated sections below are the history of how each row moved.
+
+| Model | Exported nodes (`model.json`) | Native graph builds | Native4D converts (`to4d --fold`, canonical nodes) | Native-vs-ATen numeric match (`native-infer-verify`) |
 |---|---|---|---|---|
-| `mobilenetv2_050` | 152 | yes | yes, fully (100 canonical nodes) | yes, wired into `PT2_MODELS_NATIVE_VERIFY` |
-| `regnetx_002` | 145 | yes | **no** — stops at one 3-group `convolution` node (see below) | yes, wired into `PT2_MODELS_NATIVE_VERIFY` |
-| `efficientnet_b0` | 240 | yes (16 `Sigmoid`, 49 `Silu`) | yes, fully (254 canonical nodes) | yes, wired into `PT2_MODELS_NATIVE_VERIFY` |
-| `test_convnext2` | 71 | yes (4 `Gelu`) | yes, fully (49 canonical nodes) | yes, wired into `PT2_MODELS_NATIVE_VERIFY` |
-| `fastvit_sa12` | 332 | yes (19 `Gelu`, SDPA) | no as of this table (2026-08-23) — SDPA was unconditionally rejected by Native4D then; that changed 2026-09-02 (`.ai/native4d_design.md` §7.9, SDPA now converts at `D = 1`), so this row needs re-running before citing it — the row's OWN `outside_dialect_domain` diagnostic (axis T) is unrelated to SDPA and may still block this model regardless | `native-infer-verify.fastvit_sa12` passes (max_abs 1.4e-5, cosine_similarity 1), doesn't need Native4D at all; `native-transform-verify.fastvit_sa12`'s third pass (`--verify-symbolic standard`) not yet timed on this model's 1218 real nodes, so not wired into `PT2_MODELS_NATIVE_VERIFY` pending that — the other two passes of that target would very likely also pass |
-| `csatv2` | 945 | **no** — deliberately graph-only CI fixture (see `.ai/testing_strategy.md`) | no | no |
+| `csatv2` | 945 | yes | yes (979) | no — graph-only role; the interpreter reaches unsupported `aten.stack` |
+| `efficientnet_b0` | 239 | yes (16 `Sigmoid`, 49 `Silu`) | yes (254) | yes, wired into `PT2_MODELS_NATIVE_VERIFY` |
+| `fastvit_sa12` | 332 | yes (19 `Gelu`, SDPA) | yes (366), since the 2026-09-20 update below | `native-infer-verify.fastvit_sa12` passes (max_abs 1.4e-5, cosine_similarity 1); not in `PT2_MODELS_NATIVE_VERIFY` because the symbolic-verify pass of `native-transform-verify` has not been timed on it |
+| `mobilenetv2_050` | 152 | yes | yes (100) | yes, wired into `PT2_MODELS_NATIVE_VERIFY` |
+| `regnetx_002` | 145 | yes | yes (101) | yes, wired into `PT2_MODELS_NATIVE_VERIFY` |
+| `test_convnext2` | 71 | yes (4 `Gelu`) | yes (49) | yes, wired into `PT2_MODELS_NATIVE_VERIFY` |
+
+"Exported nodes" counts the ExportedProgram graph; the imported Native graph is
+several times larger before canonicalization (`mobilenetv2_050`: 731 nodes, 314 of
+them constants) and smaller after it, so quote a node count with its stage.
+`mobilenetv3_small_050` is in `PT2_MODELS_CRAM` for the structural crams but not in
+the cram golden this table follows.
 
 ## How this was produced (2026-08-23)
 

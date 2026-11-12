@@ -1,5 +1,8 @@
 # Interval allocator (`lib/interval_alloc`)
 
+Libraries: interval_alloc
+Status: 2026-11-12 — ownership recorded; the body was not re-audited against the code
+
 A standalone library that packs a script of allocations and frees into one pool.
 It is the placement half of the tensor arena and knows nothing about tensors,
 element kinds or Bigarrays: the client makes one problem per pool. Its units are

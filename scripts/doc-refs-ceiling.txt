@@ -1,0 +1,6 @@
+# Ceilings for scripts/check-doc-refs.sh: name|matching lines. Only ever lowered; the
+# check fails when a count is below its ceiling too. Target for each is 0.
+ai-file|419
+gate|11
+stage|133
+untracked-doc|166

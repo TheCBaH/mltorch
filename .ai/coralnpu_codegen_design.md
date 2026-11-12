@@ -1,5 +1,8 @@
 # Coral NPU code generation — design record
 
+Libraries: contraction, coral_transfer, coralnpu_kernels, coralnpu_kernels_zvt
+Status: 2026-11-12 — ownership recorded; the body was not re-audited against the code
+
 How the RV32 Machine IR route selects Coral-specific code, and under which
 numerical contract. Measurements of the simulators themselves (peak bursts,
 DMA, subsystem) are in `coralnpu_simulators_design.md`; this record holds the

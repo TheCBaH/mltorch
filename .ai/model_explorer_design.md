@@ -1,5 +1,8 @@
 # Model Explorer export — design record
 
+Libraries: model_explorer_export
+Status: 2026-11-12 — ownership recorded; the body was not re-audited against the code
+
 The durable half of the Model Explorer graph-visualization work: what is in the tree,
 why it has the shape it has, and which decisions later stages may not quietly reverse.
 The research-backed high-level plan and the round-by-round implementation plan are

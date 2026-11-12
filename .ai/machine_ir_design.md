@@ -1,5 +1,8 @@
 # Machine IR — implemented design
 
+Libraries: machine_alloc, machine_check, machine_interp, machine_ir, machine_lower, machine_model, machine_target_aarch64, machine_target_riscv32, machine_target_x86_64
+Status: 2026-11-12 — ownership recorded; the body was not re-audited against the code
+
 Status: **in progress**. The project-owned representation below the CFG form of
 the structured SSA IR (see the SSA IR design in this directory). Three
 executable forms share one container: generic (primitive computation, byte

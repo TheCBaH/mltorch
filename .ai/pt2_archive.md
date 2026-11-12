@@ -1,5 +1,8 @@
 # PT2 Archive Structure
 
+Libraries: pt2_safetensors, pt2_safetensors_unix
+Status: 2026-11-12 — ownership recorded; the body was not re-audited against the code
+
 A `.pt2` file is a ZIP archive. Contents after extraction (top-level model name dir is stripped):
 
 ```

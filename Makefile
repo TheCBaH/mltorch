@@ -1,6 +1,6 @@
 .PHONY: machine.rivet.rv32.runtest rv32.pt2.runtest coralnpu.rv32.runtest coralnpu.vme.runtest compcert.rv32.install compcert.rv32.runtest model.compare.coverage js.compare.runtest rivet.compare.runtest transformers.assets.check transformers.assets.generate transformers.assets.fetch transformers.cohort.check transformers.cohort.generate transformers.cohort.fetch transformers.generate transformers.text.check transformers.text.demo transformers.gate transformers.matrix transformers.admission transformers.download transformers.open model.compare model.download model.compare.gate model.fetch.timm model.fetch.fixture transformers.replay compcert.compare.runtest compcert.embed.install compcert.embed.runtest machine.rivet.a64.conformance machine.rivet.a64.runtest machine.rivet.x64.conformance machine.rivet.x64.runtest rivet.install c.pt2.bench c.pt2.exe c.pt2.native4d.runtest c.pt2.native4d.ssa.runtest c.pt2.perf c.pt2.run c.pt2.runtest c.pt2.san c.pt2.ssa.perf c.pt2.ssa.runtest c.runtest.all c.runtest.o0 c.runtest.san benchmark.canonical benchmark.canonical.corpus \
 	benchmark.region_compute benchmark.region_pixel build check \
-	check.file-size check.int-signatures check.whitespace clean lint.zanuda lint.zanuda.list fp32.pt2.runtest fp32.pt2.census machine.a64.conformance machine.pt2.census ssa.vector.census \
+	check.doc-refs check.exceptions check.file-size check.int-signatures check.libraries check.whitespace libraries clean lint.zanuda lint.zanuda.list fp32.pt2.runtest fp32.pt2.census machine.a64.conformance machine.pt2.census ssa.vector.census \
 	expr_bench.js-benchmark expr_bench.runtest expr_order.runtest \
 	expr_probe.deep-runtest expr_probe.runtest format fp32.bench fp32.bench.wasm inference inference-runa \
 	inline-timing-report inline-timing-report-js js.build js.runtest \
@@ -40,14 +40,13 @@ PT2_MODEL_DIR = $(PT2_DIR)/$(PT2_MODEL)
 PT2_MODELS_FIXTURES := mobilenetv2_050 test_convnext2
 PT2_MODELS_POOL := mobilenetv2_050 csatv2
 PT2_MODELS_CRAM := test_convnext2 mobilenetv2_050 regnetx_002 efficientnet_b0 fastvit_sa12 mobilenetv3_small_050
-# efficientnet_b0/test_convnext2 joined once GELU/Sigmoid landed (see
-# .ai/pt2_model_support.md) -- both now pass native-infer-verify and
+# efficientnet_b0/test_convnext2 joined once GELU/Sigmoid landed (see the
+# model-support record in .ai/) -- both now pass native-infer-verify and
 # native-transform-verify identically to mobilenetv2_050/regnetx_002.
-# fastvit_sa12 (1218 nodes) isn't in this list purely because a full run takes
-# several minutes, not because of any known failure -- add it once that cost
-# is judged worth paying in CI. csatv2 doesn't fully lower into Native at all
-# yet (it's a deliberately graph-only fixture), so it can't join until that
-# lands. mobilenetv3_small_050 joined for the native_graph_*/native_transform_*
+# fastvit_sa12 is here but not in PT2_MODELS_NATIVE_VERIFY below: the symbolic
+# pass of native-transform-verify has not been timed on it, not because of any
+# known failure. csatv2 is kept out of this list as a graph-only fixture (see
+# the note under PT2_MODELS_NATIVE_VERIFY). mobilenetv3_small_050 joined for the native_graph_*/native_transform_*
 # structural crams: it is the closest available architectural match
 # to the retired mobilenet_v3_small role model (hardswish decomposition), and
 # at ~8MB it is cheap next to the others.
@@ -749,11 +748,33 @@ format:
 check.file-size:
 	bash scripts/check-file-size.sh
 
+# Exception ratchet: every exception declared in lib/ is listed in
+# scripts/exceptions-allowlist.txt with a category; a walk exit should be an
+# Err.Escape, so the escape-candidate ceiling only goes down.
+check.exceptions:
+	bash scripts/check-exceptions.sh
+
+# Reference ratchet: tracked files outside .ai/ must not gain a file name inside
+# .ai/, a reference to an untracked plan/tracker/census, or a numbered Gate or
+# Stage, and the ceilings in scripts/doc-refs-ceiling.txt only go down.
+check.doc-refs:
+	bash scripts/check-doc-refs.sh
+
 # Signature ratchet for domain-typed integers: every declaration in an in-scope
 # .mli that mentions int must be allowlisted with a category, and the list only
 # shrinks (tools/int_signatures). Also part of runtest.
 check.int-signatures:
 	opam exec -- dune build @tools/int_signatures/runtest
+
+# Library ownership: every lib/*/dune library is claimed by a `Libraries:` line
+# in one .ai/ design doc, or listed in tools/libraries/unowned.txt, whose
+# ceiling only goes down. `make libraries` lists name, dir, owner doc, role and
+# dependencies (tab separated); `make libraries LIBS="core expr"` filters.
+libraries:
+	@opam exec -- dune exec --no-print-directory tools/libraries/libraries.exe -- list . $(LIBS)
+
+check.libraries:
+	opam exec -- dune exec --no-print-directory tools/libraries/libraries.exe -- check tools/libraries/unowned.txt .
 
 # Whitespace/conflict-marker regression check: git's own diff-hygiene check
 # against HEAD (trailing whitespace, a mixed tab/space indent the change
@@ -2257,9 +2278,9 @@ check: build format runtest melange.build melange.runtest
 
 # The local pre-commit gate: every check that needs no extra toolchain or
 # downloaded model data (the JS backends and the pt2/inference suites are
-# excluded -- see make js.runtest / make pt2.runtest). check.file-size runs
-# first since, like in CI, it needs no build. Deliberately excludes
+# excluded -- see make js.runtest / make pt2.runtest). check.doc-refs,
+# check.exceptions and check.file-size run first since, like in CI, they need no build. Deliberately excludes
 # verify.pristine: that target asserts NO uncommitted changes, which is
 # never true of the changes precommit is meant to check.
-precommit: build runtest format check.whitespace check.file-size \
-	check.int-signatures
+precommit: build runtest format check.whitespace check.doc-refs \
+	check.exceptions check.file-size check.int-signatures check.libraries

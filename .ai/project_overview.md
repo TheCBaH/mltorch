@@ -53,6 +53,59 @@ implementations for comparison with ATen. `lib/model_explorer_export` exposes
 pipeline snapshots and computation details to `js/webapp`; visualization does
 not require running inference first.
 
+### The compiled path
+
+Below `Fusion_plan` (in `lib/native`) the graph is compiled by two middle-ends.
+An arrow `A → B` means B's `dune` stanza lists A, or the label names the function
+or lowering that crosses; each box is a library.
+
+```
+ lib/native                       Fusion_plan.t
+     │                                  │
+     ├──────────────┬───────────────────┘
+     ▼              ▼
+ lib/loop_ir     lib/ssa_lower
+ Loop IR:        Ssa_lower_plan  (today's production route, direct from the plan)
+ scalar form,        │
+ interpreter,        │
+ runtime layer       │
+     │               │
+     │ Loop_lower.lower_structured
+     ▼               │
+ lib/ssa_bridge      │
+ Ssa_of_loop.convert │       (tests only so far; see the roles design)
+     │               │
+     └───────┬───────┘
+             ▼
+        lib/ssa_ir            structured SSA: verifier, interpreter, vector form,
+             │                CFG form (Ssa_cfg_*)
+      ┌──────┼───────────────────────┐
+      ▼      ▼          ▼            ▼
+  lib/ssa_c  lib/ssa_js  lib/ssa_wasm  lib/machine_lower   (lowers CFG SSA into Machine IR)
+      │      │          │            │
+      └──────┼──────────┘            ▼
+             ▼                  lib/machine_ir ─→ lib/machine_target_{aarch64,riscv32,x86_64}
+        lib/ssa_backends              │              │
+        (bundles over                 ▼              ▼
+         Loop_bundle)          lib/machine_model   lib/machine_rivet_* ─→ lib/coralnpu_kernels*,
+                                                                           lib/machine_rivet_riscv32_mir
+```
+
+`ssa_c`, `ssa_js`, `ssa_wasm` and `ssa_backends` also depend on `loop_ir`, for the
+shared runtime and failure layer and `Loop_bundle.build_with`. The Loop IR keeps
+its own C, JavaScript and WebAssembly emitters, hosted by `lib/loop_c_exec` and
+`lib/loop_wasm_exec` and (for JavaScript) `js/loop_js_exec`; they are frozen, and
+the roles design in `.ai/` records the gates for retiring them. `lib/loop_native4d`
+(and `lib/loop_native4d_model`) put the Native4D dialect through the same Loop
+bundle path.
+
+`lib/inference_compare_*` run one model through the engines above and compare:
+`inference_compare_pt2` (ATen and Native via `lib/interp`, `lib/native`,
+`lib/native4d`), `inference_compare_generated` (`ssa_backends`, `loop_c_exec`,
+`loop_wasm_exec`), `inference_compare_compiled` (`ssa_backends`, `machine_model`,
+C embedding), `inference_compare_rivet` (`machine_rivet_aarch64`) and
+`inference_compare_rv32` (`machine_rivet_riscv32_mir`, the Coral NPU simulators).
+
 ### Libraries
 
 | Path | Role |

@@ -1,5 +1,8 @@
 # Schema Meta-Parser
 
+Libraries: pytorch_schema
+Status: 2026-11-12 — ownership recorded; the body was not re-audited against the code
+
 `lib/pytorch_schema/pytorch_schema.ml` — parses `schema.yaml` into an OCaml type map.
 
 ## Why jsont for YAML?

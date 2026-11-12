@@ -1,5 +1,8 @@
 # Binary32 kernels for SIMD inference; binary64 for general compute
 
+Libraries: f32_math
+Status: 2026-11-12 — ownership recorded; the body was not re-audited against the code
+
 Status: implemented on native C and direct Wasm, promoted to the default of the
 generated C/Wasm inference executables. The binary64 reference remains the
 default everywhere else and an explicit option (`--reference`) for C and Wasm.

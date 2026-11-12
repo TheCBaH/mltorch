@@ -1,10 +1,15 @@
 # Structured SSA computation IR — implemented design
 
-Status: the source surface the op sweep walks is implemented (typed IR,
-verifier, printer, reference interpreter, direct source lowering including
-Region programs, locals, scans and groups, differential harness), with the
-analyses and the exact optimizations over it. No vector form, CFG form or direct
-emitter exists yet. The semantics, task list and per-task evidence live in the
+Libraries: ssa_backends, ssa_bridge, ssa_c, ssa_ir, ssa_js, ssa_lower, ssa_wasm
+Status: 2026-11-12 — implemented
+
+Implemented: the typed structured IR (verifier, printer,
+reference interpreter), direct source lowering including Region programs, locals,
+scans and groups, the differential harness, the analyses and optimizations over
+it, the vector form (`Ssa_vectorize`, `Ssa_vec_expand`), the CFG form with its own
+lowering, verifier and interpreter (`Ssa_cfg_*`, which Machine IR lowers from),
+direct C, JavaScript and WebAssembly emitters, and whole-model bundles. The
+semantics, task list and per-task evidence live in the
 SSA design, implementation plan and tracker in the sibling design repository;
 this file records what the code in `lib/` actually does and where it deliberately
 differs from the proposal.
@@ -13,12 +18,22 @@ differs from the proposal.
 
 | Library | Role | Depends on |
 |---|---|---|
-| `lib/ssa_ir` | Pure IR: ids, types, ops, regions, builder, verifier, printer, interpreter | `core`, `err_trace`, `expr`, `fmt` |
-| `lib/ssa_lower` | Direct lowering of a `Fusion_plan.t`; runs a lowered program over bound tensors | `ssa_ir`, `native` |
-| `lib/ssa_bridge` | Differential harness against `Kernel_eval`; `Ssa_of_loop` and `Loop_of_ssa` converters | `ssa_ir`, `ssa_lower`, `loop_ir`, `native` |
+| `lib/ssa_backends` | Producers for the whole-model bundles: lowers each kernel and hands it to an emitter | `js_ast`, `loop_ir`, `native`, `ssa_c`, `ssa_ir`, `ssa_js`, `ssa_lower`, `ssa_wasm`, `wasm_ir` |
+| `lib/ssa_bridge` | Differential harness against `Kernel_eval`; `Ssa_of_loop` and `Loop_of_ssa` converters | `loop_ir`, `native`, `ssa_ir`, `ssa_lower` |
+| `lib/ssa_c` | Direct C emitter | `loop_ir`, `ssa_ir` |
+| `lib/ssa_ir` | IR: ids, types, ops, regions, builder, verifier, printer, interpreters (structured and CFG), analyses, passes, vector form | `attention_block`, `attention_layer_block`, `contraction`, `f32_math`, `norm_block` |
+| `lib/ssa_js` | Direct JavaScript emitter | `js_ast`, `loop_ir`, `ssa_ir` |
+| `lib/ssa_lower` | Direct lowering of a `Fusion_plan.t`; runs a lowered program over bound tensors | `native`, `ssa_ir` |
+| `lib/ssa_wasm` | Direct WebAssembly emitter | `loop_ir`, `ssa_ir`, `wasm_ir` |
+
+Every library also depends on `core`, `err_trace`, `expr` and `fmt`. The emitters
+reuse `loop_ir`'s index, failure-record, numerics and per-target runtime modules
+and parts of its emitters (`Loop_c_base`, `Loop_wasm_ctx`, …), not its lowering.
 
 `ssa_ir` owns no tensor, kernel or graph type, so it cannot reach a native process
-API or a physical target. Nothing in `loop_ir` or `native` knows SSA exists. A
+API or a physical target. Its block dependencies (`attention_block`,
+`attention_layer_block`, `contraction`, `norm_block`) are descriptor libraries
+that depend only on each other, `f32_math`, `err_trace` and `fmt`. Nothing in `loop_ir` or `native` knows SSA exists. A
 module in `ssa_lower` may not be named `Ssa_lower`: a wrapped library's module of
 its own name becomes its interface and hides its siblings (the lowering is
 `Ssa_lower_plan`).

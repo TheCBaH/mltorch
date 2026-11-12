@@ -1,5 +1,8 @@
 # Per-node op-test JSON fixtures from a real `.pt2` model — Design
 
+Libraries: pt2_spec_gen
+Status: 2026-11-12 — ownership recorded; the body was not re-audited against the code
+
 ## Purpose
 
 [[aten_spec_design]] gives a JSON format for one ATen operation invocation, hand-written

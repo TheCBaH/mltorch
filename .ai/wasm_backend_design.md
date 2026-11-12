@@ -1,5 +1,8 @@
 # Wasm backend: scalar contracts
 
+Libraries: loop_wasm_exec, wasm_ir
+Status: 2026-11-12 — ownership recorded; the body was not re-audited against the code
+
 Status: the contracts below are frozen for the scalar backend (W1). Code lives
 in `lib/wasm_ir` (pure Wasm representation, checker, encoder) and, later, the
 Loop IR lowering in `lib/loop_ir`. SIMD is a separate, later layer that must not

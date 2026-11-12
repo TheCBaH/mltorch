@@ -1,5 +1,8 @@
 # Source-linked cohort and adapter metadata
 
+Libraries: transformers_metadata
+Status: 2026-11-12 — ownership recorded; the body was not re-audited against the code
+
 `lib/transformers_metadata` owns native OCaml metadata tooling. It shares the
 existing source-inventory helper and fixture/hash/bounded-bundle libraries.
 Consumer commands never execute producer Python or convert tensors.

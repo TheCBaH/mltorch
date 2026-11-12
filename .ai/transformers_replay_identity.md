@@ -1,5 +1,8 @@
 # Immutable Transformers replay evidence
 
+Libraries: transformers_reports
+Status: 2026-11-12 — ownership recorded; the body was not re-audited against the code
+
 `lib/transformers_reports` is native host tooling shared by the replay and
 matrix CLIs. The tensor comparator and schema-3 report payload remain in the
 pure fixture library; the host adds `run_id`, `run_manifest_sha256` and an

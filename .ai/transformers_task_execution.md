@@ -1,5 +1,8 @@
 # Producer task execution and consumer tooling
 
+Libraries: transformers_tasks
+Status: 2026-11-12 — ownership recorded; the body was not re-audited against the code
+
 The source dependency pins producer `b2b5388869b1436018a09018035937f6f80d4f59`
 after the producer's torch 2.13 migration. Task recipes, assets, schemas and
 trusted task pin are unchanged from the earlier `b514afb` source.

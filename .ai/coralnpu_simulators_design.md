@@ -1,5 +1,8 @@
 # Coral NPU simulators — design record
 
+Libraries: coralnpu, loop_c_embed_compcert_coral, machine_rivet_riscv32_coral
+Status: 2026-11-12 — ownership recorded; the body was not re-audited against the code
+
 mltorch runs RV32 guest images on the Coral NPU simulators published by
 `devcontainer.coralnpu`: MPACT (functional, instruction counts) and the
 Verilator RTL CoreMini testbenches (cycles). The guest ISA is RV32IMF with no

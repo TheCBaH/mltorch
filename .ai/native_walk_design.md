@@ -1,5 +1,8 @@
 # Native Op Walk Verification — Design
 
+Libraries: aten_op_walk, aten_walk_recipes, native_op_walk, native_walk, walk_core
+Status: 2026-11-12 — ownership recorded; the body was not re-audited against the code
+
 ## Goal
 
 Systematically verify functional equivalence between native ops (`lib/native/`) and ATen C++ kernels

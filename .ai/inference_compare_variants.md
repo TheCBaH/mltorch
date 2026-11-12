@@ -1,5 +1,8 @@
 # Inference comparison: variants, engines and the coverage manifest
 
+Libraries: inference_compare_compiled, inference_compare_generated, inference_compare_host, inference_compare_js, inference_compare_js_wire, inference_compare_pt2, inference_compare_rivet, inference_compare_rv32
+Status: 2026-11-12 — ownership recorded; the body was not re-audited against the code
+
 How `make model.compare` (and `fixture_pair_run`) picks what to compare. The
 coordinator layers never see an engine name (see the integration doc); this is
 the layer that turns two words into two endpoints, a mapping and the initial

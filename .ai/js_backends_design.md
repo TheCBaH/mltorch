@@ -1,5 +1,8 @@
 # JavaScript backends: js_of_ocaml and Melange
 
+Libraries: infer_report, native_predict
+Status: 2026-11-12 — ownership recorded; the body was not re-audited against the code
+
 How the pure-OCaml half of this repo is built and verified against a JavaScript
 runtime, what that verification found, and which limits are structural rather than
 unfinished work.

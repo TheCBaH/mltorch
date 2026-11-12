@@ -1,9 +1,10 @@
 ; The structured SSA computation IR: typed values, regions, the builder, the
 ; verifier, the printer and the reference interpreter. Pure OCaml: no native
-; process API, no physical target, no tensor or graph type. It sees only
-; [core], [err_trace], [expr] and [fmt], so source lowering and the Loop
-; comparison bridge depend on it and never the reverse. See the SSA design
-; and implementation plan in .ai/.
+; process API, no physical target, no tensor or graph type. Beyond [core],
+; [err_trace], [expr] and [fmt] it sees only the descriptor libraries
+; (attention, contraction, norm blocks and [f32_math]), none of which owns a
+; tensor or graph type, so source lowering and the Loop comparison bridge
+; depend on it and never the reverse. See the SSA design in .ai/.
 ;
 ; Wrapped (default): consumers write [Ssa_ir.Ssa_builder].
 

@@ -1,5 +1,8 @@
 # ATen Op JSON Spec — Design
 
+Libraries: aten_op_spec, aten_spec, aten_spec_run
+Status: 2026-11-12 — ownership recorded; the body was not re-audited against the code
+
 ## Purpose
 
 A compact, reproducible JSON format describing **one ATen operation invocation**,

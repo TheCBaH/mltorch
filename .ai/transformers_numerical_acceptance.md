@@ -1,5 +1,8 @@
 # Transformers numerical acceptance and controlled diagnostics
 
+Libraries: model_source
+Status: 2026-11-12 — ownership recorded; the body was not re-audited against the code
+
 The source catalogue, checkpoint publication and producer task-fixture release
 have independent pins. The reviewed source gitlink remains
 `81feca91b3d3ad032cb3c1ef28f4d5e1751c1d55`. Checkpoint references remain from

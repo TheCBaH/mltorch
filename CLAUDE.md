@@ -25,7 +25,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
   a vocabulary searchable and lets a reader compare a type with its consumers by eye.
   Preserve non-alphabetical order only when it carries behavior (a numeric ABI, priority,
   an exported traversal sequence), and document why at the declaration or other single
-  ordering source.
+  ordering source. "Alphabetical" means byte order of the lowercased name (`LC_ALL=C`),
+  so `_` sorts before letters and a name's suffixed forms stay beside it: `Add`,
+  `Add_scalar`, `Addcmul`. (`sort -f` folds to *upper*case and puts `_` after letters.)
 
 - **Record types get their own module, named `t`** (e.g. `Node.t`, `Graph.t`), matching
   `Tensor.t`/`Vec6.t`. This guarantees field-label uniqueness by construction
@@ -58,7 +60,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
   marks `Err.Action.Export` and then unwraps, so the marking can't be forgotten. Inbound is
   `Err.import` (records `Import`, no `Detect` — a third party detected it, not you);
   `Err.payload` is the unmarked unwrap, for tests and rendering.
-  **Escape a deeply recursive walk with `Err.Escape`**, never a private exception:
+  **Escape a deeply recursive walk with `Err.Escape`**, never a private exception
+  (`make check.exceptions` lists every exception in `lib/` with a category; a new one
+  needs an entry, and the `escape-candidate` ceiling only goes down):
   `with_escape` establishes one frame, `throw`/`throw_error`/`or_throw` exit it, and the
   token is threaded so the reach is visible in the types. Carrying a bare row instead of
   `Error.t` is the defect it removes — `Native_interp` had it, reporting every malformed
@@ -143,9 +147,11 @@ start of a task rather than relying on a fixed list; filenames are descriptive
 (`*_design.md` for designs, area prefixes like `aten_*`, `native_*`, `schema_*`) — grep
 `.ai/` by topic when you're unsure which file applies.
 
-**Only the design record is tracked.** `*_plan.md` and `*_census.*` are working files —
-stage checklists, per-site inventories, progress markers — and are gitignored. Write
-them freely, never `git add -f` them, and expect them to be missing in a fresh clone:
+**Only the design record is tracked.** Plans, trackers and censuses are working files —
+stage checklists, per-site inventories, progress markers — and live in the gitignored
+`ai/` directory (no dot), never in `.ai/`, where nothing is ignored and `git add -A`
+would pick them up. Write them freely, never `git add -f` them, and expect them to be
+missing in a fresh clone:
 that's why some tracked docs cite plans that aren't in the repo. When a plan or census
 yields a rule that outlives it, fold that rule into a tracked doc (or this file) in the
 same change — the plan is scaffolding, the design record is the deliverable.
@@ -200,9 +206,9 @@ follow the reference and a tool can't check it. Cite a tracked document, a direc
 the topic instead. `.ai/` filenames stay out of both for the separate reason given
 above — only `.ai/` itself is stable enough to name.
 
-**Don't number work as a "Gate."** A gate number is internal milestone tracking that
-means nothing once the branch lands — name what changed instead, in the commit message
-and in code comments alike.
+**Don't number work as a "Gate" or a "Stage."** A gate or stage number is internal
+milestone tracking that means nothing once the branch lands — name what changed instead,
+in the commit message and in code comments alike.
 
 ## Commands
 
@@ -210,7 +216,7 @@ and in code comments alike.
 make build      # build
 make runtest    # run all tests
 make format     # format — mandatory before every commit
-make precommit  # build + format + runtest + check.file-size + whitespace check
+make precommit  # build + format + runtest + check.doc-refs + check.exceptions + check.file-size + check.libraries + whitespace check
 
 # Single cram test or promote (no make target)
 dune runtest test/model_cram.t
@@ -218,7 +224,7 @@ dune promote test/model_cram.t
 ```
 
 **Run `make precommit` before every commit.** It chains `build`, `format`, `runtest`,
-`check.file-size` and the whitespace/conflict-marker check (`git diff --check HEAD`) —
+`check.doc-refs`, `check.exceptions`, `check.file-size`, `check.libraries` and the whitespace/conflict-marker check (`git diff --check HEAD`) —
 the same gates CI runs, minus the JS backends and the pt2/inference suites, which need
 extra toolchain or downloaded model data (see `make js.runtest` / `make pt2.runtest`).
 Formatting is enforced; unformatted diffs are noise.
@@ -288,8 +294,9 @@ the fallback was never taken. One sample only, not the ten `results.json` holds:
 one sample alone measures ~103s through the native evaluator, so ten under node
 would be well over an hour.
 
-Neither is part of `make runtest` (both need node); CI runs jsoo and melange as two
-parallel jobs. Melange is behind `--profile melange`, so plain `dune build` never
+Neither is part of `make runtest` (both need node); in CI, `jsoo`, `jsoo-models` and
+`melange` are separate suites of the one `ci.yml` matrix job, which runs every suite on
+both x86_64 and arm64. Melange is behind `--profile melange`, so plain `dune build` never
 compiles it. Needs a devcontainer rebuild for `js_of_ocaml`/`melange`/`node`.
 
 **The two backends have different scopes, deliberately.** jsoo reaches the whole PT2
@@ -368,7 +375,7 @@ measured decisions.
 ### .pt2 / interpreter (gated on real model data)
 
 ```sh
-make pt2.download-cram   # fetch the 5 models in PT2_MODELS_CRAM (see the Makefile)
+make pt2.download-cram   # fetch the models in PT2_MODELS_CRAM (see the Makefile)
 make pt2.runtest         # run pt2_load_cram.t + interp_*_cram.t against them
 make safetensors.run     # one model from its committed graph JSON + pinned Hub checkpoint, no .pt2 (--strict)
 make inference           # timed smoke run over every model in PT2_MODELS_ALL
@@ -393,24 +400,32 @@ test/*_cram.t                                      ← cram tests decode real mo
 
 ### Libraries
 
-| Path | Dune name | Role |
-|---|---|---|
-| `lib/pytorch_schema/` | `pytorch_schema` | Schema meta-parser + code generator |
-| `lib/schema_runtime/` | `schema_runtime` | Runtime: `String_map = Map.Make(String)` |
-| `lib/generated/` | `pytorch_types` | Generated decoder library |
-| `bin/schema_gen.ml` | `schema_gen` (exe) | CLI: reads YAML, calls generator |
-| `lib/expr/` | `expr` | The symbolic expression language: typed indices, values, reductions, intrinsics. Depends only on `core`+`fmt`, so it owns no tensor, storage or graph type — `native` consumes it, never the reverse |
-| `lib/pt2/` | `pt2` | Libtorch-free `.pt2` reader: ZIP (via `zipc`), pickle (via vendored `opickle`), model.json/weights-config decoding |
-| `lib/pt2_safetensors/` | `pt2_safetensors` | A `.pt2`-free weight source: the `safetensors.json` map (a pinned Hub checkpoint plus config-name -> checkpoint key/dtype/shape), validated against the graph's configs and the checkpoint header up front, yielding a `Pt2_archive.t` whose tensor bytes are zero-copy views. Pure, so js_of_ocaml-reachable |
-| `lib/pt2_safetensors_unix/` | `pt2_safetensors_unix` | `open_dir model_dir`: reads a submodule model directory and maps its pinned checkpoint through the huggingface_hub cache (`vendored/ocaml-hf-hub`), checking the pin's sha256 and size. Native only |
-| `lib/pt2_aten/` | `pt2_aten` | Bridges `pt2`'s raw strided tensors to runnable `Aten_tensor.t` (via `of_storage`), kept separate so `pt2`'s own tests need no C++ build |
-| `lib/loop_ir/` | `loop_ir` | The Loop IR: a structured loop program lowered from a `Fusion_plan.t`, its reference interpreter, the differential harness against `Kernel_eval`, and the JavaScript emitter. Depends on `native`, never the reverse |
-| `lib/js_ast/` | `js_ast` | A closed subset of ECMAScript as data: identifiers, the AST, typed builders (`Js_build`: `Number`, index and `BigInt` kinds that cannot be mixed), the printer, and a scope checker. Depends on `fmt` only; mirrored into Melange (`js/melange/js_ast`) so its output is diffed across native, jsoo and Melange |
-| `js/loop_js_exec/` | `loop_js_exec` | Runs the JavaScript `Loop_js` emits in-process over the bound tensors' storage, decoding a failure record to the interpreter's row. **js_of_ocaml only**: it links into a `(modes js)` executable or inline-test suite, never a native one; its tests install it as a further `Loop_check` executor. The only library that may name `js_of_ocaml` for this backend |
-| `lib/loop_native4d/` | `loop_native4d` | The Native4D instance of `Loop_ir.Loop_dialect`, so a Native4D graph reaches `Loop_bundle.build_with` (C, Wasm, JavaScript, SSA kernels). A library of its own because `loop_ir` depends on `native`, never on a further dialect |
-| `lib/loop_native4d_model/` | `loop_native4d_model` | An archive as a Loop bundle plus its per-edge reference evaluator, in either dialect (`--dialect=` in the whole-model drivers). Native4D materializes deferred Const-SSA exports from the archive before the bundle and the reference see the constants |
-| `lib/interval_alloc/` | `interval_alloc` | A standalone interval allocator: an alloc/free script in, per-block offsets in one pool out, with its own witness check (`Witness` only comes from `check`) and lower bound. Knows nothing of tensors or Bigarrays; depends on `err_trace` + `fmt` only. `int64` sizes and offsets, so it is js_of_ocaml-safe |
-| `lib/interp/` | `interp` | Walks an `ExportedProgram` graph and dispatches each node to the bound ATen ops |
+`make libraries` lists every `lib/*/dune` library — dune name, directory, the
+`.ai/` design doc that owns it, a one-line role from the dune file's opening
+comment, and its dependencies (tab separated; `make libraries LIBS="core expr"`
+filters). A design doc claims libraries with `Libraries:` and a dated `Status:`
+line near its title; `make check.libraries` (part of `make precommit` and CI)
+fails on a library no doc claims unless it is on the ceiling in
+`tools/libraries/unowned.txt`, which only goes down. Executables are in `bin/`
+and `js/`; `bin/schema_gen.ml` is the schema CLI.
+
+Layering the listing does not show:
+
+- `expr` depends only on `core` and `fmt`, so it owns no tensor, storage or graph
+  type — `native` consumes it, never the reverse.
+- `loop_ir` depends on `native`, never the reverse. The Native4D instance of its
+  dialect is its own library, `loop_native4d`, because `loop_ir` must not depend on
+  a further dialect; `loop_native4d_model` builds on it.
+- `js_ast` depends on `fmt` only and is mirrored into Melange
+  (`js/melange/js_ast`) so its output is diffed across native, jsoo and Melange.
+- `js/loop_js_exec` is js_of_ocaml only, the one library that may name
+  `js_of_ocaml` for the Loop JavaScript backend; it links into a `(modes js)`
+  executable or inline-test suite, never a native one.
+- `interval_alloc` depends on `err_trace` and `fmt` only and uses `int64` sizes and
+  offsets, so it is js_of_ocaml-safe.
+- `pt2_aten` bridges `pt2`'s raw tensors to `Aten_tensor.t` and is separate so
+  `pt2`'s own tests need no C++ build; `pt2_safetensors` is pure (js_of_ocaml
+  reachable) and `pt2_safetensors_unix` is native only.
 
 Key modules in `pytorch_schema`: `Pytorch_schema` (YAML→type map), `Schema_codegen` (type map→OCaml source), `Type_expr`/`Type_expr_lexer`/`Type_expr_parser` (type-string parser), `Scc` (Tarjan SCC for recursive type detection).
 

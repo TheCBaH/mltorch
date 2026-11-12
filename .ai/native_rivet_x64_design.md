@@ -1,5 +1,8 @@
 # Native x86-64 through typed Rivet modules — implemented design
 
+Libraries: machine_rivet_common, machine_rivet_x86_64, machine_rivet_x86_64_gnu
+Status: 2026-11-12 — ownership recorded; the body was not re-audited against the code
+
 Status: **runs on an x86-64 CPU**. A published x86-64 `Mir_artifact` becomes a
 typed `Normalized_ast.module_` of Rivet `X86_64.Instruction.t` values, built
 through the encoder's surface constructor (a mnemonic and typed operands, never

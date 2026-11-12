@@ -1,5 +1,8 @@
 # C backend — design record
 
+Libraries: loop_c_exec
+Status: 2026-11-12 — ownership recorded; the body was not re-audited against the code
+
 The host-compiled C backend for the Loop IR, in two layers.
 
 **Kernels.** `Loop_c` emits one kernel per `Loop_program`, `Loop_c_runtime` holds

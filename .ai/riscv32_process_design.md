@@ -1,5 +1,8 @@
 # RISC-V 32 processes under qemu-riscv32
 
+Libraries: loop_c_embed_compcert_rv32, machine_rivet_riscv32, machine_rivet_riscv32_mir
+Status: 2026-11-12 — ownership recorded; the body was not re-audited against the code
+
 Status: **the embedded-CompCert route and the Rivet Machine IR route run**, both
 D-free for binary32 programs. RV32 code cannot run on the host CPU, so every run is a
 static ELF executed by `qemu-riscv32`; it checks instruction bytes and control

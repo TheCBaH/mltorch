@@ -1,5 +1,8 @@
 # Inference comparison coordinator: schema layer
 
+Libraries: inference_compare_schema
+Status: 2026-11-12 — ownership recorded; the body was not re-audited against the code
+
 `lib/inference_compare_schema` is the pure data layer of the inference
 comparison coordinator: nominal identifiers and digests, graph and mapping
 descriptions, recipes, comparison policies, selectors, contracts, results and

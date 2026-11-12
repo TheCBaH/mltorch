@@ -1,0 +1,9 @@
+; The library ownership index. `make libraries` lists every lib/*/dune library
+; with its owner doc, role and dependencies; `make check.libraries` fails on a
+; library no `.ai/` doc claims that is not on the unowned ceiling. Run from the
+; repository root (dune ignores the dot-directory `.ai`, so this is an
+; executable rather than a runtest rule).
+
+(executable
+ (name libraries)
+ (modules libraries))

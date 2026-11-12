@@ -1,5 +1,8 @@
 # Native4D dialect — goal, feasibility review, and high-level plan
 
+Libraries: loop_native4d, loop_native4d_model
+Status: 2026-11-12 — ownership recorded; the body was not re-audited against the code
+
 ## Status
 
 Design and implementation plan. The computation-reuse sections incorporate the

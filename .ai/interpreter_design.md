@@ -1,5 +1,8 @@
 # Interpreter design (graph executor for `.pt2` models)
 
+Libraries: interp
+Status: 2026-11-12 — ownership recorded; the body was not re-audited against the code
+
 Status: **implemented** — `lib/interp` walks an `ExportedProgram` graph directly
 against the pt2 reader (`lib/pt2`), the ATen bridge (`lib/pt2_aten`), and the op
 layer (`lib/aten`, ~1300 generated ops + Tensor API), and runs real inference

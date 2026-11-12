@@ -1,5 +1,8 @@
 # Native-ATen Bridge — Design
 
+Libraries: native_aten_bridge
+Status: 2026-11-12 — ownership recorded; the body was not re-audited against the code
+
 ## Purpose
 
 The bridge (`lib/native_aten_bridge/`) converts between:

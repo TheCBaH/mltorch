@@ -1,5 +1,8 @@
 # Loop IR JavaScript backend: an AST, typed builders, a printer, and a JS-only executor
 
+Libraries: js_ast
+Status: 2026-11-12 — ownership recorded; the body was not re-audited against the code
+
 Status: **implemented**. Builds on the finished Phase 2 of the kernel-DSL design
 (the Kernel DSL design doc, sections "Loop IR", "JavaScript and C semantics",
 "Phase 2"); the JS-side value representations chosen there are unchanged. JS

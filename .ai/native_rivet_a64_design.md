@@ -1,5 +1,8 @@
 # Native AArch64 through typed Rivet modules — implemented design
 
+Libraries: machine_rivet_aarch64, machine_rivet_aarch64_gnu
+Status: 2026-11-12 — ownership recorded; the body was not re-audited against the code
+
 Status: **in progress**. A published AArch64 `Mir_artifact` becomes a typed
 `Normalized_ast.module_` of Rivet `Aarch64.Instruction.t` values, which Rivet
 lowers, lays out and (natively) loads. No assembly text is produced on this

@@ -1,5 +1,8 @@
 # ATen Op Config — Design
 
+Libraries: aten_config, aten_gen
+Status: 2026-11-12 — ownership recorded; the body was not re-audited against the code
+
 ## Problem
 
 The ATen schema (from `native_functions.yaml`) is currently only available at

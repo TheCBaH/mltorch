@@ -1,0 +1,39 @@
+# Libraries no .ai/ doc claims yet (see tools/libraries). The ceiling only goes down:
+# claim a library in a doc `Libraries:` line, then delete it here and lower the ceiling.
+@unowned-ceiling 36
+arena_eval
+asm_census
+aten
+aten_native_verify
+aten_schema
+attention_block
+attention_layer_block
+coral_estimate
+coralnpu_rv32
+core
+expr
+expr_internal
+inference_compare_codecs
+inference_compare_compose
+inference_compare_core
+inference_compare_engines
+inference_compare_extract
+inference_compare_metrics
+inference_compare_plan
+inference_compare_policy
+inference_compare_pt2_export
+inference_compare_sha256
+loop_c_embed
+native
+native4d
+native_graph
+native_interp
+native_transform_bench
+norm_block
+pt2
+pt2_aten
+pt2_fixture_aten_replay
+pytorch_types
+schema_runtime
+timm_fixture
+timm_fixture_unix

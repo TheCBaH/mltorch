@@ -1,5 +1,8 @@
 # Error handling: `Err` (err_trace)
 
+Libraries: err_host
+Status: 2026-11-12 — ownership recorded; the body was not re-audited against the code
+
 The repo's recoverable-error framework is `Err`, the single module of the
 `err_trace` opam package (installed from upstream main by the devcontainer; its
 melange build is `err_trace-melange`). It replaced `lib/core`'s hand-rolled `Core.Error.t` / `Core.result`.

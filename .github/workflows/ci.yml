@@ -161,6 +161,12 @@ jobs:
     - name: file size check
       if: matrix.suite == 'native-test'
       run: make check.file-size
+    - name: doc reference check
+      if: matrix.suite == 'native-test'
+      run: make check.doc-refs
+    - name: exception check
+      if: matrix.suite == 'native-test'
+      run: make check.exceptions
     - name: devcontainer
       uses: TheCBaH/devcontainer-action/devcontainer@v1
       id: devcontainer
@@ -254,6 +260,10 @@ jobs:
       if: matrix.suite == 'native-test'
       run: |
         ${{ env.EXEC }} make runtest
+    - name: library ownership check
+      if: matrix.suite == 'native-test'
+      run: |
+        ${{ env.EXEC }} make check.libraries
     - name: benchmark region pixel
       if: matrix.suite == 'native-test'
       run: |

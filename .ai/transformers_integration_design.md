@@ -1,5 +1,8 @@
 # Transformers artifact integration — design
 
+Libraries: clip_input, pt2_checkpoint_map, pt2_checkpoint_map_unix, pt2_fixture, pt2_fixture_replay, pt2_fixture_unix, pt2_sha256, wordpiece
+Status: 2026-11-12 — ownership recorded; the body was not re-audited against the code
+
 Status (2026-10-10): substantially implemented, with corrective acceptance work
 open. The producer submodule has not been added or consumed. Section 32 is the
 current source-dependency and acceptance policy; earlier measured sections are
