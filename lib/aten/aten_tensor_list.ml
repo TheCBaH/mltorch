@@ -7,7 +7,7 @@
    is intrusive-reference-counted, so freeing the container drops only its own
    handles; the tensors handed to OCaml stay valid, and they keep ATen's storage
    sharing, offset and strides (they are views, not copies -- see
-   .ai/aten_core_build.md on the flat-data boundary). *)
+   the `.ai/` aten core build doc on the flat-data boundary). *)
 
 module F = Aten_c.Aten_functions
 

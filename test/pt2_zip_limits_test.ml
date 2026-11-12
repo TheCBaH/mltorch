@@ -1,4 +1,4 @@
-(* The five ordered archive checkpoints (Pt2_zip, .ai/model_explorer_design.md).
+(* The five ordered archive checkpoints (Pt2_zip, the `.ai/` model explorer design).
 
    Every fixture here is a HAND-BUILT archive, byte by byte, because zipc's
    writer cannot produce any of the things being tested: it will not emit two

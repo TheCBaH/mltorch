@@ -7,7 +7,7 @@
 ;
 ; Only probes_pure's modules are copied. probe_tensor_json and probe_native need
 ; Bigarray semantics and Jsont_bytesrw and are out of reach -- see
-; .ai/js_backends_design.md.
+; the `.ai/` js backends design.
 ;
 ; commonjs so plain `node` can run the output with no bundler.
 

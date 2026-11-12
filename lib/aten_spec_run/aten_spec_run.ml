@@ -497,7 +497,7 @@ let pp_op_call ppf (spec : Aten_spec.Op_spec.t) =
 (* ATen-only: no native-engine comparison at all (unlike [run]/[eval_print]).
    Prints the op's pretty-printed call, each output's shape, and a status
    line; the promoted cram output is itself the golden reference (see
-   .ai/pt2_node_spec_design.md) — there is no PyTorch ground truth to compare
+   the `.ai/` pt2 node spec design) — there is no PyTorch ground truth to compare
    against. *)
 let eval_report ?(ppf = Format.std_formatter) (spec : Aten_spec.Op_spec.t) :
     unit =

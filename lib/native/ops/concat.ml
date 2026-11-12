@@ -4,7 +4,7 @@
    [split.ml], whose header scopes that module to operations that DIVIDE one
    tensor. `aten.stack.default` (see [Stack] below) reuses this algorithm
    over each operand's unsqueezed shape rather than naming a second variadic
-   one here. See .ai/pt2_model_support.md.
+   one here. See the `.ai/` pt2 model support doc.
 
    [Concat] is the first op whose OPERAND count, not just its output count, is
    variable -- [Graph_ir.OP]'s [operands]/[map_operands] already generalise to
@@ -156,7 +156,7 @@ end
 (* `stack.default(Tensor[] tensors, int dim=0) -> Tensor`: inserts a NEW axis
    at [dim] and joins the operands along it, unlike [Concat] which joins along
    an axis every operand already has. Design-goal fix (see
-   .ai/native_add_op.md): this used to lower to one [Reshape] per operand (an
+   the `.ai/` native add op doc): this used to lower to one [Reshape] per operand (an
    [Unsqueeze]) followed by a separate [Concat] node, so no node in the graph
    named [stack.default]. Fixed by reusing [Concat]'s implementation — its
    [output_shape] and [Compute.pixel] — rather than its node, after deriving

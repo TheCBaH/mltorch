@@ -69,7 +69,7 @@ val make :
    built, and a destination id's origin is *recovered* by walking a composed
    source-to-destination map backwards. So there is no rebuild path, no
    per-step revalidation, and no drift — there is only ever one sidecar value.
-   See .ai/native_transform_design.md §10. *)
+   See the `.ai/` native transform design §10. *)
 
 type lens_error =
   [ `Sidecar_graph_mismatch

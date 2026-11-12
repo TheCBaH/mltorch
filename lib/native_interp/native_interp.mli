@@ -416,7 +416,7 @@ module Bad_upsample_size : sig
   type t = { op : string; fault : fault }
 end
 
-(** [matmul.default]'s supported shape family (`.ai/matmul_softmax_design.md`
+(** [matmul.default]'s supported shape family (the `.ai/` matmul softmax design
     §4): both operands rank-2, or both rank>=3 with every axis but the last two
     at extent 1 -- the batch-less case that binds to the existing [Bmm] node
     unchanged. Carries both declared size lists, the same reasoning
@@ -427,18 +427,18 @@ end
 
 (** `einsum.default`, restricted to [Aten_shape.Einsum]'s two evidenced equation
     strings, each paired with exactly two operands of ATen rank 5 and 3
-    respectively (`.ai/einsum_design.md`). Mirrors {!Op_bridge}'s
+    respectively (the `.ai/` einsum design). Mirrors {!Op_bridge}'s
     [Einsum_unsupported] exactly. *)
 module Einsum_unsupported : sig
   type t = { equation : string; ranks : Rank.t list }
 end
 
-(** `index.Tensor`'s list-acceptance rule (`.ai/index_tensor_design.md` round 3,
-    generalized for the multi-entry-gather landing): [indices] is accepted iff
-    its length is at most [self]'s ATen rank, exactly one entry is a Long-dtype
-    tensor of ATen rank at least 1, and every other entry is an explicit [None].
-    Mirrors {!Op_bridge}'s [Index_list] exactly -- the two importers must reject
-    the same graphs the same way. *)
+(** `index.Tensor`'s list-acceptance rule (the `.ai/` index tensor design round
+    3, generalized for the multi-entry-gather landing): [indices] is accepted
+    iff its length is at most [self]'s ATen rank, exactly one entry is a
+    Long-dtype tensor of ATen rank at least 1, and every other entry is an
+    explicit [None]. Mirrors {!Op_bridge}'s [Index_list] exactly -- the two
+    importers must reject the same graphs the same way. *)
 module Index_list : sig
   type fault =
     | Length_mismatch of { expected : Rank.t; got : int }
@@ -795,7 +795,7 @@ type transformed =
    complementary: that one runs the whole model twice and compares outputs,
    which needs real weights and covers only the graph output; this one covers
    every corresponding edge but is budget-capped and so leaves a real model's
-   activation-shaped clusters unexamined. See .ai/native_transform_verify.md. *)
+   activation-shaped clusters unexamined. See the `.ai/` native transform verify doc. *)
 val preload :
   Pt2_archive.t ->
   Pt2_native_graph.t ->
@@ -855,7 +855,7 @@ type loaded = {
 }
 
 (* Execute a transformed graph. Payloads come from the two sources §10 of
-   .ai/native_transform_design.md separates, in that order: the transform state
+   the `.ai/` native transform design separates, in that order: the transform state
    first, because a pass-computed constant exists nowhere else, then the archive,
    reached by resolving the destination id back to a captured source through the
    lens. The archive is never reached through PROVENANCE — for a folded weight

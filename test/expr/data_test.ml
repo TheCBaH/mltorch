@@ -1,7 +1,7 @@
 (* [Index.Data]: the runtime-gather primitive `index.Tensor` needs -- reading
    a source's own stored value at a coordinate and using it as an index
    component. Exercised at the [Expr] level, independent of any [native]
-   graph node (which doesn't exist until Gate 3): a hand-built [resolve_data]
+   graph node (which doesn't exist yet): a hand-built [resolve_data]
    closure stands in for [Env.load_index]/[Ground_eval.resolve_data_source]. *)
 
 open Expr

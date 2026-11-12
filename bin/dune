@@ -39,7 +39,7 @@
 ; actual instrumentation cost (measured ~2.3x on the conv2d benchmark) is
 ; entirely in lib/native's `landmarks-ppx --auto` pass, which only happens
 ; under `dune build --profile landmarks` (see lib/native/dune and
-; .ai/pt2_inference_perf.md's landmarks section) — this executable doesn't
+; the `.ai/` pt2 inference perf doc's landmarks section) — this executable doesn't
 ; need its own profile split.
 
 (executable
@@ -62,7 +62,7 @@
  (libraries core err_trace pt2 pt2_spec_gen))
 
 ; CLI wrapper around the existing generated ATen-vs-native walk modules
-; (lib/aten_op_walk, see .ai/native_walk_design.md) — same machinery
+; (lib/aten_op_walk, see the `.ai/` native walk design) — same machinery
 ; test/native_walk_test.ml exercises inline, exposed here by target name for
 ; cram tests over a chosen op subset.
 

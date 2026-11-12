@@ -1,6 +1,6 @@
 (* The Native4D operation: a CLOSED variant, separate from [Graph_ir.op].
 
-   .ai/native4d_design.md §3 is emphatic about why this is not a flag on the
+   the `.ai/` native4d design §3 is emphatic about why this is not a flag on the
    Native op: "Making it a flag on [Graph_ir.op] would allow mixed or invalid
    graphs and would weaken exhaustiveness at every operation dispatch." A
    dialect whose illegal states are unrepresentable is the whole value of the
@@ -19,7 +19,7 @@
    - NO transposed grouped convolution. One group is [Transposed_conv2d];
      any other count is rejected at the domain check. A forward grouped
      convolution instead gets its own constructor, [Grouped_conv2d]
-     (`.ai/native4d_design.md` §8's "smallest honest extension"), since
+     (the `.ai/` native4d design §8's "smallest honest extension"), since
      [groups] there is a genuine parameter rather than a value a graph could
      misuse to claim [Conv2d] or [Depthwise_conv2d] semantics it does not have.
 

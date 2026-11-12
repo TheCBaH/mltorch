@@ -1,5 +1,5 @@
 (* matmul.default walk recipe, covering BOTH shape families the bridge
-   accepts (`.ai/matmul_softmax_design.md` §4-5): self=[d,h,n,m],
+   accepts (the `.ai/` matmul softmax design §4-5): self=[d,h,n,m],
    other=[d,h,m,p], with [d]/[h] shared between both operands so every
    combination is a VALID accepted graph -- there is nothing to "cascade" out
    of the config space. [d]=[h]=1 exercises the batch-less family (binds to

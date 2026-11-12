@@ -1,8 +1,8 @@
 (* [Me_kernel]: the value-graph export must carry the WHOLE Region program,
    not the emitter alone -- a LayerNorm kernel value has locals the emitter
    only references, and exporting the emitter by itself leaves dangling
-   [?#N] placeholders where those locals belong. See .ai/region_compute_design.md
-   and .ai/model_explorer_design.md. *)
+   [?#N] placeholders where those locals belong. See the `.ai/` region compute design
+   and the `.ai/` model explorer design. *)
 
 module ME = Model_explorer
 

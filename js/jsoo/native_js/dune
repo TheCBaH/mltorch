@@ -1,7 +1,6 @@
 ; jsoo mirror of lib/native. Sources are copied, never forked: see
-; .ai/js_backends_design.md and expr-tailcall-implementation-plan.md under
-; .ai/ (tail-call conversion, Stage 3). Needed purely so this library's
-; global, unqualified [Expr] name binds to [Expr_js] (whose evaluator is
+; the `.ai/` js backends design and the `.ai/` expr tailcall design (tail-call conversion).
+; Needed purely so this library's global, unqualified [Expr] name binds to [Expr_js] (whose evaluator is
 ; preprocessed with JS_BACKEND) rather than to ordinary [Expr] -- native's own
 ; sources are otherwise unchanged and copied verbatim.
 ;
@@ -19,7 +18,7 @@
 ; expr_internal_js's M1 workaround: dune's copy_files has no glob-exclusion
 ; syntax, and this mirror must NOT copy lib/native/kernel_hard.ml verbatim --
 ; see kernel_hard.ml below for why. So the root stanza enumerates every other
-; root file explicitly instead of globbing (tail-call plan, Stage 7; see
+; root file explicitly instead of globbing (tail-call conversion; see
 ; .ai/). Add a new lib/native root module to this list, or it is simply
 ; invisible to native_js.
 ;

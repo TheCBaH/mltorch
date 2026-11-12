@@ -4,7 +4,7 @@
    [round32 x = x]), held as [float]: a producer's binary64 scale is rounded
    once at the boundary ({!round_scale}), never inside a kernel, so a
    dequantization is operations over binary32 constants. The quanta [q] are
-   plain signed ints in [qmin, qmax]. See .ai/native_tensor_design.md §3. *)
+   plain signed ints in [qmin, qmax]. See the `.ai/` native tensor design §3. *)
 
 type t =
   | Per_channel of { scale : float array; zero_point : float array }

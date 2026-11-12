@@ -6,7 +6,7 @@
    basic shape checks remain out of scope (M4's importer boundary); see
    _ai_/project_todo.md step 13.
 
-   Tensor layout (lstm-plan.md §2's table): time-first input/output use
+   Tensor layout (the LSTM lowering analysis's table): time-first input/output use
    [H=seq, W=batch, C=channel]; batch-first swaps [H]/[W] ([time_axis]/
    [batch_axis] below). [output]'s C is [R*hidden_size]. h0/c0/h_n/c_n
    always use [H=layer*R+direction, W=batch, C=hidden], regardless of
@@ -145,7 +145,7 @@ module Lstm = struct
     * params_per_direction ~has_biases
 
   (* Groups ATen's flat `lstm.input` [params] argument into per-layer/
-     direction chunks, in lstm-plan.md §2's declared order: layer
+     direction chunks, in the LSTM lowering analysis's declared order: layer
      0..num_layers-1, forward before reverse, weight_ih/weight_hh/
      [bias_ih,bias_hh] per direction (`RNN.cpp:gather_params`/`pair_vec`/
      `apply_layer_stack` establish this ordering upstream). Polymorphic so a
@@ -198,7 +198,7 @@ module Lstm = struct
       p.hidden_size p.input_size p.batch_first
 
   (* Time-first: seq on H, batch on W. Batch-first: batch on H, seq on W.
-     Channel is C either way (lstm-plan.md §2's table). *)
+     Channel is C either way (the LSTM lowering analysis's table). *)
   let time_axis (p : params) = if p.batch_first then Axis.W else Axis.H
   let batch_axis (p : params) = if p.batch_first then Axis.H else Axis.W
 
@@ -329,10 +329,10 @@ module Lstm = struct
      returns [(output_shape, h_n_shape, c_n_shape)] -- ordinals 0, 1, 2.
      [R] (the uniform direction count) is read off the FIRST layer's
      [reverse] presence; every other layer must agree
-     ([Nonuniform_direction] otherwise, lstm-plan.md §2's "require a
+     ([Nonuniform_direction] otherwise, the LSTM lowering analysis's "require a
      uniform direction count... across layers"). [h_n]/[c_n] carry
      [Q*R] rows, laid out layer-then-direction (forward before reverse,
-     lstm-plan.md §2). *)
+     the LSTM lowering analysis). *)
   let output_shape (p : params) ~(input_shape : Vec6.shape)
       ~(layers : Layer_shapes.t list) ~h0_shape ~c0_shape =
     let open Err.Syntax in
@@ -486,7 +486,7 @@ module Lstm = struct
         ~batch:c.batch
 
     (* Layer 0 reads the raw input width; every later layer reads the
-       previous layer's [R]-wide hidden trace (lstm-plan.md §2/§4), matching
+       previous layer's [R]-wide hidden trace (the LSTM lowering analysis), matching
        [Computation.program]'s [this_layer_input_size]. *)
     let layer_input_size (c : cfg) ~layer =
       if layer = 0 then c.input_size else c.hidden_size * directions c
@@ -525,7 +525,7 @@ module Lstm = struct
 
     (* One direction's operand shapes at [layer], forward and reverse alike
        (a bidirectional layer's reverse direction reads the same width as its
-       forward, lstm-plan.md §2). Exposed for [lib/native_op_walk]'s
+       forward, the LSTM lowering analysis). Exposed for [lib/native_op_walk]'s
        [Lstm_nwalk], which cannot live in this library -- it needs
        [Graph_builder], which itself depends on [Graph_ir], which depends on
        this module (the [Lstm] graph-IR variant), so building the actual
@@ -539,10 +539,10 @@ module Lstm = struct
   (* Authoritative declarative Region computation: one [width=2*K] scan per
      layer/direction (lanes [0,K) = h, [K,2K) = c -- see the file header),
      chained so each later layer's scan reads the previous layer's
-     completed trace(s) (lstm-plan.md §4's dependency between ordinary
+     completed trace(s) (the LSTM lowering analysis's dependency between ordinary
      Region locals and later scan bodies), read three different ways for
      the three output ordinals. Every output ordinal gets its OWN
-     independent copy of every layer/direction's scan (lstm-plan.md §4's
+     independent copy of every layer/direction's scan (the LSTM lowering analysis's
      accepted explicit constant-factor cost). *)
   module Computation = struct
     let gate_i = 0
@@ -555,7 +555,7 @@ module Lstm = struct
       | Ok v -> v
       | Error _ -> assert false
 
-    (* The shared divmod helper (lstm-implementation-plan.md "Stage 2+"):
+    (* The shared divmod helper (the LSTM lowering):
        [x mod k], encoded from [Add]/[Scale]/[Floor_div_pos] and converted
        back with [Clamp_low] -- sound because [x >= 0] and [k > 0] make the
        remainder provably in [0, k). *)
@@ -626,7 +626,7 @@ module Lstm = struct
         (Expr.Value.add (Expr.Value.const 1.) (Expr.Value.exp (neg x)))
 
     (* [tanh(x) = 2*sigmoid(2x) - 1] -- algebraically the stable form
-       lstm-plan.md §5 asks for ([exp(-2x)] either overflows to [+inf] or
+       the LSTM lowering analysis asks for ([exp(-2x)] either overflows to [+inf] or
        underflows to [0], both of which [1/(1+_)] handles exactly, never the
        [inf/inf] NaN a direct [(e^2x-1)/(e^2x+1)] quotient produces for large
        positive [x]), reached through the identity instead of an explicit
@@ -641,7 +641,7 @@ module Lstm = struct
         (Expr.Value.const 1.)
 
     (* One recurrence step for every lane of the packed [2*K] state, per
-       lstm-plan.md §5's ATen gate order i,f,g,o. *)
+       the LSTM lowering analysis's ATen gate order i,f,g,o. *)
     let one_step ~k ~input_size ~weight_hh ~weight_ih ~bias ~layer_input ~lane
         ~previous_at =
       let open Expr.Builder.Syntax in
@@ -690,7 +690,7 @@ module Lstm = struct
       float Expr.Value.t
 
     (* [t]: this scan's own original-time index at recurrence step [step]
-       (lstm-plan.md §5) -- [step] itself for forward, [(seq-1)-step] for
+       (the LSTM lowering analysis) -- [step] itself for forward, [(seq-1)-step] for
        reverse, converted back to a position (sound: both bounds keep it in
        [0,seq)). *)
     let original_time ~seq ~is_reverse step =
@@ -706,7 +706,7 @@ module Lstm = struct
        [R=1] (no [reverse_read]): forward row [t+1], no direction demux
        needed at all. [R=2]: [col<K] selects the previous layer's forward
        trace (row [t+1]); [col>=K] selects its reverse trace (row [seq-t],
-       lstm-plan.md §5) -- both at lane [col mod K]. *)
+       the LSTM lowering analysis) -- both at lane [col mod K]. *)
     let read_prev_layer ~k ~seq ~t ~col
         ((forward_read, reverse_read) : read_fn * read_fn option) =
       match reverse_read with
@@ -787,13 +787,13 @@ module Lstm = struct
         ~init ~update continue
 
     (* Builds every layer's scan(s), forward before reverse per layer
-       (lstm-plan.md §2), accumulating a FLAT [(a, read_fn)] list in [a]
+       (the LSTM lowering analysis), accumulating a FLAT [(a, read_fn)] list in [a]
        order ([a = layer*directions+direction]) -- what the [h_n]/[c_n]
        select chain below reads. *)
     (* Polymorphic in the [finish] continuation's own result so ONE
        definition can finish either as a single output's [Region_program.t]
        ([program], below) or as a whole [Region_group.t] ([group]) --
-       lstm-implementation-plan.md §4.1's "generalize that continuation
+       the LSTM lowering analysis's "generalize that continuation
        result so one Builder run can finish a group... do not reimplement
        the scan builder inside LSTM". *)
     (* [go] recurses monomorphically WITHIN one top-level call (a single

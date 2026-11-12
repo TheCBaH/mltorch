@@ -3,7 +3,7 @@
  * `web-ui-3.md` makes a two-pane comparison a hard prerequisite: the renderer
  * adapter may use only visualizer behaviour proven here, in Chromium, against
  * the bundle we actually ship. Its siblings settle different questions -- the
- * 0A spike asks what the renderer can do, the Stage 1 gate asks whether what we
+ * 0A spike asks what the renderer can do, the session gate asks whether what we
  * export is something it accepts, the Path B gate asks whether the cancellation
  * lifecycle is real. This one asks whether the COMPARISON surface is real:
  * two panes, a supplied correspondence, per-pane overlays and node data.

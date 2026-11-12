@@ -1,5 +1,5 @@
 (* [Me_session]: the capability table, what [validate] resolves, and the
-   determinism claim (.ai/model_explorer_design.md).
+   determinism claim (the `.ai/` model explorer design).
 
    Two properties here are the reason the module exists and neither is visible
    in a rendering: that the capability key/payload table admits exactly the

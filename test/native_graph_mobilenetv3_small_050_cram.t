@@ -4,7 +4,7 @@ mobilenet_v3_small role model. Unlike that retired archive, this exporter
 emits hardswish and its SE-block gate directly as the functional
 `hardswish.default`/`hardsigmoid.default` ops rather than a decomposed
 `mul(x, div_scalar(clamp(add_scalar(x,3),0,6), 6))` chain — real-model
-coverage for exactly the functional spellings `.ai/testing_strategy.md`'s
+coverage for exactly the functional spellings the `.ai/` testing strategy doc's
 Group 5 section discusses.
 
   $ ../bin/native_graph.exe print --pt2 "$PT2_DATA/mobilenetv3_small_050/mobilenetv3_small_050.pt2"

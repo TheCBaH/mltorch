@@ -21,7 +21,7 @@ let dispatch ~(aten_env : aten_env) (node : Node.t) :
             true: every native tensor is already in that one dense layout.
             (Confirmed against the corpus: every `clone.default` occurrence
             across the 100-model sweep requests either no format or exactly
-            `ContiguousFormat` -- see `.ai/pt2_model_support.md`.) A request
+            `ContiguousFormat` -- see the model support doc in `.ai/`.) A request
             for an actual different physical arrangement (channels-last) asks
             for something this engine cannot represent, so it is refused
             rather than silently treated as a no-op. *)
@@ -217,7 +217,7 @@ let dispatch ~(aten_env : aten_env) (node : Node.t) :
                []
            | operands -> arity_mismatch ~op:node.Node.target operands))
   (* `index.Tensor(Tensor self, Tensor?[] indices) -> Tensor`, restricted to
-     the evidenced shape family (`.ai/index_tensor_design.md`): [indices] has
+     the evidenced shape family (the index-tensor design in `.ai/`): [indices] has
      at most [self]'s ATen rank many entries (real ATen implicitly full-slices
      any missing trailing dims), exactly one live (non-None) entry, of ATen
      rank at least 1, at every other listed position [None]. Unlike

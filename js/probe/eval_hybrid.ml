@@ -1,4 +1,4 @@
-(* The tail-call conversion's Stage 5 [eval_hybrid] candidate (see .ai/): a
+(* The tail-call conversion's [eval_hybrid] candidate (see .ai/): a
    complete DIRECT evaluator (ordinary OCaml recursion, [go]/[guard]/
    [eval_scan_at] shaped exactly like [eval.ml]'s native reference) with its
    own [cutoff], falling back to [Eval_machine_reuse.run] -- the fourth and
@@ -73,7 +73,7 @@ let eval_hybrid ~cutoff ?(local = fun _ -> None) ?(local_at = fun _ _ -> None)
     | [] -> assert false
   in
   (* Verbatim copy of [eval_machine]'s [intrinsic]: already one self-recursive
-     [loop] over a nullary tag (Stage 4), needed regardless of [cutoff] --
+     [loop] over a nullary tag, needed regardless of [cutoff] --
      [Max_pool]'s own row/column sweep is never itself a candidate for a
      machine handoff, since it doesn't recurse through [go]/[guard]. *)
   let intrinsic reducers (Intrinsic.Max_pool d as i) =

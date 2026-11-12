@@ -1,5 +1,5 @@
 (* Packaging a rewrite as a reusable pass, and running a pipeline of them.
-   See .ai/native_transform_design.md §5.
+   See the `.ai/` native transform design §5.
 
    [t.run] is explicitly polymorphic because a pass must work at every version:
    the state's tag is minted per [Rewrite.origin] and rebound by every [Step], so

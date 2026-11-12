@@ -1,6 +1,6 @@
 (* Exercises the match combinators, and pins each semantic the design commits to
    — anchoring, greedy overlap, rollback, idempotent re-claiming, and chain
-   progress. See .ai/native_transform_design.md §11. *)
+   progress. See the `.ai/` native transform design §11. *)
 
 open Graph_ir
 

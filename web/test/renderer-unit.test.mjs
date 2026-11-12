@@ -1108,7 +1108,7 @@ test('a comparison superseded by a newer request settles as cancelled', async ()
    A flow view is an ordinary single-pane candidate plus one thing: the
    finalized element's selections are routed to the app. Everything hard is in
    that "plus one" -- see `web/test/flow.spec.ts` for the measurements it rests
-   on, and `.ai/model_explorer_design.md` §20.3 for why three earlier designs
+   on, and the `.ai/` model explorer design §20.3 for why three earlier designs
    were unsound. */
 
 const FLOW_VIEWS = [

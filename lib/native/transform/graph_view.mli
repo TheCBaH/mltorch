@@ -5,12 +5,12 @@
    it [def] returning [None] could mean either "this is a graph input" or "this
    operand has no definition at all", and every matcher built on that distinction
    would silently misbehave on a malformed graph. See
-   .ai/native_transform_design.md §11.
+   the `.ai/` native transform design §11.
 
    Unversioned, deliberately, and it stays that way: a matcher reads structure,
    and a tag here would buy it nothing. The version lives one layer up, in
    [Snapshot], which carries a view together with the id universes at that
-   version — see .ai/native_transform_versioning.md. What made a versioned view
+   version — see the `.ai/` native transform versioning doc. What made a versioned view
    itself unworkable was [of_graph : graph -> ('v t, _)] letting the caller pick
    ['v]; [Snapshot.create] answers with an existential instead.
 
@@ -29,7 +29,7 @@ type arity = { node : Node_id.t; expected : int; actual : int }
 type sig_key = { key : Tensor_id.t; recorded : Tensor_id.t }
 
 (* Parameterised over the dialect, with the Native specialization included at
-   the end so no existing caller changes. See .ai/native4d_plan.md stage 4. *)
+   the end so no existing caller changes. See the `.ai/` native4d plan doc stage 4. *)
 module Make (D : Dialect.S) : sig
   type node = D.op Graph_common.Node.t
   type graph = D.op Graph_common.Graph.t

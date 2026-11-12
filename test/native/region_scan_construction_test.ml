@@ -1,5 +1,5 @@
-(* Region-level scan construction, checking, rendering and (Stage 1's final
-   acceptance step, see .ai/native_scan_design.md) execution through the
+(* Region-level scan construction, checking, rendering and (the final
+   acceptance step, see the `.ai/` native scan design) execution through the
    whole-graph Stage and Kernel paths -- not just Region's own materializer,
    which test/native/region_scan_execution_test.ml already covers. *)
 
@@ -117,7 +117,7 @@ let%expect_test "a scan's update cannot forward-reference a later local" =
        ~output:(Value.local_scan_at scan_id ~row:Index.zero ~lane:Index.zero));
   [%expect {| local #0 refers forward to #1 |}]
 
-(* ---- Stage 1 acceptance: the same construction, executed end to end ------ *)
+(* ---- Acceptance: the same construction, executed end to end ------ *)
 
 let s1 = Vec6.shape ~n:1 ~t:1 ~d:1 ~h:1 ~w:1 ~c:1
 
@@ -184,7 +184,7 @@ let%expect_test
   Fmt.pr "stage=%g kernel=%g@." (read_out via_stage) (read_out via_kernel);
   [%expect {| stage=5 kernel=5 |}]
 
-(* Closes the remaining leg of the Stage 1 exit conditions' "agrees across
+(* Closes the remaining leg of the exit conditions' "agrees across
    production/reference Region execution, specialized Expr evaluation":
    [specialize_pixel] fully inlines every local, so the result has no [Local]/
    [Local_at]/[Local_scan_at] left -- evaluating it needs no [env] and no
@@ -222,7 +222,7 @@ let%expect_test
     (Tensor.read materialized Vec6.origin);
   [%expect {| evaluated=5 materialized=5 |}]
 
-(* The Stage 1 exit conditions also claim the specialized AST's size is
+(* The exit conditions also claim the specialized AST's size is
    INDEPENDENT of [width]/[steps] -- true by construction, since [Scan.t]
    stores both as plain integer fields rather than unrolling, but never
    directly measured until now: two programs differing only in [steps] (5 vs.

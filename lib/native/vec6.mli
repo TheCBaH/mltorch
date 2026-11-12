@@ -11,13 +11,13 @@
 
    [get] hands back the right scalar dimensional type, and the operations bridging
    shape and coord ([numel], [offset], [in_bounds], [iter]) take both so their
-   arguments can't be swapped. See .ai/native_tensor_design.md §1b. *)
+   arguments can't be swapped. See the `.ai/` native tensor design §1b. *)
 
 (* A private record, not a fully abstract type: axis count is fixed (6) and
    every hot-path caller accesses by a statically-known axis, so exposing
    the fields for reading lets [Tensor.read_at] (the
    two innermost, highest-call-count paths in the engine — see
-   .ai/pt2_inference_perf.md) read a component as a direct record
+   the `.ai/` pt2 inference perf doc) read a component as a direct record
    projection instead of going through [get]'s [Axis.t] match + the (real,
    non-flambda-inlined) cross-module call that used to cost ~26% of total
    runtime on its own. [private] (same idiom as [Dim.t]) keeps construction
@@ -94,7 +94,7 @@ val numel : shape -> Dim.count Dim.t
    comparing is a post-overflow comparison, not a bound (see
    [Kernel.Bounds.signature], whose divide-before-multiply fold this lifts).
    Deliberately NOT used by [numel] itself, which stays the unchecked
-   per-element read-path primitive ([.ai/pt2_inference_perf.md]); this is for
+   per-element read-path primitive ([the `.ai/` pt2 inference perf doc]); this is for
    the graph-construction boundaries that run once per node. *)
 module Numel_bound : sig
   (* The witness is the PAIR the fold stopped on, never their product:

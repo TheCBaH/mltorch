@@ -2,7 +2,7 @@
    verify_test.ml. The symbolic transformation verifier: run a
    pass, then check the map it produced actually holds — without payloads for
    the graph inputs, so a [proved] verdict is a statement about EVERY input
-   rather than one sample. See .ai/native_transform_verify.md.
+   rather than one sample. See the `.ai/` native transform verify doc.
 
    Goldens carry verdicts and ids only, never magnitudes: a printed float would
    make them depend on the platform's floating point, a verdict does not (the

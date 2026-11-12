@@ -3,7 +3,7 @@
    only way to turn a raw [Tensor_id.t] into a tagged one.
 
    [create] returns a PACKED snapshot, which is what keeps it honest.
-   .ai/native_transform_design.md rejected a versioned [Graph_view] twice (§5,
+   the `.ai/` native transform design rejected a versioned [Graph_view] twice (§5,
    §11) because [of_graph : graph -> ('v t, error) result] lets the CALLER pick
    ['v], and so lets them present graph B under graph A's tag. Handing back an
    existential removes the choice: unpacking [Pack s] binds a rigid tag that

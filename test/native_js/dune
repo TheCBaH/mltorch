@@ -1,4 +1,4 @@
-; Stage 7's own mirrored-Kernel boundary tests (tail-call plan; see .ai/):
+; The mirrored-Kernel boundary tests (tail-call plan; see .ai/):
 ; links [native_js], not [native] -- test/native/dune's own inline tests run
 ; under jsoo too (`modes best js`), but that recompiles ORDINARY [native]
 ; to JS, never switching to this mirror, so nothing today exercises

@@ -3,7 +3,7 @@
    and an input is a [Tensor_sig.t]. Running an op functor with the output coord
    bound to [out_vec], then [Expr.Builder.run]ning the result, yields the op's
    per-pixel expression — used for codegen/fusion and the footprint analysis.
-   See .ai/native_expr_refactoring_design.md.
+   See the `.ai/` native expr refactoring design.
 
    STATELESS, and deliberately not a generative functor. Reducer identities come
    from the [Expr.Builder] supply threaded through the computation, so there is

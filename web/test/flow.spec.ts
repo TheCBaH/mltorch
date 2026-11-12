@@ -67,7 +67,7 @@ test('the selected-node event is identifiable, ordered, and scoped', async ({ pa
     'a setup event named another graph or collection, so scoping cannot work').toBe(true);
 
   /* The target the shell asked for is present and identifiable BY ID. Without
-   * this the adapter has nothing to suppress on, and Stage 5's design is dead. */
+   * this the adapter has nothing to suppress on, and the later design is dead. */
   expect(s.setupShape.matchingRequested,
     `no setup event named the requested node ${s.setupRequested}`).toBeGreaterThan(0);
 

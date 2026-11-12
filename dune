@@ -6,7 +6,7 @@
 ; makes `dune build @runtest-js` the single entry point for the JS side, which
 ; is what `make jsoo.inline-runtest` drives.
 ;
-; See .ai/js_backends_design.md.
+; See the `.ai/` js backends design.
 
 (env
  (_

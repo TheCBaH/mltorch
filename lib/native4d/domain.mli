@@ -1,7 +1,7 @@
 (* Is this Native graph inside the Native4D dialect's domain? The partiality
-   contract of .ai/native4d_design.md §1, checkable before any Native4D IR
+   contract of the `.ai/` native4d design §1, checkable before any Native4D IR
    exists — it only inspects the Native graph, which is why it lands first (see
-   .ai/native4d_plan.md stage 0).
+   the `.ai/` native4d plan doc stage 0).
 
    Takes a VALIDATED VIEW, not a graph. Given a graph it would have to call
    [Graph_view.of_graph] itself and so return [Graph_view.error] too, which

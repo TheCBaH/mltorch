@@ -2,7 +2,7 @@
    ([Stage_program.t]) through the stateless [Symbolic] adapter, so each node's
    per-pixel expression loads its operands' signatures and downstream stages
    reference upstream ones automatically. Structural groups are ignored by the
-   flat stage DAG. See .ai/native_graph_design.md.
+   flat stage DAG. See the `.ai/` native graph design.
 
    Each stage body is built as an [Expr.Builder] computation and run on its own,
    so stages reuse reducer ordinals rather than sharing one namespace. That is

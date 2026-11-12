@@ -1,4 +1,4 @@
-(* Terminal id packing. See .ai/native_transform_design.md §9.
+(* Terminal id packing. See the `.ai/` native transform design §9.
 
    The pipeline used throughout is the batch-norm fold followed by constant
    folding, because it produces the situation packing has to get right without

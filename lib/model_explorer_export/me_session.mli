@@ -12,7 +12,7 @@
    and conformance tests only. It is stated here because a decoder that exists
    reads as a decoder that is trusted, and this one is not.
 
-   See .ai/model_explorer_design.md. *)
+   See the `.ai/` model explorer design. *)
 
 module Producer : sig
   type t = { tool : string; session_schema : int }
@@ -64,7 +64,7 @@ module Sync_navigation : sig
       Consuming it is not optional. The renderer treats a node whose mapped set
       is empty as changed, so a comparison that relies on the fallback and does
       not say so renders as though every node differs — which is exactly what
-      [c/canonical] would do. See [.ai/model_explorer_design.md] §18. *)
+      [c/canonical] would do. See [the `.ai/` model explorer design] §18. *)
 end
 
 (** {1 Flow state-to-view payloads}

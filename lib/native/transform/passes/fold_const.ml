@@ -1,5 +1,5 @@
 (* Materialise a node whose operands are all constants.
-   See .ai/native_transform_design.md §12b.
+   See the `.ai/` native transform design §12b.
 
    This is what lets every other pass stay simple: constant arithmetic is
    expressed as ordinary graph ops — a relayout emits a [Permute] of a weight,

@@ -3,7 +3,7 @@
    They exist as a shared module rather than as open-coded [Float.max]/[>] at each
    site because THREE interpreters have to agree bit-for-bit: [Direct] runs the
    computation, the expression evaluator grounds the symbolic form against it, and
-   (see .ai/native_transform_verify.md) the transformation verifier probes against
+   (see the `.ai/` native transform verify doc) the transformation verifier probes against
    both. A divergence between any two is a verifier that disagrees with the engine it
    verifies — which is exactly what happened before this module existed: [Direct]
    pooled with [Float.max] while the symbolic evaluator pooled with a strict [>], so
@@ -37,7 +37,7 @@ type t =
    and because every NaN re-triggers the predicate the LAST NaN wins, together
    with its index. An ordinary tie leaves the incumbent in place, which is what
    preserves the first/smallest-flattened-index contract documented in
-   .ai/native_symbolic_language.md.
+   the `.ai/` native symbolic language doc.
 
    The value and the index must be updated TOGETHER under this one predicate;
    updating them separately is how they fell out of step originally. *)

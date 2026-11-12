@@ -128,7 +128,7 @@ let%expect_test "Direct: sdpa — explicit scale" =
    inputs. They are still genuinely different floats: rounding at the [sqrt]
    and at each of the two multiplies means [dot(q*sf, k*sf)] and
    [dot(q,k)*scale] are almost never bit-identical (observed here: a ULP-scale
-   divergence, exactly the kind [.ai/native_walk_design.md]'s tolerance policy
+   divergence, exactly the kind [the `.ai/` native walk design]'s tolerance policy
    is about, not something a hand-picked test value hides by luck). Direct
    primitives only, bypassing [Legacy_pixel] entirely, so this is independent of
    whatever attention.ml happens to do. *)

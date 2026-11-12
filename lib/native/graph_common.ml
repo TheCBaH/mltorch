@@ -10,7 +10,7 @@
    alias.
 
    [Graph_ir] re-exports everything here, monomorphically for the records, so no
-   caller changes. See .ai/native4d_plan.md stage 4. *)
+   caller changes. See the `.ai/` native4d plan doc stage 4. *)
 
 module Node_id =
   Core.Tagged_int.Make
@@ -51,7 +51,7 @@ end
    [Vec6.shape] in every dialect. Parametrising the signature by shape type
    would drag [Stage_program], [Expr], [Symbolic] and [Ground_expr] through a
    functor for no gain — the physical frame is identical across the dialect
-   boundary. See .ai/native4d_plan.md, correction C3. *)
+   boundary. See the `.ai/` native4d plan doc, correction C3. *)
 module Graph = struct
   type 'op t = {
     nodes : 'op Node.t list; (* globally topo-ordered by construction *)

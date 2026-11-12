@@ -3,7 +3,7 @@ import { test, expect } from '@playwright/test';
 /* The gate for Path B's three load-bearing DOM claims (`cancel.md`).
  *
  * Distinct from the two specs next door in what it is about. The 0A spike asks
- * what the renderer can do; the Stage 1 gate asks whether what we export is
+ * what the renderer can do; the session gate asks whether what we export is
  * something the renderer accepts. This one asks whether the LIFECYCLE the
  * cancellation design assumes is real: that a hidden-but-connected candidate
  * still works, that candidates do not serialise behind each other, and that

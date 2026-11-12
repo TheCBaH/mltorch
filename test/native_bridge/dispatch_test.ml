@@ -148,7 +148,7 @@ let%expect_test
     ~noutputs:1;
   [%expect {| tensor f32 [W=2 C=2] {4, 5, 10, 11} |}]
 
-(* The batched/multi-head shape family (`D`/`H` > 1, `.ai/matmul_softmax_design.md`
+(* The batched/multi-head shape family (`D`/`H` > 1, the `.ai/` matmul softmax design
    §5) binds to the new [Batched_matmul] node -- values checked by hand (two
    independent 2x3 @ 3x2 products, one per H slice), not just shape/rejection. *)
 let%expect_test "dispatch: matmul.default accepts a batched (H>1) shape" =
@@ -199,7 +199,7 @@ let%expect_test "dispatch: matmul.default accepts D>1 and H>1 together" =
    right-alignment (`Aten_shape.of_aten`) pads EACH operand's own missing
    leading axes to 1 independently, exactly ATen's implicit-unsqueeze rule
    for this case (`eca_halonext26ts`'s real `[N,H,W,C] @ [W,C]` occurrence,
-   `.ai/matmul_softmax_design.md` §5) -- so the existing per-axis broadcast
+   the `.ai/` matmul softmax design §5) -- so the existing per-axis broadcast
    already computes the right answer with no rank check here at all. Value
    checked by hand: two independent 2x3 @ 3x2 products, one per H slice,
    both against the SAME (rank-2, unbatched) other operand. *)
@@ -213,7 +213,7 @@ let%expect_test "dispatch: matmul.default accepts unequal operand ranks" =
   [%expect {| tensor f32 [H=2 W=2 C=2] {10, 13, 28, 40, 46, 67, 64, 94} |}]
 
 (* Rank<2 on either side is still explicitly out of scope
-   (`.ai/matmul_softmax_design.md` §6, a different ATen output-rank rule with
+   (the `.ai/` matmul softmax design §6, a different ATen output-rank rule with
    no corpus evidence) -- a typed rejection naming both actual shapes, not a
    wrong answer or a bare "unsupported". *)
 let%expect_test "dispatch: matmul.default rejects a rank<2 operand" =

@@ -1,5 +1,5 @@
 ; jsoo mirror of lib/native_predict, over [native_js]. See .ai/ (tail-call
-; conversion, Stage 3). Wildcard glob is safe: no custom preprocessing on the
+; conversion). Wildcard glob is safe: no custom preprocessing on the
 ; source side.
 
 (copy_files

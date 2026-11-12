@@ -1,6 +1,6 @@
 (* The flagship end-to-end acceptance test for the sharing-aware ground-IR
-   work's Milestone C (sharing-aware verification, see .ai/native_transform_verify.md
-   and .ai/native_scan_design.md): proving a small scan-backed Region stage
+   work's Milestone C (sharing-aware verification, see the `.ai/` native transform verify doc
+   and the `.ai/` native scan design): proving a small scan-backed Region stage
    through [Map_verify]'s real cross-graph machinery
    -- grounding, frontier expansion/crossing, projection and structural
    comparison -- not just against a direct-evaluation oracle the way
@@ -126,7 +126,7 @@ let%expect_test
    recurrence (which initial-state cell feeds [h]/which feeds [c]). Every
    input still corresponds Identical, so [out]/[h_n]/[c_n] read the SAME free
    cells on both sides and a probe over them is a genuine counterexample, not
-   a manufactured one -- matching .ai/native_transform_verify.md §8b's
+   a manufactured one -- matching the `.ai/` native transform verify doc §8b's
    "settled frontier" precondition, since an LSTM stage's own inputs have no
    producer to expand through in the first place. *)
 let%expect_test

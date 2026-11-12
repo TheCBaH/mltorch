@@ -3,7 +3,7 @@
    The contraction axis is [C] in [input] and [W] in [mat2]; batch [H] and row [W]
    pass through from [input]. The contraction extent is read from [input_shape.C]
    rather than carried in params — there is no weight tensor so both operands are
-   runtime tensors. See .ai/native_compute_design.md §2. *)
+   runtime tensors. See the `.ai/` native compute design §2. *)
 
 module Bmm = struct
   type t = { input : Tensor_ref.t; mat2 : Tensor_ref.t }
@@ -61,7 +61,7 @@ end
 
 (* Batched matrix multiplication over the full attention frame `[D,H,W,C]`
    (`matmul.default`'s batched/multi-head shape family -- `mvitv2_tiny`'s real
-   multi-head attention, `.ai/matmul_softmax_design.md` §5): input[D=batch,
+   multi-head attention, the `.ai/` matmul softmax design §5): input[D=batch,
    H=heads, W=n, C=m] × mat2[D=batch, H=heads, W=m, C=p] -> output[D=batch,
    H=heads, W=n, C=p], contracting [C] against [W] exactly like [Bmm]. The
    generalization over [Bmm] is in which axes name the batch: [Bmm] hard-codes
@@ -99,7 +99,7 @@ module Batched_matmul = struct
      per-axis rule `Pointwise_binary.broadcast_output_shape` applies to every
      axis, restricted here to [batch_axes] since [W]/[C] are the matmul row/
      contraction axes, not batch dimensions. `lambda_resnet26t`'s real corpus
-     occurrence (`H`: 4 vs 1) is exactly this case -- `.ai/matmul_softmax_design.md`
+     occurrence (`H`: 4 vs 1) is exactly this case -- the `.ai/` matmul softmax design
      §6's "no corpus evidence either way" no longer holds. *)
   let broadcast_extent ~axis (a : Vec6.shape) (b : Vec6.shape) =
     let lhs = Vec6.get a axis and rhs = Vec6.get b axis in

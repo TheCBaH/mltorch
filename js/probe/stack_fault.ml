@@ -1,4 +1,4 @@
-(* Backend-specific recognizer for the tail-call plan's Stage 7 deep-index
+(* Backend-specific recognizer for the tail-call plan's deep-index
    negative control (see .ai/ and probe_expr.ml's [--deep] mode): the
    [eval_index] path stays ordinary recursion by design (out of scope for
    this conversion), so a deep enough [Index.t] must still exhaust the

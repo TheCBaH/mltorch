@@ -94,7 +94,7 @@ let curated_selection =
     op "scaled_dot_product_attention";
     (* stacked LSTM inference: two Tensor[] inputs (hx, params), three Tensor
        outputs (output, h_n, c_n). Feasibility proved by an ABI-only probe
-       before this op joined the curated selection; see .ai/aten_core_build.md. *)
+       before this op joined the curated selection; see the `.ai/` aten core build doc. *)
     op "lstm" ~overload:"input";
     op "max_pool2d_with_indices";
     op "max_pool2d";

@@ -1,13 +1,13 @@
 Convert two real models to the Native4D four-axis dialect, and verify the
 conversion map for one of them. Gated on PT2_DATA; run with `make pt2.runtest`
-after `make pt2.download-cram`. See .ai/native4d_plan.md stage 8.
+after `make pt2.download-cram`. See the `.ai/` native4d plan doc stage 8.
 
 RegNetX-002 and MobileNetV2-050 stand in for the retired resnet18/mobilenet_v2
 role models. Unlike that pair, which both fully converted,
 RegNetX-002 hits a real Native4D domain limit here: its first stage-3
 convolution has 3 groups, which is neither `1` (dense) nor
 `in_channels` (depthwise) — the only two groupings this dialect recognizes
-(.ai/native4d_design.md). That is a genuine limit, not a bug, so showing it
+(the `.ai/` native4d design). That is a genuine limit, not a bug, so showing it
 alongside a model that DOES convert is more informative than the old pair,
 which never exercised the rejection path at all.
 

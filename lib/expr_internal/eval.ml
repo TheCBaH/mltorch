@@ -1,12 +1,12 @@
 (* The reference evaluator. Its shared plumbing (index evaluation, the
    [error]/[Env] types, [vchk]) moved verbatim to [eval_common.ml] in the
-   tail-call conversion's Stage 2; see .ai/. *)
+   tail-call conversion; see `.ai/`. *)
 
 open Eval_common
 
-(* Tail-call conversion Stage 3: [value] is duplicated on both sides of this
-   conditional -- no longer verbatim, since Stage 6 installed the selected
-   stack-safe driver (see .ai/'s design record) on the JS side, but the two
+(* Tail-call conversion: [value] is duplicated on both sides of this
+   conditional -- no longer verbatim, since the selected
+   stack-safe driver (see the design record in `.ai/`) is installed on the JS side, but the two
    branches still start from the same denotation and this file remains the
    one place both live, so a reader can compare them directly. cppo, not an
    ordinary [if], because the two branches must be reachable as separate
@@ -28,7 +28,7 @@ type pool_tag = Cols_tag | Rows_tag
 (* Melange has no [caml_restore_raw_backtrace]: calling
    [Printexc.raise_with_backtrace] there throws "not polyfilled by Melange
    yet" at RUNTIME, not build time. Found by the tail-call conversion's
-   Stage 5 cleanup-protocol negative controls; see .ai/. *)
+   cleanup-protocol negative controls; see `.ai/`. *)
 #if defined MELANGE_BACKEND
 
 type captured_backtrace = unit
@@ -48,11 +48,11 @@ let reraise exn (bt : captured_backtrace) = Printexc.raise_with_backtrace exn bt
 (* [cutoff]: below this recursion depth, [go]/[guard] recurse directly, like
    native's own [go]/[guard] below; at [cutoff], they hand the remaining
    subtree to [Eval_js_machine.run], the stack-safe array/mutation-based
-   frame machine selected by the tail-call conversion's Stage 5 benchmarking
-   (see .ai/'s design record for the full evaluation across all four
+   frame machine selected by the tail-call conversion's benchmarking
+   (see the design record in `.ai/` for the full evaluation across all four
    candidates and both backends). 50 is not a measured maximum-safe
-   recursion depth -- that per-backend frontier still needs Stage 7's
-   stack-fault tooling, not yet built -- it is the SAME value Stage 5 M9-M12
+   recursion depth -- that per-backend frontier still needs stack-fault
+   tooling, not yet built -- it is the SAME value the hybrid benchmark
    measured this composition at: proven safe to a 20,000-deep smoke case on
    both backends (js/probe's own [eval_hybrid ~cutoff:50] candidate, run
    through [make expr_bench.runtest]/[.js-benchmark]) and the config that won
@@ -117,8 +117,8 @@ let value_at (type a) (scalar : a Scalar.t)
      ordinary extra arguments measurably deepened [go]'s frame and regressed
      [Hard.eval_depth]'s node frontier under node. *)
   let local_at_ref = ref local_at in
-  (* Cleanup-protocol state (tail-call conversion Stage 5; see .ai/'s design
-     record), replacing native's [Fun.protect]: a trampoline bounce or a
+  (* Cleanup-protocol state (tail-call conversion; see the design
+     record in `.ai/`), replacing native's [Fun.protect]: a trampoline bounce or a
      machine handoff is a host RETURN, not a stack unwind, so [Fun.protect]'s
      [~finally] would fire immediately on a bounce rather than staying
      pending across it. Every [Scan_at] reservation pushes its own release

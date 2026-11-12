@@ -85,7 +85,7 @@ module Make_pair (Src : Side.S) (Dst : Side.S) = struct
        Each cluster is now a LOCAL obligation whose dependencies are free
        variables, so neither layer is needed and neither can mislead: no ordering
        assumption, no cascade, and a cluster that fails cannot be papered over by
-       one that passed. See .ai/native_transform_local_verify_plan.md §5-6. *)
+       one that passed. See the `.ai/` native transform local verify plan doc §5-6. *)
     let index = Boundary_index.create clusters in
     (* One side, built from whatever that dialect supplies. The two dialects have
        different snapshot types, so this cannot be one polymorphic function over

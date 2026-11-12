@@ -1,7 +1,7 @@
 ; The expression language, as an independent library. It must NOT depend on
 ; [native]: [native] consumes [Expr.Value], so a dependency back would be a
 ; cycle, and the point of the split is that the language owns no tensor,
-; storage or graph type. See .ai/native_expr_refactoring_design.md.
+; storage or graph type. See the `.ai/` native expr refactoring design.
 ;
 ; Wrapped (dune's default), so consumers see [Expr.Axis], [Expr.Value], and
 ; never a global [Axis] or [Value] -- which is the collision that keeps this

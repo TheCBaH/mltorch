@@ -1,10 +1,10 @@
 (* How a value claim survives an op, per output. Consulted by [Rewrite]'s claim
-   propagation; see .ai/native_transform_design.md §8.
+   propagation; see the `.ai/` native transform design §8.
 
    Exhaustive on purpose, with NO default arm: a defaulting classifier would
    silently mis-transfer the next op someone adds, and mis-transferring means a
    verifier asserting something the graph does not guarantee. Adding an op means
-   deciding its answer here — the site is listed in .ai/native_add_op.md. *)
+   deciding its answer here — the site is listed in the `.ai/` native add op doc. *)
 
 open Graph_ir
 

@@ -309,7 +309,7 @@ module Relu = struct
   let pp (pp_ref : Tensor_ref.t Fmt.t) fmt (t : t) =
     Fmt.pf fmt "@[<hv 2>relu@ x=%a@]" pp_ref t.x
 
-  (* Identity: relu doesn't change shape. See .ai/native_compute_design.md §2b. *)
+  (* Identity: relu doesn't change shape. See the `.ai/` native compute design §2b. *)
   let output_shape (x_shape : Vec6.shape) = Err.return x_shape
 
   module Compute (S : Semantics.SEMANTICS) = struct

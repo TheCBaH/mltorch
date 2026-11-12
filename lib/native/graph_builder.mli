@@ -1,7 +1,7 @@
 (* A functional (state-monad) builder for the native graph IR. The state — fresh
    id counters, the accumulated nodes/edges/inputs, and the default element type —
    is threaded purely; nothing is mutated. Output shapes are COMPUTED (via
-   [Graph_shape]), never supplied. See .ai/native_graph_design.md. *)
+   [Graph_shape]), never supplied. See the `.ai/` native graph design. *)
 
 open Graph_ir
 

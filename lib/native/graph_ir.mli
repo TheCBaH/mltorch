@@ -5,7 +5,7 @@
    [Group] is an authoritative structural hierarchy over nodes, never a call.
 
    Record types live in their own modules (type named [t]), per the project rule
-   (CLAUDE.md). See .ai/native_graph_design.md. *)
+   (CLAUDE.md). See the `.ai/` native graph design. *)
 
 module Tensor_id = Tensor_id
 module Node_id = Graph_common.Node_id
@@ -21,6 +21,7 @@ type tensor_ref = Tensor_id.t
 
 (* Native operations are ordinary global SSA nodes.  Grouping is represented by
    [Group], not by an operation: it never introduces a call boundary. *)
+(* @alphabetical *)
 type op =
   (* Constructors are kept in global alphabetical order so any op is easy to
      locate. Each op carries its own payload record (params +
@@ -30,13 +31,14 @@ type op =
      [Eval_op]/[Graph_shape] still match per op, since they need shape/semantics
      context the payload can't carry. *)
   | Abs of Pointwise.Abs.t
-  | Add of Pointwise.Add.t
-  | Addcmul of Pointwise.Addcmul.t
-  | Add_scalar of Pointwise.Add_scalar.t
   | Adaptive_avg_pool2d of Pool.AdaptiveAvgPool2d.t
   | Adaptive_max_pool2d of Pool.AdaptiveMaxPool2d.t
   | Adaptive_max_pool2d_with_indices of Pool.AdaptiveMaxPool2dWithIndices.t
+  | Add of Pointwise.Add.t
+  | Add_scalar of Pointwise.Add_scalar.t
+  | Addcmul of Pointwise.Addcmul.t
   | Amax of Reduce.Amax.t
+  | Arange of Factory.Arange.t
   | Argmax of Reduce.Argmax.t
   | Attention_layer of Attention_layer.Attention_layer.t
   | Avg_pool2d of Pool.AvgPool2d.t
@@ -62,14 +64,14 @@ type op =
   | Cos of Pointwise.Cos.t
   | Cumsum of Reduce.Cumsum.t
   | Diff of Diff.Diff.t
-  | Div of Pointwise.Div.t
-  | Div_scalar of Pointwise.Div_scalar.t
   | Discard of { x : tensor_ref }
   (* A sink: consumes one edge and produces NO output (its [Node.outputs] is
        empty). Used to route a dead op output — e.g. the argmax indices of
        [Max_pool2d_with_indices] — so the op keeps its full ATen arity while the
        edge is explicitly marked unused for a future pruning pass. Like
        [Discard], it is handled inline wherever the [op_registry] is folded. *)
+  | Div of Pointwise.Div.t
+  | Div_scalar of Pointwise.Div_scalar.t
   | Embedding of Embedding.Embedding.t
   (* `eq.Scalar(self, other) -> self == other`, real ATen output dtype Bool
      (float numerical equality, NaN unequal, signed zeros equal). No corpus
@@ -86,8 +88,8 @@ type op =
   | Expand of Pointwise.Expand.t
   | Eye of Factory.Eye.t
   | Floor_div_scalar of Pointwise.Floor_div_scalar.t
-  | Ge_scalar of Pointwise.Ge_scalar.t
   | Full_like of Pointwise.Full_like.t
+  | Ge_scalar of Pointwise.Ge_scalar.t
   | Gelu of Pointwise.Gelu.t
   (* Reshapes [channel] into [groups] equal chunks and normalises each
      (N, group) slice over that chunk plus every axis but N and [channel] --
@@ -106,22 +108,22 @@ type op =
   | Hardsigmoid of Pointwise.Hardsigmoid.t
   | Hardswish of Pointwise.Hardswish.t
   | Hardtanh of Pointwise.Hardtanh.t
+  | Im2col of Im2col.Im2col.t
   (* `index.Tensor`'s runtime gather, scoped to a rank-1 live index (see
-     .ai/index_tensor_design.md): the gathered axis's position is resolved
+     the `.ai/` index tensor design): the gathered axis's position is resolved
      from the VALUE stored in [index], not known at graph-construction time --
      the one op in this engine whose index arithmetic is genuinely
      data-dependent, via [Semantics.load_index]/[Index.Data]. *)
   | Index_pair of Index_tensor.Index_pair.t
   | Index_tensor of Index_tensor.Index_tensor.t
-  | Im2col of Im2col.Im2col.t
-  | Le_tensor of Pointwise.Le_tensor.t
   | Layer_norm of Norm.LayerNorm.t
+  | Le_tensor of Pointwise.Le_tensor.t
   | Leaky_relu of Pointwise.Leaky_relu.t
   | Linear of Linear.Linear.t
-  | Lstm of Lstm.Lstm.t
-  | Lt_scalar of Pointwise.Lt_scalar.t
   | Log of Pointwise.Log.t
   | Log1p of Pointwise.Log1p.t
+  | Lstm of Lstm.Lstm.t
+  | Lt_scalar of Pointwise.Lt_scalar.t
   | Max_dim of Reduce.MaxDim.t
   | Max_pool2d of Pool.MaxPool2d.t
   | Max_pool2d_with_indices of Pool.MaxPool2dWithIndices.t
@@ -176,15 +178,15 @@ type op =
   | Sigmoid of Pointwise.Sigmoid.t
   | Silu of Pointwise.Silu.t
   | Sin of Pointwise.Sin.t
-  (* Softmax over a single axis, keeping the input's full shape -- unlike
-     [Amax]/[Mean]/[Vector_norm], which drop or collapse the reduced axes.
-     General, not attention-specific: see .ai/matmul_softmax_design.md. *)
-  | Softmax of Reduce.Softmax.t
   (* Selects a strided range along one axis and KEEPS it, so unlike [Unbind]
      the rank is unchanged and there is one output. Its bounds are canonical —
      defaulted, normalized and clamped by [Aten_shape.resolve_slice] before the
      payload exists. *)
   | Slice of Split.Slice.t
+  (* Softmax over a single axis, keeping the input's full shape -- unlike
+     [Amax]/[Mean]/[Vector_norm], which drop or collapse the reduced axes.
+     General, not attention-specific: see the `.ai/` matmul softmax design. *)
+  | Softmax of Reduce.Softmax.t
   (* Divides one axis into contiguous windows of the given SIZES, KEEPING the
      axis in every output — unlike [Unbind], which drops it. Each output is
      what [Slice] would give for that window; [Split_with_sizes] owns its own
@@ -208,7 +210,7 @@ type op =
   (* The only op whose output COUNT is not fixed by the op: it is the extent at
      the selected axis, so the arity comes from the operand signature.
      [Graph_shape] returns one shape per slice and [Graph_builder.unbind]
-     allocates one edge each. See .ai/native_multi_output_design.md §1a. *)
+     allocates one edge each. See the `.ai/` native multi output design §1a. *)
   | Unbind of Split.Unbind.t
   (* `aten.unfold.default`: a sliding-window view along one named axis. The
      window count replaces that axis's own extent and a genuinely new axis
@@ -230,7 +232,6 @@ type op =
   | Weight_norm of Weight_norm.Weight_norm.t
   | Where_scalar_other of Pointwise.Where_scalar_other.t
   | Where_self of Pointwise.Where_self.t
-  | Arange of Factory.Arange.t
   | Zeros of Factory.Zeros.t
 
 (* Aliases to [Graph_common], which owns the dialect-agnostic vocabulary so a

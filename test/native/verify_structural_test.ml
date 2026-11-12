@@ -63,7 +63,7 @@ let%expect_test "verify: bypass / sink permute" =
    would leave the two sides as functions of DIFFERENT variables — unequal, and
    a probe assigning them independently would "separate" a correct rewrite,
    since [t3 = Q(t1)] is precisely the fact a local frontier drops. Crossing the
-   one-sided variable recovers it. See .ai/native_transform_local_verify_plan.md
+   one-sided variable recovers it. See the `.ai/` native transform local verify plan doc
    §13.
 
    Sub and Div are the load-bearing ones — transposing a rebuilt op's operands

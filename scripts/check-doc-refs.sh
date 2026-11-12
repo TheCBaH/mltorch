@@ -20,7 +20,7 @@ patterns=(
   'ai-file|\.ai/[A-Za-z0-9_.-]+\.md'
   'gate|Gate [0-9]'
   'stage|Stage [0-9]'
-  'untracked-doc|_plan\.md|_tracker\.md|_census\.'
+  'untracked-doc|[_-](plan|tracker|census)\.(md|tsv|txt|json|csv)'
 )
 
 count() {

@@ -40,7 +40,7 @@ module LayerNorm = struct
      so [y] is 0 before the affine, and [bias] alone survives.
 
      [dims] is a list of frame axes, which both importers derive from ATen's
-     trailing [normalized_shape]. See .ai/native_compute_design.md 2. *)
+     trailing [normalized_shape]. See the `.ai/` native compute design 2. *)
   type params = { dims : Axis.t list; eps : float }
 
   let params_jsont : params Jsont.t =

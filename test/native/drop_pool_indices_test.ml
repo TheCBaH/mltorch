@@ -1,5 +1,5 @@
 (* Narrowing [Max_pool2d_with_indices] to [Max_pool2d] once its index output is
-   dead. See .ai/native_transform_design.md §12g.
+   dead. See the `.ai/` native transform design §12g.
 
    The point of this file is the CLAIM, not the rewrite. The pass asserts the
    pooled value is [Identical] across the narrowing, and on a real model the

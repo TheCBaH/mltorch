@@ -15,7 +15,7 @@ change is invisible here by design -- see `native_bridge_test.ml`'s
 `csatv2` moved past its `select.int` block to `stack.default`, past that to
 `clone.default`'s memory_format rejection, and past that to
 `index.Tensor` itself being unsupported. `index.Tensor` now lands (both
-importers, per `.ai/index_tensor_design.md`'s rounds), including the
+importers, per the `.ai/` index tensor design's rounds), including the
 trace-past-Clone rule for its own `indices` operand (a `Long` constant behind
 a plain, format-preserving `clone.default` -- exactly the corpus's real
 occurrence), so the graph's `index.Tensor` node imports cleanly and the
@@ -72,7 +72,7 @@ lowering, structurally in `native4d/verify_test.ml`'s "gelu tanh" cluster), so
 
 `regnetx_002`'s `stage:native4d` used to be `unavailable outside_dialect_domain`
 (a 3-group convolution, neither 1 nor depthwise). `GroupedConv2D`
-(`.ai/native4d_design.md` §7.2/§8) now carries the general form, so that
+(the `.ai/` native4d design §7.2/§8) now carries the general form, so that
 convolution legalizes and `regnetx_002` reaches `stage:native4d` too.
 `fastvit_sa12`'s `stage:native4d` stays `unavailable outside_dialect_domain`,
 pre-existing and unrelated to grouped convolution (this model uses SDPA, which

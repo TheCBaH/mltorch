@@ -1,7 +1,7 @@
 (* Pointwise ops: each output pixel reads the input(s) at the same coord. The
    functor is over SEMANTICS, so the same definition serves Direct and Symbolic.
    [out] is the output coord itself, one index expression per axis.
-   See .ai/native_compute_design.md §2.
+   See the `.ai/` native compute design §2.
 
    This file is now a thin facade: unary ops live in pointwise_unary.ml,
    activation ops in pointwise_activation.ml, and the broadcasting helpers

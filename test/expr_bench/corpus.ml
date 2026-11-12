@@ -1,9 +1,9 @@
-(* Stage 5 correctness corpus for [Eval_candidates] (tail-call conversion;
+(* Correctness corpus for [Eval_candidates] (tail-call conversion;
    see .ai/): a first, hand-written set of cases covering every [float Value.t]/
    [Bool.t] constructor that recurses through [go]/[guard], including nested
    and multi-row [Reduce]/[Scan_at] -- not yet the generated deep/order
    corpus the design record calls for (that needs the per-backend goldens
-   and closed-form deep generators Stage 5 still owes). Every case owns its
+   and closed-form deep generators still owed). Every case owns its
    own evaluation config; nothing here is shared mutable state except each
    case's own fresh [Scan_meter.t], built at call time so the reference and
    candidate runs never see each other's charges.
@@ -90,7 +90,7 @@ let dead_env =
     load_index = (fun _ _ -> assert false);
   }
 
-(* [h*1000+w], matching js/probe/probe_expr.ml's Stage 4 max-pool case: cheap,
+(* [h*1000+w], matching js/probe/probe_expr.ml's max-pool case: cheap,
    deterministic, and strictly increasing in row-major order so a max-pool
    case's expected value is a closed form. *)
 let load_env =

@@ -2,7 +2,7 @@
    Native4D counterpart of [Graph_shape].
 
    Every arm returns a [Shape4.t], which is the acceptance criterion
-   .ai/native4d_plan.md sets for this stage — an inferred output that is not
+   the `.ai/` native4d plan doc sets for this stage — an inferred output that is not
    four-axis cannot escape into the IR. The arms themselves delegate to the
    NATIVE op's [output_shape]: the shape rules are identical, since the physical
    frame is identical (design §4.1), and restating them would be a second
@@ -580,7 +580,7 @@ let output_shape (op : Op.t)
   (* Asymmetric with the arm above ON PURPOSE, and worth stating rather than
      quietly copying: [Rms_norm] does not re-run [check_weight] here, so a
      JSON-decoded Native4D rms_norm skips the affine validation Native's
-     [Graph_shape] performs. Noted in .ai/native4d_design.md; not fixed in the
+     [Graph_shape] performs. Noted in the `.ai/` native4d design; not fixed in the
      same change that adds a different op. *)
   | Rms_norm { Ops4.Rms_norm.params; x; _ } ->
       let* x_shape = shape x in

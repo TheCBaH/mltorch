@@ -1,7 +1,7 @@
 (* See direct.mli. Indices are ['role Dim.t] (not raw [int]): [position index
    = Dim.index Dim.t] carries its non-negativity proof through to
    [Tensor.read_at]/[Vec6.offset_of], which then need no re-validation on
-   their (millions-of-calls) hot path — see .ai/pt2_inference_perf.md. [delta
+   their (millions-of-calls) hot path — see the `.ai/` pt2 inference perf doc. [delta
    index = Dim.delta Dim.t] stays unchecked/signed, since window arithmetic
    goes negative before [clamp_low]/[assume_index] convert it back. *)
 
@@ -91,7 +91,7 @@ module Make (P : POLICY) = struct
    discovered here follows the identical, already-established contract:
    convert the [Err.t] failure into a raised exception via [Err.or_raise],
    rather than inventing a new "Direct can fail" channel -- see
-   .ai/index_tensor_design.md's Direct/ground split. [Dim.index] is exact
+   the `.ai/` index tensor design's Direct/ground split. [Dim.index] is exact
    (never raises) on the result: [resolve_gather_index] already normalized it
    into [0, extent). *)
   let load_index (inp : input) (v : Semantics.position index Vec6.t)

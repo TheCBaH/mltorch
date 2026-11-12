@@ -10,7 +10,7 @@
    Native4D and the symbolic stages, so "states = transitions + 1" describes
    nothing here.
 
-   See .ai/model_explorer_design.md. *)
+   See the `.ai/` model explorer design. *)
 
 module Pass_execution : sig
   type t = { layer : Me_ids.Layer.t; exec : Pass.Exec_id.t }

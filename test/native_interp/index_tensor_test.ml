@@ -1,5 +1,5 @@
 (* `index.Tensor(Tensor self, Tensor?[] indices) -> Tensor`, restricted to
-   the evidenced shape family (`.ai/index_tensor_design.md`): [indices] has
+   the evidenced shape family (the `.ai/` index tensor design): [indices] has
    at most [self]'s ATen rank many entries, exactly one live entry of ATen
    rank at least 1, every other listed position [None]. Metadata-only
    decode (unlike [Op_bridge]'s dispatch, tested separately in
@@ -96,7 +96,7 @@ let%expect_test
 (* Real ATen implicitly full-slices any dims [indices] doesn't mention, so a
    list SHORTER than [self]'s rank is not itself a fault -- exactly
    `mvitv2_tiny`/`maxxvitv2_nano_rw_256`'s own encoding
-   (`.ai/index_tensor_design.md`): a length-1 [indices] against a rank-2
+   (the `.ai/` index tensor design): a length-1 [indices] against a rank-2
    [self]. *)
 let%expect_test "index.Tensor: accepts an indices list shorter than self's rank"
     =

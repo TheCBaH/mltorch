@@ -17,7 +17,7 @@ module BatchNorm = struct
      (ATen `Tensor?`): an absent weight is the identity scale (1), an absent bias
      the identity shift (0), materialised by [Eval_op]. The output keeps the
      input's full shape (batch norm rescales, it does not reduce). See
-     .ai/native_compute_design.md. *)
+     the `.ai/` native compute design. *)
   type params = { channel : Axis.t; eps : float }
 
   let params_jsont : params Jsont.t =

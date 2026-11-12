@@ -1,5 +1,5 @@
 (* [Ground_eval]'s own [Budget]/[Meter]/[Term] contract, independent of the
-   whole [Map_verify] pipeline -- see .ai/native_scan_design.md's "Grounding
+   whole [Map_verify] pipeline -- see the `.ai/` native scan design's "Grounding
    meter and verdict mapping". [max_ground_nodes] is cumulative construction
    fuel, charged as [ground]/[leaf]/[max_pool] build each node; [max_nodes] is
    the CURRENT total logical size of every root registered against one

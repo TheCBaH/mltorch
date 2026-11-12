@@ -1,6 +1,6 @@
 (* Native4D as a [Dialect.S].
 
-   Named [dialect4], not [dialect], for the reason .ai/native4d_plan.md gives:
+   Named [dialect4], not [dialect], for the reason the `.ai/` native4d plan doc gives:
    a wrapped library compiles each unit with its alias module opened, so a
    sibling named [Dialect] would shadow the generic [Dialect] this very file
    must satisfy — and [Graph_view.Make] would then have no signature to name. *)

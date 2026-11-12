@@ -14,24 +14,6 @@ let op_registry : (module OP) list =
       let project = function Abs t -> Some t | _ -> None
     end : OP);
     (module struct
-      include Pointwise.Add
-
-      let inject t = Add t
-      let project = function Add t -> Some t | _ -> None
-    end : OP);
-    (module struct
-      include Pointwise.Addcmul
-
-      let inject t = Addcmul t
-      let project = function Addcmul t -> Some t | _ -> None
-    end : OP);
-    (module struct
-      include Pointwise.Add_scalar
-
-      let inject t = Add_scalar t
-      let project = function Add_scalar t -> Some t | _ -> None
-    end : OP);
-    (module struct
       include Pool.AdaptiveAvgPool2d
 
       let inject t = Adaptive_avg_pool2d t
@@ -53,10 +35,34 @@ let op_registry : (module OP) list =
         | _ -> None
     end : OP);
     (module struct
+      include Pointwise.Add
+
+      let inject t = Add t
+      let project = function Add t -> Some t | _ -> None
+    end : OP);
+    (module struct
+      include Pointwise.Add_scalar
+
+      let inject t = Add_scalar t
+      let project = function Add_scalar t -> Some t | _ -> None
+    end : OP);
+    (module struct
+      include Pointwise.Addcmul
+
+      let inject t = Addcmul t
+      let project = function Addcmul t -> Some t | _ -> None
+    end : OP);
+    (module struct
       include Reduce.Amax
 
       let inject t = Amax t
       let project = function Amax t -> Some t | _ -> None
+    end : OP);
+    (module struct
+      include Factory.Arange
+
+      let inject t = Arange t
+      let project = function Arange t -> Some t | _ -> None
     end : OP);
     (module struct
       include Reduce.Argmax
@@ -245,16 +251,16 @@ let op_registry : (module OP) list =
       let project = function Floor_div_scalar t -> Some t | _ -> None
     end : OP);
     (module struct
-      include Pointwise.Ge_scalar
-
-      let inject t = Ge_scalar t
-      let project = function Ge_scalar t -> Some t | _ -> None
-    end : OP);
-    (module struct
       include Pointwise.Full_like
 
       let inject t = Full_like t
       let project = function Full_like t -> Some t | _ -> None
+    end : OP);
+    (module struct
+      include Pointwise.Ge_scalar
+
+      let inject t = Ge_scalar t
+      let project = function Ge_scalar t -> Some t | _ -> None
     end : OP);
     (module struct
       include Pointwise.Gelu
@@ -293,6 +299,12 @@ let op_registry : (module OP) list =
       let project = function Hardtanh t -> Some t | _ -> None
     end : OP);
     (module struct
+      include Im2col.Im2col
+
+      let inject t = Im2col t
+      let project = function Im2col t -> Some t | _ -> None
+    end : OP);
+    (module struct
       include Index_tensor.Index_pair
 
       let inject t = Index_pair t
@@ -305,22 +317,16 @@ let op_registry : (module OP) list =
       let project = function Index_tensor t -> Some t | _ -> None
     end : OP);
     (module struct
-      include Im2col.Im2col
+      include Norm.LayerNorm
 
-      let inject t = Im2col t
-      let project = function Im2col t -> Some t | _ -> None
+      let inject t = Layer_norm t
+      let project = function Layer_norm t -> Some t | _ -> None
     end : OP);
     (module struct
       include Pointwise.Le_tensor
 
       let inject t = Le_tensor t
       let project = function Le_tensor t -> Some t | _ -> None
-    end : OP);
-    (module struct
-      include Norm.LayerNorm
-
-      let inject t = Layer_norm t
-      let project = function Layer_norm t -> Some t | _ -> None
     end : OP);
     (module struct
       include Pointwise.Leaky_relu
@@ -335,18 +341,6 @@ let op_registry : (module OP) list =
       let project = function Linear t -> Some t | _ -> None
     end : OP);
     (module struct
-      include Lstm.Lstm
-
-      let inject t = Lstm t
-      let project = function Lstm t -> Some t | _ -> None
-    end : OP);
-    (module struct
-      include Pointwise.Lt_scalar
-
-      let inject t = Lt_scalar t
-      let project = function Lt_scalar t -> Some t | _ -> None
-    end : OP);
-    (module struct
       include Pointwise.Log
 
       let inject t = Log t
@@ -357,6 +351,18 @@ let op_registry : (module OP) list =
 
       let inject t = Log1p t
       let project = function Log1p t -> Some t | _ -> None
+    end : OP);
+    (module struct
+      include Lstm.Lstm
+
+      let inject t = Lstm t
+      let project = function Lstm t -> Some t | _ -> None
+    end : OP);
+    (module struct
+      include Pointwise.Lt_scalar
+
+      let inject t = Lt_scalar t
+      let project = function Lt_scalar t -> Some t | _ -> None
     end : OP);
     (module struct
       include Reduce.MaxDim
@@ -521,16 +527,16 @@ let op_registry : (module OP) list =
       let project = function Sin t -> Some t | _ -> None
     end : OP);
     (module struct
-      include Reduce.Softmax
-
-      let inject t = Softmax t
-      let project = function Softmax t -> Some t | _ -> None
-    end : OP);
-    (module struct
       include Split.Slice
 
       let inject t = Slice t
       let project = function Slice t -> Some t | _ -> None
+    end : OP);
+    (module struct
+      include Reduce.Softmax
+
+      let inject t = Softmax t
+      let project = function Softmax t -> Some t | _ -> None
     end : OP);
     (module struct
       include Split.Split_with_sizes
@@ -627,12 +633,6 @@ let op_registry : (module OP) list =
 
       let inject t = Where_self t
       let project = function Where_self t -> Some t | _ -> None
-    end : OP);
-    (module struct
-      include Factory.Arange
-
-      let inject t = Arange t
-      let project = function Arange t -> Some t | _ -> None
     end : OP);
     (module struct
       include Factory.Zeros

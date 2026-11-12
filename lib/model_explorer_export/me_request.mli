@@ -19,7 +19,7 @@
    quantifies over: two loads agreeing on [Source.t] and [Options.t] produce
    byte-identical session JSON.
 
-   See .ai/model_explorer_design.md. *)
+   See the `.ai/` model explorer design. *)
 
 (** {1 Request identity} *)
 

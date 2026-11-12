@@ -291,7 +291,7 @@ let convert ?(constants = Tensor_id.Map.empty)
        The surviving edge is present in BOTH graphs, so mentioning it only as a
        destination makes it [Unpaired_dst]: an id named on one side while
        present in both must be named on the other. This is the same shape
-       .ai/native_transform_design.md §3 gives for trimming an identity
+       the `.ai/` native transform design §3 gives for trimming an identity
        permute. *)
     @ List.filter_map
         (fun (removed, kept) ->

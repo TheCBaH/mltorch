@@ -47,7 +47,7 @@ let index_of ~(extent : extent t) (d : delta t) : index t option =
 
 (* Role-preserving increment, no validation: for a loop counter already known
    to stay in range by construction (bounded above by a separate check, e.g.
-   [Direct.sum]'s accumulator — see .ai/pt2_inference_perf.md), re-deriving
+   [Direct.sum]'s accumulator — see the `.ai/` pt2 inference perf doc), re-deriving
    the role via [index]/[extent]'s checked constructors on every step would
    re-pay a check the loop's own structure already guarantees passes. *)
 let succ (x : 'role t) : 'role t = x + 1

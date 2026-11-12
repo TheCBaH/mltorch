@@ -1,6 +1,6 @@
 (* Transport a permutation through a [keepdim=true] [Mean], the axis-covariant
    counterpart to [Sink_permute]'s axis-invariant elementwise identity. See
-   .ai/native_transform_design.md §12f.
+   the `.ai/` native transform design §12f.
 
    [Mean] reduces over NAMED axes, so it does not commute with an input
    permutation the way an elementwise op does — [Sink_permute] deliberately

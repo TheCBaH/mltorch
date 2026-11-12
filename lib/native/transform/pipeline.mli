@@ -1,5 +1,5 @@
 (* The canonical Native pass pipeline: one documented ordering, in the library
-   rather than in a CLI. See .ai/native_transform_design.md §12h.
+   rather than in a CLI. See the `.ai/` native transform design §12h.
 
    It lived in bin/native_graph.ml until Native4D needed it. A dialect
    conversion is only ever meaningful on a canonical graph — the PT2 importer

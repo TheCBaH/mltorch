@@ -14,7 +14,7 @@
    lowerer is root-only and writes [graph_path = []]. Nested graphs stay source
    views and tensor origins stay metadata.
 
-   See .ai/model_explorer_design.md. *)
+   See the `.ai/` model explorer design. *)
 
 type t = {
   entries : Me_session.Mapping_entry.t list;

@@ -2,7 +2,7 @@
    convention js/melange/walk_core/walk_core.ml established: a hand-written
    file with the SAME module name as one this mirror's copy_files stanzas
    deliberately do not copy (see js/jsoo/native_js/dune's root stanza),
-   rather than a fork of the origin file (tail-call plan, Stage 7; see
+   rather than a fork of the origin file (tail-call conversion; see
    .ai/). [Kernel_hard_shared] is still copied from lib/native verbatim and
    [include]d here unchanged -- only [eval_depth] differs.
 
@@ -22,7 +22,7 @@
    measured maximum -- the same headroom multiple lib/native/kernel_hard.ml's
    own comment used over resnet18's ~770 to reach native's original 1536,
    since re-measured down to 1280 -- and it
-   is a small, deliberate fraction of the 20,000-deep smoke case Stage 6
+   is a small, deliberate fraction of the 20,000-deep smoke case
    already proved the installed [eval_hybrid ~cutoff:50] driver survives on
    both JS backends for ONE [Expr.Eval.value] call, so this is not the
    adversarial ceiling, just a production-shaped one with room for the corpus

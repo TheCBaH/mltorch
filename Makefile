@@ -1,6 +1,6 @@
 .PHONY: machine.rivet.rv32.runtest rv32.pt2.runtest coralnpu.rv32.runtest coralnpu.vme.runtest compcert.rv32.install compcert.rv32.runtest model.compare.coverage js.compare.runtest rivet.compare.runtest transformers.assets.check transformers.assets.generate transformers.assets.fetch transformers.cohort.check transformers.cohort.generate transformers.cohort.fetch transformers.generate transformers.text.check transformers.text.demo transformers.gate transformers.matrix transformers.admission transformers.download transformers.open model.compare model.download model.compare.gate model.fetch.timm model.fetch.fixture transformers.replay compcert.compare.runtest compcert.embed.install compcert.embed.runtest machine.rivet.a64.conformance machine.rivet.a64.runtest machine.rivet.x64.conformance machine.rivet.x64.runtest rivet.install c.pt2.bench c.pt2.exe c.pt2.native4d.runtest c.pt2.native4d.ssa.runtest c.pt2.perf c.pt2.run c.pt2.runtest c.pt2.san c.pt2.ssa.perf c.pt2.ssa.runtest c.runtest.all c.runtest.o0 c.runtest.san benchmark.canonical benchmark.canonical.corpus \
 	benchmark.region_compute benchmark.region_pixel build check \
-	check.doc-refs check.exceptions check.file-size check.int-signatures check.libraries check.whitespace libraries clean lint.zanuda lint.zanuda.list fp32.pt2.runtest fp32.pt2.census machine.a64.conformance machine.pt2.census ssa.vector.census \
+	check.doc-refs check.exceptions check.file-size check.int-signatures check.libraries check.variant-order check.whitespace libraries clean lint.zanuda lint.zanuda.list fp32.pt2.runtest fp32.pt2.census machine.a64.conformance machine.pt2.census ssa.vector.census \
 	expr_bench.js-benchmark expr_bench.runtest expr_order.runtest \
 	expr_probe.deep-runtest expr_probe.runtest format fp32.bench fp32.bench.wasm inference inference-runa \
 	inline-timing-report inline-timing-report-js js.build js.runtest \
@@ -543,7 +543,7 @@ safetensors.run: pt2.download
 # The raw interpreter binary, built once via plain `dune build` (never `dune
 # exec`). inference.% below runs this directly instead, so `make -j` can fan
 # the per-model runs out across cores: concurrent `dune exec`/`dune build`
-# invocations contend on _build locks (see .ai/worktree_setup.md), but
+# invocations contend on _build locks (see the `.ai/` worktree setup doc), but
 # concurrent runs of an already-built plain binary don't.
 PT2_RUN := _build/default/test/interp_run.exe
 $(PT2_RUN):
@@ -648,7 +648,7 @@ native-infer-verify-arena: $(addprefix native-infer-verify-arena., $(PT2_MODELS_
 # one claims only Identical and must agree bit-for-bit; --fold adds batch-norm
 # folding, whose single Equivalent claim says "equal in exact arithmetic, rounds
 # differently", so it is held to --atol instead. See
-# .ai/native_transform_design.md §3.
+# the `.ai/` native transform design §3.
 native-transform-verify.%: PT2_MODEL = $*
 native-transform-verify.%: $(NATIVE_GRAPH)
 	test -f $(PT2_MODEL_DIR)/$(PT2_MODEL).pt2 || $(MAKE) pt2.download PT2_MODEL=$*
@@ -677,7 +677,7 @@ benchmark.inference: pt2.download
 # The pure-OCaml native engine's conv2d, on resnet18's first (smallest) real
 # conv node - currently ~27s, which is why conv2d is excluded from the full
 # ATen-vs-native comparison sweep (test/pt2_node_bridge_cram.t) and from
-# pt2_op_native_walk_cram.t's real-scale walk. See .ai/pt2_inference_perf.md
+# pt2_op_native_walk_cram.t's real-scale walk. See the `.ai/` pt2 inference perf doc
 # for the investigation this tracks regressions/improvements against.
 # aten_spec_verify's default mode runs both ATen and native and compares
 # them; ATen's share of the time is negligible here (ms, not s).
@@ -705,7 +705,7 @@ benchmark.region_compute:
 # permanently available without costing the uninstrumented path anything
 # (memtrace/landmarks linked in but idle) or, for landmarks, why it needs a
 # separate build profile at all (measured ~2.3x slower even idle once
-# `--auto`-instrumented — see .ai/pt2_inference_perf.md's landmarks
+# `--auto`-instrumented — see the `.ai/` pt2 inference perf doc's landmarks
 # section).
 PROFILE_DIR := .profile
 PROFILE_FIXTURE := test/data/resnet18/000_convolution_default.json
@@ -776,6 +776,11 @@ libraries:
 check.libraries:
 	opam exec -- dune exec --no-print-directory tools/libraries/libraries.exe -- check tools/libraries/unowned.txt .
 
+# Variant-order check: a type marked (* @alphabetical *) keeps its constructors
+# in lowercased byte order (tools/variant_order). Also part of runtest.
+check.variant-order:
+	opam exec -- dune build @tools/variant_order/runtest
+
 # Whitespace/conflict-marker regression check: git's own diff-hygiene check
 # against HEAD (trailing whitespace, a mixed tab/space indent the change
 # introduced, an unresolved conflict marker). [check] below already runs
@@ -834,7 +839,7 @@ test:
 # committed golden. cmdliner and jsont both style their error text with raw
 # ANSI escapes whenever $TERM looks color-capable, invisible in a terminal or
 # in dune's own diff rendering but real bytes -- and byte-for-byte wrong
-# against a headless CI run. See .ai/testing_strategy.md's "Promoting from an
+# against a headless CI run. See the `.ai/` testing strategy doc's "Promoting from an
 # interactive shell" note; NO_COLOR forces the plain (uncolored) renderer so a
 # promotion made from an interactive shell can't disagree with one made on a
 # runner.
@@ -897,7 +902,7 @@ tailcall.js-benchmark:
 	node $(TAILCALL_BUILD)/melange_bench/output/experiments/tailcall/melange_bench/tailcall_js_bench.js \
 	  64 200000
 
-# Stage 0 of the Expr tail-call conversion (.ai/'s implementation plan): the
+# The Expr tail-call conversion's (see `.ai/`) first probe: the
 # evaluation-order oracle. Native, bytecode and jsoo build one shared source,
 # js/probe/order_probe.ml, and each route's output is diffed against its own
 # committed golden -- there is no cross-backend diff here, unlike
@@ -928,7 +933,7 @@ expr_order.runtest:
 	  $(ORDER_PROBE_BUILD)/melange/order_probe/order_probe.actual.melange
 	@echo "expr_order: native, bytecode, jsoo and melange each match their own golden"
 
-# The tail-call conversion's plain-value probe (Stage 3 onward, .ai/'s
+# The tail-call conversion's plain-value probe (see `.ai/`'s
 # implementation plan): unlike expr_order.runtest above, this one checks
 # cross-backend AGREEMENT (native is the golden, jsoo and Melange are each
 # diffed against it), because none of probe_expr.ml's cases are
@@ -952,7 +957,7 @@ expr_probe.runtest:
 	  $(EXPR_PROBE_BUILD)/melange/probe_expr/probe_expr.actual.melange
 	@echo "expr_probe: jsoo and melange match native"
 
-# Stage 7's own deep-isolated-Expr gate: probe_expr.ml's [--deep] mode, run
+# The deep-isolated-Expr gate: probe_expr.ml's [--deep] mode, run
 # only against jsoo and Melange -- never native, whose [Eval.value] is still
 # ordinary recursion and would genuinely overflow on the depth-200,000
 # Value/Bool cases this checks against closed forms. Each route's own exit
@@ -967,7 +972,7 @@ expr_probe.deep-runtest:
 	node $(EXPR_PROBE_BUILD)/melange/probe_expr/output/js/melange/probe_expr/probe_expr.js --deep
 	@echo "expr_probe.deep: jsoo and melange both survive and check out at depth 200000"
 
-# The tail-call conversion's Stage 5 correctness harness (see
+# The tail-call conversion's correctness harness (see
 # test/expr_bench/corpus.ml and .ai/): every candidate in
 # Corpus.candidate_evaluators against the reference evaluator, on every
 # applicable case, plus one deep smoke case the reference evaluator is never
@@ -997,7 +1002,7 @@ expr_bench.js-benchmark:
 
 # JavaScript backends. Deliberately outside `runtest`, same reasoning as
 # pt2.runtest: linking js_of_ocaml on every local test run is not worth it, and
-# these need node. See .ai/js_backends_design.md.
+# these need node. See the `.ai/` js backends design.
 #
 # The comparison is always between two runs of ONE program: native_probe.exe
 # against node's native_probe.bc.js. There is no golden file to promote -- the
@@ -1036,7 +1041,7 @@ jsoo.inline-runtest:
 #
 # mobilenet_v3_small rather than the resnet18 used elsewhere: measured natively
 # it is 10s and 99MB against resnet18's 86s and 241MB
-# (.ai/native_inference_verify.md), and node multiplies whatever the native cost
+# (the `.ai/` native inference verify doc), and node multiplies whatever the native cost
 # is -- ~4.9x when this was written. Never point this at a PT2_MODELS_VIT entry
 # larger than vit_b_*: vit_l_16/vit_l_32 are ~1.15GB each, and nothing has
 # measured node/jsoo actually handling a Pt2_archive read anywhere near
@@ -2149,7 +2154,7 @@ clean:
 # constructs its worker from a runtime string rather than `new URL(...)`, so the
 # `custom_element` target emits no worker chunk of its own.
 #
-# See `.ai/model_explorer_design.md` and `patches/` for why the patch exists.
+# See the `.ai/` model explorer design and `patches/` for why the patch exists.
 
 MODEL_EXPLORER   := vendored/ocaml-model-explorer/model-explorer
 VISUALIZER_SRC   := $(MODEL_EXPLORER)/src/ui
@@ -2202,12 +2207,12 @@ $(VISUALIZER_DIST)/main_browser.js:
 
 visualizer.build: $(VISUALIZER_DIST)/main_browser.js
 
-# --- Stage 0A contract spike -----------------------------------------------
+# --- Contract spike -----------------------------------------------
 #
 # Drives the real Model Explorer element to settle the questions the browser
 # coordinator design assumes. Needs node, npm and a downloaded Chromium, so it
 # is outside every other target; its ANSWERS are recorded in
-# .ai/model_explorer_design.md and do not need re-deriving to read.
+# the `.ai/` model explorer design and do not need re-deriving to read.
 
 spike.setup: visualizer.build
 	cd web && npm ci --no-audit --no-fund
@@ -2216,8 +2221,8 @@ spike.setup: visualizer.build
 	mkdir -p web/src/vendor
 	cp -r $(VISUALIZER_DIST)/* web/src/vendor/
 
-# Five specs, deliberately different in what they check. The 0A spike drives a
-# hand-authored fixture to settle questions about the RENDERER; the Stage 1 gate
+# Five specs, deliberately different in what they check. The contract spike drives a
+# hand-authored fixture to settle questions about the RENDERER; the session gate
 # drives the session `visualize` actually produced, to settle a question about
 # US -- whether a document [Me_session.validate] accepts is a document the
 # renderer accepts. Our validator is our own reading of the schema. The Path B
@@ -2283,4 +2288,5 @@ check: build format runtest melange.build melange.runtest
 # verify.pristine: that target asserts NO uncommitted changes, which is
 # never true of the changes precommit is meant to check.
 precommit: build runtest format check.whitespace check.doc-refs \
-	check.exceptions check.file-size check.int-signatures check.libraries
+	check.exceptions check.file-size check.int-signatures check.libraries \
+	check.variant-order

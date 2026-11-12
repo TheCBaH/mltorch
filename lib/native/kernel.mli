@@ -166,10 +166,9 @@ module Limits : sig
        pins both against native's own recursive evaluator, which every
        backend still runs unmodified for the traversals [depth] bounds, and
        for [eval_recursion]'s [Kernel_eval.value_at] path (tail-call
-       conversion Stage 7; see .ai/).
+       conversion; see `.ai/`).
 
-       [eval_depth] is BACKEND-SPECIFIC, not shared, since Stage 6 installed
-       a genuinely stack-safe driver for [Expr.Eval.value] on the JS side
+       [eval_depth] is BACKEND-SPECIFIC, not shared: a genuinely stack-safe driver for [Expr.Eval.value] on the JS side
        only (js/jsoo/native_js/kernel_hard.ml overrides it there; native's
        own value here, in lib/native/kernel_hard.ml, still reflects native's
        unmodified recursive evaluator and test/native/depth_probe.ml's

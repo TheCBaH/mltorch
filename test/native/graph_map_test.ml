@@ -2,7 +2,7 @@
    normalisation, the algebraic laws [compose]/[invert] must obey, endpoint
    validation, and the two cases the design turns on — trimming's many-to-one
    cluster and packing's reuse of a dead id's numeric value.
-   See .ai/native_transform_design.md §3. *)
+   See the `.ai/` native transform design §3. *)
 
 open Graph_ir
 module C = Correspondence
@@ -231,7 +231,7 @@ let%expect_test "created then deleted vanishes" =
    must not identity-extend the dead id through the intervening maps and fuse it
    with the cluster that reuses its value — and the guard that prevents it is a
    side condition on extension, so associativity has to be demonstrated, not
-   assumed. See .ai/native_transform_design.md §3, §9. *)
+   assumed. See the `.ai/` native transform design §3, §9. *)
 let%expect_test "delete, create, repack: the dead id never fuses with its reuse"
     =
   let m12 = of_ [ C.delete (I.edge 11) ] in
@@ -409,7 +409,7 @@ let%expect_test "create: the same map with t3 spoken for is accepted" =
        ~nodes:[] ~provenance:Provenance.empty);
   [%expect {| ok |}]
 
-(* Step 9 of .ai/native_transform_design.md §7. An [Identical] claim across two
+(* Step 9 of the `.ai/` native transform design §7. An [Identical] claim across two
    formats is a contradiction — it is [Approximate] — and it is the claim the PT2
    lens reads to decide it may return the source's captured bytes. *)
 let bf16_graph () =

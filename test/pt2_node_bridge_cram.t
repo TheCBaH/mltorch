@@ -1,6 +1,6 @@
 Compare ATen against the native engine (default aten_spec_verify mode, no
 flags) over the resnet18 fixtures (test/data/resnet18/ — see
-.ai/pt2_node_spec_design.md) whose op is actually usable via the native
+the `.ai/` pt2 node spec design) whose op is actually usable via the native
 bridge: supported by Op_bridge, fast at real-model scale, and producing
 correct results. That's relu.default, add.Tensor, mean.dim, permute.default,
 and addmm.default, plus one representative real-model

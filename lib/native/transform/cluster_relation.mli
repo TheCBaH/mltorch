@@ -12,11 +12,11 @@
    creation — so no separate created/deleted sets are needed. Ids in no cluster
    are implicitly identity-related, which keeps a relation proportional to what
    actually changed; that is sound only because of the id-identity rule (a
-   changed value always means a new id), see .ai/native_transform_design.md §3-4.
+   changed value always means a new id), see the `.ai/` native transform design §3-4.
 
    Ids are VERSION-INDEXED: a ['v id] names an edge of graph version ['v], so
    looking a source id up on the destination side does not compile. See
-   .ai/native_transform_versioning.md. *)
+   the `.ai/` native transform versioning doc. *)
 
 (* Endpoint problems found on construction, parametrised over the id type so both
    instantiations share one variant. *)
@@ -184,7 +184,7 @@ module Make (Id : ID) (Label : LABEL) : sig
      [Label.join] of everything that contributed. Identity-extension of a middle
      id is skipped when the partner declares that id created or deleted, so a
      dead id can never be resurrected and fused with a later cluster that reuses
-     its numeric value (see .ai/native_transform_design.md §3, §9). *)
+     its numeric value (see the `.ai/` native transform design §3, §9). *)
   val compose : ('a, 'b) t -> ('b, 'c) t -> ('a, 'c) t
 
   (* Sound because every label is a symmetric claim about the two sides. *)

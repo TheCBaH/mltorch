@@ -41,7 +41,7 @@ let out_sig =
     ~fmt:(Payload.Fmt Payload.F32) ()
 
 (* Reads [self] at [C = index[0]] -- the same coordinate shape
-   [Index_tensor.Compute.pixel] will build in Gate 3, without needing that
+   [Index_tensor.Compute.pixel] will build later, without needing that
    op's Graph_ir node to exist yet: a stage's body is an ordinary
    [float Expr.Value.t], independent of what op produced it. *)
 let body =

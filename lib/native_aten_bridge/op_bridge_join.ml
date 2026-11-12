@@ -190,7 +190,7 @@ let dispatch ~(aten_env : aten_env) (node : Node.t) :
      overload it was (op3-impl.md Part IV #2). [Identical] AFTER
      materialization, not alias-identical: ATen may return a view over the
      same storage, native graph edges are values. See
-     .ai/native_aten_bridge_layout.md. *)
+     the ATen bridge layout doc in `.ai/`. *)
   (* Schema: `upsample_bilinear2d.vec(Tensor input, SymInt[]? output_size,
      bool align_corners, float[]? scale_factors)`. Exactly one of
      [output_size]/[scale_factors] is ever given (ATen's own

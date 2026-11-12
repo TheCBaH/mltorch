@@ -1,5 +1,5 @@
 (* [Me_verify]: placing verification results in the rendered hierarchy
-   (.ai/model_explorer_design.md).
+   (the `.ai/` model explorer design).
 
    The rule that matters here is invisible in any report over a real model,
    because the two cases never sit side by side in one: a cluster inside one

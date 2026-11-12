@@ -1,4 +1,4 @@
-(* [Me_source]: the PT2 source view (.ai/model_explorer_design.md).
+(* [Me_source]: the PT2 source view (the `.ai/` model explorer design).
 
    Three things here are invisible in a rendering and are why the module is
    shaped as it is: that the input/constant split comes from the SIGNATURE

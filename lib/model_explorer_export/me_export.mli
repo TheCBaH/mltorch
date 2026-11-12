@@ -11,7 +11,7 @@
    still rejects an oversized file from [stat] before reading it — that is a
    thing only a filesystem caller can do, and it belongs there.
 
-   See .ai/model_explorer_design.md. *)
+   See the `.ai/` model explorer design. *)
 
 type source_format = Model_json | Pt2_archive
 

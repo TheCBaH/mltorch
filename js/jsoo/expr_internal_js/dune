@@ -1,6 +1,5 @@
 ; jsoo mirror of lib/expr_internal. Sources are copied, never forked: see
-; .ai/js_backends_design.md and expr-tailcall-implementation-plan.md under
-; .ai/ (tail-call conversion, Stage 3). A separate library, rather than
+; the `.ai/` js backends design and the `.ai/` expr tailcall design (tail-call conversion). A separate library, rather than
 ; linking [expr_internal] directly, exists purely because cppo's [-D] set is
 ; scoped to the library stanza: [eval.ml]'s [value] is one source duplicated
 ; on both sides of an [#if defined JS_BACKEND], and this stanza is what
@@ -33,7 +32,7 @@
 
 ; [eval_candidates.ml]/[eval_trampoline_delayed.ml]/[eval_machine_reuse.ml]/
 ; [eval_hybrid.ml] are not [lib/expr_internal] sources: they are the
-; tail-call conversion's Stage 5 canonical JS-only candidate-driver modules
+; tail-call conversion's canonical JS-only candidate-driver modules
 ; (js/probe/ under .ai/), copied here (and into expr_internal_mel) so they
 ; compile against real Expr_internal types. Never linked natively. Split
 ; across four files (rather than one combined [eval_candidates.ml]) once

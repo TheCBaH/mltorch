@@ -1,5 +1,5 @@
 (* Concrete evaluation: values are floats, indices are ['role Dim.t] (see
-   direct.ml), an input is a real tensor. See .ai/native_compute_design.md §3.
+   direct.ml), an input is a real tensor. See the `.ai/` native compute design §3.
 
    The two numeric policies below are part of the evaluator instance, never
    ambient: [Make (P)] is the evaluator under policy [P], and the module

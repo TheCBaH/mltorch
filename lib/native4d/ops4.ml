@@ -3,7 +3,7 @@
    friends already expose exactly the [name]/[jsont]/[operands]/[map_operands]/
    [pp] an op-registry entry wants, and their parameters name no axis and carry
    no shape, so there is nothing four-axis about them to restate. See
-   .ai/native4d_add_op.md.
+   the `.ai/` native4d add op doc.
 
    Only two things force a new payload:
 
@@ -36,7 +36,7 @@ module Transposed_conv2d = Ops4_conv.Transposed_conv2d
 
 (* ---- reduction ------------------------------------------------------------ *)
 
-(* Keep-dimensions only: .ai/native4d_design.md §1 says reduction is represented
+(* Keep-dimensions only: The `.ai/` native4d design §1 says reduction is represented
    ONLY in keep-dimensions form, so there is no [keepdim] field to set wrong. A
    Native [Mean keepdim=false] legalizes to this plus a [Reshape4], and only
    when the packed shape stays four-axis (correction C1). *)
@@ -82,7 +82,7 @@ module Mean_keepdims = struct
 end
 
 (* Elementwise-maximum twin of [Mean_keepdims], same keep-dimensions-only
-   representation and the same reason: .ai/native4d_design.md §1's reduction
+   representation and the same reason: The `.ai/` native4d design §1's reduction
    rule is not specific to the mean. A Native [Amax keepdim=false] legalizes to
    this plus a [Reshape4], exactly as [Mean keepdim=false] does (correction
    C1). *)
@@ -128,7 +128,7 @@ module Max_keepdims = struct
 end
 
 (* Plain-summation twin of [Mean_keepdims], same keep-dimensions-only
-   representation and the same reason: .ai/native4d_design.md §1's reduction
+   representation and the same reason: The `.ai/` native4d design §1's reduction
    rule is not specific to the mean. A Native [Sum keepdim=false] legalizes to
    this plus a [Reshape4], exactly as [Mean keepdim=false] does (correction
    C1). *)
@@ -225,7 +225,7 @@ end
    so there is no repack for the shape arm to defer to beyond carrying [x]'s
    shape straight through. Gets the same [check_dims]-style axis-domain
    rejection [Select4]/[Slice4]/[RepeatInterleave4] get in
-   [Domain.check_node]. See .ai/matmul_softmax_design.md §3. *)
+   [Domain.check_node]. See the `.ai/` matmul softmax design §3. *)
 module Softmax4 = struct
   type params = { axis : Axis4.t }
 
@@ -835,7 +835,7 @@ module RepeatInterleave4 = struct
 end
 
 (* Native's [Index_tensor] with its axis narrowed to the dialect's four. Its
-   own payload for the FIRST reason in .ai/native4d_add_op.md -- it names an
+   own payload for the FIRST reason in the `.ai/` native4d add op doc -- it names an
    axis, so the field is [Axis4.t] and T/D are unsayable in a four-axis graph.
 
    Unlike [Select4]/[RepeatInterleave4], the axis is neither dropped nor
@@ -894,7 +894,7 @@ end
 (* ---- boundary synthesis --------------------------------------------------- *)
 
 (* Native's [Pad] with its axes narrowed to the dialect's four. Its own payload
-   for the FIRST reason in .ai/native4d_add_op.md -- it names axes, so the field
+   for the FIRST reason in the `.ai/` native4d add op doc -- it names axes, so the field
    is [Axis4.t] and T/D are unsayable in a four-axis graph.
 
    The MODE stays a parameter rather than becoming a choice of constructor,

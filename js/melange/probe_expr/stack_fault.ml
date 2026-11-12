@@ -1,6 +1,6 @@
 (* Melange route's recognizer for probe_expr.ml's [--deep] deep-index
-   negative control (tail-call plan, Stage 7; see .ai/). Measured directly
-   (a scratch probe, reverted, recorded in .ai/expr_tailcall_design.md): a
+   negative control (tail-call conversion; see .ai/). Measured directly
+   (a scratch probe, reverted, recorded in the `.ai/` expr tailcall design): a
    200,000-deep [Index.add] chain overflows [eval_index]'s ordinary
    recursion as a genuine JS [RangeError] ("Maximum call stack size
    exceeded"), which Melange's runtime wraps and re-raises as an OCaml

@@ -1,5 +1,5 @@
 (* `aten.einsum.default`'s [Shared_h] plan (`Graph_builder.einsum`,
-   `.ai/einsum_design.md`), exercised as a real graph: two independent 2x2
+   the `.ai/` einsum design), exercised as a real graph: two independent 2x2
    matrix multiplications, one per [h], each hand-computed with ordinary
    matrix arithmetic (not the digit-encoded self-describing values most
    other Direct fixtures use) so a wrong axis pairing produces a plainly

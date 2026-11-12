@@ -1,6 +1,6 @@
 (* Sink a permute through the elementwise op reading it, so a permute trapped
    on the far side of a `Relu`/`Add`/... from its inverse partner can still
-   reach it. See .ai/native_transform_design.md §12d.
+   reach it. See the `.ai/` native transform design §12d.
 
    An elementwise op reads and writes each output slot independently of every
    other slot, with no axis-specific semantics, so it commutes exactly (bit

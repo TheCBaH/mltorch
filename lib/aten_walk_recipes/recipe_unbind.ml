@@ -7,7 +7,7 @@
    Rank and dim are correlated by construction rather than by filtering: the
    rank is fixed at 4 and the candidate set is exactly the dims valid for a
    rank-4 tensor, so no mutation can step into a combination ATen rejects — the
-   rule in .ai/native_add_op.md about candidate lists of whole valid
+   rule in the `.ai/` native add op doc about candidate lists of whole valid
    configurations. [cascade] is therefore the identity. *)
 
 type t = { n : int; c : int; h : int; w : int; dim : int }

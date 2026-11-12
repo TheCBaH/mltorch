@@ -180,7 +180,7 @@ let tensor_or_scalar aten_env node name =
       return (`Tensor t)
 
 (* --- Permutations for NCHW/NHWC relayout ---
-   All are full 6-axis bijections; see .ai/native_aten_bridge_layout.md. *)
+   All are full 6-axis bijections; see the `.ai/` native aten bridge layout doc. *)
 
 (* Right-aligned rank-4 NCHW (D=Nbatch, H=Cch, W=Hsp, C=Wsp) ->
    channel-last in the same outer frame (D=Nbatch, H=Hsp, W=Wsp, C=Cch). *)

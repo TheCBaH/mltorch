@@ -113,13 +113,13 @@ let verify_arg =
 
    The conjunction is still not output equality: a vacuous cluster counts as
    satisfied, and nothing checks that the two graphs' OUTPUTS are covered by
-   non-vacuous clusters. See .ai/native_transform_verify.md §1.
+   non-vacuous clusters. See the `.ai/` native transform verify doc §1.
 
    It is budget-capped, so a real model's activation-shaped clusters come back
    "too large" and the useful coverage is the constant-shaped ones — folded
    weights and biases, exactly where fold_const and fold_batch_norm act.
-   See .ai/native_transform_verify.md and
-   .ai/native_transform_local_verify_plan.md §§1-3. *)
+   See the `.ai/` native transform verify doc and
+   the `.ai/` native transform local verify plan doc §§1-3. *)
 let effort_conv =
   let parse s =
     match Map_verify.Effort.of_string s with

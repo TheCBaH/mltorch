@@ -1,6 +1,6 @@
 (* Abstract domain for ops: both [t] (value) and ['role index] (index) are abstract,
    so one op functor runs as [Direct] (index=int, t=float), [Symbolic] (index=index_expr,
-   t=expr), or a future [Footprint] (index=interval). See .ai/native_compute_design.md §1.
+   t=expr), or a future [Footprint] (index=interval). See the `.ai/` native compute design §1.
 
    Index phantom roles: [position] is a known ≥ 0 (what [load] accepts);
    [delta] is a signed affine. Windowed arithmetic is built in [delta] and
@@ -9,7 +9,7 @@
 
    Aliased to [Dim.index]/[Dim.delta] (see dim.mli), not fresh local marker
    types: a semantics whose index representation IS a [Dim.t] (e.g. [Direct]
-   — see .ai/pt2_inference_perf.md) can then use [position index = Dim.index
+   — see the `.ai/` pt2 inference perf doc) can then use [position index = Dim.index
    Dim.t] directly, with zero coercion needed at [Tensor.read_at]/
    [Vec6.offset_of], the innermost per-element call sites. A semantics that
    doesn't use [Dim.t] at all (e.g. [Symbolic], whose index is an
@@ -109,7 +109,7 @@ module type SEMANTICS = sig
      of an existing coordinate (see [Vec6.set_h] etc.), which pipes cleanly
      into a [Vec6.t]-typed argument but needs a fresh closure allocation
      every call if [load] instead took [Axis.t -> position index] (the
-     original design — see .ai/pt2_inference_perf.md for why that mattered).
+     original design — see the `.ai/` pt2 inference perf doc for why that mattered).
      Building the full 6-field [Vec6.t] is still allocation-free for
      [Direct] on the hot path via [load6] below. *)
   val load : input -> position index Vec6.t -> t
@@ -117,7 +117,7 @@ module type SEMANTICS = sig
   (* Same as [load], 6 explicit indices instead of a [Vec6.t] — for the
      hottest call sites, where even the (functional-update, so allocating)
      [Vec6.set_*] pipeline used to build [load]'s argument costs more than
-     passing scalars directly. See .ai/pt2_inference_perf.md.
+     passing scalars directly. See the `.ai/` pt2 inference perf doc.
      [conv.ml]'s innermost reduction uses this, since it's the
      highest-call-volume site in the engine. *)
   val load6 :

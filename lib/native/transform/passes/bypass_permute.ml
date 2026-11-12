@@ -1,6 +1,6 @@
 (* Remove individual inverse consumers of a permute, keeping a shared producer
    alive when needed instead of requiring the whole run to be interior. See
-   .ai/native_layout_reuse_plan.md and .ai/native_transform_design.md §12a's
+   the `.ai/` native layout reuse plan doc and the `.ai/` native transform design §12a's
    [Trim_permute], which this complements:
 
      x -> P -> y -> Q -> z    becomes    x ----------------> z

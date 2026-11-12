@@ -1,5 +1,5 @@
 (* Native SOURCE graphs, one per row of the Native4D domain contract table in
-   .ai/native4d_plan.md. Named after the property each exercises, following
+   the `.ai/` native4d plan doc. Named after the property each exercises, following
    test/native/graph_fixtures.ml.
 
    These are all plain [Graph_ir.graph]s: stage 0 checks the partiality contract
@@ -324,7 +324,7 @@ let sdpa batch () =
 (* [Softmax4] now exists: softmax gets the same [check_dims]-style axis
    rejection [Select]/[Slice]/[Stack]/[RepeatInterleave] get, the REDUCED
    axis being the one the dialect must be able to name -- see
-   .ai/matmul_softmax_design.md §3. *)
+   the `.ai/` matmul softmax design §3. *)
 let softmax_over axis () =
   build "softmax_over"
     (let open Graph_builder in

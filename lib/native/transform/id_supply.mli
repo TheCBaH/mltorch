@@ -3,7 +3,7 @@
    graph, because re-deriving would re-issue the id of a deleted edge and an id
    would stop denoting one tensor for the life of a pipeline. Terminal packing
    ([Rewrite.pack]) is the single bounded exception, which is why [origin] is
-   kept alongside [next]. See .ai/native_transform_design.md §4, §9. *)
+   kept alongside [next]. See the `.ai/` native transform design §4, §9. *)
 
 open Graph_ir
 

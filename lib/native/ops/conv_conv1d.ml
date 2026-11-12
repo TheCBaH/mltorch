@@ -6,7 +6,7 @@
    always keeps H's extent at 1 in and out. That is the same delegation shape
    [Conv2d_padding] already uses for [Conv2d] (its own comment: "calls into
    Conv2d's" implementation, not its node) -- one node per ATen op, per
-   .ai/native_add_op.md's design goal, sharing the compute rather than
+   the `.ai/` native add op doc's design goal, sharing the compute rather than
    decomposing into a [Reshape] + [Conv2d] pair. *)
 
 open Conv_conv2d

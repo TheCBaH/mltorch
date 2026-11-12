@@ -7,7 +7,7 @@
 # install_dir must be ABSOLUTE or headers are silently skipped.
 #
 # Static-dispatch flags (so at::add / at::mul compile to direct backend calls,
-# no Dispatcher — see .ai/aten_core_build.md):
+# no Dispatcher — see the `.ai/` aten core build doc):
 #   --static-dispatch-backend CPU    each op's ::call -> at::cpu::X directly
 #   --skip-dispatcher-op-registration emits EMPTY TORCH_LIBRARY_IMPL blocks, so
 #                                     no static-init force-links the kernels;

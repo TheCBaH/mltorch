@@ -1,5 +1,5 @@
 (* Constant folding: the pass that lets every other pass express constant
-   arithmetic as ordinary graph nodes. See .ai/native_transform_design.md §12b.
+   arithmetic as ordinary graph nodes. See the `.ai/` native transform design §12b.
 
    The motivating case is the first test — a conv weight sitting behind a
    permute, rearranged on every inference until this hoists it to load time. *)

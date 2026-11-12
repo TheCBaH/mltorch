@@ -7,10 +7,10 @@
    symbolic stack ([Stage_program], [Expr], [Symbolic], [Ground_expr]) works on
    a Native4D graph with no functor at all. [Shape4.t] guards op payloads and
    shape inference — the places that must not admit an invalid graph — not
-   storage. See .ai/native4d_plan.md, correction C3.
+   storage. See the `.ai/` native4d plan doc, correction C3.
 
-   Stage 4 re-points these at the shared [Graph_common] records; they are
-   written out here so stage 2 does not block on that extraction. *)
+   A later step re-points these at the shared [Graph_common] records; they are
+   written out here so this step does not block on that extraction. *)
 
 (* The SHARED records, instantiated at the Native4D op. [Unbind] is the one op
    whose outputs are not a singleton, and its arity comes from the operand's

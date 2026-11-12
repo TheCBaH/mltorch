@@ -4,7 +4,7 @@
    see the step 16 evidence note in _ai_/project_todo.md for that
    correction), `(B,L,I,K)=(16,16,384,96)` (28 occurrences) and
    `(32,32,192,48)` (8 occurrences), Q=1, R=2, biases, batch-first --
-   lstm-plan.md §2's own re-read of the corpus. Reconciles the real
+   the LSTM lowering analysis's own re-read of the corpus. Reconciles the real
    `Region_execution.counters` this implementation produces against step 4's
    estimates (max per-key updates `2*16*192=2*32*96=6144`; summed
    worst-case Kernel total across all 36 occurrences and up to 3 live outputs
@@ -114,7 +114,7 @@ let measure ?limits ?(states_live = true) ~label ~batch ~seq ~input_size
   (* The lstm NODE's own three output edges, not [g.Graph_ir.Graph.outputs] --
      which shrinks to one when [states_live] is false. [Eval_direct]
      materialises every node's full output arity regardless of graph-level
-     exposure (.ai/native_multi_output_design.md §2: a [Discard]'d edge is
+     exposure (the `.ai/` native multi output design §2: a [Discard]'d edge is
      still computed), so binding counters only to [graph.outputs] would
      measure "how much of the work did this test bother to count", not "how
      much work happened" -- the two questions the discard-comparison test
@@ -223,7 +223,7 @@ let%expect_test
    Section C's shared executor landed) that discarding [h_n]/[c_n] in the
    SOURCE graph ([states_live:false]) did not reduce [Eval_direct]'s cost at
    all: [Discard] only marks an edge unread, it does not suppress computation
-   (.ai/native_multi_output_design.md §2), and [Eval_direct] iterated every
+   (the `.ai/` native multi output design §2), and [Eval_direct] iterated every
    node's FULL [Node.outputs] arity unconditionally. That structural fact is
    UNCHANGED by Section C -- Direct's own contract stays "materialize every
    represented output regardless of downstream liveness" (design record §5.4;

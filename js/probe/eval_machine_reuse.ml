@@ -1,4 +1,4 @@
-(* The tail-call conversion's Stage 5 [eval_machine_reuse] candidate (see
+(* The tail-call conversion's [eval_machine_reuse] candidate (see
    .ai/): [eval_machine]'s explicit-frame design with array/mutation-based
    storage reuse instead of list/record reallocation. Split out of
    [eval_candidates.ml] (which keeps the shared [pending work] types and
@@ -120,7 +120,7 @@ let run ~esc ~(env : Env.t) ~output ~scan ~scan_meter ~local ~local_at_ref
   in
   let st = reuse_stack_create () in
   (* Verbatim copy of [eval_machine]'s [intrinsic]: already one self-recursive
-     [loop] over a nullary tag (Stage 4), untouched by this candidate's own
+     [loop] over a nullary tag, untouched by this candidate's own
      reuse strategy -- it never pushes a [reuse_frame]. *)
   let intrinsic reducers (Intrinsic.Max_pool d as i) =
     let open Intrinsic.Max_pool in

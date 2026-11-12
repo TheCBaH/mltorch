@@ -1,6 +1,6 @@
 (* Exercises the rewriter: the four transformation kinds from hand-written
    recipes, every guard [apply] enforces, and the mapping it produces.
-   See .ai/native_transform_design.md §5-§8. *)
+   See the `.ai/` native transform design §5-§8. *)
 
 open Graph_ir
 

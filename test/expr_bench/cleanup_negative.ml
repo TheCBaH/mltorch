@@ -1,4 +1,4 @@
-(* Cleanup-protocol NEGATIVE controls (tail-call plan, Stage 5; see .ai/):
+(* Cleanup-protocol NEGATIVE controls (tail-call conversion; see .ai/):
    proves the exception-path cleanup sweep is not vacuous by showing it can
    be made to fail. A nested [Scan_at] (the outer scan's own [update] body
    evaluates an independent inner [Scan_at]) shares one [Scan_meter] across
@@ -12,8 +12,8 @@
 
    All four candidates are exercised, not just [eval_machine]: the cleanup
    protocol is a design requirement independently implemented by each, and
-   Stage 5 M7 originally treated one as a representative, sufficient proof
-   -- generalized here (Stage 5, post-M9) now that all four expose the same
+   An earlier benchmark milestone originally treated one as a representative, sufficient proof
+   -- generalized here now that all four expose the same
    [skip_cleanup] hook. The [skip_evaluator] list below intentionally omits
    [eval_trampoline_delayed]'s higher [threshold=8] and [eval_hybrid]'s
    higher [cutoff=50] configurations already covered by [Corpus]: this file
@@ -63,7 +63,7 @@ let inner_scan_at = Value.scan_at inner_descriptor ~row:(pos 1) ~lane:Index.zero
 (* row0[l] = 100; row1's [update] is [inner_scan_at + previous_at l]: the
    inner [Scan_at] -- and its own cleanup, restoring [local_at_ref] -- has
    always finished by the time [previous_at] is read, regardless of which
-   operand a given backend evaluates first (Stage 5 M8), since [previous_at]
+   operand a given backend evaluates first, since [previous_at]
    is an ordinary [Load], not a [Scan_at], and never itself pushes a
    cleanup. That makes the success-mode check below a genuine
    resolver-restoration test, not just a value check: if the inner

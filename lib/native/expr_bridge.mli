@@ -3,7 +3,7 @@
    [Expr] owns no tensor, storage or graph type — that is what lets it be an
    independent library — so everything Native-specific about a [Load] lives
    here: which tensor a source symbol names, and how a coordinate is read.
-   See .ai/native_expr_refactoring_design.md. *)
+   See the `.ai/` native expr refactoring design. *)
 
 val source_of_id : Tensor_id.t -> Expr.Source.t
 

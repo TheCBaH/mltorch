@@ -1,4 +1,4 @@
-Gate 8's frozen Native4D corpus must choose the same canonical graph whether
+The frozen Native4D corpus must choose the same canonical graph whether
 it begins at the committed payload-free model.json or at the payload-backed
 release archive.  Selecting both canonical Native and Native4D projections
 keeps source metadata and the archive-only payload cache out of the comparison.

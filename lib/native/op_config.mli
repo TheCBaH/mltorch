@@ -1,6 +1,6 @@
 (* Small guarded/shaped types shared by op [params] records (kernel size,
    stride, padding, …) — too trivial individually to earn their own files, so
-   grouped here as submodules. See .ai/native_op_config.md. The scalars and the
+   grouped here as submodules. See the `.ai/` native op config doc. The scalars and the
    H/W pair are [Core.Geometry]'s (so [Expr] can take them); [Bad] and the wire
    codecs are added here. *)
 

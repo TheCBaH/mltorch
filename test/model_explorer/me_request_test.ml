@@ -1,4 +1,4 @@
-(* [Me_request]: the worker request (.ai/model_explorer_design.md).
+(* [Me_request]: the worker request (the `.ai/` model explorer design).
 
    Four properties, none of them visible in a round trip that happens to
    succeed:

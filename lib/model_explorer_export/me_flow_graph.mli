@@ -4,7 +4,7 @@
    shape has nothing in common with a [Graph_ir] walk, and [Me_build] is
    functorised over exactly that walk.
 
-   See .ai/model_explorer_design.md. *)
+   See the `.ai/` model explorer design. *)
 
 type error =
   [ Me_flow.error

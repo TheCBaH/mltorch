@@ -13,7 +13,7 @@
    edges and the node data carries the values, and neither is derivable from the
    other.
 
-   See .ai/model_explorer_design.md. *)
+   See the `.ai/` model explorer design. *)
 
 type error = Me_limits.over_limit_error
 (** Counting only, under [Me_limits.Scope.Fusion]. *)

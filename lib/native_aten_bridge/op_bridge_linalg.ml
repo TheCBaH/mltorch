@@ -48,7 +48,7 @@ let dispatch ~(aten_env : aten_env) (node : Node.t) :
                 [ y ]
             | operands -> arity_mismatch ~op:node.Node.target operands)
           |> some_graph)
-  (* Two shape families (`.ai/matmul_softmax_design.md` §4-5), both binding to
+  (* Two shape families (the `.ai/` matmul softmax design §4-5), both binding to
      an EXISTING/new node unchanged rather than a relayout:
      - batch-less: rank-2 operands, or rank>=3 with every axis but the last
        two at extent 1. Every such operand's [Tensor_bridge.of_aten]
@@ -67,7 +67,7 @@ let dispatch ~(aten_env : aten_env) (node : Node.t) :
        missing leading axes to 1 in the shared six-axis frame -- exactly
        ATen's own implicit-unsqueeze rule for `matmul.default`'s unequal-rank
        case (`eca_halonext26ts`'s real `[N,H,W,C] @ [W,C]` occurrence,
-       `.ai/matmul_softmax_design.md` §5) -- so [Batched_matmul]'s existing
+       the `.ai/` matmul softmax design §5) -- so [Batched_matmul]'s existing
        per-axis broadcast already computes the right answer without either
        operand's rank being read here at all.
      Anything else (either operand rank<2) stays the ORIGINAL typed
@@ -110,7 +110,7 @@ let dispatch ~(aten_env : aten_env) (node : Node.t) :
                 }))
   (* `einsum.default`, restricted to [Aten_shape.Einsum]'s two evidenced
      equations (`mvitv2_tiny`'s decomposed relative-position attention,
-     `.ai/einsum_design.md`): exactly two operands, ATen rank 5 then 3.
+     the `.ai/` einsum design): exactly two operands, ATen rank 5 then 3.
      Legalizes onto [Graph_builder.einsum] -- a [Permute]/[Batched_matmul]
      chain, no dedicated node. No ATen C binding exists for this op
      ([Tensor[]] plus a string argument has no [lib/aten_gen] support, the

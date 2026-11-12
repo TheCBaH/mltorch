@@ -400,7 +400,7 @@ let%expect_test "Fusion: elaboration rejects what it cannot substitute" =
    nothing.
 
    The complexity claim rests on the source being one pass, and on a measured
-   comparison recorded in .ai/native_kernel_impl_plan.md: at 3072 values,
+   comparison recorded in the `.ai/` native kernel impl plan doc: at 3072 values,
    reverting [load_count] alone takes the suite from 0.8s to 4.4s. Turning that
    into an assertion would need either a wall-clock threshold, which is flaky
    across machines, or traversal counters, which would mean test-only API. *)

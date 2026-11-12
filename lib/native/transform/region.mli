@@ -1,7 +1,7 @@
 (* A claimed set of nodes plus the boundary it implies. The boundary is always
    DERIVED, never declared: a matcher claims nodes and the region works out which
    edges enter it, which leave, and which are private to it — so a pattern cannot
-   describe its own boundary wrongly. See .ai/native_transform_design.md §11. *)
+   describe its own boundary wrongly. See the `.ai/` native transform design §11. *)
 
 open Graph_ir
 

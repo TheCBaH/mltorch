@@ -1,5 +1,5 @@
 (* [Me_limits]: the hard ceilings, the profiles built against them, the derived
-   response peak, and the wire subset (.ai/model_explorer_design.md).
+   response peak, and the wire subset (the `.ai/` model explorer design).
 
    Runs under node as well as natively because this module exists for the
    32-bit backend: every aggregate here is [int64] precisely so it does not

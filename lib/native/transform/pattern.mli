@@ -1,5 +1,5 @@
 (* Match combinators over the dataflow DAG: a state+error monad whose state is
-   the view plus the nodes claimed so far. See .ai/native_transform_design.md §11.
+   the view plus the nodes claimed so far. See the `.ai/` native transform design §11.
 
    **No cursor.** Every primitive names the edge it operates on. For a linear
    token stream a hidden position is natural; for a DAG it is a lie, and passing

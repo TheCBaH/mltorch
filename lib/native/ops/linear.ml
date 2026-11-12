@@ -4,7 +4,7 @@
    FC layer runs on an already globally-pooled, spatially-1x1 tensor, so a
    spatial kernel would be vacuous here anyway). Weight is laid out
    [Out,1,1,1,1,In] (matching [Conv2d]'s [Cout,1,1,Kh,Kw,Cin] minus the kernel
-   axes); bias is [1,1,1,1,1,Out]. See .ai/native_compute_design.md §2. *)
+   axes); bias is [1,1,1,1,1,Out]. See the `.ai/` native compute design §2. *)
 
 module Linear = struct
   type params = { in_features : Dim.extent Dim.t }
@@ -65,7 +65,7 @@ module Linear = struct
 
   (* N/T/D/H/W pass through from [x_shape] (no spatial reduction); only C
      changes, to [weight_shape]'s [Out]. Extent-space, no [:> int] round-trips.
-     See .ai/native_compute_design.md §2b. *)
+     See the `.ai/` native compute design §2b. *)
   let output_shape (p : params) ~(x_shape : Vec6.shape)
       ~(weight_shape : Vec6.shape) =
     let expected = p.in_features in

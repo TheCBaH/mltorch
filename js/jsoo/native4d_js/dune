@@ -1,7 +1,7 @@
 ; jsoo mirror of lib/native4d, over [native_js] rather than [native] so its
 ; unqualified [Vec6]/[Axis]/[Expr]/... names resolve to the JS-flavored
 ; mirror transitively. See js/jsoo/native_js/dune and .ai/ (tail-call
-; conversion, Stage 3).
+; conversion).
 ;
 ; WRAPPED, matching native4d's own convention (see lib/native4d/dune's
 ; comment: a second flattened dialect would shadow native's/native_js's

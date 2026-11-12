@@ -1,4 +1,4 @@
-(* Stage 0A contract spike: the fixture.
+(* Contract spike: the fixture.
 
    Hand-authored, and deliberately NOT produced by an exporter -- there is no
    exporter yet, and the questions this spike settles are about the RENDERER,
@@ -7,7 +7,7 @@
    emit rather than a second description of the same schema.
 
    Every shape here exists to answer one question the coordinator design
-   currently assumes. See .ai/model_explorer_design.md. *)
+   currently assumes. See the `.ai/` model explorer design. *)
 
 module ME = Model_explorer
 

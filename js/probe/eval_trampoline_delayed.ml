@@ -1,4 +1,4 @@
-(* The tail-call conversion's Stage 5 [eval_trampoline_delayed] candidate
+(* The tail-call conversion's [eval_trampoline_delayed] candidate
    (see .ai/): CPS with periodic bounces, one of the four candidate
    evaluators for [Expr_internal]'s full [float Value.t]/[Bool.t] grammar. Split
    out of [eval_candidates.ml] (which keeps the shared [pending work] types
@@ -14,8 +14,8 @@
    one is a call through an unknown target -- js_of_ocaml's own tail-call
    trampoline only covers a STATICALLY KNOWN (mutually) recursive function
    group (see .ai/ and [eval.ml]'s note on [eval_scan_at] staying out of
-   [go]'s [and] group for exactly this reason), and Stage 4 found Melange
-   rejects even that known-group case for a two-function mutual pair. This
+   [go]'s [and] group for exactly this reason), and Melange was found to
+   reject even that known-group case for a two-function mutual pair. This
    candidate therefore never trusts ANY backend to optimize a hop for it,
    whether the hop is a continuation call or a same-name recursive call:
    [go]/[guard] and every local recursive helper below check their own
@@ -25,7 +25,7 @@
    un-optimized call chain does on the way back out), so control returns
    cleanly to [run_trampoline]'s own self-recursive loop (a single named
    function calling itself -- the one shape every backend has trampolined
-   safely since Stage 0), which invokes the bounced closure at a fresh
+   safely from the start), which invokes the bounced closure at a fresh
    [depth = 0]. [resume] is the analogous gate for handing a value to an
    EXTERNALLY supplied continuation ([k]/a scan's row-completion callback):
    the same check, at the one place this file calls through such a closure
@@ -86,7 +86,7 @@ let eval_trampoline_delayed ~threshold ?(local = fun _ -> None)
     | [] -> assert false
   in
   (* Verbatim copy of [eval_machine]'s [intrinsic]: already one self-recursive
-     [loop] over a nullary tag (Stage 4), so it needs no [depth]/[Bounce]
+     [loop] over a nullary tag, so it needs no [depth]/[Bounce]
      handling of its own -- it never hops through [go]/[guard]/a
      continuation. *)
   let intrinsic reducers (Intrinsic.Max_pool d as i) =

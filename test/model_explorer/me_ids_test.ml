@@ -1,5 +1,5 @@
 (* [Me_ids]: the injective encoder, the layer vocabulary, and where each of the
-   two ceilings applies (.ai/model_explorer_design.md).
+   two ceilings applies (the `.ai/` model explorer design).
 
    The property that matters is INJECTIVITY, and it is the one a golden alone
    cannot state: every "renders sensibly" case below would pass under an

@@ -1018,7 +1018,7 @@ let dispatch ~ctx ~env (node : Node.t) =
        (* Both overloads share this body -- same argument names, same shared
          resolver, same reason op_bridge.ml's arm does (drift risk, exact
          target still visible in every diagnostic via [tensor]/[node.target]).
-         [Identical] AFTER materialization; see .ai/native_aten_bridge_layout.md. *)
+         [Identical] AFTER materialization; see the `.ai/` native aten bridge layout doc. *)
        | "torch.ops.aten._unsafe_view.default" | "torch.ops.aten.view.default"
          ->
            let tensor = tensor_name esc node "self" in
@@ -1037,7 +1037,7 @@ let dispatch ~ctx ~env (node : Node.t) =
          Binds to the *existing* [Clone] node: paramless, shape-preserving,
          and already the node this repo uses for "same value, no change" (see
          [clone.default]'s own arm in native_interp_lower_compute.ml) --
-         Native4D already elides it entirely (`.ai/native4d_design.md` §7.1),
+         Native4D already elides it entirely (the `.ai/` native4d design §7.1),
          so this legalization costs nothing there either. *)
        | "torch.ops.aten.alias.default" ->
            let* y = clone (get "self") in

@@ -63,7 +63,7 @@ SECT=(-ffunction-sections -fdata-sections)
 # needing its own CMake build - a genuine new dependency, not just a flag).
 # `-mavx2`/`-DCPU_CAPABILITY=AVX2` alone fails at the `#include` with
 # "sleef.h file not found" on any AVX2-capable (i.e. most real) x86 machine.
-# See .ai/pt2_inference_perf.md.
+# See the `.ai/` pt2 inference perf doc.
 CAP=(-DCPU_CAPABILITY=DEFAULT -DCPU_CAPABILITY_DEFAULT)
 
 # --- source lists -----------------------------------------------------------

@@ -248,7 +248,7 @@ let transform_cmd =
 
 (* ---- to4d ----------------------------------------------------------------
 
-   The Native4D conversion report .ai/native4d_plan.md stage 8 asks for. It
+   The Native4D conversion report that the `.ai/` native4d plan doc stage 8 asks for. It
    answers, per model: does the canonical graph lie in the four-axis dialect, and
    if not which node puts it outside; what the destination is made of; and what
    the conversion map is worth symbolically.

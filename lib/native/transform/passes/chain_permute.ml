@@ -1,4 +1,4 @@
-(* Fuse two adjacent permutes into one. See .ai/native_transform_design.md §12.
+(* Fuse two adjacent permutes into one. See the `.ai/` native transform design §12.
 
    The intermediate edge must be interior: it is a real rearrangement, so a
    second consumer still needs the node producing it, and "fusing" would then

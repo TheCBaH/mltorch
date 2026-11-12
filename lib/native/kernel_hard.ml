@@ -1,5 +1,5 @@
-(* [eval_depth] alone, split from kernel_hard_shared.ml (tail-call plan,
-   Stage 7; see .ai/): native's own recursive [Eval.value] is bound by node's
+(* [eval_depth] alone, split from kernel_hard_shared.ml (the tail-call conversion;
+   see `.ai/`): native's own recursive [Eval.value] is bound by node's
    stack even off the JS backends (this repo's dev/CI toolchain runs under
    node), so the ceiling below is native's measured value. A mirrored build
    overrides only this file -- never kernel_hard_shared.ml -- once its own

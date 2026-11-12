@@ -6,7 +6,7 @@
    Softmax4 and Sdpa are Region-authored instead: Direct and Symbolic route
    them through [Region_computation4.program], so they deliberately have no
    scalar arm here.
-   .ai/native4d_design.md §2 lists reimplementing numeric kernels already
+   the `.ai/` native4d design §2 lists reimplementing numeric kernels already
    expressed by the Native operation as a non-goal.  This file therefore has no
    arithmetic of its own — only parameter translation for Pixel operations.
 

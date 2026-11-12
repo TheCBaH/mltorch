@@ -1,10 +1,10 @@
 (* Operand-order verification for [Eval_candidates]'s stack-safe candidates
-   (tail-call plan, Stage 5; see .ai/). [Binary] and [Value_lt] are two of
+   (tail-call conversion; see .ai/). [Binary] and [Value_lt] are two of
    the seven order-sensitive call sites [order_probe] measures (see its
    committed goldens under js/probe/): jsoo evaluates the right operand
    first, Melange the left -- a genuine per-backend divergence in the real
    evaluator, not an artifact of this harness. Rewriting these two sites
-   into explicit machine transitions (Stage 5 M1) originally hardcoded a
+   into explicit machine transitions originally hardcoded a
    single left-then-right order, silently matching Melange but diverging
    from jsoo's own reference evaluator; fixed by backend-gating both the
    initial dispatch and the final recombination in every candidate that

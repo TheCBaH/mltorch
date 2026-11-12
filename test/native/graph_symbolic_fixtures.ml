@@ -1,6 +1,6 @@
 (* Symbolic evaluation of native graphs: build the whole-graph stage DAG, print it
    (each stage's body shows the upstream signatures it loads), then chain-ground it
-   and check the result equals Direct evaluation. See .ai/native_graph_design.md. *)
+   and check the result equals Direct evaluation. See the `.ai/` native graph design. *)
 
 open Graph_ir
 

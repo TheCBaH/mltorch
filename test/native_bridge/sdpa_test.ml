@@ -163,7 +163,7 @@ let%expect_test "dispatch: sdpa rejects wrong-rank query/key/value/mask" =
     error: sdpa: sdpa attn_mask has rank 3, expected 2 or 4 |}]
 
 (* Real-ATen grounding for head broadcasting (query H=2, key/value H=1,
-   `enable_gqa=false`): `.ai/attention_design.md`'s own gate table
+   `enable_gqa=false`): the `.ai/` attention design's own gate table
    (`check_batch_size_and_num_heads_dense`) requires EQUAL heads for the
    fused/flash kernel unless GQA is enabled, so this configuration is
    already off the flash kernel in real ATen -- it falls to the `math`

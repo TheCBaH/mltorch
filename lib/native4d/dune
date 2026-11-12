@@ -1,6 +1,6 @@
 ; The Native4D dialect: a reduced native graph whose tensors occupy only the
-; N/H/W/C axes of the six-axis frame. See .ai/native4d_design.md and
-; .ai/native4d_plan.md.
+; N/H/W/C axes of the six-axis frame. See the `.ai/` native4d design and
+; the `.ai/` native4d plan doc.
 ;
 ; WRAPPED, unlike every other library here. The repo convention is `wrapped
 ; false` so that modules inside a library name each other unqualified — and a

@@ -125,7 +125,7 @@ let dispatch ~(aten_env : aten_env) (node : Node.t) :
      absent/empty/None list as "all dims", softmax always names exactly one
      axis. `dtype` is decoded and rejected rather than silently dropped when
      present, the same treatment `linalg_vector_norm.default`'s gets above.
-     See .ai/matmul_softmax_design.md §3. *)
+     See the `.ai/` matmul softmax design §3. *)
   | "torch.ops.aten.softmax.int" ->
       Some
         (let* t = tensor_arg aten_env node "self" in

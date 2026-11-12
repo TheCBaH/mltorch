@@ -28,6 +28,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
   ordering source. "Alphabetical" means byte order of the lowercased name (`LC_ALL=C`),
   so `_` sorts before letters and a name's suffixed forms stay beside it: `Add`,
   `Add_scalar`, `Addcmul`. (`sort -f` folds to *upper*case and puts `_` after letters.)
+  A variant type opts in to enforcement with `(* @alphabetical *)` alone on the line above
+  its `type`; `make check.variant-order` (part of `make runtest`) fails on an adjacent
+  pair out of order, and on a marker not followed by a variant type.
 
 - **Record types get their own module, named `t`** (e.g. `Node.t`, `Graph.t`), matching
   `Tensor.t`/`Vec6.t`. This guarantees field-label uniqueness by construction

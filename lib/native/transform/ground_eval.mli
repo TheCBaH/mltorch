@@ -16,7 +16,7 @@
    round is quadratic where a conv feeds a conv. [out_of_bounds] is checked once
    by the driver at the end.
 
-   See .ai/native_transform_verify.md. *)
+   See the `.ai/` native transform verify doc. *)
 
 module Env : sig
   type t
@@ -30,7 +30,7 @@ module Env : sig
      MAP, and it lives in [Ground_expr.project], applied to a copy at comparison
      time. Keeping it out of here is what stops it reaching [stored_f32],
      [expand] or a stage lookup, none of which have any business believing it.
-     See .ai/native_transform_verify.md §7.
+     See the `.ai/` native transform verify doc §7.
 
      The program's synthetic [Stage_program.consts] — fresh-id, constant-filled
      stand-ins for absent optional operands, whose ids differ between the two
@@ -63,7 +63,7 @@ module Env : sig
   (* USER data: a graph input of this program that is not a model constant. The
      σ hypothesis is granted on this and nothing else, so it is also what lets a
      member of the cluster under test project — see
-     .ai/native_transform_verify.md §7a. *)
+     the `.ai/` native transform verify doc §7a. *)
   val is_user_input : t -> Tensor_id.t -> bool
 
   (* Whether reading this cell yields a value already representable in f32, and

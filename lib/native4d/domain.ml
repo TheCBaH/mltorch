@@ -17,7 +17,7 @@ open Err.Syntax
    So: every effective [Input.Input], read or not, plus every tensor reachable
    from [Graph.outputs]. An unread CONSTANT falls outside both and is accepted —
    the lowerer omits it, which is the same seam [Rewrite.apply] already cuts
-   along ("a constant nobody reads is gone"). See .ai/native4d_design.md §4.2. *)
+   along ("a constant nobody reads is gone"). See the `.ai/` native4d design §4.2. *)
 
 let reachable view =
   let g = Graph_view.graph view in
@@ -109,7 +109,7 @@ let check_perm view (n : node) node perm ~x =
 
 (* Forward grouped convolution always legalizes now: [Conv2d] (groups=1),
    [Depthwise_conv2d] (one input channel per group), or [Grouped_conv2d] (the
-   general form, `.ai/native4d_design.md` §8) between them cover every count.
+   general form, the `.ai/` native4d design §8) between them cover every count.
    Only the TRANSPOSED direction still lacks a general counterpart. *)
 let check_transposed node ~groups =
   if (groups : Op_config.Pos.t :> int) = 1 then Err.return ()
@@ -326,7 +326,7 @@ let check_node view (n : node) =
      [RepeatInterleave] get: the REDUCED axis is the one the dialect must be
      able to name. Softmax never changes shape, so unlike [Amax]/[Mean]/
      [Vector_norm] there is no separate keepdim-vs-drop distinction here --
-     one counterpart, one axis check. See .ai/matmul_softmax_design.md §3. *)
+     one counterpart, one axis check. See the `.ai/` matmul softmax design §3. *)
   | Softmax { Reduce.Softmax.params; _ } -> check_dims node [ params.axis ]
   (* [Cumsum4] now exists, so [Cumsum] gets the same [check_dims]-style axis
      rejection [Softmax] gets just above: the WALKED axis is the one the
@@ -371,7 +371,7 @@ let check_node view (n : node) =
      rarely unit). Native4D has no way to represent that shift without
      naming T/D as real axes, so this is the same intrinsic boundary
      [Batched_matmul]'s multi-batch form and [Sdpa]'s own D axis are --
-     `.ai/native4d_design.md` §8 territory, not a gap to close later. *)
+     the `.ai/` native4d design §8 territory, not a gap to close later. *)
   | Unfold _ -> unsupported ()
   (* Not a missing counterpart: unlike [Conv1d]/[Conv2d], whose ATen schemas
      genuinely have at most two spatial axes (fitting the H/W the dialect

@@ -1,6 +1,6 @@
 (* Assembles Lstm's walk: config space from Lstm.Lstm.Walk, recursively
    declaring one graph input per layer/direction's weight_ih/weight_hh/
-   [bias_ih/bias_hh] (lstm-plan.md §2's ordering) and synthesizing a matching
+   [bias_ih/bias_hh] (the LSTM lowering analysis's ordering) and synthesizing a matching
    concrete tensor in the same order, so [List.combine] against
    [g.Graph_ir.Graph.inputs] pairs each declared input with its tensor. Both
    recursions are independent walks over the same [layer]/[bidirectional]

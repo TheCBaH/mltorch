@@ -1,5 +1,5 @@
 (* [Me_limits.Wire_limits.jsont]: the profile that crosses the worker boundary
-   (.ai/model_explorer_design.md).
+   (the `.ai/` model explorer design).
 
    The request IS the wire, so "the worker and the page disagree about the
    profile" has to be unconstructable rather than merely rejected somewhere.

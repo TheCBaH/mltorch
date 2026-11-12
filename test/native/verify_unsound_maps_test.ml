@@ -6,7 +6,7 @@ open Verify_fixtures
 (* ---- what the verifier must NOT prove -------------------------------------
 
    A test that cannot fail proves nothing, so each of these is a map that is
-   wrong in a specific way, checked to come back unproved. Stage 1 has no
+   wrong in a specific way, checked to come back unproved. This stage has no
    probe, so a failed comparison is [Unproved Exhausted] rather than
    [Refuted] — the prover ran out of moves, it did not exhibit a
    counterexample. *)

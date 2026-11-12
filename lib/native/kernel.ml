@@ -100,7 +100,7 @@ module Limits = struct
     | `Invalid_limit { Invalid.name; value } ->
         Fmt.pf fmt "invalid limit %s = %Ld" name value
 
-  (* Split into kernel_hard_shared.ml/kernel_hard.ml (tail-call plan, Stage 7;
+  (* Split into kernel_hard_shared.ml/kernel_hard.ml (the tail-call conversion;
      see .ai/) so a mirrored build can override [eval_depth] alone without
      forking every other ceiling. Both are private modules -- reach them only
      through this re-export. *)
@@ -166,7 +166,7 @@ module Limits = struct
       (Expr.Scan_limits.create ~max_state:t.max_scan_state
          ~max_updates:t.max_scan_updates_per_key)
 
-  (* Census-derived (.ai/native_kernel_census.tsv): largest observed body size
+  (* Census-derived (a census recorded in the `.ai/` kernel notes): largest observed body size
      246, depth 14, 36 stages, dependency depth 6, 17 inputs / 16 outputs. Each
      default clears its maximum by an order of magnitude and sits at or below
      half the corresponding [Hard] ceiling. The scan fields derive from

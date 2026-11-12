@@ -1,7 +1,7 @@
 (* Exercises the pass driver: a sweep merging every match it accepts into one
    step, a fixed point composing its iterations into one mapping, a pipeline
    composing passes, and constant payloads accumulating across the whole run.
-   See .ai/native_transform_design.md §5.
+   See the `.ai/` native transform design §5.
 
    The passes here are test-local on purpose — the real ones land in later
    stages, and the driver should be exercised by something small enough to read

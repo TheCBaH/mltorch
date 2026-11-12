@@ -104,7 +104,7 @@ let%expect_test
 
 (* Real ATen broadcasting: [mat2]'s batch axis (H here) is 1 against [input]'s
    2, exactly `lambda_resnet26t`'s corpus shape family (`H`: 4 vs 1,
-   `.ai/matmul_softmax_design.md` §6's now-resolved case). [mat2] must be read
+   the `.ai/` matmul softmax design §6's now-resolved case). [mat2] must be read
    at H=0 for BOTH output batches -- a regression back to reading [mat2] at
    [out]'s own H (no broadcast clamp) would raise out of bounds at H=1. *)
 let%expect_test

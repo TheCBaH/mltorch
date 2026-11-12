@@ -12,7 +12,7 @@
    --eval, the op is run through ATen only (no native comparison at all) and
    its pretty-printed call, output shape(s), and status are printed — used
    for the per-node fixtures under test/data/ (see
-   .ai/pt2_node_spec_design.md), whose promoted cram output is itself the
+   the `.ai/` pt2 node spec design), whose promoted cram output is itself the
    golden reference.
 
    --walk N (only with --eval, for now) re-synthesizes the same spec from N
@@ -52,7 +52,7 @@ let handle ~mode ~walk path =
    [Memtrace.trace_if_requested] is a no-op unless MEMTRACE is set, and
    [Landmark.start_profiling] only matters if something was actually
    instrumented — which only happens under `dune build --profile landmarks`
-   (see lib/native/dune and .ai/pt2_inference_perf.md's landmarks section);
+   (see lib/native/dune and the `.ai/` pt2 inference perf doc's landmarks section);
    under the plain profile this is a harmless no-op (nothing to report; the
    ~2.3x instrumentation cost measured there lives entirely in the ppx, not
    in linking the landmarks runtime or calling start_profiling on

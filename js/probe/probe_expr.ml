@@ -1,7 +1,7 @@
 (* Standalone Expr probe for the tail-call conversion (see
-   expr-tailcall-implementation-plan.md under .ai/), separate from
+   the `.ai/` expr tailcall design), separate from
    order_probe.ml: that probe pins down per-backend evaluation ORDER, this one
-   is the harness Stage 4 onward grows (starting with a bounded Max_pool case)
+   is the harness that grows (starting with a bounded Max_pool case)
    to check plain observable VALUES across native, jsoo and Melange as the
    evaluator's JS branch diverges. Native, jsoo and Melange all build this
    exact source; `make expr_probe.runtest` diffs jsoo/Melange's output against
@@ -12,7 +12,7 @@ open Expr
 
 (* [load_index]/[Data] never appear in any case below, so that half of the
    resolver stays unreachable -- a real one is order_probe.ml's job. [load]
-   IS reached, by the Stage 4 max-pool case: it returns [h*1000+w], strictly
+   IS reached, by the max-pool case: it returns [h*1000+w], strictly
    increasing in row-major (h, w) order over the case's window, so that case's
    expected max/index are closed forms and need no reference evaluator run. *)
 let env =
@@ -55,7 +55,7 @@ let reduction_case =
 
 let freshened_reduction_case = Builder.run (Rewrite.freshen reduction_case)
 
-(* ---- Max_pool with a low-hundreds window (Stage 4): under [JS_BACKEND] this
+(* ---- Max_pool with a low-hundreds window: under [JS_BACKEND] this
    is now one self-recursive [loop] over [pool_tag], not the mutually
    tail-recursive [rows]/[cols] pair -- see .ai/. [out] forwards every axis to
    the evaluator's own [~output], so a single output pixel at (h=0, w=0)
@@ -81,14 +81,14 @@ let max_pool ~result =
 let max_pool_value_case = Value.intrinsic (max_pool ~result:Value)
 let max_pool_index_case = Value.intrinsic (max_pool ~result:Index)
 
-(* ---- [--deep] mode (Stage 7): depth-200,000 Value/Bool cases checked
+(* ---- [--deep] mode: depth-200,000 Value/Bool cases checked
    against closed forms, plus the deep-index negative control. Built with a
    loop, never recursion, so construction itself cannot overflow -- only
    evaluation is meant to, and only for [deep_index_case] (see
    Stack_fault's own doc comment). Never run against native by any Makefile
    target: [Eval.value] is still ordinary recursion there, and would
    genuinely overflow on [deep_value_case]/[deep_bool_case], which the
-   installed JS driver (Stage 6) is the whole point of surviving. ---- *)
+   installed JS driver is the whole point of surviving. ---- *)
 
 let deep_n = 200_000
 

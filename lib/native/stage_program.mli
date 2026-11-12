@@ -5,7 +5,7 @@
    Stage" distinction is recovered by membership, not an [Expr] variant). [ground]
    evaluates the stages in topo order, feeding each result into the next stage's
    binding, which is what makes symbolic execution extend through the whole graph.
-   See .ai/native_symbolic_language.md and .ai/native_graph_design.md. *)
+   See the `.ai/` native symbolic language doc and the `.ai/` native graph design. *)
 
 open Graph_ir
 

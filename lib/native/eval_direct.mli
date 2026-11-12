@@ -1,7 +1,7 @@
 (* Direct (concrete) evaluation of a native graph. Walks the topo-ordered nodes
    threading an immutable env, runs each op through [Eval_op.Make (Direct)] and
    [Schedule.evaluate]. Structural groups do not affect evaluation. See
-   .ai/native_graph_design.md.
+   the `.ai/` native graph design.
 
    [?retain] decides what the result holds, keyed by edge id:
    - [Release_schedule.Retain.All], the default: EVERY edge's tensor (inputs,

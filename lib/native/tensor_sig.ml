@@ -5,7 +5,7 @@
    what a Load emits (plain read / dequant / f16 decode); [quant] is
    compile-time metadata (per-channel scale enters an expr via the C index).
    A later [binding] id -> Tensor.packed supplies real data for evaluation /
-   constant-folding. See .ai/native_symbolic_language.md §2.4. *)
+   constant-folding. See the `.ai/` native symbolic language doc §2.4. *)
 
 type t = {
   id : Tensor_id.t; (* binding key; the source a Load refers to *)

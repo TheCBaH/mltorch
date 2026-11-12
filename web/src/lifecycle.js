@@ -13,7 +13,7 @@
  *   3. removing a candidate AFTER its expected event is safe, and the element's
  *      parent never changes between connection and that removal.
  *
- * This driver records those, the same way the 0A spike and the Stage 1 gate
+ * This driver records those, the same way the 0A spike and the session gate
  * record theirs; `web/test/lifecycle.spec.ts` is what turns them into
  * assertions. It drives the raw element rather than the application, so it is
  * green against the tree as it stands -- that is the point of committing it

@@ -1,7 +1,7 @@
 (** The optimization pipeline: pure, exactness-preserving rewrites of a lowered
     [Loop_program.t]. [Loop_lower.lower] is the single choke point that applies
     it, so the interpreter, [Loop_js] and the jsoo executor all consume the same
-    optimized program. See [.ai/loop_ir_optimization_design.md] for the
+    optimized program. See [the `.ai/` loop ir optimization design] for the
     invariants every pass keeps and why the pass order is fixed. *)
 
 type pass = Loop_program.t -> Loop_program.t

@@ -1,6 +1,6 @@
 Machine-readable support-matrix snapshot for the PT2-functional-release models
 (data/pt2-functional/, fetched by `make pt2.download-cram` + `make pt2.download
-PT2_MODEL=csatv2`). See .ai/pt2_model_support.md for how to read/refresh this and
+PT2_MODEL=csatv2`). See the `.ai/` pt2 model support doc for how to read/refresh this and
 what each column means; that doc is prose over the same underlying commands, this
 is the pinned, parseable golden. Gated on PT2_DATA; run with `make pt2.runtest`.
 
@@ -12,7 +12,7 @@ the graph has no Native lowering yet, a missing operation rather than a
 domain limit); `native4d_converts` (does the WHOLE canonical graph fit the
 Native4D four-axis dialect? null when `native_builds` is false -- the
 question doesn't apply yet -- and false with `native_builds` true means a
-genuine four-axis domain limit, see .ai/native4d_design.md, not missing
+genuine four-axis domain limit, see the `.ai/` native4d design, not missing
 work); `nodes` (canonical native node count, null when `native_builds` is
 false); `blocker` (null on full success, otherwise the first line native
 graph construction failed on, or `to4d`'s own "outside the dialect"

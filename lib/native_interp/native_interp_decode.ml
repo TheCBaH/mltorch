@@ -65,7 +65,7 @@ let tensor_shape esc (graph : Pytorch_types.Graph.t) name =
    format, read from its own SSA metadata rather than defaulted to the
    graph's F32 compute format: an archive constant genuinely materializes as
    LONG (e.g. an [index.Tensor] gather index kept off a wrapping
-   [clone.default]'s always-F32 edge, `.ai/index_tensor_design.md` round 6),
+   [clone.default]'s always-F32 edge, the `.ai/` index tensor design round 6),
    and [Rewrite.origin]'s payload check would otherwise reject every such
    constant's real int64 bytes against a wrongly-declared F32 signature.
    Every other dtype (including one an op-specific check downstream, e.g.
@@ -113,7 +113,7 @@ let tensor_names_arg esc (node : Pytorch_types.Node.t) name =
    A [Tensor?[]]-typed argument with EVERY entry live is exported as a plain
    [Argument.Tensors] rather than [Argument.Optional_tensors] --
    `mvitv2_tiny`/`maxxvitv2_nano_rw_256`'s own `indices`
-   (`.ai/index_tensor_design.md`) use exactly this encoding. Accepted here
+   (the `.ai/` index tensor design) use exactly this encoding. Accepted here
    the same as the mixed form, each name wrapped [Some]. *)
 let optional_tensor_names_arg esc (node : Pytorch_types.Node.t) name =
   match find_arg esc node name with
@@ -130,7 +130,7 @@ let optional_tensor_names_arg esc (node : Pytorch_types.Node.t) name =
         (`Wrong_arg_kind
            { op = node.target; arg = name; expected = `Optional_tensor_list })
 
-(* [index.Tensor]'s trace-past-Clone rule (`.ai/index_tensor_design.md` round
+(* [index.Tensor]'s trace-past-Clone rule (the `.ai/` index tensor design round
    6): an ATen [clone.default] with no format change is a value- AND
    dtype-preserving identity, so if the live [indices] entry is exactly a
    plain clone of a captured/constant tensor, bind the ORIGINAL pre-clone
@@ -471,7 +471,7 @@ let reject_alpha esc (node : Pytorch_types.Node.t) =
    every native tensor is already in that one dense layout. (Confirmed
    against the corpus: every `clone.default` occurrence across the 100-model
    sweep requests either no format or exactly `ContiguousFormat` -- see
-   `.ai/pt2_model_support.md`.) A request for an actual different physical
+   the `.ai/` pt2 model support doc.) A request for an actual different physical
    arrangement (channels-last) asks for something this engine cannot
    represent, so it is refused rather than silently treated as a no-op. *)
 let check_clone_memory_format esc (node : Pytorch_types.Node.t) =

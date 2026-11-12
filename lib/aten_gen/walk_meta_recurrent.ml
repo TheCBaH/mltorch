@@ -11,7 +11,7 @@ open Walk_meta_entry
    nothing to repair (Recipe_sdpa/Recipe_norm's own discipline).
 
    [dropout] is walked across 0/0.5/1 even though [train=false] makes it
-   numerically inactive (lstm-plan.md §2): the values pin that the ATen
+   numerically inactive (the LSTM lowering analysis): the values pin that the ATen
    fallback really does ignore it outside training, the same non-argument
    [layer_norm]'s [cudnn_enable] axis pins. *)
 let lstm =

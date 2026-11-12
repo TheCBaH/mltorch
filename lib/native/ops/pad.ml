@@ -11,7 +11,7 @@
    PyTorch's serialized list is a flat, REVERSED, innermost-first sequence of
    pairs; un-reversing it is the importer's job, and the payload's type is what
    guarantees the compute never has to re-derive it. See
-   .ai/native_aten_bridge_layout.md. *)
+   the `.ai/` native aten bridge layout doc. *)
 
 module Pad = struct
   (* What an output coordinate outside the source reads. A closed variant, not a
@@ -216,7 +216,7 @@ module Pad = struct
      amounts are model data bounded only in sign (and not even that: they may be
      negative), so [in + before + after] is an aggregate of individually-plausible
      numbers that can leave the range on a 32-bit backend. See
-     .ai/js_backends_design.md. *)
+     the `.ai/` js backends design. *)
   let bound ~what (n : int) : (int64, Shape_error.t) Err.t =
     let limit = Kernel.Limits.Hard.extent in
     let n64 = Int64.of_int n in

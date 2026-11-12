@@ -1,7 +1,7 @@
 (* The transform state and the single rewriter. Every version-bound abstraction
    lives here — allocator, recipe, and the versioned state itself — so no other
    module needs a public constructor that could forge one. See
-   .ai/native_transform_design.md §5 and §7. *)
+   the `.ai/` native transform design §5 and §7. *)
 
 open Graph_ir
 
@@ -114,7 +114,7 @@ module Make (S : Side.S) : sig
 
      Not one of the four transformation kinds: nothing in stages 1-9 needs or
      assumes it, and it is only well-defined once "which ids are worth compacting"
-     has stopped changing. See .ai/native_transform_design.md §9. *)
+     has stopped changing. See the `.ai/` native transform design §9. *)
   val pack : 'v t -> ('v step, error) Err.t
 end
 

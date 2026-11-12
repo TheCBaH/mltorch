@@ -1,6 +1,6 @@
 (* The Native4D domain contract, as a table. Each row is a Native graph and the
    answer [Domain.check] gives for it; together they ARE the partiality contract
-   of .ai/native4d_design.md §1, pinned independently of any Native4D IR.
+   of the `.ai/` native4d design §1, pinned independently of any Native4D IR.
 
    Rows change visibly as later stages land — the canonical pipeline (stage 1)
    removes the two ops that are rejected here only because nothing has rewritten

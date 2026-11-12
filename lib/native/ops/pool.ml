@@ -8,12 +8,12 @@
    The semantic pool primitives clip the window to the input directly. For
    [MaxPool2d] this is required for correctness: padding must not contribute 0
    and beat a real, negative activation. Symbolic semantics retain max-pool
-   windows as one expression node. See .ai/native_compute_design.md. *)
+   windows as one expression node. See the `.ai/` native compute design. *)
 
 (* Pooling output shape, shared by both pools (their [params] are field-
    compatible): N/T/D/C pass through from [x_shape] unchanged (pooling never
    touches channels); only H/W shrink by [Window_axis.output_extent]. All
-   extent-space, no [:> int] round-trips. See .ai/native_compute_design.md §2b. *)
+   extent-space, no [:> int] round-trips. See the `.ai/` native compute design §2b. *)
 let window_output_shape ~(ceil_mode : bool) ~(x_shape : Vec6.shape)
     ~(kernel : Dim.extent Dim.t Op_config.Hw.t)
     ~(stride : Op_config.Pos.t Op_config.Hw.t)
@@ -184,7 +184,7 @@ module MaxPool2d = struct
 
   (* Same field shape as [Conv2d.params] minus [in_channels] (pooling never
      reduces over channels), plus [ceil_mode] (dilation stays unmodeled -- see
-     the module doc). See .ai/native_op_config.md, which already names the
+     the module doc). See the `.ai/` native op config doc, which already names the
      kernel/stride/pad carry-over as expected. [ceil_mode] is omitted from the
      encoded JSON when [false] (the pre-existing default), so every past
      fixture without the field still decodes unchanged. *)

@@ -22,7 +22,7 @@
    node datum is one node's weakest outcome, the group attribute is its
    subtree's tally.
 
-   See .ai/model_explorer_design.md. *)
+   See the `.ai/` model explorer design. *)
 
 type error =
   [ Me_ids.error

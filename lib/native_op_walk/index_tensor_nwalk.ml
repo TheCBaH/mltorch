@@ -3,7 +3,7 @@
    [Walk] functor in lib/native/ops/index_tensor.ml. [self]'s shape varies on
    the four mutable axes [Unbind_nwalk] also uses (N/H/W/C); [axis] picks
    which one is gathered, and [l] is [index]'s own length (the C-axis extent
-   of its rank-1-scoped shape, per round 9 -- see .ai/index_tensor_design.md).
+   of its rank-1-scoped shape, per round 9 -- see the `.ai/` index tensor design).
 
    [index]'s values are drawn as random INT64s in [0, extent) at [axis],
    never negative: this walk exists to prove Direct/Symbolic AGREE (they

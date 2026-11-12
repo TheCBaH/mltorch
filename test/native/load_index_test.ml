@@ -1,6 +1,6 @@
 (* [Direct.load_index]/[Symbolic.load_index]: [index.Tensor]'s runtime-gather
    primitive at the [SEMANTICS] level, exercised directly -- no [Graph_ir] op
-   exists for it yet (Gate 3). *)
+   exists for it yet. *)
 
 let s1c n = Vec6.shape ~n:1 ~t:1 ~d:1 ~h:1 ~w:1 ~c:n
 let zero = Dim.index 0
@@ -63,7 +63,7 @@ let%expect_test
 (* [Symbolic.load_index] is construction only -- no check at build time, per
    round 3's design ("resolution happens once, where the value becomes
    concrete... never at Symbolic's construction step"). Grounding it through
-   [Ground_eval]/[resolve_data_source] belongs to the Gate 2 ground_eval
+   [Ground_eval]/[resolve_data_source] belongs to the ground_eval
    tests; this just confirms the node it builds. *)
 let%expect_test "Symbolic.load_index: construction only, prints as a Data node"
     =

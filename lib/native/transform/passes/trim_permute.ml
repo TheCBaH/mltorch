@@ -1,5 +1,5 @@
 (* Drop a run of permutes whose composition is the identity — the "no-op permute"
-   and "no-op sequence of permutes" cases. See .ai/native_transform_design.md §12.
+   and "no-op sequence of permutes" cases. See the `.ai/` native transform design §12.
 
    The run is walked upstream from the anchor with [Pattern.chain]. Only the
    anchor may have consumers outside the run: an intermediate value is a genuine

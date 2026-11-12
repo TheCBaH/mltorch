@@ -1,7 +1,7 @@
 Symbolically verify RegNetX-002's structural rewrite: every pass's mapping is
 checked against the state it came from, WITHOUT payloads for the graph inputs,
 so a proved cluster is a statement about every input rather than about the one
-tensor a numeric run happens to use. See .ai/native_transform_verify.md. Gated
+tensor a numeric run happens to use. See the `.ai/` native transform verify doc. Gated
 on PT2_DATA; run with `make pt2.runtest` after `make pt2.download-cram`.
 RegNetX-002 stands in for the retired resnet18 role model here.
 

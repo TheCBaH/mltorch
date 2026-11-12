@@ -1,5 +1,5 @@
 10-step walks with ATen-vs-native comparison, over the 4 of resnet18's 9 real
-op targets (see .ai/pt2_node_spec_design.md) that actually have a walk recipe:
+op targets (see the `.ai/` pt2 node spec design) that actually have a walk recipe:
 convolution, relu, max_pool2d_with_indices, mean.dim. The other 5
 (_native_batch_norm_legit_no_training, add.Tensor, view, permute, addmm) have
 no axis recipe yet (Aten_op_walk.needs_meta) and are deliberately not in this
@@ -7,7 +7,7 @@ list — nothing to walk for them here, so they're left out rather than
 included just to print "no walk recipe".
 
 Reuses the existing generated walk modules (lib/aten_op_walk, see
-.ai/native_walk_design.md) rather than the pt2-derived JSON fixtures directly:
+the `.ai/` native walk design) rather than the pt2-derived JSON fixtures directly:
 each walk starts from its own small synthetic config (not resnet18's real
 shapes — those are exercised by pt2_node_spec_cram.t/pt2_node_walk_cram.t
 instead) and mutates one *structural* axis per step (kernel/stride/dilation/

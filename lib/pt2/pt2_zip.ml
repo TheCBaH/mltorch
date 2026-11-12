@@ -15,7 +15,7 @@
      4. over the central directory       paths, encryption, sizes, aggregate
      5. at materialization, per method   [read]
 
-   See .ai/model_explorer_design.md. *)
+   See the `.ai/` model explorer design. *)
 
 (* Paths come off the wire and may be up to [Zipc.Member.max_path_length]
    (65535) bytes, so no error payload carries one whole: a diagnostic about an
@@ -111,7 +111,7 @@ module Limits = struct
     }
 
   (* The default for EVERY file-shaped input, CLI included. Provisional and
-     conservative: the release profile is calibrated after Stage 2. A real
+     conservative: the release profile is calibrated later. A real
      resnet18 .pt2 has ~250 entries and ~45MB of payload. *)
   let untrusted =
     Err.or_raise ~pp_error

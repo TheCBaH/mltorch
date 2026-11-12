@@ -1,4 +1,4 @@
-(* [Me_pt2]: components, not pairs (.ai/model_explorer_design.md).
+(* [Me_pt2]: components, not pairs (the `.ai/` model explorer design).
 
    The property under test is DISJOINTNESS — no node id appears in two entries —
    which is what sync_navigation requires and what a pairwise encoding

@@ -146,7 +146,7 @@ export function capabilityWording(capability) {
  *
  * `stage_program` tracks `nativeBuilds` alone: `Me_export` gives it no
  * `Unavailable` reason of its own (a failure there is Fatal, not a gradeable
- * capability -- see `.ai/pt2_model_support.md`), so once Native import
+ * capability -- see the `.ai/` pt2 model support doc), so once Native import
  * succeeds the stage program always builds. `kernel` and `fusion` share one
  * signal because Fusion is a view over the same kernel graph and always
  * mirrors its Ready/Refused outcome.

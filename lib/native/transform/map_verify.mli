@@ -17,7 +17,7 @@
    Whole-report success is the conjunction, which is what [Policy] enforces.
    Correspondingly, a local proof never upgrades a cluster's own relation label;
    the label is printed beside every outcome and comes from claim propagation.
-   See .ai/native_transform_local_verify_plan.md §§1-3.
+   See the `.ai/` native transform local verify plan doc §§1-3.
 
    Three properties shape the whole thing, and are why the verdicts are not
    simply pass/fail:
@@ -34,7 +34,7 @@
      say nothing about the others, which for [{t0,t1} -> {t0}] is exactly the
      trimmed edge the map claims is identical.
 
-   See .ai/native_transform_verify.md. *)
+   See the `.ai/` native transform verify doc. *)
 
 open Graph_ir
 
@@ -367,7 +367,7 @@ val pp_error : Format.formatter -> [< error ] -> unit
    variables are genuinely free, and a witness over them refutes the local
    transfer function. That is weaker than refuting the two graphs' values: an
    upstream cluster may confine a variable to a range where the sides agree.
-   See .ai/native_transform_verify.md §8b.
+   See the `.ai/` native transform verify doc §8b.
 
    And it formally refutes only [Identical]. [Equivalent] permits rounding to
    differ, so a disagreement between rounded terms cannot contradict it, and
@@ -393,7 +393,7 @@ val default_coefficient_tolerance : float
    probe — so the parameterisation reaches only as far as obtaining them.
 
    Claim closure inside uses the DESTINATION dialect's transfer table, per
-   .ai/native4d_design.md §9.3: an [Equivalent] conversion's downstream edges
+   the `.ai/` native4d design §9.3: an [Equivalent] conversion's downstream edges
    have to be weakened according to the ops that actually compute them. *)
 module Make_pair (Src : Side.S) (Dst : Side.S) : sig
   val run :

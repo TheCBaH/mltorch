@@ -3,8 +3,8 @@
    domain-check cases, and the later stages union their own rows in as the
    modules that name them arrive (Shape4 in stage 2, the builder in stage 3, the
    lowerer and Graph_map in stage 5). Writing the whole of
-   .ai/native4d_design.md §10 here would reference three modules that do not
-   exist yet. See .ai/native4d_plan.md.
+   the `.ai/` native4d design §10 here would reference three modules that do not
+   exist yet. See the `.ai/` native4d plan doc.
 
    Each module owns its own row and callers widen, the idiom [Graph_shape.widen]
    already uses — so [Shape4.of_vec6] will return ITS row rather than this

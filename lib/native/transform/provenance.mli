@@ -10,7 +10,7 @@
    composition, and following provenance to fetch bytes would be data corruption
    rather than imprecision. It is therefore directional, has reverse LOOKUP but
    no [invert], and is skipped by any consumer asking about values. See
-   .ai/native_transform_design.md §3 and §10.
+   the `.ai/` native transform design §3 and §10.
 
    Because it is directional, its two sides were the easiest to confuse: the old
    [sources_of : ('a, 'b) t -> Tensor_id.t -> Tensor_id.Set.t] named neither.

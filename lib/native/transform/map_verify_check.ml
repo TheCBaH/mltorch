@@ -30,7 +30,7 @@ open Map_verify_types
    also what keeps a trim provable — {t0,t1} -> {t0} needs src.t0 and dst.t0 to
    be one variable while src.t1 expands through its load of t0.
 
-   .ai/native_transform_verify.md §7a has the soundness argument: local proofs
+   the `.ai/` native transform verify doc §7a has the soundness argument: local proofs
    compose because structural equality forces both sides to mention the same
    variables, so the quotient dependency relation embeds in each graph's own DAG
    order and the induction over it is well-founded. *)
@@ -166,7 +166,7 @@ let frontier_vars e =
    caller -- the rule [compare_at] already follows for [Ground_eval.at]. The
    conversion drops the [Err.Error.t] wrapper, because a verdict stores only
    the payload; that is a legitimate boundary, but it must not read like the
-   backtrace-destroying defect .ai/printer_conventions.md warns about, so it
+   backtrace-destroying defect the `.ai/` printer conventions doc warns about, so it
    gets ONE named helper used at both sites. [Err.map_error] is not it -- the
    destination is a verdict, not another result.
 
@@ -233,7 +233,7 @@ let rec settle ~budget ~probe ~tolerance ~label ~proof ~rounds ~meter ~scratch
          "frontiers differ" verdict guarding the tiers below: crossing removes
          the case where a witness would have been spurious, and the case that
          remains deserves the refutation.
-         See .ai/native_transform_local_verify_plan.md §13. *)
+         See the `.ai/` native transform local verify plan doc §13. *)
       let common =
         let lvars = frontier_vars projected_ln
         and rvars = frontier_vars projected_rn in
@@ -337,7 +337,7 @@ let rec settle ~budget ~probe ~tolerance ~label ~proof ~rounds ~meter ~scratch
    place a counterexample may be built — and it is a counterexample to the local
    TRANSFER FUNCTION, not to the two graphs' values: an upstream cluster may
    confine the variable to a range where the two sides agree. See
-   .ai/native_transform_verify.md §8b.
+   the `.ai/` native transform verify doc §8b.
 
    The frontier being SETTLED is what licenses that. [settle] crosses a variable
    only one side names (see its note), so by the time this runs the two sides are
@@ -349,7 +349,7 @@ let rec settle ~budget ~probe ~tolerance ~label ~proof ~rounds ~meter ~scratch
    An earlier revision guarded these tiers instead, reporting "frontiers differ"
    rather than building a witness. That treated the symptom; crossing removes the
    cause, and the guard was measurably unreachable. See
-   .ai/native_transform_local_verify_plan.md §13. *)
+   the `.ai/` native transform local verify plan doc §13. *)
 and value_tiers ~probe ~tolerance ~label ~coord ~members ~lhs ~rhs ~ln ~rn =
   let lhs_member, rhs_member = members in
   let witness () =

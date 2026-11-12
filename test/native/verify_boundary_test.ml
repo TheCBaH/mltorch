@@ -16,7 +16,7 @@ open Verify_fixtures
    must fail; an unchanged downstream transfer function proving LOCALLY beside it
    is the designed outcome, and "policy: a local proof beside a refutation
    carries no report" is what stops that proof carrying the report.
-   See .ai/native_transform_local_verify_plan.md §§1-3. *)
+   See the `.ai/` native transform local verify plan doc §§1-3. *)
 
 (* ---- Boundary_index: membership, and only membership ----------------------
 

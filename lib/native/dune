@@ -1,5 +1,5 @@
 ; Pure-OCaml native inference engine (no libtorch / ctypes). Built bottom-up per
-; .ai/native_inference_design.md; storage is Bigarray. `wrapped false` is the repo
+; the `.ai/` native inference design; storage is Bigarray. `wrapped false` is the repo
 ; convention, so modules are referenced unqualified (Axis, Dim, Vec6, …).
 
 (include_subdirs unqualified)
@@ -17,7 +17,7 @@
 ; `aten_spec_verify` executable needs no matching split itself — it
 ; unconditionally links `landmarks` and self-gates *starting* profiling on
 ; an env var, same idiom as memtrace; see the comment there. See
-; .ai/pt2_inference_perf.md's landmarks section.
+; the `.ai/` pt2 inference perf doc's landmarks section.
 
 (library
  (name native)

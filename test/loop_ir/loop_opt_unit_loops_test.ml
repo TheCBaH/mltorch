@@ -1,6 +1,6 @@
 open Loop_ir
 
-(* Stage 1 of the Loop IR optimization plan. An empty loop whose bounds are 2^32 - 1 apart
+(* The Loop IR unit-loop pass. An empty loop whose bounds are 2^32 - 1 apart
    the wrong way round. Its [hi - lo] is [1] in a 32-bit [int] (js_of_ocaml),
    so it must be compared in [int64] or the loop is "unrolled" into one
    iteration that never ran. Meaningful under node; natively it is a plain

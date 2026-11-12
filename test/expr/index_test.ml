@@ -4,7 +4,7 @@
    These run under BOTH backends (see test/expr/dune), and js_of_ocaml's int is
    32 bits while the native one is 63. So nothing here prints a value that
    depends on the width -- the extremum cases are stated as oracles, and only
-   their verdict is pinned. See .ai/js_backends_design.md. *)
+   their verdict is pinned. See the `.ai/` js backends design. *)
 
 open Expr
 

@@ -17,7 +17,7 @@
    the two panes; a nested graph has no signature of its own and no native
    counterpart to pair with.
 
-   See .ai/model_explorer_design.md. *)
+   See the `.ai/` model explorer design. *)
 
 type error =
   [ Me_ids.error

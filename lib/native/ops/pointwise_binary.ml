@@ -6,7 +6,7 @@
    equal, or one of them must be 1 (the broadcast axis, which takes the other's
    extent); any other mismatch is incompatible and an error — NOT silently the
    larger of the two. Computed in extent-space (no [:> int] round-trips); start
-   from [a_shape] and overwrite every axis. See .ai/native_compute_design.md §2b. *)
+   from [a_shape] and overwrite every axis. See the `.ai/` native compute design §2b. *)
 let broadcast_output_shape (a_shape : Vec6.shape) (b_shape : Vec6.shape) =
   let open Err.Syntax in
   Err.List.fold_left
@@ -32,7 +32,7 @@ let broadcast_output_shape (a_shape : Vec6.shape) (b_shape : Vec6.shape) =
    serves [Direct] (int indices) and [Symbolic] (index expressions) — it only
    needs [index_zero]. [Vec6.mapi], not a closure: the caller already has (or can
    share) a materialized [Vec6.t], and this returns one directly, ready for
-   [SEMANTICS.load]. See .ai/native_tensor_design.md §1b. *)
+   [SEMANTICS.load]. See the `.ai/` native tensor design §1b. *)
 let broadcast_coord ~(index_zero : 'i) (shape : Vec6.shape)
     (out_vec : 'i Vec6.t) : 'i Vec6.t =
   Vec6.mapi
@@ -749,7 +749,7 @@ end
    ([self - alpha * other]), and genuinely its own op rather than a
    legalization onto [Add_scalar]/[Mul_scalar]: composing those two would
    decompose one ATen node into two Native ones, the exact failure mode
-   .ai/native_add_op.md's design goal rules out (unlike [sub.Tensor]'s own
+   the `.ai/` native add op doc's design goal rules out (unlike [sub.Tensor]'s own
    scalar form, which legalizes to [Add_scalar] alone with a negated scalar
    -- ONE node, not two). [other]/[alpha] are both compile-time constants,
    the same discipline [Pow]'s [scalar] follows: an ATen [Scalar] argument is

@@ -1,4 +1,4 @@
-(* Independently verifies the three boundaries the tail-call plan's Stage 7
+(* Independently verifies the three boundaries the tail-call plan's
    asks a jsoo test linked to [native_js] for (see .ai/): the raised,
    backend-specific [Eval_too_deep] ceiling this mirror overrides, and the
    two SHARED, unchanged ceilings ([Too_deep]/[Hard.depth],

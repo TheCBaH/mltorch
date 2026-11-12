@@ -693,7 +693,7 @@ let permute ?name perm x =
    on [self] first (its shared index lands on [W], not a batch axis, so it
    must move there) and on the RESULT after (undoing the same swap, since
    [self]'s own free axis rode along at [W] instead of [H] the whole time)
-   -- verified by hand against `.ai/einsum_design.md`'s own frame-position
+   -- verified by hand against the `.ai/` einsum design's own frame-position
    derivation, not just pattern-matched from the equation strings. *)
 let einsum ?name (plan : Aten_shape.Einsum.plan) self other =
   let swap a b =

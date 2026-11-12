@@ -265,7 +265,7 @@ module Sdpa = struct
      1 while the real work (and every other operand) is at the larger,
      broadcast extent. Reading [query_shape] directly here (as this bound
      once did) would under-count exactly the way
-     `.ai/native4d_design.md`'s [Batched_matmul] domain-check bug did for
+     the `.ai/` native4d design's [Batched_matmul] domain-check bug did for
      [D] before it was fixed to read the broadcast axis. *)
   let total_work_bounded ~limit ~(full_batch : Vec6.shape)
       ~(query_shape : Vec6.shape) ~(key_shape : Vec6.shape) =
@@ -523,9 +523,8 @@ module Sdpa = struct
       S.select (S.lt neg_inf m) numer (S.const 0.)
   end
 
-  (* Authoritative declarative Region computation -- Stage B of
-     `.ai/region_compute_design.md`'s SDPA derivation (`region-sdpa-
-     computation-plan.md` §3): [sf], [m] and [z] are constant across the
+  (* Authoritative declarative Region computation --
+     the `.ai/` region compute design's SDPA derivation (its §3): [sf], [m] and [z] are constant across the
      output feature axis [C] (Stage A), and [score_at] itself is now cached
      too, as a per-key VECTOR local [s] holding one score per key position --
      the shaped-local extension Stage A deferred. [p] (the normalized

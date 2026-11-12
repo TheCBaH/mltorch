@@ -1,5 +1,5 @@
 (* [Me_export]: model bytes in, session out — and the worker entry point
-   (.ai/model_explorer_design.md).
+   (the `.ai/` model explorer design).
 
    The session builder lives in the LIBRARY, not in the CLI, because the browser
    compiles this library rather than a second implementation of it. This suite

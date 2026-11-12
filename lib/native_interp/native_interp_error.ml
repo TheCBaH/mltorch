@@ -342,7 +342,7 @@ module Concat_rank_mismatch = struct
 end
 
 (* [matmul.default]'s remaining unsupported shape family, now that both the
-   batch-less case (`.ai/matmul_softmax_design.md` §4, binds to the existing
+   batch-less case (the `.ai/` matmul softmax design §4, binds to the existing
    [Bmm] node) and the batched/multi-head case (§5, binds to the new
    [Batched_matmul] node, unequal ATen rank included) are supported -- either
    operand is rank<2. Carries both declared size lists, the same reasoning
@@ -362,13 +362,13 @@ end
 
 (* `einsum.default`, restricted to [Aten_shape.Einsum]'s two evidenced
    equation strings, each paired with exactly two operands of ATen rank 5
-   and 3 respectively (`.ai/einsum_design.md`). Mirrors
+   and 3 respectively (the `.ai/` einsum design). Mirrors
    [Op_bridge_error.Einsum_unsupported] exactly. *)
 module Einsum_unsupported = struct
   type t = { equation : string; ranks : Rank.t list }
 end
 
-(* `index.Tensor`'s list-acceptance rule (`.ai/index_tensor_design.md` round 3,
+(* `index.Tensor`'s list-acceptance rule (the `.ai/` index tensor design round 3,
    generalized for the multi-entry-gather landing): [indices] is accepted iff
    its length is at most [self]'s ATen rank, exactly one entry is a
    Long-dtype tensor of ATen rank at least 1, and every other entry is an

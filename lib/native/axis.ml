@@ -1,6 +1,6 @@
 (* The six fixed tensor axes, in their canonical order N T D H W C (C innermost /
    channels-last). Every tensor in the engine is logically 6D over these; lower-
-   rank tensors embed with size-1 axes. See .ai/native_tensor_design.md §1.
+   rank tensors embed with size-1 axes. See the `.ai/` native tensor design §1.
 
    A MANIFEST alias of [Expr.Axis.t], not a conversion. The expression language
    owns its own frame (it must: it cannot depend on [native]), and the two have

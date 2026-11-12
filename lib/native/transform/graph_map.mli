@@ -1,6 +1,6 @@
 (* The mapping between two graph versions: what a pipeline composes and what the
    verifier and the PT2 lens consume. Three relations, because merging any two of
-   them loses information (see .ai/native_transform_design.md §3):
+   them loses information (see the `.ai/` native transform design §3):
 
    - [values]     tensor value clusters, labelled with the claim a checker may assert
    - [nodes]      node clusters, unlabelled
@@ -15,7 +15,7 @@
    ABSTRACT, with [create] the only way to build one. The record used to be
    public and [validate] a separate call consumers had to remember; a map is the
    trust boundary for everything downstream, so the checks belong on the way in.
-   See .ai/native_transform_versioning.md §2. *)
+   See the `.ai/` native transform versioning doc §2. *)
 
 type ('src, 'dst) t
 
@@ -41,7 +41,7 @@ val pp_error : Format.formatter -> [< error ] -> unit
    - CLUSTER METADATA. Corresponding shapes agree, and an [Identical] cluster's
      endpoints agree on format and quantization — an [Identical] claim across F32
      and BF16 is a contradiction, it is [Approximate]. This is step 9 of
-     .ai/native_transform_design.md §7, which specified it for [Rewrite.apply]
+     the `.ai/` native transform design §7, which specified it for [Rewrite.apply]
      and was never implemented anywhere. It matters because the PT2 lens hands
      back captured SOURCE bytes for any edge whose claim is [Identical]: a
      cluster spanning two formats makes that a data-corruption path, not an

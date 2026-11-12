@@ -1,7 +1,7 @@
 (* Repo-local printer glue.
 
    The error framework used to live here. It is [Err] (vendored/err_trace) now,
-   and every call site names [Err] directly — see .ai/error_handling_design.md.
+   and every call site names [Err] directly — see the `.ai/` error handling design.
    What is left is the part that never belonged to a generic error library:
    conventions built on Fmt, which [Err] does not and must not depend on.
 
@@ -37,7 +37,7 @@ module Tagged_int : module type of Tagged_int
 (* Handwritten printers should use Fmt directly for their structure; this
    module only factors out repo-wide conventions that would otherwise repeat
    verbatim (stringifying printers, [none], and unwrapping [Err.Error.kind] in
-   results). See .ai/printer_conventions.md. *)
+   results). See the `.ai/` printer conventions doc. *)
 module Pretty : sig
   val to_string : 'a Fmt.t -> 'a -> string
   val option_or : none:string -> 'a Fmt.t -> 'a option Fmt.t

@@ -2,14 +2,14 @@
 ;
 ; This directory mirrors nothing OF ITS OWN: only the three entry modules are
 ; copied, because a module must be owned by a stanza in the directory that
-; builds it. But since the tail-call conversion's Stage 3, the eleven
+; builds it. But since the tail-call conversion, the eleven
 ; libraries reaching [Expr] (see .ai/ and js/jsoo/expr_internal_js/dune) are
 ; the mirrors declared alongside this directory (`native_js`, `native_interp_js`,
 ; etc.), not the ordinary [native]/[native_interp]/... -- so the JS evaluator
 ; these executables run is the one preprocessed with JS_BACKEND. Independent
 ; libraries ([probes_pure], [err_trace], [infer_report], [pt2]) stay ordinary:
-; see the "Mirroring and namespaces" section of expr-tailcall-implementation-plan.md
-; under .ai/ for which of the two lists a given dependency belongs to.
+; see the `.ai/` expr tailcall design
+; for which of the two lists a given dependency belongs to.
 ;
 ; Deliberately NOT `*.ml`: copying subset_probe.ml too would pull melange's
 ; entry point into this directory, where nothing builds it.

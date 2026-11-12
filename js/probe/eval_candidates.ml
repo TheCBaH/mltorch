@@ -1,5 +1,5 @@
 (* Stack-safe candidate drivers for [Expr_internal]'s evaluator, developed for
-   the tail-call conversion's JS backends (Stage 5; see .ai/). Copied
+   the tail-call conversion's JS backends (see .ai/). Copied
    verbatim into [expr_internal_js] and [expr_internal_mel] -- never linked
    natively, and never exposed through the public [Expr]/[Expr_api] surface:
    [float Value.t]/[Bool.t] here are [Expr_internal]'s own non-private
@@ -146,7 +146,7 @@ type value_state =
   | I64_result of int64
 
 (* Row/column sweep for [Max_pool], unchanged from [eval.ml]'s [JS_BACKEND]
-   conversion (Stage 4; see .ai/): already one self-recursive [loop] over a
+   conversion (see .ai/): already one self-recursive [loop] over a
    nullary tag, so it needs no frame handling of its own -- it never calls
    this module's [go]/[guard]. Duplicated here rather than shared, matching
    this whole file's policy of depending only on [Expr_internal], never on

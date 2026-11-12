@@ -1,6 +1,6 @@
 Rewrite RegNetX-002's imported graph with the transformation framework,
 resolving PT2 provenance through the composed map (see
-.ai/native_transform_design.md §10). Structure only, as
+the `.ai/` native transform design §10). Structure only, as
 `test/native_graph_regnetx_002_cram.t` is: executing the result is
 `make native-transform-verify.regnetx_002`, because a full inference is slow
 and the residual it reports is floating point, neither of which belongs in a

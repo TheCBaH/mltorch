@@ -1,4 +1,4 @@
-/* The Stage 0A driver.
+/* The contract spike driver.
  *
  * Every function here answers one question the coordinator design currently
  * ASSUMES, and records the answer on `window.__spike` for the Playwright spec

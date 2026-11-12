@@ -1,6 +1,6 @@
 (* The four axes Native4D tensors occupy, as their own type.
 
-   This is the enforcement .ai/native4d_design.md §4.3 asks for, and it is
+   This is the enforcement the `.ai/` native4d design §4.3 asks for, and it is
    stronger than the validation it asks for. "T=D=1 alone is insufficient" —
    reducing D is numerically an identity today, but an operation that NAMES D
    makes the dialect depend on a non-Native4D axis. A check can catch that; a

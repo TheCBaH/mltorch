@@ -10,7 +10,7 @@
    never built at full size and truncated after. A megabyte attribute that is
    then cut to 8KB has already cost the megabyte.
 
-   See .ai/model_explorer_design.md. *)
+   See the `.ai/` model explorer design. *)
 
 module type SIDE = sig
   type op

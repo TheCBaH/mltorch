@@ -183,7 +183,7 @@ let%expect_test "pickle failures are typed" =
    The shape used throughout: compute what the answer OUGHT to be on whichever
    backend is running, compare the real answer to it, and print only whether
    they agree. The golden reads `true` everywhere, and a regression on either
-   backend still flips it. See .ai/js_backends_design.md.
+   backend still flips it. See the `.ai/` js backends design.
    ------------------------------------------------------------------------- *)
 
 (* [Opickle.Src.uint4] reads an unsigned 32-bit word. [Int32.unsigned_to_int]
@@ -202,7 +202,7 @@ let%expect_test "pickle failures are typed" =
    Now that uint4 raises where the value is unrepresentable, the two backends
    agree again -- by both matching the oracle rather than by returning the same
    number -- so the boundary words belong here. They are the cases that would
-   regress first if the mask ever came back. See .ai/js_backends_design.md. *)
+   regress first if the mask ever came back. See the `.ai/` js backends design. *)
 let uint4_agrees word_le =
   let expected = Int32.unsigned_to_int (String.get_int32_le word_le 0) in
   match

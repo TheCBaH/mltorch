@@ -26,9 +26,9 @@ module Side4 = struct
 end
 
 (* TWO map instances, because the two directions are different PAIRS — not
-   because of type identity, which applicativity already settles. Stage 5 lowers
-   Native to Native4D and uses [Map_from_native]; stage 7 rewrites Native4D to
-   itself and uses [Map4]. *)
+   because of type identity, which applicativity already settles. Lowering
+   Native to Native4D uses [Map_from_native]; rewriting Native4D to
+   itself uses [Map4]. *)
 module Map_from_native = Graph_map.Make_pair (Native_side) (Side4)
 module Map4 = Graph_map.Make_pair (Side4) (Side4)
 
@@ -39,7 +39,7 @@ module Map4 = Graph_map.Make_pair (Side4) (Side4)
 module Verify_from_native = Map_verify.Make_pair (Native_side) (Side4)
 module Verify4 = Map_verify.Make_pair (Side4) (Side4)
 
-(* The same-dialect transform framework, at this dialect. Stage 7's point: a
+(* The same-dialect transform framework, at this dialect. The point: a
    Native4D rewrite runs through the machinery Native's passes run through, with
    no second implementation of recipes, planning, id discipline or claim
    propagation. *)

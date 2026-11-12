@@ -910,8 +910,8 @@ jobs:
       if: matrix.suite == 'browser'
       run: |
         ${{ env.EXEC }} make spike.setup
-    # Two specs, and they answer different questions: the 0A spike asks what the
-    # renderer does, the Stage 1 gate asks whether what we emit is something it
+    # Two specs, and they answer different questions: the contract spike asks what the
+    # renderer does, the session gate asks whether what we emit is something it
     # accepts. See the Model Explorer design in .ai/.
     - name: browser gate
       if: matrix.suite == 'browser'

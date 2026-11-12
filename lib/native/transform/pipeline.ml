@@ -2,7 +2,7 @@
    because Native4D needs the same definition of "canonical". *)
 
 (* The relayout group. The lowering emits an inverse permute pair at every op
-   boundary (.ai/native_transform_design.md §1) and cancelling them is the whole
+   boundary (the `.ai/` native transform design §1) and cancelling them is the whole
    point. [Sink_permute] (§12d) catches the case where an elementwise op (Relu,
    Add, ...) sits between the pair — Chain/Trim only cancel ADJACENT permutes, so
    sinking has to make them adjacent first; a second Chain/Trim round then
@@ -15,7 +15,7 @@
    on either side, which [Sink_permute] and a later [Chain_permute]/
    [Trim_permute] round then pick up. *)
 (* [Reuse_permute] and [Bypass_permute] complement [Sink_permute]: see
-   .ai/native_layout_reuse_plan.md. [Reuse_permute] turns a mixed elementwise
+   the `.ai/` native layout reuse plan doc. [Reuse_permute] turns a mixed elementwise
    operand set uniform by reusing an alternate-layout edge the graph already
    computes, which [Sink_permute] can then move downstream; [Bypass_permute] then
    removes the inverse consumers that move exposes, without requiring the whole

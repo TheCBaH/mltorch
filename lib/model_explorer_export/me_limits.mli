@@ -16,7 +16,7 @@
    "the worker and the page disagree about the profile" is unconstructable
    rather than merely rejected somewhere.
 
-   See .ai/model_explorer_design.md. *)
+   See the `.ai/` model explorer design. *)
 
 module Invalid : sig
   type t = { name : string; value : int64 }
@@ -155,9 +155,9 @@ val check64 :
 (** {1 Hard ceilings} *)
 
 module Hard : sig
-  (** Fixed before Stage 1 from reasoning, not measurement. Every value here is
-      either a platform fact, a consequence of a grammar declared elsewhere, or
-      a deliberately conservative expansion factor — never a figure that a later
+  (** Fixed up front from reasoning, not measurement. Every value here is either
+      a platform fact, a consequence of a grammar declared elsewhere, or a
+      deliberately conservative expansion factor — never a figure that a later
       calibration may move, because the derived ceilings below are computed FROM
       them and a factor that changes after calibration changes the value it was
       used to derive. Measurement may only tighten a PROFILE. *)

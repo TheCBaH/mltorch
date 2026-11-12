@@ -21,7 +21,7 @@
    only in its descriptor — and the picture would be wrong rather than
    incomplete.
 
-   See .ai/model_explorer_design.md. *)
+   See the `.ai/` model explorer design. *)
 
 type error =
   [ Me_ids.error

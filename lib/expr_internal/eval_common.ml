@@ -1,5 +1,5 @@
-(* Shared evaluator plumbing, split out of [eval.ml] (tail-call conversion
-   Stage 2; see .ai/): everything [value] depends on but does not itself
+(* Shared evaluator plumbing, split out of [eval.ml] (tail-call conversion;
+   see `.ai/`): everything [value] depends on but does not itself
    define. Moved verbatim -- no algorithm here changed. *)
 
 (* [index.Tensor]'s gather-value validation: a multi-field payload gets a

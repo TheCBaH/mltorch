@@ -174,7 +174,7 @@ let find_named_arg (node : Node.t) name =
    exported graphs list every arg explicitly, so this is mostly a safety
    net). [None] means the key is dropped from the JSON entirely, not a
    failure: either the param is a ScalarType?/Layout?/MemoryFormat?/Device?
-   (same as the generated per-op specs — see .ai/aten_op_config_design.md),
+   (same as the generated per-op specs — see the `.ai/` aten op config design),
    or it's a genuinely-absent `_opt` arg — the generated codecs decode those
    with [Jsont.Object.opt_mem] (absent key -> None), which does not accept an
    explicit JSON null in the value's place. *)

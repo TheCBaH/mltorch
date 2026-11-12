@@ -1,7 +1,7 @@
 (* Naming a version tag in a test.
 
    [Snapshot.create] and [Brand.fresh] hand back existentials — that is exactly
-   what makes a version unforgeable (.ai/native_transform_versioning.md §2) — and
+   what makes a version unforgeable (the `.ai/` native transform versioning doc §2) — and
    an existential cannot be bound by a toplevel [let]. A first-class module can
    carry one out, so a test writes
 

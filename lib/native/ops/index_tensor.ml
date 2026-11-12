@@ -1,6 +1,6 @@
 (* `index.Tensor(Tensor self, Tensor?[] indices) -> Tensor`: a genuine runtime
-   gather, restricted to the evidenced shape family (`.ai/index_tensor_design.md`,
-   `.ai/index_tensor_impl.md`) -- an optional-tensor index list with exactly
+   gather, restricted to the evidenced shape family (the `.ai/` index tensor design,
+   the `.ai/` index tensor impl doc) -- an optional-tensor index list with exactly
    one live entry. That entry becomes [index] here; [axis] is the frame
    position its list index [p] maps to (computed by the importer from ATen's
    dim position and [self]'s real rank, via the shared `dims_arg`/

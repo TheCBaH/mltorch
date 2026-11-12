@@ -1,6 +1,6 @@
 (* Native to Native4D: a partial, checked dialect conversion.
 
-   PARTIAL BY DESIGN. .ai/native4d_design.md §1: "A Native graph that does not
+   PARTIAL BY DESIGN. The `.ai/` native4d design §1: "A Native graph that does not
    satisfy the shape precondition or contains an operation without a sound
    legalization is not a failed implementation of Native4D; it is outside the
    dialect's domain." [Domain.check] states that domain; this produces the graph

@@ -1,6 +1,6 @@
 (* The bounded ordered scan primitive: construction, admission, inline
    evaluation and its interaction with freshening/checking. See
-   .ai/native_scan_design.md for the full contract. *)
+   the `.ai/` native scan design for the full contract. *)
 
 open Expr
 

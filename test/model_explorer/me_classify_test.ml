@@ -1,4 +1,4 @@
-(* [Me_classify]: partiality versus defect (.ai/model_explorer_design.md).
+(* [Me_classify]: partiality versus defect (the `.ai/` model explorer design).
 
    The classifiers are TOTAL matches over the upstream error rows, so the
    compiler is what keeps them complete. What a test can add is the other half:

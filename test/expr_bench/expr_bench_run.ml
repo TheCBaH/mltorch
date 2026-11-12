@@ -1,6 +1,6 @@
 (* Runs Corpus.cases through the reference evaluator and every candidate in
    [Corpus.candidate_evaluators], on every applicable backend (tail-call
-   conversion, Stage 5; see .ai/). Every case here is deliberately below
+   conversion; see .ai/). Every case here is deliberately below
    every evaluator's stack frontier -- there is no above-frontier skip logic
    yet, unlike the design record's eventual generated deep corpus. Exits
    nonzero on any mismatch, so this is a real regression gate, not a demo.
@@ -19,18 +19,18 @@
    a candidate from the direct recursion it is meant to replace on deep
    input. Built via a loop, not recursion, so construction itself can't be
    what overflows. One hand-picked depth well past the ~1536 node frontier
-   Stage 0 measured for this shape. Every candidate is checked at this
+   the order probe measured for this shape. Every candidate is checked at this
    depth, not just [eval_machine]: a delayed trampoline's safety is a
    property of its own [threshold], not something one candidate passing
    implies for another.
 
    [reference] (= [Eval.value], the production evaluator) is now ALSO
-   checked here (Stage 6; see .ai/'s design record): its JS build installs
+   checked here (see the design record in `.ai/`): its JS build installs
    [eval_hybrid ~cutoff:50] directly, so it is no longer the unsafe direct
    recursion this smoke case was originally written to route around --
    this is exactly the "check a case ... above [the cutoff] uses the safe
    path and completes beyond the direct frontier" verification the design
-   record's Stage 6 asks for, run against the real production entry point,
+   record asks for, run against the real production entry point,
    not a copy of it. Native's own [Eval.value] is UNCHANGED and still
    genuinely unsafe at this depth, so this smoke case still only runs on
    the JS routes, same as every other [expr_bench] case. *)
@@ -133,7 +133,7 @@ let bench_deep_depths = [ 2_000; 8_000; 20_000 ]
 
 (* [Sys.time]'s resolution under jsoo/node is coarse enough that the
    original [bench_iterations = 200] left many shallow corpus cases
-   reading exactly 0.0 or landing on a single ~5000ns quantum (Stage 5
+   reading exactly 0.0 or landing on a single ~5000ns quantum (measured
    M9's own recorded gap; see .ai/) -- 100x the iterations pushes each
    trial's total elapsed time well past that granularity. [bench_trials]
    repeats the whole timed loop and reports the MINIMUM, the standard

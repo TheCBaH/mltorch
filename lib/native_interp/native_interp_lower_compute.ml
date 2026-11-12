@@ -639,7 +639,7 @@ let dispatch ~ctx ~env (node : Node.t) =
                  (`Unsupported_option
                     { op = node.target; option = `Rounding_mode mode }))
        (* `einsum.default`, restricted to [Aten_shape.Einsum]'s two evidenced
-          equations (`.ai/einsum_design.md`): exactly two operands, rank 5
+          equations (the `.ai/` einsum design): exactly two operands, rank 5
           then 3. Legalizes onto [Graph_builder.einsum], no dedicated node. *)
        | "torch.ops.aten.einsum.default" -> (
            let equation = string_arg esc ~default:"" node "equation" in
@@ -779,7 +779,7 @@ let dispatch ~ctx ~env (node : Node.t) =
           [amax.default]'s optional dim LIST -- but [int_arg]'s own default of
           0 is the established treatment every other single-[dim] importer arm
           here already gets ([unbind.int], [select.int], [slice.Tensor]), not
-          a shortcut introduced for this op. See .ai/matmul_softmax_design.md
+          a shortcut introduced for this op. See the `.ai/` matmul softmax design
           §3. *)
        | "torch.ops.aten.softmax.int" ->
            reject_dtype esc node;
@@ -797,7 +797,7 @@ let dispatch ~ctx ~env (node : Node.t) =
            in
            let* y = softmax { Reduce.Softmax.axis } (get "self") in
            return [ y ]
-       (* Two shape families (`.ai/matmul_softmax_design.md` §4-5), same
+       (* Two shape families (the `.ai/` matmul softmax design §4-5), same
          reasoning and same split as [Op_bridge]'s arm -- see there for the
          full accounting. Batch-less (rank-2, or rank>=3 with every axis but
          the last two at extent 1) binds to the EXISTING [Bmm] node;
@@ -904,7 +904,7 @@ let dispatch ~ctx ~env (node : Node.t) =
            in
            return [ y ]
        (* `index.Tensor(Tensor self, Tensor?[] indices) -> Tensor`, restricted
-          to the evidenced shape family (`.ai/index_tensor_design.md`):
+          to the evidenced shape family (the `.ai/` index tensor design):
           [indices] has at most [self]'s ATen rank many entries (real ATen
           implicitly full-slices any missing trailing dims), exactly one
           live entry, of ATen rank at least 1, every other listed position

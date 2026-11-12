@@ -5,10 +5,10 @@
    clipped (via [Index_max]/[Index_min]) to exactly the kernel offsets whose source
    position lands inside the input — so that position is always a valid index,
    never a generate-then-guard read of the padding region (see
-   .ai/native_compute_design.md §4 "Open issue"). Weight is laid out
+   the `.ai/` native compute design §4 "Open issue"). Weight is laid out
    [Cout,1,1,Kh,Kw,Cin_per_group]; bias is [1,1,1,1,1,Cout] (broadcast —
    extent-1 axes still go through [load]'s ordinary broadcast). See
-   .ai/native_compute_design.md §2. *)
+   the `.ai/` native compute design §2. *)
 
 let or_invalid_arg = function
   | Ok x -> x
@@ -17,7 +17,7 @@ let or_invalid_arg = function
 
 module Conv2d = struct
   (* [params]/[output_shape] are outside [Compute] so Direct/Symbolic share one
-     [params] type. Field types per .ai/native_op_config.md. *)
+     [params] type. Field types per the `.ai/` native op config doc. *)
   type axis_window = {
     kernel : Dim.extent Dim.t;
     stride : Op_config.Pos.t;
@@ -371,7 +371,7 @@ module Conv2d = struct
          highest-call-volume site in the engine (one call per input-channel x
          kernel-h x kernel-w x output-pixel), and a closure built fresh per
          call — as [x_idx]/[w_idx] used to be here — allocates every time.
-         See .ai/pt2_inference_perf.md. *)
+         See the `.ai/` pt2 inference perf doc. *)
       let on = Vec6.get out Axis.N
       and ot = Vec6.get out Axis.T
       and od = Vec6.get out Axis.D in

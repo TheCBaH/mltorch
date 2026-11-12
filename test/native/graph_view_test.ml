@@ -1,6 +1,6 @@
 (* Exercises the framework's trust boundary: what [Graph_view.of_graph] rejects,
    what the index answers once a graph is trusted, and the boundary [Region]
-   derives from a claimed node set. See .ai/native_transform_design.md §11. *)
+   derives from a claimed node set. See the `.ai/` native transform design §11. *)
 
 open Graph_ir
 

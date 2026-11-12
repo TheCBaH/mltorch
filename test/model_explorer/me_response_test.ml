@@ -1,5 +1,5 @@
 (* [Me_response]: the worker's answer and the seam it crosses on
-   (.ai/model_explorer_design.md).
+   (the `.ai/` model explorer design).
 
    What a round trip cannot show, and what this pins instead: that the byte
    count is DERIVED from the document rather than supplied beside it, that

@@ -1,6 +1,6 @@
 (* The description of an edit, as data — indexed by the graph version it is an
-   edit OF. See .ai/native_transform_design.md §6 and
-   .ai/native_transform_versioning.md.
+   edit OF. See the `.ai/` native transform design §6 and
+   the `.ai/` native transform versioning doc.
 
    The header used to say "unversioned on purpose": the version-bound types lived
    in [Rewrite], so no public constructor could forge one. That is superseded.
@@ -34,7 +34,7 @@ module Make (S : Side.S) : sig
      [tensor_ref]s, so a pass writing an inserted node's payload projects out of
      the typed world here. Nothing lets a raw id acquire a tag; [existing] is the
      only way in, and it checks. See the limitations note in
-     .ai/native_transform_versioning.md §7. *)
+     the `.ai/` native transform versioning doc §7. *)
   val raw_edit_edge : 'v edit_edge -> Tensor_id.t
   val raw_fresh : 'v fresh -> Tensor_id.t
   val raw_source : 'v source -> Tensor_id.t

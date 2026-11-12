@@ -3,7 +3,7 @@
    test/native_bridge/dispatch_test.ml; this file asserts what
    [Native_interp.lower] builds, mirroring binary_test.ml's [dump] pattern --
    same split between the two shape families as [Op_bridge]'s own arm
-   (`.ai/matmul_softmax_design.md` §4-5). *)
+   (the `.ai/` matmul softmax design §4-5). *)
 
 open Programs
 
@@ -56,7 +56,7 @@ let%expect_test
    frame independently, and right-alignment already pads the lower-rank
    operand's missing leading axes to 1, exactly ATen's own implicit-unsqueeze
    rule (`eca_halonext26ts`'s real `[N,H,W,C] @ [W,C]` occurrence,
-   `.ai/matmul_softmax_design.md` §5). Rank<2 on either side is the one
+   the `.ai/` matmul softmax design §5). Rank<2 on either side is the one
    remaining typed rejection (§6), covered by the metadata-only importer's
    own arm the same way as [Op_bridge]'s. *)
 let%expect_test "matmul.default accepts unequal operand ranks" =
@@ -71,7 +71,7 @@ let%expect_test "matmul.default accepts unequal operand ranks" =
     outputs: [t2 f32 [H=2 W=2 C=2] <-n0] |}]
 
 (* Rank<2 on either side is still explicitly out of scope
-   (`.ai/matmul_softmax_design.md` §6, a different ATen output-rank rule with
+   (the `.ai/` matmul softmax design §6, a different ATen output-rank rule with
    no corpus evidence) -- a typed rejection naming both actual shapes,
    matching [Op_bridge]'s own diagnostic. *)
 let%expect_test "matmul.default rejects a rank<2 operand" =

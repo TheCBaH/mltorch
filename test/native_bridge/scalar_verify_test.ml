@@ -154,7 +154,7 @@ let%expect_test "dispatch: a non-default alpha is rejected, not ignored" =
    argument); `channels_last`/`channels_last_3d` request an actual different
    physical arrangement this engine cannot represent, and are refused. Every
    `clone.default` occurrence in the 100-model sweep requests either no
-   format or exactly `contiguous` -- see `.ai/pt2_model_support.md`. *)
+   format or exactly `contiguous` -- see the `.ai/` pt2 model support doc. *)
 let%expect_test
     "dispatch: clone's memory_format is a no-op when it can be, rejected \
      otherwise" =

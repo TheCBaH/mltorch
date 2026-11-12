@@ -1,5 +1,5 @@
-; Melange route for Stage 0's evaluation-order oracle, over [expr_mel] (tail-call
-; conversion, Stage 3). Its own committed golden, like every other route here:
+; Melange route for the evaluation-order oracle, over [expr_mel] (tail-call
+; conversion). Its own committed golden, like every other route here:
 ; the whole point of order_probe.ml is to record where a backend is ALLOWED to
 ; differ (unspecified evaluation order), so this is not diffed against
 ; native's or jsoo's output. See .ai/.

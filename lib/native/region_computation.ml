@@ -189,7 +189,7 @@ let built ~limits ~op ~output ~output_shape ~operand ~fill =
       (* Unlike [Rms_norm]/[Layer_norm]/[Softmax], [output_shape] does not
          simply equal one fixed operand's own shape any more: once
          query/key/value may broadcast against each other on [N]/[T]/[D]/[H]
-         (`.ai/attention_design.md`'s head-broadcasting note), the true
+         (the `.ai/` attention design's head-broadcasting note), the true
          output can be LARGER than [query]'s own shape on those axes. The
          sanity check recomputes that broadcast via
          [Attention.Sdpa.batch_shape] (the same fold [output_shape] itself

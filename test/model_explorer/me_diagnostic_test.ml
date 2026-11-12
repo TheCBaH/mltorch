@@ -1,5 +1,5 @@
 (* [Me_limits.Diagnostic]: the closed code vocabulary, and the two bounds that
-   make [create] total (.ai/model_explorer_design.md).
+   make [create] total (the `.ai/` model explorer design).
 
    Under node as well as natively, because both bounds are byte counts and one
    of them is applied to a buffer whose length is an [int].
@@ -180,7 +180,7 @@ let%expect_test "of_exn renders an Err payload without its provenance" =
 
 let%expect_test "round trip" =
   (* A named crossing out of jsont's [(_, string) result], per
-     .ai/printer_conventions.md — not a hand-rolled print. Every value here is
+     the `.ai/` printer conventions doc — not a hand-rolled print. Every value here is
      one [create] built, so an encoder that refuses it is a defect rather than
      an outcome, and [Err.or_raise ~pp_error:] cannot serve because this result carries
      no [Err.Error.t]. *)

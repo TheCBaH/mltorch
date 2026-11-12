@@ -1,6 +1,6 @@
 ; jsoo mirror of js/probe's [probes_pt2] library, over [native_js]/
 ; [native_graph_js]/[native_interp_js]/[model_explorer_export_js]. See .ai/
-; (tail-call conversion, Stage 3). Wildcard glob is safe: no custom
+; (tail-call conversion). Wildcard glob is safe: no custom
 ; preprocessing on the source side.
 ;
 ; [probes_pure] stays shared, same reason as probes_native_js.

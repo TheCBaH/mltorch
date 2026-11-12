@@ -1,4 +1,4 @@
-; Melange route for the tail-call conversion's Stage 5 correctness harness
+; Melange route for the tail-call conversion's correctness harness
 ; (see test/expr_bench/corpus.ml and .ai/). Links [expr_internal_mel]
 ; directly, not [expr_mel]/[expr]: [Eval_candidates] is internal, never
 ; exposed through the public [Expr] API. Same [expr_internal.ml] shim

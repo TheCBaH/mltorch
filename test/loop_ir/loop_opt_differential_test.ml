@@ -1,6 +1,6 @@
 open Loop_ir
 
-(* Stage 0 of the Loop IR optimization plan (.ai/loop_ir_optimization_design.md):
+(* The Loop IR optimization pipeline (the `.ai/` loop ir optimization design):
    the optimized-vs-raw differential. [Loop_lower.lower] applies [Loop_opt.run]
    and [Loop_lower.lower_unoptimized] does not, so this compares the two through
    [Loop_interp] for every walked op, bitwise on values and by kind and payload
@@ -210,7 +210,7 @@ let%expect_test
         (Loop_check.compare ~reference ~loop:broken_result));
   [%expect {| DISAGREE: t3 differs bitwise |}]
 
-(* ---- Stage 1 mutation proof: [lo + 1] instead of [lo] must turn it red --- *)
+(* ---- Unit-loop mutation proof: [lo + 1] instead of [lo] must turn it red --- *)
 
 let rec has_unit_loop (stmts : Loop_stmt.t list) =
   List.exists
@@ -276,7 +276,7 @@ let%expect_test
   [%expect
     {| red: raised Invalid_argument "Loop_interp: unchecked access out of range" |}]
 
-(* ---- Stage 2 mutation proof --------------------------------------------- *)
+(* ---- Fold mutation proof ----------------------------------------------- *)
 
 (* [Loop_opt_fold] deliberately does not implement [Scale (0, a) -> Const 0]
    (see its own comment): folding it away would drop [a]'s own overflow along

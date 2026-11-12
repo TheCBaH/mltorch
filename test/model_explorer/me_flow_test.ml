@@ -1,4 +1,4 @@
-(* [Me_flow]: the rooted-DAG contract (.ai/model_explorer_design.md).
+(* [Me_flow]: the rooted-DAG contract (the `.ai/` model explorer design).
 
    Every fixture is built by MUTATING a valid spine, because that is the only
    way each rule gets its own witness: a suite of independently hand-written

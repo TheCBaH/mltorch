@@ -1,5 +1,5 @@
 (* One deliberately WRONG conversion per legalization family, and what the
-   verifier says about it. Stage 6's mutation matrix.
+   verifier says about it. The mutation matrix.
 
    A mutation test is only evidence if it has been seen to fail, and the way to
    make that permanent is to keep the wrong conversion in the tree rather than

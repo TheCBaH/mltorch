@@ -237,7 +237,7 @@ let%expect_test "lstm.input (Tensor[] inputs, three outputs)" =
 
 (* [lstm.input]'s parameter list: layer by layer, forward before reverse, and
    within a direction [weight_ih, weight_hh, [bias_ih, bias_hh]]
-   (lstm-plan.md §2 -- RNN.cpp:gather_params/pair_vec/apply_layer_stack).
+   (the LSTM lowering analysis -- RNN.cpp:gather_params/pair_vec/apply_layer_stack).
    Layer 0 reads the raw input width; every later layer reads
    [directions*hidden_size], the same width regardless of which direction of
    that layer is reading it (a bidirectional layer's output concatenates
@@ -320,7 +320,7 @@ let run_lstm ~batch ~seq ~input_size ~hidden_size ~layers ~bidirectional
       (shape_of (tget out Aten_types_generated.tensors3_v2))
 
 (* Coverage beyond the corpus's single shape family (checked-in corpus: Q=1,
-   R=2, biases, batch-first, dropout=0 -- lstm-plan.md §2): stacked layers,
+   R=2, biases, batch-first, dropout=0 -- the LSTM lowering analysis): stacked layers,
    the opposite direction count, no biases, and the opposite input layout,
    each varied independently from a shared base config; the corpus family
    itself (config 6) and a stacked version of it (config 7); and every

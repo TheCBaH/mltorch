@@ -1,6 +1,6 @@
 (* What a generic graph algorithm needs to know about a dialect.
 
-   Small on purpose. .ai/native4d_design.md §5.2 asks for "a small, explicit
+   Small on purpose. the `.ai/` native4d design §5.2 asks for "a small, explicit
    dialect interface", and the measure of success is how little is in it: the
    structural records are shared (see [Graph_common]), the symbolic term
    language is dialect-free, and the cluster algebra is keyed on ids. What is

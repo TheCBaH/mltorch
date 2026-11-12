@@ -1,5 +1,5 @@
 (* Fold an inference batch norm into the convolution feeding it.
-   See .ai/native_transform_design.md §12c.
+   See the `.ai/` native transform design §12c.
 
    With s = gamma / sqrt(var + eps), batch norm is y = (z - mean) * s + beta on
    z = conv(x, W) + b, so
@@ -183,7 +183,7 @@ let build m _region =
   (* Op payloads are raw: [Graph_ir.op] takes [tensor_ref]s, and parameterising
      the IR is a non-goal. This is the projection boundary — fresh ids and the
      module's existing parameters go in side by side, exactly as
-     .ai/native_transform_versioning.md §7 says they will. *)
+     the `.ai/` native transform versioning doc §7 says they will. *)
   let f = raw_fresh and t = raw_target in
   emit
     {

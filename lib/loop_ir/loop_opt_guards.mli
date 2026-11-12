@@ -1,7 +1,8 @@
-(** Stage 3 of the optimization pipeline ([.ai/loop_ir_optimization_design.md]
-    pass 3): re-run [Loop_range] over the program stages 1 and 2 already
-    simplified, and drop a [Fail_if (Index_overflows _ | Out_of_range _)] -- or
-    an [Or] of only those two shapes, which is what a multi-axis bounds check
+(** The guard pass of the optimization pipeline (pass 3 in the `.ai/` loop ir
+    optimization design): re-run [Loop_range] over the program the unit-loop and
+    fold passes already simplified, and drop a
+    [Fail_if (Index_overflows _ | Out_of_range _)] -- or an [Or] of only those
+    two shapes, which is what a multi-axis bounds check
     ([Loop_lower_index.load_guard]) actually emits -- that [Loop_range] proves
     can never fire. Unlike stage 2's context-free [Loop_index_map], a guard's
     provability depends on where in the program it sits, so this walks top-down,

@@ -4,7 +4,7 @@
    [Pool.Adaptive_axis.check] only rejects when input_extent * output_size
    overflows a hard limit far above anything this walk's small literal
    bounds can reach, so every combination in range is valid by construction
-   (see .ai/native_walk_design.md's F4 for the general rule this is an
+   (see the `.ai/` native walk design's F4 for the general rule this is an
    instance of, not an exception to). *)
 
 module M = struct

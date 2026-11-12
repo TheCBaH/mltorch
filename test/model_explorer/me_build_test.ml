@@ -1,4 +1,4 @@
-(* [Me_build] / [Me_native]: the projection (.ai/model_explorer_design.md).
+(* [Me_build] / [Me_native]: the projection (the `.ai/` model explorer design).
 
    Two things here are not visible in a rendering and are the reason the module
    is shaped as it is: that an attribute's bound stops the PRINTER rather than

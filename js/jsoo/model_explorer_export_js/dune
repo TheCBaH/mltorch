@@ -1,6 +1,6 @@
 ; jsoo mirror of lib/model_explorer_export, over [native_js]/[native4d_js]/
 ; [native_graph_js]/[native_interp_js]/[expr_js]. See .ai/ (tail-call
-; conversion, Stage 3). Wildcard glob is safe: no custom preprocessing on the
+; conversion). Wildcard glob is safe: no custom preprocessing on the
 ; source side.
 ;
 ; The checked-in native4d.ml shim (`include Native4d_js`) matches the plan's

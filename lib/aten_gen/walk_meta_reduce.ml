@@ -89,7 +89,7 @@ let amax =
    ("mean.dim and friends"), restricted to the SINGLETON dim subsets --
    ATen's `dim` is one required int, not a list, and softmax has no
    `keepdim` at all (the output always keeps the input's full shape). See
-   .ai/matmul_softmax_design.md §3. *)
+   the `.ai/` matmul softmax design §3. *)
 let softmax_int =
   {
     module_name = "Softmax_int_walk";

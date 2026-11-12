@@ -1,4 +1,4 @@
-(* Evaluation-order oracle for Stage 0 of the Expr tail-call conversion (see
+(* Evaluation-order oracle for the Expr tail-call conversion (see
    the plan under .ai/). Measures, for every order-sensitive [Eval.value] call
    site, which operand a given backend actually evaluates first, using
    logging [Env.load]/[Env.load_index] callbacks driven through the real

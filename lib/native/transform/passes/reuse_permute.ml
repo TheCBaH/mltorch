@@ -1,6 +1,6 @@
 (* Reuse an existing alternate-layout edge to make a mixed elementwise operand
    set uniform, instead of speculatively inserting a new relayout. See
-   .ai/native_layout_reuse_plan.md and .ai/native_transform_design.md §12e,
+   the `.ai/` native layout reuse plan doc and the `.ai/` native transform design §12e,
    which complements §12d's [Sink_permute]: that pass handles [op(P(a), P(b),
    ...) = P(op(a, b, ...))], uniform on every operand. This pass handles the
    mixed case

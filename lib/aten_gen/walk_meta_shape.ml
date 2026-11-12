@@ -344,7 +344,7 @@ let pad =
 
    Rank and dim travel as ONE candidate (a dim is only valid for a rank) and the
    bounds are derived from the drawn extent rather than stored, so [cascade] is
-   the identity. See .ai/native_walk_design.md. *)
+   the identity. See the `.ai/` native walk design. *)
 let slice_tensor =
   {
     module_name = "Slice_tensor_walk";

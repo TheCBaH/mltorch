@@ -1,6 +1,6 @@
 (* Overflow-checked integer arithmetic for the index domain. Private to the
    library: it is reached through [Expr.Eval] and [Expr.Intrinsic], never
-   directly. See .ai/native_expr_refactoring_design.md.
+   directly. See the `.ai/` native expr refactoring design.
 
    ---- why [int] and not [int64] ----
 

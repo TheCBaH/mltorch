@@ -145,7 +145,7 @@ module Make_pair (Src : Side.S) (Dst : Side.S) = struct
         else Err.fail (`Unclosed_claim id))
       closed (Err.return ())
 
-  (* Step 9 of .ai/native_transform_design.md §7, over every non-vacuous cluster
+  (* Step 9 of the `.ai/` native transform design §7, over every non-vacuous cluster
      INCLUDING the implicit identities — an id kept across a rewrite that changed
      its shape or format is exactly the case the lens must not treat as capturable
      source bytes. *)
@@ -195,7 +195,7 @@ module Make_pair (Src : Side.S) (Dst : Side.S) = struct
 
   (* Output correspondence: POSITIONAL and TWO-SIDED.
 
-     .ai/native_transform_verify.md states the owed check as "every graph output
+     the `.ai/` native transform verify doc states the owed check as "every graph output
      on each side belongs to a non-vacuous cluster", and that is necessary but
      not sufficient — it admits crossed outputs ([a;b] against [b';a'], every
      output covered, the graphs returning results in opposite order) and an

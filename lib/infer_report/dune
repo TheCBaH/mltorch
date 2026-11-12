@@ -6,7 +6,7 @@
 ; than calling [Unix.gettimeofday] itself. Everything here has to survive
 ; js_of_ocaml, so a dependency added below can silently cost the JavaScript
 ; runner its build. `make jsoo.pt2.run`'s closure check in
-; .ai/js_backends_design.md is what catches that.
+; the `.ai/` js backends design is what catches that.
 
 (library
  (name infer_report)

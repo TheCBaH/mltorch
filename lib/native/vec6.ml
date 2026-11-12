@@ -142,7 +142,7 @@ let numel_bounded ~limit (s : shape) =
    millions of times for a real conv, and profiling (memtrace, then landmarks
    for real cycle counts) showed the fold's closure allocation, and later
    [get]'s [Axis.to_int] dispatch, were substantial shares of total time
-   there — see .ai/pt2_inference_perf.md. *)
+   there — see the `.ai/` pt2 inference perf doc. *)
 let offset (s : shape) (c : coord) =
   let acc = Dim.lin Dim.zero_offset s.n c.n in
   let acc = Dim.lin acc s.t c.t in
@@ -172,7 +172,7 @@ let in_bounds (s : shape) (c : coord) =
    checked here — no re-validating what the caller already guarantees.
    Returns [-1] (not [Dim.offset Dim.t option]) for a point that isn't fully
    inside [s]: a valid offset is always >= 0, so it's an unambiguous,
-   allocation-free sentinel — see .ai/pt2_inference_perf.md for why this
+   allocation-free sentinel — see the `.ai/` pt2 inference perf doc for why this
    exists as a separate function instead of composing
    [coord]+[in_bounds]+[offset]. *)
 let offset_of (s : shape) ~(n : Dim.index Dim.t) ~(t : Dim.index Dim.t)

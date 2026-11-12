@@ -135,7 +135,7 @@ let to4d_cmd =
     Term.(
       const to4d $ pt2_arg $ fold_arg $ verify_symbolic_arg $ optional_input_arg)
 
-(* The operation manifest for Gate 6 is deliberately emitted from a real,
+(* The operation manifest is deliberately emitted from a real,
    payload-backed run. [Fold_const.Trace] records only successful direct folds,
    and its canonical order erases incidental graph ids and pass sweep order, so
    redirecting this command is a stable corpus measurement rather than a debug

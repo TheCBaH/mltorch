@@ -6,7 +6,7 @@
    that the isolated-node bridge does not: a broader-graph liveness context
    ([ctx.reads]), so any of the three outputs that nothing downstream reads
    is routed to [Discard] instead of always kept live -- see
-   .ai/native_multi_output_design.md. [has_biases]/[num_layers]/[train]/
+   the `.ai/` native multi output design. [has_biases]/[num_layers]/[train]/
    [bidirectional]/[batch_first] have no schema default, so they are
    decoded with [required_bool_arg]/[required_int_arg] rather than
    [bool_arg]/[int_arg] -- the same "no default the schema does not have"

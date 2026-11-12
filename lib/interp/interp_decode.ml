@@ -448,7 +448,7 @@ let tensors_arg env node name =
    A [Tensor?[]]-typed argument with EVERY entry live is exported as a plain
    [Argument.Tensors] rather than [Argument.Optional_tensors] -- the exporter's
    simpler all-live encoding, evidenced by `mvitv2_tiny`/`maxxvitv2_nano_rw_256`'s
-   own `indices` (`.ai/index_tensor_design.md`). Accepted here the same as the
+   own `indices` (the `.ai/` index tensor design). Accepted here the same as the
    mixed form, each entry wrapped [Some]: the two encodings carry identical
    information for a [Tensor?[]]-typed slot, and rejecting the all-live one
    would make acceptance depend on which encoding the exporter happened to

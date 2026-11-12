@@ -1,6 +1,6 @@
 (* A tensor shape that has been shown to lie in the four-axis dialect.
 
-   ABSTRACT, which is the point. .ai/native4d_design.md §4.2: "Reusing
+   ABSTRACT, which is the point. The `.ai/` native4d design §4.2: "Reusing
    [Vec6.shape] directly in every public Native4D constructor would make an
    invalid Native4D graph constructible." Every op payload and every
    shape-inference result carries this instead, so a non-four-axis shape cannot
@@ -11,7 +11,7 @@
    whole symbolic stack are reused verbatim — parameterising the tensor
    signature by shape type would functorise all of them for no gain, since §4.1
    says the physical shape is IDENTICAL across the dialect boundary. See
-   .ai/native4d_plan.md, correction C3.
+   the `.ai/` native4d plan doc, correction C3.
 
    Its error row is its OWN, and callers widen (the idiom [Graph_shape.widen]
    uses). Returning the aggregate [Error.t] would make [Error] depend on

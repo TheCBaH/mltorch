@@ -13,7 +13,7 @@ let capture f = print_string (Core.Pretty.capture_to_string f)
    (untracked structural-op work); others have an arm but no [Walk_meta]
    entry, because a required non-tensor argument (no schema default) keeps
    them out of the generator's automatic Default tier -- see
-   `.ai/native_walk_design.md`. A target that DOES have both an arm and a
+   the `.ai/` native walk design. A target that DOES have both an arm and a
    recipe but still lands here is the real bug this comment exists to keep
    visible -- check with grep before adding a new entry to this list without
    a walk_meta recipe alongside it. *)

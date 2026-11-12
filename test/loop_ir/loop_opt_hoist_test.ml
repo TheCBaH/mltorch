@@ -1,7 +1,7 @@
 open Loop_ir
 open Loop_fixtures
 
-(* Stage 7: loop-invariant hoisting. [sdpa]'s per-row scale is the golden
+(* Loop-invariant hoisting. [sdpa]'s per-row scale is the golden
    diff; this file replays the bug the first attempt had -- hoisting an
    accumulator's reset -- as the mutation proof of the "no other write"
    condition. *)

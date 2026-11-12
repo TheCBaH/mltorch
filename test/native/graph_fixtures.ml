@@ -55,7 +55,7 @@ let build name m =
   Graph_builder.build ~name ~outputs:(fun o -> [ o ]) m |> or_fixture name
 
 (* [Graph_builder] hardcodes every op's OWN output to f32 (see
-   .ai/native_transform_design.md §14), so two [permute]s reading the same
+   the `.ai/` native transform design §14), so two [permute]s reading the same
    edge always agree on format — there is no way to build a
    precision-INCOMPATIBLE alternate-layout consumer through the builder
    alone. Patching one tensor's format after the fact is what lets a fixture
@@ -427,7 +427,7 @@ let sink_permute_mean_basic () =
       let* a = permute rotate_hwc x in
       mean { Reduce.Mean.dims = Axis.[ W; C ]; keepdim = true } a)
 
-(* The motivating cycle from .ai/native_transform_design.md §12f: a permute,
+(* The motivating cycle from the `.ai/` native transform design §12f: a permute,
    a keepdim=true [Mean], and its exact inverse. [Sink_permute_mean] alone
    only transports the input permute past [Mean]; [Chain_permute]/
    [Trim_permute] then cancel the resulting adjacent inverse pair, so the
@@ -454,7 +454,7 @@ let sink_permute_mean_shared () =
       mean { Reduce.Mean.dims = Axis.[ W; C ]; keepdim = true } a)
 
 (* [keepdim=false] is out of scope for the first implementation (see
-   .ai/native_transform_design.md §12f): the survivor axes are repacked by
+   the `.ai/` native transform design §12f): the survivor axes are repacked by
    [Mean.kept_map], so the induced output permutation is not simply [P]. *)
 let sink_permute_mean_not_keepdim () =
   build "sink_permute_mean_not_keepdim"

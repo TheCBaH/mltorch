@@ -121,7 +121,7 @@ module Hard_scalars = struct
      authority, and removed only once its expected [modelGraphProcessed] proves
      removal is safe. This is the ceiling on how many may be awaiting that
      proof, and it is the reason [R_install] below is no longer a two-element
-     sum. See [cancel.md] and .ai/model_explorer_design.md §3.
+     sum. See [cancel.md] and the `.ai/` model explorer design §3.
 
      [R_install] budgets [2 + this], which is deliberately ONE MORE than the
      reachable population: a candidate is admitted only while fewer than this

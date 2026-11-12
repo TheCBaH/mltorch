@@ -80,7 +80,7 @@ let bmm =
   }
 
 (* matmul.default: both shape families the bridge accepts -- see
-   [Aten_walk_recipes.Recipe_matmul] and .ai/matmul_softmax_design.md §4-5.
+   [Aten_walk_recipes.Recipe_matmul] and the `.ai/` matmul softmax design §4-5.
    [d]=[h]=1 exercises the batch-less family (binds to [Bmm]); [d]>1 or
    [h]>1 exercises the batched/multi-head family (binds to the new
    [Batched_matmul]) -- both through the SAME walk. [d_bc]/[h_bc] draw a

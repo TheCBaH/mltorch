@@ -14,7 +14,7 @@ data/pt2-functional/
 data/timm-cache/
 .profile/
 
-# Stage 0A spike: npm's tree, the copied visualizer dist, the generated
+# Contract spike: npm's tree, the copied visualizer dist, the generated
 # fixture, the workspace-scoped browser cache and Playwright's output. The
 # dist is pinned by package-lock.json and copied in by `make spike.setup`; the
 # fixture is emitted by gen_fixture.

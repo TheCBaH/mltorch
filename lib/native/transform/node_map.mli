@@ -6,7 +6,7 @@
    That empty sides are meaningful is the point: node creation, deletion,
    composition and reverse lookup all fall out of one relation, and it is
    symmetric, so [invert] is sound (unlike [Provenance]). See
-   .ai/native_transform_design.md §3. *)
+   the `.ai/` native transform design §3. *)
 
 module Id :
   Cluster_relation.ID

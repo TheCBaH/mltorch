@@ -3,7 +3,7 @@
    over a fixture graph (loud and quiet forms), [evaluated]/[output_tensor]/
    [same_tensor] check the rewrite is numerically transparent, and [matches]
    inspects what a [Pattern] finds independent of what the pass then builds.
-   See .ai/native_transform_design.md §12. *)
+   See the `.ai/` native transform design §12. *)
 
 let run ?(show_before = true) g passes =
   match Rewrite.origin g with

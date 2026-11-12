@@ -1,6 +1,6 @@
 import { test, expect } from '@playwright/test';
 
-/* Stage 0A: the contract spike.
+/* The contract spike.
  *
  * This does not assert that the answers are the ones the design hoped for. It
  * RECORDS them, and fails only if the page could not run at all -- because the
@@ -22,7 +22,7 @@ test('the pinned renderer answers the coordinator design questions', async ({ pa
     { timeout: 90_000 });
 
   const spike = await page.evaluate(() => (window as any).__spike);
-  console.log('--- Stage 0A answers ---');
+  console.log('--- contract spike answers ---');
   console.log(JSON.stringify(spike.answers, null, 2));
   if (spike.error) console.log('driver error: ' + spike.error);
   if (missing.length) console.log('404s:\n' + [...new Set(missing)].sort().join('\n'));

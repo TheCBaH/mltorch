@@ -286,7 +286,7 @@ let dispatch ~(aten_env : aten_env) (node : Node.t) :
      to the *existing* [Clone] node: paramless, [output_shape] the identity,
      and already the node this repo uses for "same value, no change" (see
      [clone.default]'s own arm) -- Native4D already elides it entirely
-     (`.ai/native4d_design.md` §7.1), so this legalization costs nothing
+     (the Native4D design in `.ai/`, §7.1), so this legalization costs nothing
      there either. *)
   | "torch.ops.aten.expand.default" ->
       Some

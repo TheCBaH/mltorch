@@ -15,7 +15,7 @@ let dispatch ~(aten_env : aten_env) (node : Node.t) :
             represented. ATen also returns save_mean/save_invstd, but in eval mode
             those are recorded size-[0] in the exported graph and are dropped
             (the engine has no empty tensors). See
-            .ai/native_multi_output_design.md. *)
+            the `.ai/` native multi output design. *)
          let* aten_x = tensor_arg aten_env node "input" in
          let to_channel_last, from_channel_last =
            batch_norm_channel_perms ~rank:(aten_rank aten_x)

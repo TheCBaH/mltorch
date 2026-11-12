@@ -1,6 +1,6 @@
 (* CLI: derive one ATen op-spec JSON per node of a real exported .pt2 model
    graph, written to an output directory (one file per node). See
-   lib/pt2_spec_gen/pt2_spec_gen.ml and .ai/pt2_node_spec_design.md. *)
+   lib/pt2_spec_gen/pt2_spec_gen.ml and the `.ai/` pt2 node spec design. *)
 
 open Err.Syntax
 

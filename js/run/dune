@@ -12,7 +12,7 @@
 ; compiles the BYTECODE, so a difference that survives between .bc and .exe is
 ; ocamlopt's rather than jsoo's.
 ;
-; No [unix] and no [aten]/[ctypes] -- see .ai/js_backends_design.md for the
+; No [unix] and no [aten]/[ctypes] -- see the `.ai/` js backends design for the
 ; check that keeps it that way.
 
 (executable

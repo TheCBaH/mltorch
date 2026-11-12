@@ -4,10 +4,10 @@
    overload to import directly (unlike [max_pool2d.default]/
    [max_pool2d_with_indices.default]'s genuine two-ATen-op split), so this
    pass is the ONLY route by which the narrower op is ever produced. See
-   .ai/native_transform_design.md §12g.
+   the `.ai/` native transform design §12g.
 
    This is NOT dead-code elimination, and conflating the two is the mistake
-   .ai/native4d_design.md §7.8 makes when it says DCE "removes the sink and
+   the `.ai/` native4d design §7.8 makes when it says DCE "removes the sink and
    unused edge and the value output becomes ordinary MaxPool2D". SSA node
    outputs are all-or-nothing: [Dce] deletes a node with NO live outputs, but it
    cannot drop one dead edge from a node whose other output is live. Narrowing

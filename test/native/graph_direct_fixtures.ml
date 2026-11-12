@@ -1,6 +1,6 @@
 (* Direct evaluation of native graphs: simple sequences, the conv NCHW->NHWC
    decomposition, and a nested subgraph. Each test prints intermediate tensors (not
-   just outputs) to show the whole computation. See .ai/native_graph_design.md. *)
+   just outputs) to show the whole computation. See the `.ai/` native graph design. *)
 
 open Graph_ir
 

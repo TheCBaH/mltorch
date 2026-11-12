@@ -17,7 +17,7 @@ let channel c = Vec6.get c Axis.C
    does NOT broadcast or pad. A caller that needs an extent-1 axis to fan out
    reduces the coordinate first ([Pointwise.broadcast_coord]); one that needs a pad value
    outside the source takes a guarded tap ([shift_in_bounds]) and supplies its
-   own. See .ai/native_tensor_design.md §1b. *)
+   own. See the `.ai/` native tensor design §1b. *)
 let read (Tensor t) (coord : Vec6.coord) =
   if not (Vec6.in_bounds t.shape coord) then
     invalid_arg
@@ -42,7 +42,7 @@ let read32 (Tensor t) (coord : Vec6.coord) =
    conv/pool/etc). Explicit args, not a closure: a closure built fresh per
    call (as [conv.ml]'s [x_idx]/[w_idx] used to be) allocates, and profiling
    found that dominated remaining allocation even after the [Vec6.coord]
-   fixes below — see .ai/pt2_inference_perf.md. Args are already-validated
+   fixes below — see the `.ai/` pt2 inference perf doc. Args are already-validated
    [Dim.index Dim.t] (every producer of a [position index] in [Direct] goes
    through [Dim.index]/[Dim.succ] — see direct.ml), so [Vec6.offset_of] (the
    allocation-free, no-[coord]-needed fused check+offset built for exactly
@@ -65,7 +65,7 @@ let read_at6 (Tensor tr as packed) ~(n : Dim.index Dim.t) ~(t : Dim.index Dim.t)
          ~c:(c :> int))
 
 (* Closure-based counterpart, for callers that don't (yet) go through
-   [load6]'s 6 explicit args — see .ai/pt2_inference_perf.md for which ops
+   [load6]'s 6 explicit args — see the `.ai/` pt2 inference perf doc for which ops
    still use this. *)
 let read_at packed (idx : Axis.t -> Dim.index Dim.t) =
   read_at6 packed ~n:(idx N) ~t:(idx T) ~d:(idx D) ~h:(idx H) ~w:(idx W)

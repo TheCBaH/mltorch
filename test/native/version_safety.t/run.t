@@ -2,7 +2,7 @@ Version-indexed ids: what the type checker must reject.
 
 Each negative case is paired with a control that must still compile. Without the
 controls a broken harness — a wrong include path, say — would reject everything
-and look like a pass. See .ai/native_transform_versioning.md.
+and look like a pass. See the `.ai/` native transform versioning doc.
 
   $ R=../../..
   $ check() { sh $R/test/native/version_safety.sh $R/test/native/version_probe.exe "$1" "$2"; }

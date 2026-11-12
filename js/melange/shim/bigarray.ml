@@ -18,7 +18,7 @@
    including [int64], which melange represents as a pair of 32-bit words rather
    than BigInt -- is melange-re/melange#1807, which adds Bigarray to melange's
    own stdlib. When that lands this file is deleted, not extended. See
-   .ai/js_backends_design.md. *)
+   the `.ai/` js backends design. *)
 
 type float32_elt
 type float64_elt

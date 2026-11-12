@@ -1,6 +1,6 @@
 open Loop_ir
 
-(* Stage 8 of the Loop IR optimization plan: [Loop_opt_cse] shares an
+(* The Loop IR load-CSE pass: [Loop_opt_cse] shares an
    identical [Load (b, coord)] of a never-stored buffer occurring twice
    within one [Store]/[Assign]'s own value expression, through one float
    temp computed once immediately before the statement. *)

@@ -1,7 +1,7 @@
 open Loop_ir
 open Loop_fixtures
 
-(* Stage 6: loop collapsing. The per-op goldens are the positive cases (the
+(* Loop collapsing. The per-op goldens are the positive cases (the
    elementwise ops become one loop); this file pins the broadcast refusal and
    is its mutation proof. *)
 

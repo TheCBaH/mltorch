@@ -1,6 +1,6 @@
 (* Affine (asymmetric) quantization: real = scale * (q - zero_point).
    Granularity is per-tensor or per-channel along C. See
-   .ai/native_tensor_design.md §3.
+   the `.ai/` native tensor design §3.
 
    ABSTRACT, and deliberately so. The representation holds two [float array]s,
    which a public variant would hand out by reference: a caller

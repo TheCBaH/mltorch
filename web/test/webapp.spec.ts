@@ -853,7 +853,7 @@ async function selectDetailNode(page: Page, nodeId: string, graphId: string) {
 /* Read straight off the rendered side panel's attribute table -- the DOM the
  * element itself built from its own `graphCollections`, not our OCaml
  * validator and not a re-parse of the session text. The value survives in
- * `textContent` even while the row is visually clipped (Stage 0's finding),
+ * `textContent` even while the row is visually clipped (the spike's finding),
  * so no expand click is needed to read it back. */
 async function nodeAttrValue(page: Page, key: string): Promise<string | null> {
   return page.evaluate((key) => {

@@ -4,7 +4,7 @@
    layout change (`channels_last`/`channels_last_3d`) is refused rather than
    silently treated as a no-op. Every `clone.default` occurrence in the
    100-model sweep requests either no format or exactly `contiguous_format`
-   -- see `.ai/pt2_model_support.md`. *)
+   -- see the `.ai/` pt2 model support doc. *)
 
 open Programs
 

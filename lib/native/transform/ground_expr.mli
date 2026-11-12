@@ -24,7 +24,7 @@
    [let] binding rather than unfolding it at every occurrence. Construction is
    otherwise exactly as inert as the old plain variant type: no algebraic
    simplification, reordering, round elimination, or NaN canonicalisation
-   happens in a constructor. See .ai/native_transform_verify.md. *)
+   happens in a constructor. See the `.ai/` native transform verify doc. *)
 
 (* Which graph a cell's raw id belongs to — the two graphs share one numeric
    namespace, so a bare [Tensor_id.t] cannot say whether [t2] is the source's or
@@ -35,7 +35,7 @@
    name ONE value, which is a hypothesis about the map and not a fact about
    either graph. Keeping it out of grounding is what stops that claim leaking
    into [stored_f32], [expand] or a stage lookup, all of which need the real
-   storage edge. See .ai/native_transform_verify.md §7. *)
+   storage edge. See the `.ai/` native transform verify doc §7. *)
 module Origin : sig
   type t =
     | Boundary of Cluster_var.t

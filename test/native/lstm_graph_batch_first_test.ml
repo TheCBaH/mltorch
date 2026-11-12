@@ -2,7 +2,7 @@
    13 / M3b, completing it): input/output on [H=batch, W=seq, C=channel]
    instead of the time-first [H=seq, W=batch, C=channel] the other
    lstm_graph_*_test.ml files use; h0/c0/h_n/c_n stay [H=layer*R+direction,
-   W=batch, C=hidden] regardless of layout (lstm-plan.md §2). Uses
+   W=batch, C=hidden] regardless of layout (the LSTM lowering analysis). Uses
    batch=2 (not 1) so a layout bug that mixed up which axis is "batch"
    would blend two batch elements' values together, not merely produce
    the right numbers at swapped-but-otherwise-consistent coordinates. *)

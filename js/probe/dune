@@ -1,5 +1,5 @@
 ; The differential probe: one source set, built natively here as the golden and
-; mirrored into js/jsoo and js/melange. See .ai/js_backends_design.md.
+; mirrored into js/jsoo and js/melange. See the `.ai/` js backends design.
 ;
 ; Two libraries rather than one, and two entry points rather than a flag,
 ; because melange can only reach the pure half: walk_core needs jsont alone and
@@ -84,10 +84,10 @@
  (modules subset_probe)
  (libraries probes_pure))
 
-; Stage 0 of the Expr tail-call conversion's evaluation-order oracle. Native
+; The Expr tail-call conversion's evaluation-order oracle. Native
 ; and bytecode here are two of its three routes; js/jsoo/order_probe mirrors
 ; the same source as the third. See order_probe.ml and
-; expr-tailcall-implementation-plan.md under .ai/.
+; the `.ai/` expr tailcall design.
 
 (executable
  (name order_probe)
@@ -109,7 +109,7 @@
 ; (224K). Same shell-copy idiom as data/dune and test/dune -- the submodule is
 ; excluded from dune's scan, and %{project_root} reaches it only inside
 ; (action ...), never (deps ...), so this carries no dep tracking. Touch this
-; file or `dune clean` if the submodule moves. See .ai/dune_cram_patterns.md.
+; file or `dune clean` if the submodule moves. See the `.ai/` dune cram patterns doc.
 
 (rule
  (target model.json)

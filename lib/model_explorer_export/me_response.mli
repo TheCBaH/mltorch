@@ -15,7 +15,7 @@
    constructors carry a document the metadata must not contain and the metadata
    carries a byte count they do not have.
 
-   See .ai/model_explorer_design.md. *)
+   See the `.ai/` model explorer design. *)
 
 module Phase : sig
   type t = Decode | Encode | Lower | Project

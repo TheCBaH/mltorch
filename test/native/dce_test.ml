@@ -1,6 +1,6 @@
 (* Dead-code elimination: which nodes go, what the map says about their edges,
    and the two properties that distinguish this implementation from the obvious
-   wrong ones. See .ai/native_transform_design.md §12g. *)
+   wrong ones. See the `.ai/` native transform design §12g. *)
 
 open Graph_ir
 
@@ -56,7 +56,7 @@ let%expect_test "dce: a node nothing reads is removed, with a delete cluster" =
         none |}]
 
 (* A [Discard] sink is dead by construction: it produces nothing, so it is never
-   reachable from an output. This is the pruning .ai/native_multi_output_design.md
+   reachable from an output. This is the pruning the `.ai/` native multi output design
    defers to a future pass. *)
 let discarded_indices () =
   build "discarded_indices"

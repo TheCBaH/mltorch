@@ -13,7 +13,7 @@ const ids = (process.env.MODELS === 'all'
   ? (await readdir(join(root, 'modules/devcontainer.pytorch-image-models/models'))).sort()
   : (process.env.MODELS || 'mobilenetv2_050').split(/\s+/).filter(Boolean).sort());
 
-/* The payload-free sweep (`.ai/pt2_model_support.md`) keyed by model id, so the
+/* The payload-free sweep (the `.ai/` pt2 model support doc) keyed by model id, so the
  * catalogue can carry each model's known Native4D/Kernel capability alongside
  * it. A model absent from the sweep -- stale relative to the submodule pin, or
  * simply never swept -- carries `support: null`; the page must never filter or

@@ -22,7 +22,7 @@ let params : Lstm.Lstm.params =
 
 (* Q=2 stacked layers, R=1, time-first: layer 0 reads the raw input;
    layer 1 reads layer 0's completed hidden trace as its own per-timestep
-   input (I_1=hidden_size, lstm-plan.md §2/§4). Distinct weights per layer
+   input (I_1=hidden_size, the LSTM lowering analysis). Distinct weights per layer
    make a layer mixup or an input-width slip visible. *)
 module Stacked = struct
   let k = 2
@@ -299,7 +299,7 @@ module Stacked = struct
 end
 
 (* Q=1, R=2: one bidirectional layer, time-first. Distinct forward/reverse
-   weights and asymmetric per-timestep input data (lstm-plan.md §7's
+   weights and asymmetric per-timestep input data (the LSTM lowering analysis's
    "Bidirectional ordering" row) make a forward/reverse mixup, or reading
    the reverse final state as the reverse half of [output[L-1,:]] instead
    of original time zero (§5's own warning), visible. *)

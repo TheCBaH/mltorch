@@ -1,5 +1,5 @@
 Walk one representative fixture per distinct op appearing in resnet18's real
-exported graph (test/data/resnet18/ — see .ai/pt2_node_spec_design.md), 10
+exported graph (test/data/resnet18/ — see the `.ai/` pt2 node spec design), 10
 steps each: every step re-synthesizes the same op invocation from an
 independent seed (same target/shapes/hyperparameters — the "configuration" —
 every step, only the random tensor fill varies) and evaluates it through the

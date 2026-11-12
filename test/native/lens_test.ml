@@ -1,5 +1,5 @@
 (* Recovering PT2 provenance for a transformed graph.
-   See .ai/native_transform_design.md §10.
+   See the `.ai/` native transform design §10.
 
    The sidecar is never rebuilt: it stays anchored to the graph the importer
    produced, and every question about a destination id is answered by walking the

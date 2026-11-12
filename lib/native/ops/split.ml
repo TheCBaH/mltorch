@@ -7,7 +7,7 @@
 module Unbind = struct
   (* Selects along [axis], producing one output per coordinate of that axis:
      `unbind.int(Tensor self, int dim=0) -> Tensor[]`. Pure coordinate
-     selection — no arithmetic at all. See .ai/native_graph_design.md.
+     selection — no arithmetic at all. See the `.ai/` native graph design.
 
      THE OUTPUT COUNT IS PART OF THE INPUT SIGNATURE, not a parameter: it is
      [extent(x_shape, axis)], so the builder derives it and callers never pass a
@@ -208,7 +208,7 @@ end
    window. Each output is exactly what [Slice] would produce for that
    window, one after another with no gap and no overlap; this op exists
    rather than N [Slice] nodes for the same reason [Concat]/[Stack] got their
-   own node (.ai/native_add_op.md): the "N contiguous windows summing to the
+   own node (the `.ai/` native add op doc): the "N contiguous windows summing to the
    whole axis" relationship is this op's own shape rule, not something a
    chain of [Slice] nodes states anywhere in the graph.
 
@@ -649,7 +649,7 @@ end
    a single position AND drops it, unlike [Slice] (which narrows but keeps the
    axis) and unlike [Unbind] (which drops every position of the axis, one
    output per coordinate, rather than one caller-chosen position). Design-goal
-   fix (see .ai/native_add_op.md): this used to lower to a [Slice] node
+   fix (see the `.ai/` native add op doc): this used to lower to a [Slice] node
    followed by a separate [Reshape] node at the bridge, which left no node in
    the graph naming [select.int]. Fixed by reusing [Slice]'s implementation —
    its [output_shape] and [Compute.pixel] — rather than its node, the same way

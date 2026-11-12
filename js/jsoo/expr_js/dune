@@ -9,7 +9,7 @@
 ; lets the copied expr_api.ml's unmodified [Expr_internal.Axis]-style
 ; references resolve: [expr_internal_js] is wrapped, so depending on it
 ; exposes only its own alias module [Expr_internal_js], never a global
-; [Expr_internal]. See .ai/ (tail-call conversion, Stage 3, namespace rules).
+; [Expr_internal]. See .ai/ (tail-call conversion, namespace rules).
 
 (copy_files
  (files %{workspace_root}/lib/expr/*.{ml,mli}))

@@ -1,7 +1,7 @@
 (* bmm.default walk recipe: batch/row/contract/col drawn independently -- no
    correlation is needed since [self]/[mat2]'s shapes are already jointly
    determined by the four scalars ([Native.Matmul.Bmm]'s own contract, see
-   .ai/native_compute_design.md §2), unlike e.g. [Recipe_transpose] where a
+   the `.ai/` native compute design §2), unlike e.g. [Recipe_transpose] where a
    dim pair is only valid for SOME ranks. *)
 
 type t = { batch : int; n : int; m : int; p : int }

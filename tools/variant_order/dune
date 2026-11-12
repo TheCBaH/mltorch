@@ -1,0 +1,17 @@
+; The variant-order check (CLAUDE.md, ordering convention). A type opts in with
+; an [@alphabetical] marker comment on the line above it. Attached to runtest,
+; so `make runtest`, `make precommit` and CI all run it; `make
+; check.variant-order` runs it alone.
+;
+; The source tree is a dependency, so editing any file under lib reruns it.
+
+(executable
+ (name variant_order)
+ (modules variant_order))
+
+(rule
+ (alias runtest)
+ (deps
+  (source_tree ../../lib))
+ (action
+  (run %{exe:variant_order.exe} check ../.. lib)))

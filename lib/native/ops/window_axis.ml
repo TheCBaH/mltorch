@@ -2,7 +2,7 @@
    [output_extent] asks "how many output positions"; [Compute.window] asks "for this
    output position, which k values and where do they read." Two closed forms over the
    same four numbers, co-located here instead of duplicated per op.
-   See .ai/native_compute_design.md §2b. *)
+   See the `.ai/` native compute design §2b. *)
 
 (* Every factor is bounded against the per-axis ceiling BEFORE any arithmetic,
    and only then combined in [int64].
@@ -19,7 +19,7 @@
    in-range factors whose product need not be, on a backend where [int] is 32
    bits and the ceiling is 0x8000_0000. Reached by conv2d, conv2d.padding,
    convolution AND both pooling ops, so one bound here covers every windowed
-   axis in the engine. See .ai/js_backends_design.md. *)
+   axis in the engine. See the `.ai/` js backends design. *)
 let limit = Kernel.Limits.Hard.extent
 
 let bound ~(what : Shape_error.Window_over_limit.quantity) (n : int64) :

@@ -17,7 +17,7 @@ module RmsNorm = struct
      pixel's fixed non-normalised coordinates. [weight] carries the
      normalised_shape (ATen indexes it by the trailing/normalised dims only), so
      it is read at the output coordinate on each [dims] axis and broadcast
-     (size-1, index 0) on every other axis. See .ai/native_compute_design.md §2.
+     (size-1, index 0) on every other axis. See the `.ai/` native compute design §2.
 
      [dims] is a list of frame axes (a dispatcher gets them from the ATen
      normalized_shape via [Aten_shape.axis_of_dim]); one op covers

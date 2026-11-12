@@ -1,5 +1,5 @@
 (* Scratch prototype for LSTM's per-layer/direction scan arithmetic (project
-   step 13 / lstm-plan.md §5), isolated from the graph/importer plumbing so the
+   step 13 / the LSTM lowering analysis), isolated from the graph/importer plumbing so the
    new territory -- a packed [2*K]-wide scan doing real weight-matrix loads,
    index arithmetic (the shared divmod helper) and gate nonlinearities -- can
    be verified against a plain OCaml recurrence before any Native op
@@ -37,7 +37,7 @@ let env =
   Expr_bridge.env ~binding:(fun id ->
       Hashtbl.find_opt ids (Tensor_id.to_int id))
 
-(* ATen gate order i,f,g,o (lstm-plan.md §5): row block [r*K, (r+1)*K) of the
+(* ATen gate order i,f,g,o (the LSTM lowering analysis): row block [r*K, (r+1)*K) of the
    packed [4K] weight/bias belongs to gate [r]. *)
 let gate_i = 0
 let gate_f = 1
@@ -47,7 +47,7 @@ let gate_o = 3
 let unsafe_floor_div_pos x d =
   match Index.floor_div_pos x d with Ok v -> v | Error _ -> assert false
 
-(* The shared divmod helper (lstm-implementation-plan.md "Stage 2+"): [x mod
+(* The shared divmod helper (the LSTM lowering analysis): [x mod
    k], encoded from [Add]/[Scale]/[Floor_div_pos] and converted back with
    [Clamp_low] -- sound because [x >= 0] and [k > 0] make the remainder
    provably in [0, k). *)
@@ -124,7 +124,7 @@ let sigmoid x =
   Value.div (Value.const 1.) (Value.add (Value.const 1.) (Value.exp (neg x)))
 
 (* [tanh(x) = 2*sigmoid(2x) - 1] -- algebraically the stable form
-   lstm-plan.md §5 asks for ([exp(-2x)] either overflows to [+inf] or
+   the LSTM lowering analysis asks for ([exp(-2x)] either overflows to [+inf] or
    underflows to [0], both of which [1/(1+_)] handles exactly, never the
    [inf/inf] NaN a direct [(e^2x-1)/(e^2x+1)] quotient produces for large
    positive [x]), reached through the identity instead of an explicit sign

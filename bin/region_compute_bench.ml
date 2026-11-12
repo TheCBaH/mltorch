@@ -170,7 +170,7 @@ let report name ~regions ~extent graph graph4 =
     direct4_counters.emitters direct4_counters.loads direct4_counters.reductions
 
 (* Sdpa's Native4D route landed alongside [Batched_matmul]'s (see
-   `.ai/native4d_design.md` §7.9): both are Direct-comparable now, at
+   the `.ai/` native4d design §7.9): both are Direct-comparable now, at
    [D = 1] (the shapes below already have it), through the shared Region
    program -- this row's [direct4_ms] column is therefore a measurement of
    Native4D's translation/dispatch overhead over the identical arithmetic,

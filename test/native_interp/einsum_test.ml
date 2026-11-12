@@ -1,5 +1,5 @@
 (* `torch.ops.aten.einsum.default`, restricted to [Aten_shape.Einsum]'s two
-   evidenced equations (`.ai/einsum_design.md`): exactly two operands, ATen
+   evidenced equations (the `.ai/` einsum design): exactly two operands, ATen
    rank 5 then 3. Metadata-only decode (unlike [Op_bridge]'s dispatch, tested
    separately in test/native_bridge/einsum_dispatch_test.ml): no numeric
    values here, since [Native_interp] never materializes one. *)

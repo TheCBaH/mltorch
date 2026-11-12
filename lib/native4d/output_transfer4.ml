@@ -6,7 +6,7 @@
    Native's: a defaulting classifier silently mis-transfers the next op someone
    adds, and mis-transferring means a verifier asserting a guarantee the graph
    does not make. Adding an op means deciding its answer here — the site is
-   listed in .ai/native4d_add_op.md. *)
+   listed in the `.ai/` native4d add op doc. *)
 
 open Op
 
@@ -26,7 +26,7 @@ let classify (op : Op.t) ~output =
      [Slice4] are the partial one, each output a slice of the operand. Both qualify, because the claim is
      per-element and copying preserves it — the rule is not "the value multiset
      is unchanged", which holds only of the total case. See
-     .ai/native_transform_design.md §8. *)
+     the `.ai/` native transform design §8. *)
   | Add _ | Addcmul _ | Add_scalar _ | Adaptive_avg_pool2d _
   | Adaptive_max_pool2d _ | Avg_pool2d _ | Clamp _ ->
       Output_transfer.Continuous

@@ -1,7 +1,7 @@
 module type S = sig
   (* The public surface of the expression language. See expr.ml for why nearly
      everything lives in one compilation unit, and
-     .ai/native_expr_refactoring_design.md for the language.
+     the `.ai/` native expr refactoring design for the language.
 
      The order here mirrors expr.ml and is required, not stylistic: [Index] and
      [Intrinsic] must precede the recursive group that references them. *)

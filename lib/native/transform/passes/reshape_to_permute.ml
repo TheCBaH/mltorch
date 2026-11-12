@@ -1,5 +1,5 @@
 (* Rewrite a contiguous reshape that only relabels axes into the permute it
-   really is. See .ai/native_transform_design.md §12.
+   really is. See the `.ai/` native transform design §12.
 
    A [Reshape] sends element k of the row-major input to element k of the
    row-major output. Unit axes contribute nothing to a row-major offset, so when

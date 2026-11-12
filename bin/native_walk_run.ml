@@ -1,5 +1,5 @@
 (* CLI: run one of the generated ATen-vs-native walk modules (lib/aten_op_walk,
-   see .ai/native_walk_design.md) by target name, for a fixed number of steps.
+   see the `.ai/` native walk design) by target name, for a fixed number of steps.
    Walks Walk_core.Walk.run directly (rather than through Op_walk.run) with
    Aten_spec_run.compare_report as the verify function, so each step prints
    the input tensors' shapes/distributions and the ATen output's shape +

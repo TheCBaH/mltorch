@@ -126,7 +126,7 @@ let dispatch ~(aten_env : aten_env) (node : Node.t) :
       Some
         ((* Two ATen outputs (values, indices). We materialise both, relayout the
             value back to NCHW as the graph output, and route the dead indices
-            edge into a Discard sink (see .ai/native_multi_output_design.md). *)
+            edge into a Discard sink (see the `.ai/` native multi output design). *)
          let* aten_x = tensor_arg aten_env node "self" in
          let* ceil_mode = pool_dilation_and_ceil_mode node in
          let* kernel_size = ints_arg node "kernel_size" in

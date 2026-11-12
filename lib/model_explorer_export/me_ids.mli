@@ -13,10 +13,10 @@
    Ids here are stable across versions, which is what lets the comparison view
    rest on [MATCH_NODE_ID] for untouched nodes and explicit mapping entries only
    for changed ones. That is sound ONLY because of the id-identity rule — a
-   changed value always means a new id (.ai/native_transform_design.md §4) — and
+   changed value always means a new id (the `.ai/` native transform design §4) — and
    the comparison view rests on it entirely.
 
-   See .ai/model_explorer_design.md. *)
+   See the `.ai/` model explorer design. *)
 
 type error =
   [ `Control_byte of int  (** the offending byte *)

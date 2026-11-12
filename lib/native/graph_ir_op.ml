@@ -3,24 +3,27 @@
    than folded into it. Neither is part of graph_ir.mli's public surface
    ([op] itself is, via graph_ir.ml's `open Graph_ir_op`, but [OP] and
    [op_registry] are internal wiring) -- this file exists purely so
-   [op_registry]'s second half (graph_ir_registry_ext.ml) has something to
-   depend on without creating a cycle back through graph_ir.ml. *)
+   [op_registry] (graph_ir_registry.ml) has something to depend on without
+   creating a cycle back through graph_ir.ml. *)
 
 type tensor_ref = Tensor_id.t
 
+(* @alphabetical *)
 type op =
-  (* Constructors kept in global alphabetical order (see graph_ir.mli). Each
-     each op carries its own payload record (params + operand refs),
-     defined in that op's module; the shared serialise / dataflow / pp logic is
-     driven from [op_registry] below, not a per-constructor match. *)
+  (* Constructors kept in global alphabetical order (see graph_ir.mli); the
+     order is checked, and carries no behavior. Each op carries its own payload
+     record (params + operand refs), defined in that op's module; the shared
+     serialise / dataflow / pp logic is driven from [op_registry] below, not a
+     per-constructor match. *)
   | Abs of Pointwise.Abs.t
-  | Add of Pointwise.Add.t
-  | Addcmul of Pointwise.Addcmul.t
-  | Add_scalar of Pointwise.Add_scalar.t
   | Adaptive_avg_pool2d of Pool.AdaptiveAvgPool2d.t
   | Adaptive_max_pool2d of Pool.AdaptiveMaxPool2d.t
   | Adaptive_max_pool2d_with_indices of Pool.AdaptiveMaxPool2dWithIndices.t
+  | Add of Pointwise.Add.t
+  | Add_scalar of Pointwise.Add_scalar.t
+  | Addcmul of Pointwise.Addcmul.t
   | Amax of Reduce.Amax.t
+  | Arange of Factory.Arange.t
   | Argmax of Reduce.Argmax.t
   | Attention_layer of Attention_layer.Attention_layer.t
   | Avg_pool2d of Pool.AvgPool2d.t
@@ -42,9 +45,9 @@ type op =
   | Cos of Pointwise.Cos.t
   | Cumsum of Reduce.Cumsum.t
   | Diff of Diff.Diff.t
+  | Discard of { x : tensor_ref }
   | Div of Pointwise.Div.t
   | Div_scalar of Pointwise.Div_scalar.t
-  | Discard of { x : tensor_ref }
   | Embedding of Embedding.Embedding.t
   | Eq_scalar of Pointwise.Eq_scalar.t
   | Eq_tensor of Pointwise.Eq_tensor.t
@@ -53,25 +56,25 @@ type op =
   | Expand of Pointwise.Expand.t
   | Eye of Factory.Eye.t
   | Floor_div_scalar of Pointwise.Floor_div_scalar.t
-  | Ge_scalar of Pointwise.Ge_scalar.t
   | Full_like of Pointwise.Full_like.t
+  | Ge_scalar of Pointwise.Ge_scalar.t
   | Gelu of Pointwise.Gelu.t
   | Group_norm of Norm.GroupNorm.t
   | Gt_scalar of Pointwise.Gt_scalar.t
   | Hardsigmoid of Pointwise.Hardsigmoid.t
   | Hardswish of Pointwise.Hardswish.t
   | Hardtanh of Pointwise.Hardtanh.t
+  | Im2col of Im2col.Im2col.t
   | Index_pair of Index_tensor.Index_pair.t
   | Index_tensor of Index_tensor.Index_tensor.t
-  | Im2col of Im2col.Im2col.t
-  | Le_tensor of Pointwise.Le_tensor.t
   | Layer_norm of Norm.LayerNorm.t
+  | Le_tensor of Pointwise.Le_tensor.t
   | Leaky_relu of Pointwise.Leaky_relu.t
   | Linear of Linear.Linear.t
-  | Lstm of Lstm.Lstm.t
-  | Lt_scalar of Pointwise.Lt_scalar.t
   | Log of Pointwise.Log.t
   | Log1p of Pointwise.Log1p.t
+  | Lstm of Lstm.Lstm.t
+  | Lt_scalar of Pointwise.Lt_scalar.t
   | Max_dim of Reduce.MaxDim.t
   | Max_pool2d of Pool.MaxPool2d.t
   | Max_pool2d_with_indices of Pool.MaxPool2dWithIndices.t
@@ -99,8 +102,8 @@ type op =
   | Sigmoid of Pointwise.Sigmoid.t
   | Silu of Pointwise.Silu.t
   | Sin of Pointwise.Sin.t
-  | Softmax of Reduce.Softmax.t
   | Slice of Split.Slice.t
+  | Softmax of Reduce.Softmax.t
   | Split_with_sizes of Split.Split_with_sizes.t
   | Sqrt of Pointwise.Sqrt.t
   | Stack of Concat.Stack.t
@@ -117,7 +120,6 @@ type op =
   | Weight_norm of Weight_norm.Weight_norm.t
   | Where_scalar_other of Pointwise.Where_scalar_other.t
   | Where_self of Pointwise.Where_self.t
-  | Arange of Factory.Arange.t
   | Zeros of Factory.Zeros.t
 
 (* Per-op interface. Each op module supplies the name, codec, dataflow accessors

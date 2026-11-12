@@ -146,7 +146,7 @@ module Env = struct
   (* USER data, so both conditions: a graph input of this program AND not a
      model constant. [input_kinds] is sparse and keys inputs only, so [None]
      means [Input] — and an internal edge, absent from it entirely, would answer
-     yes to the kind alone. See .ai/native_transform_verify.md §9a. *)
+     yes to the kind alone. See the `.ai/` native transform verify doc §9a. *)
   let is_user_input t id =
     Tensor_id.Set.mem id t.inputs && not (Tensor_id.Set.mem id t.constant_ids)
 

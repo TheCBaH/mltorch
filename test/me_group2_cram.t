@@ -20,7 +20,7 @@ The complete capability vector. Native4D is available: every weight here is
 already rank 4, so none needs the Const-SSA folding resnet18 needs (and this
 payload-free file does not have); the first conv's `groups=2` used to be
 Native4D's own rejection (neither 1 nor depthwise), and now legalizes to
-`GroupedConv2D` (`.ai/native4d_design.md` §7.2/§8).
+`GroupedConv2D` (the `.ai/` native4d design §7.2/§8).
 
   $ ./cram_probe.exe caps session.json
   stage:source                 available graph

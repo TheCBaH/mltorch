@@ -1,8 +1,8 @@
 (* Stack-safe machine fallback for [Eval.value]'s JS branch (tail-call
-   conversion, Stage 6; see .ai/): the array/mutation-based frame machine
-   selected as [eval_hybrid]'s fallback in Stage 5's benchmarking, installed
+   conversion; see `.ai/`): the array/mutation-based frame machine
+   selected as [eval_hybrid]'s fallback in the benchmarking, installed
    from js/probe/eval_machine_reuse.ml's [run] and the "pending work" types
-   it shares with js/probe/eval_candidates.ml (see .ai/'s design record for
+   it shares with js/probe/eval_candidates.ml (see the design record in `.ai/` for
    the full evaluation trail: four candidates measured, this one selected).
    [eval.ml]'s JS branch calls into [run] once its own direct recursion
    reaches the production cutoff -- see [eval.ml]'s own doc comment for the
@@ -57,7 +57,7 @@ type value_state =
 
 (* Row/column sweep for [Max_pool], duplicated from [eval.ml]'s own JS
    branch rather than shared (see this file's top comment) -- already one
-   self-recursive [loop] over a nullary tag (Stage 4), so it never pushes a
+   self-recursive [loop] over a nullary tag, so it never pushes a
    [reuse_frame] of its own. *)
 type pool_tag = Cols_tag | Rows_tag
 

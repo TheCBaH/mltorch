@@ -16,7 +16,7 @@
    "equal in exact arithmetic; rounding may differ" — and it must not be used
    to decide [Identical].
 
-   See .ai/native_transform_verify.md §15. *)
+   See the `.ai/` native transform verify doc §15. *)
 
 module Generator : sig
   (* What a monomial is built from: a free cell, or a subterm the polynomial

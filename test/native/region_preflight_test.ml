@@ -1,6 +1,6 @@
 (* [Region_program.preflight]: the resource dimensions [check] does not cover
    -- total local/trace storage, peak nested scan state, and one Region key's
-   worst-case recurrence-update count. See .ai/native_scan_design.md's
+   worst-case recurrence-update count. See the `.ai/` native scan design's
    "Validated execution artifact". *)
 
 open Expr

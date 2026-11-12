@@ -3,8 +3,8 @@
    per output edge, structural groups ignored.
 
    It is a twin rather than a shared driver because [Eval_direct] is typed on
-   [Graph_ir.graph] and the two records differ. Stage 4 makes the record shared;
-   the driver could follow, but the arithmetic that matters — [Eval_op4]'s
+   [Graph_ir.graph] and the two records differ. Sharing the record would let
+   the driver follow, but the arithmetic that matters — [Eval_op4]'s
    delegation to Native's [Compute (S)] — is already shared, which is the reuse
    the design asks for. *)
 

@@ -1,9 +1,9 @@
 open Loop_ir
 
-(* Stage 2 of the Loop IR optimization plan: constant folding must stay inside
+(* The Loop IR fold pass: constant folding must stay inside
    [Loop_range.domain] ([-2^31, 2^31 - 1]), the same bound the rest of the
    Loop IR guarantees so a value is exact in both an OCaml [int] and a
-   js_of_ocaml [int] (32 bits, [.ai/loop_ir_optimization_design.md] invariant
+   js_of_ocaml [int] (32 bits, [the `.ai/` loop ir optimization design] invariant
    3). Folding the sum/product with the host's own (possibly 32-bit-under-jsoo)
    [int] arithmetic, rather than [Loop_range]'s saturating [int64], would
    silently wrap under jsoo where the unfolded expression -- evaluated as a

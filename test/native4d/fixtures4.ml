@@ -299,7 +299,7 @@ let per_op () =
                ~x ~weight ~bias ()),
           [ nhwc; s4 ~n:1 ~h:1 ~w:1 ~c:2; s4 ~n:1 ~h:1 ~w:1 ~c:2 ] ) );
       (* [H=2] on both operands (the corpus's real batch axis,
-         `.ai/matmul_softmax_design.md` §5) and a contraction extent (3)
+         the `.ai/` matmul softmax design §5) and a contraction extent (3)
          distinct from either row/column count, so a fixture reading the
          wrong axis as the contraction would still differ. *)
       ( "batched_matmul",

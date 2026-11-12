@@ -1,6 +1,6 @@
 (* Tensor value clusters: which edge in the source graph is which edge in the
    destination, and what a verifier may assert about their values. The claim is
-   supplied by the recipe and never inferred — see .ai/native_transform_design.md
+   supplied by the recipe and never inferred — see the `.ai/` native transform design
    §3 and §6. *)
 
 (* A lossy representation a value passed through. Compared by format name and

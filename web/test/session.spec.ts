@@ -26,7 +26,7 @@ test('the exported session renders in the pinned element', async ({ page }) => {
     { timeout: 180_000 });
 
   const gate = await page.evaluate(() => (window as any).__gate);
-  console.log('--- Stage 1 gate ---');
+  console.log('--- session gate ---');
   console.log(JSON.stringify({
     model: gate.model,
     collectionLabel: gate.collectionLabel,

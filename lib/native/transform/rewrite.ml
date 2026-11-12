@@ -249,7 +249,7 @@ module Make (S : Side.S) = struct
 
      Everything below rebuilds a [graph], and [S.Dialect.op] takes raw
      [tensor_ref]s — parameterising the IR is a non-goal
-     (.ai/native_transform_versioning.md §7). So a replacement's metadata is
+     (the `.ai/` native transform versioning doc §7). So a replacement's metadata is
      projected once, here, rather than threaded through the rebuild. Nothing is
      lost by it: the ids that reach the MAP are re-lifted through the two
      snapshots further down, which is where a side confusion would matter. *)

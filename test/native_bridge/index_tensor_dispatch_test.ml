@@ -2,7 +2,7 @@
    the evidenced shape family -- [indices] has at most [self]'s ATen rank
    many entries, exactly one live entry of ATen rank at least 1, every other
    listed position [None] -- and its locked typed rejections
-   (`.ai/index_tensor_design.md` rounds 3/9, and the multi-entry-gather
+   (the `.ai/` index tensor design rounds 3/9, and the multi-entry-gather
    landing's [index_rank] generalization). No real ATen call is made
    ([Tensor?[]] has no [lib/aten_gen] C-shim support), so these fixtures are
    hand-derived rather than [Interp_verify]-compared, the same choice
@@ -33,7 +33,7 @@ let%expect_test
 (* Real ATen implicitly full-slices any dims [indices] doesn't mention, so a
    list SHORTER than [self]'s rank is not itself a fault -- this is exactly
    `mvitv2_tiny`/`maxxvitv2_nano_rw_256`'s own encoding
-   (`.ai/index_tensor_design.md`): a length-1 [indices] against a rank-2
+   (the `.ai/` index tensor design): a length-1 [indices] against a rank-2
    [self]. Same result as gathering with an explicit trailing [None]. *)
 let%expect_test
     "dispatch: index.Tensor accepts an indices list shorter than self's rank" =
@@ -86,7 +86,7 @@ let%expect_test
   [%expect {| error: index.Tensor: indices[0] must be Long, got Bool |}]
 
 (* `mvitv2_tiny`/`maxxvitv2_nano_rw_256`'s own shape family
-   (`.ai/index_tensor_design.md`): a live entry of ATen rank 2 -- accepted
+   (the `.ai/` index tensor design): a live entry of ATen rank 2 -- accepted
    since [axis] is [self]'s own outermost dim here, so there is nothing of
    [self]'s to lose to index's extra axis. Output is
    [index.shape ++ self.shape[1:]]: [idx]'s own [[1],[0]] selects self's
@@ -101,7 +101,7 @@ let%expect_test "dispatch: index.Tensor accepts a live entry of ATen rank 2" =
     ~noutputs:1;
   [%expect {| tensor f32 [H=2 W=1 C=3] {4, 5, 6, 1, 2, 3} |}]
 
-(* `Self_collision` (`.ai/index_tensor_design.md`): a rank-3 [self] with real
+(* `Self_collision` (the `.ai/` index tensor design): a rank-3 [self] with real
    content on every axis, gathered at a MIDDLE position with a rank-2 live
    entry -- index's extra axis would have to borrow [self]'s own leading
    axis H (extent 2, not 1), which real ATen never discards. Reachable

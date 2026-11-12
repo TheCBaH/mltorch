@@ -1,7 +1,7 @@
 (* Bridge between rank-bearing ATen shapes and the fixed 6-axis frame, right-
    aligned and positional: a rank-r ATen shape fills the innermost r axes of
    [N T D H W C]. Mechanical only — no batch-on-[N] or NCHW<->NHWC remap. See
-   .ai/native_tensor_design.md §1d. *)
+   the `.ai/` native tensor design §1d. *)
 
 (* The innermost [rank] frame axes, in canonical order. [rank] must be in [0,6]. *)
 val used_axes : rank:Rank.t -> Axis.t list

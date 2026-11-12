@@ -37,7 +37,7 @@
 ;    melange 7.0.0. Verified: on 7.0.1-414 the Error rename alone produces JS
 ;    that runs and matches the native golden exactly. Drop this hunk when the
 ;    pin can move to >= 7.0.0 -- which needs OCaml >= 5.1, see
-;    .ai/js_backends_design.md. Hunk 1 stays either way; 7.0.1-414 still
+;    the `.ai/` js backends design. Hunk 1 stays either way; 7.0.1-414 still
 ;    rejects the duplicate export.
 
 (rule

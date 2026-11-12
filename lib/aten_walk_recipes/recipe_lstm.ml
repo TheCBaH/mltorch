@@ -3,7 +3,7 @@
    layer/direction/bias counts -- so [cascade] has nothing to repair, the same
    discipline [Recipe_sdpa]/[Recipe_norm] use.
 
-   [param_shapes] mirrors the exact ordering [lstm-plan.md] §2 records: layer
+   [param_shapes] mirrors the exact ordering the LSTM lowering analysis records: layer
    by layer, forward before reverse, and within a direction
    [weight_ih, weight_hh, [bias_ih, bias_hh]]. Layer 0 reads the raw input
    width; every later layer reads the previous layer's output, which is

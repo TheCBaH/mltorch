@@ -19,7 +19,7 @@
    INITIAL LINKS STAY REFERENTIALLY VALID. The graph, view and [subGraphIds]
    links arrive together, so no document ever points at a graph it lacks.
 
-   See .ai/model_explorer_design.md. *)
+   See the `.ai/` model explorer design. *)
 
 type error =
   [ `Document of Me_session.Session.error

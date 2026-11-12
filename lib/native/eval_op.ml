@@ -8,7 +8,7 @@
    missing bias, ones for a missing rms-norm weight). [fill] is the only
    S-specific extra capability the caller supplies — Direct fills a real tensor,
    Symbolic mints a signature it will bind to a constant at ground time. See
-   .ai/native_graph_design.md. *)
+   the `.ai/` native graph design. *)
 
 open Graph_ir
 

@@ -12,7 +12,7 @@ function decimal(value, field) {
  * `presentation.js`'s `stageSupport`), or `null` when the model was not in
  * that sweep. `native4dConverts`/`kernelConverts` are `true`/`false`/`null` --
  * `null` only when Native import itself already failed, per
- * `.ai/pt2_model_support.md`'s `resolve_branch` -- and the blockers are prose,
+ * the `.ai/` pt2 model support doc's `resolve_branch` -- and the blockers are prose,
  * so only their presence and type are checked here, never their content. */
 function validateSupport(raw) {
   if (raw === null || raw === undefined) return null;

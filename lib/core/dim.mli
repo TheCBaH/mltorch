@@ -6,7 +6,7 @@
      - reading back to a raw int (for Bigarray / printing) is a free `:>` coercion;
      - construction is guarded (non-negative) — and count/offset are *derived*
        only, never built from a raw int by callers.
-   See .ai/native_tensor_design.md §1a. *)
+   See the `.ai/` native tensor design §1a. *)
 
 type +'role t = private int
 

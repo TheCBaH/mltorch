@@ -9,7 +9,7 @@
    IDENTITY slice, so a Default-tier walk would vary only the input shape, hold
    every parameter at the identity, and report [matched] for any implementation
    that returns its input. The generator's conservatism is what prevents it; see
-   .ai/native_walk_design.md.
+   the `.ai/` native walk design.
 
    ONE correlated axis of whole (rank, dim, pattern) configurations. A dim is
    only valid for a specific rank, and a (start, end) pair is only valid for a

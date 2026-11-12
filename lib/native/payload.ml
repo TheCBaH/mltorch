@@ -3,7 +3,7 @@
    saying whether turning a cell into a real value needs quantization metadata
    (`Quant) or is fixed by the format (`Real). The quantization GADT is indexed by
    the same tag, so a `Real payload cannot carry quant params and a `Quant one
-   cannot omit them. See .ai/native_tensor_design.md §2. *)
+   cannot omit them. See the `.ai/` native tensor design §2. *)
 
 type ('elt, 'ba, 'q) fmt =
   | BF16 :

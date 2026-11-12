@@ -11,7 +11,7 @@
    [keepdim] flag: the axis list, its output-shape rule, and the (input axis,
    output axis) map a [Compute] functor folds its output coordinate through.
    One definition, so [Mean] and [Amax] cannot drift on how [keepdim]/axis
-   dropping behaves — see .ai/native_add_op.md's payload-boilerplate reuse
+   dropping behaves — see the `.ai/` native add op doc's payload-boilerplate reuse
    note. *)
 module Dims_keepdim = struct
   type t = { dims : Axis.t list; keepdim : bool }
@@ -25,7 +25,7 @@ module Dims_keepdim = struct
   (* Transports [dims] through an axis mapping (e.g. a permutation's
      [lookup]): every entry is remapped, in place, order preserved. Used by
      [Sink_permute_mean] to move a reduction past an input permute without
-     touching [keepdim]. See .ai/native_transform_design.md §12f. *)
+     touching [keepdim]. See the `.ai/` native transform design §12f. *)
   let map_dims f (p : t) = { p with dims = List.map f p.dims }
 
   let pp fmt (p : t) =
@@ -90,12 +90,12 @@ module Mean = struct
      extent, divided by their product. resnet18's global average pool is this
      over H/W — [AvgPool2d] with the window spanning the whole axis, but
      expressed directly as a reduction (no kernel/stride/pad/clipping: the full
-     axis is always in range). See .ai/native_compute_design.md §2.
+     axis is always in range). See the `.ai/` native compute design §2.
 
      [dims] is a list of frame axes (a dispatcher gets them from an ATen dim list
      via [Aten_shape.axis_of_dim]); one op covers `mean(dim=[H,W])`.
 
-     [keepdim] mirrors `aten.mean.dim`'s flag (.ai/native_tensor_design.md §1d):
+     [keepdim] mirrors `aten.mean.dim`'s flag (the `.ai/` native tensor design §1d):
        - keepdim=true  → each reduced axis collapses to extent 1 *in place*; the
          named layout is otherwise unchanged.
        - keepdim=false → the reduced axes are removed and the survivors re-pack
@@ -417,7 +417,7 @@ module Amax = struct
           zero (kept_map p)
       in
       (* Nest one [max_reduce] per reduced axis, mirroring [Mean]'s [sum]
-         nest -- see .ai/native_add_op.md's "reductions over named axes". *)
+         nest -- see the `.ai/` native add op doc's "reductions over named axes". *)
       let rec reduce dims override =
         match dims with
         | [] ->
@@ -740,7 +740,7 @@ module Softmax = struct
      `torch.softmax`, which is free to (and does) produce `nan` on an
      all-`-inf` row. No new [SEMANTICS] primitive is needed: [exp],
      [max_reduce] and [sum] already exist and are already exercised
-     (`attention.ml`'s [Sdpa.Legacy_pixel]). See .ai/matmul_softmax_design.md §3. *)
+     (`attention.ml`'s [Sdpa.Legacy_pixel]). See the `.ai/` matmul softmax design §3. *)
   type params = { axis : Axis.t }
 
   let params_jsont : params Jsont.t =

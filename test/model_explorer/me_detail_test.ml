@@ -1,4 +1,4 @@
-(* [Me_detail]: expression detail, and the merge (.ai/model_explorer_design.md).
+(* [Me_detail]: expression detail, and the merge (the `.ai/` model explorer design).
 
    The rules here are all about what {!Me_detail.apply} must REFUSE, and none of
    them is visible in a merge that happens to succeed:

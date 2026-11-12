@@ -1,6 +1,6 @@
 open Loop_ir
 
-(* Stage 3 of the Loop IR optimization plan: [Loop_opt_guards] drops a
+(* The Loop IR guard pass: [Loop_opt_guards] drops a
    [Fail_if (Index_overflows _ | Out_of_range _)] (or an [Or] of only those
    two shapes) that [Loop_range] proves can never fire, given the enclosing
    loop variables' ranges rebuilt top-down over the already-lowered program. *)

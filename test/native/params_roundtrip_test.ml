@@ -410,7 +410,7 @@ let%expect_test "Reshape: encode -> decode, a rank-changing non-default target"
 
 (* Pad introduces two JSON shapes no other op has: a per-axis SIGNED int pair,
    and a mode carried as a single-key union whose constant case holds a bare
-   float. Both are exactly the kind [.ai/native_add_op.md] says earns a round
+   float. Both are exactly the kind [the `.ai/` native add op doc] says earns a round
    trip.
 
    The fill is 0.1, which is not f32-exact: printing alone cannot tell a codec

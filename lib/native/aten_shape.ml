@@ -3,7 +3,7 @@
    innermost r axes of [N T D H W C], the outer 6-r axes are size 1. ATen dim [i]
    maps to frame position [6 - r + i]. The reverse ([to_aten]) needs the rank,
    because the frame alone can't recover it (an [N=1] axis is ambiguous between
-   "unused" and "batch of 1"). See .ai/native_tensor_design.md §1d.
+   "unused" and "batch of 1"). See the `.ai/` native tensor design §1d.
 
    This is mechanical, not semantic: it does NOT place batch on [N] or remap
    NCHW<->NHWC — a rank-4 [n;h;w;c] lands with [n] on [D]. Semantic placement is
@@ -368,7 +368,7 @@ let resolve_tile_size ~(self_dims : Aten_int.Size.t array)
    [self] rank 5 ([b,y,h,w,c]), [other] rank 3, one of [self]'s two spatial
    indices ([h] or [w]) shared with [other] and contracted against [self]'s
    own channel axis [c]. Named by which shared index it is -- the literal
-   equation string is the only proof, decoded once here (`.ai/einsum_design.md`)
+   equation string is the only proof, decoded once here (the `.ai/` einsum design)
    rather than re-parsed per importer, so the two importers can't drift on
    which strings they accept. *)
 module Einsum = struct

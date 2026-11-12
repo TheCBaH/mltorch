@@ -6,7 +6,7 @@
 (* ---- selection ------------------------------------------------------------ *)
 
 (* Native's [Slice] with its axis narrowed to the dialect's four. Its own payload
-   for the FIRST reason in .ai/native4d_add_op.md -- it names an axis, so the
+   for the FIRST reason in the `.ai/` native4d add op doc -- it names an axis, so the
    field is [Axis4.t] and T/D are unsayable in a four-axis graph.
 
    The BOUNDS are Native's own and cross unchanged: they are canonical by the
@@ -62,7 +62,7 @@ module Slice4 = struct
 end
 
 (* Native's [Split.Select] with its axis narrowed to the dialect's four. Its own
-   payload for the FIRST reason in .ai/native4d_add_op.md -- it names an axis,
+   payload for the FIRST reason in the `.ai/` native4d add op doc -- it names an axis,
    so the field is [Axis4.t] and T/D are unsayable in a four-axis graph.
 
    Unlike [Slice4], which KEEPS its axis, [Select4] DROPS it, the same way
@@ -169,7 +169,7 @@ end
 (* ---- joining ---------------------------------------------------------------
 
    Native's [Concat] with its axis narrowed to the dialect's four. Its own
-   payload for the FIRST reason in .ai/native4d_add_op.md -- it names an axis,
+   payload for the FIRST reason in the `.ai/` native4d add op doc -- it names an axis,
    so the field is [Axis4.t] and T/D are unsayable in a four-axis graph.
 
    [xs] is a variadic OPERAND list, unlike every other op above except
@@ -222,7 +222,7 @@ end
 (* ---- stacking --------------------------------------------------------------
 
    Native's [Concat.Stack] with its axis narrowed to the dialect's four. Its
-   own payload for the FIRST reason in .ai/native4d_add_op.md -- it names an
+   own payload for the FIRST reason in the `.ai/` native4d add op doc -- it names an
    axis, so the field is [Axis4.t] and T/D are unsayable in a four-axis graph.
 
    [Stack] INSERTS a new axis, the opposite of [Select4]'s drop -- so the same
@@ -284,7 +284,7 @@ end
    its arity comes from the operand's signature rather than from the op.
 
    Needs its own payload for the first of the three reasons in
-   .ai/native4d_add_op.md — it NAMES AN AXIS, so the field is [Axis4.t] and T/D
+   the `.ai/` native4d add op doc — it NAMES AN AXIS, so the field is [Axis4.t] and T/D
    are unsayable. Everything else is Native's [Split.Unbind]: the shape rule and
    the per-pixel algorithm are delegated, never restated.
 

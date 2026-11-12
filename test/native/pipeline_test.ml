@@ -1,5 +1,5 @@
 (* The canonical pipeline: that both [fold] branches run, and that each is
-   idempotent. See .ai/native_transform_design.md §12h.
+   idempotent. See the `.ai/` native transform design §12h.
 
    Idempotence is the property worth pinning. "Canonical" only means anything if
    a second application changes nothing — otherwise the Native4D domain check is

@@ -1,7 +1,7 @@
 (* Folding an inference batch norm into the conv feeding it — the first rewrite
    that changes values rather than rearranging them, so the first to claim
    [Equivalent] rather than [Identical].
-   See .ai/native_transform_design.md §12c.
+   See the `.ai/` native transform design §12c.
 
    The load-bearing test is the numeric one: all eight combinations of the
    independently optional operands (conv bias × BN weight × BN bias), each
@@ -180,7 +180,7 @@ let captured_store g =
        (fun id -> Graph_ir.input_kind g id = Input.Constant)
        g.Graph.inputs)
 
-(* Gate 6's measurement seam. This deliberately starts from materialized
+(* The measurement seam. This deliberately starts from materialized
    payloads, so the trace describes the old [Eval_direct]-backed cache path,
    not the symbolic plan that now replaces it. The one BatchNorm block reaches
    every current M1 arithmetic operation; sorting makes the checked-in manifest
@@ -456,7 +456,7 @@ let combinations =
    SYMBOLIC input — so it holds for every input, but per-coefficient and
    whole-tensor tolerances are incomparable in general (many small coefficient
    errors can sum; one large error on a near-zero activation may never surface).
-   Hence both. See .ai/native_transform_verify.md. *)
+   Hence both. See the `.ai/` native transform verify doc. *)
 let verified g ~constants =
   match Rewrite.origin ~constants g with
   | Error _ -> "origin failed"

@@ -1,5 +1,5 @@
 (* Remove the nodes that do not contribute to a graph output.
-   See .ai/native_transform_design.md §12g.
+   See the `.ai/` native transform design §12g.
 
    The predicate is GLOBAL REACHABILITY, not local unusedness, and the pass runs
    WITHOUT [Pass.fixpoint]. Both are deliberate, and they are the same decision
@@ -32,7 +32,7 @@
 
    [Discard] needs no special case: a sink produces nothing, so it is never
    reachable, so it is always removed. That is what makes this the pass
-   .ai/native_multi_output_design.md defers the [Discard] sinks to. *)
+   the `.ai/` native multi output design defers the [Discard] sinks to. *)
 
 open Graph_ir
 

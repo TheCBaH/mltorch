@@ -1,4 +1,4 @@
-(* Right-aligned, positional ATen<->6D bridge. See .ai/native_tensor_design.md §1d. *)
+(* Right-aligned, positional ATen<->6D bridge. See the `.ai/` native tensor design §1d. *)
 
 let pp_ints fmt (a : Aten_int.Size.t array) =
   Format.fprintf fmt "[%s]"

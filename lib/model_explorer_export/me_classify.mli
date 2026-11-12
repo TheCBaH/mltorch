@@ -12,7 +12,7 @@
    That is the whole reason these are classifiers rather than wildcards at the
    call site.
 
-   See .ai/model_explorer_design.md. *)
+   See the `.ai/` model explorer design. *)
 
 type verdict =
   | Fatal  (** a defect: the session fails rather than reporting a capability *)
