@@ -4,7 +4,7 @@
 # [todo-domain] is a debt marker (an int that names an entity); the ceiling only goes down.
 # [ml:<dir>] scope entries also read the inferred interface of each .ml without an .mli; a library enters with an opening
 # [todo-domain] balance that is part of the ceiling, and the ceiling only goes down from there.
-@todo-domain-ceiling 328
+@todo-domain-ceiling 335
 lib/coralnpu/coral_dma.mli	wire	val offset : t -> int end
 lib/coralnpu/coral_dma.mli	bits	val ctrl_start : int
 lib/coralnpu/coral_dma.mli	bits	val status_done : int
@@ -220,7 +220,7 @@ lib/loop_ir/loop_range.mli	expr-literal	val scale : int -> t -> t
 lib/loop_ir/loop_range.mli	expr-literal	val saturating_mul : int -> int64 -> int64
 lib/loop_ir/loop_sum.mli	tally	val count : Loop_program.t -> int
 lib/loop_ir/loop_target.mli	todo-domain	type t = { name : string; vector_bits : int; precision : Loop_numerics.Precision.t; lanes : int; inner_loops : bool; fma : bool; relaxed_madd : bool; row_block : int; support : Op.t -> support; cost : Op.t -> float; at : Loop_numerics.Precision.t -> t; }
-lib/loop_ir/loop_target.mli	tally	val with_row_block : int -> t -> t
+lib/loop_ir/loop_target.mli	todo-domain	val with_row_block : int -> t -> t
 lib/loop_ir/loop_target.mli	tally	val profitable : t -> (Op.t * int) list -> bool
 lib/loop_ir/loop_vector.mli	expr-literal	type t = { buffer : Loop_buffer.t; offset : Loop_index.t; stride : int } end
 lib/loop_ir/loop_vector.mli	expr-literal	type t = | Binary of Expr.Value.binary_op * t * t | Const of float | Float_max of t * t | Fma of t * t * t | Index_value of { base : Loop_index.t; step : int } | Load of Access.t | Round_f32 of t | Select of mask * t * t | Splat of float Loop_expr.t | Temp of Temp.t | Unary of Expr.Value.unary_op * t
@@ -357,7 +357,7 @@ lib/machine_ir/mir_planning.mli	hash	val compare : t -> t -> int end
 lib/machine_model/mir_model.mli	tally	val invocations : t -> int
 lib/machine_model/mir_model.mli	tally	val packed : t -> int
 lib/machine_model/mir_model.mli	budget	val run_prefix : ?fuel:int64 -> t -> inputs:(Tensor_id.t -> Tensor.packed option) -> count:int -> (Tensor_id.t list, Stop.t) result
-lib/machine_model/sdpa_select.mli	budget	type t = { block_keys : int; precision : Attention_block.Precision.t }
+lib/machine_model/sdpa_select.mli	todo-domain	type t = { block_keys : int; precision : Attention_block.Precision.t }
 lib/machine_model/sdpa_select.mli	as-written	type t = | Block_keys of int | Descriptor of string | Engine_absent | Feature_extent of int | Mask_not_f32 | Not_bf16 of string | Not_f32 of string | Not_sdpa | Outer_axes | Padded_work of { padded : int64; actual : int64 } | Ungranted | Unknown_node
 lib/machine_rivet_aarch64/rivet_a64_exp.ml	todo-domain	val one : int
 lib/machine_rivet_aarch64/rivet_a64_exp.ml	todo-domain	val round_bias : int
@@ -842,16 +842,16 @@ lib/ssa_ir/ssa_interp.mli	as-written	type failure = [ `Coord_out_of_range of Exp
 lib/ssa_ir/ssa_numerics.mli	tally	val coverage : numerics:t -> f32_kernels:int -> kernels:int -> f32_invocations:int -> invocations:int -> refusals:(Refusal.t * int) list -> string
 lib/ssa_ir/ssa_opt.mli	tally	type report = (string * int) list
 lib/ssa_ir/ssa_opt_contract.mli	tally	val contracted : Ssa_program.t -> int
-lib/ssa_ir/ssa_opt_rows.mli	budget	val program : rows:int -> policy:Ssa_effects.policy -> Ssa_program.t -> Ssa_program.t * int
-lib/ssa_ir/ssa_opt_rows.mli	tally	val analyze : rows:int -> policy:Ssa_effects.policy -> Ssa_program.t -> (Ssa_id.Region.t * (int, refusal) result) list
+lib/ssa_ir/ssa_opt_rows.mli	todo-domain	val program : rows:int -> policy:Ssa_effects.policy -> Ssa_program.t -> Ssa_program.t * int
+lib/ssa_ir/ssa_opt_rows.mli	todo-domain	val analyze : rows:int -> policy:Ssa_effects.policy -> Ssa_program.t -> (Ssa_id.Region.t * (int, refusal) result) list
 lib/ssa_ir/ssa_plan.mli	tally	type t = { numerics : Ssa_numerics.t; precision : Ssa_numerics.Precision.t; program : Ssa_program.t; refusal : Ssa_numerics.Refusal.t option; vectorized : Ssa_vectorize.report; sums : Ssa_vector_sum.report; blocked : int; contracted : int; }
 lib/ssa_ir/ssa_pp.mli	arity	val line : state -> int -> ('a, Format.formatter, unit, unit) format4 -> 'a
 lib/ssa_ir/ssa_pp.mli	arity	val instr : state -> int -> Ssa_instr.t -> unit
 lib/ssa_ir/ssa_target.mli	todo-domain	type t = { name : string; vector_bits : int; precision : Ssa_numerics.Precision.t; lanes : Ssa_type.Lanes.t; inner_loops : bool; fma : bool; relaxed_madd : bool; row_block : int; unroll : int; support : Op.t -> support; cost : Op.t -> float; at : Ssa_numerics.Precision.t -> t; }
-lib/ssa_ir/ssa_target.mli	budget	val with_row_block : int -> t -> t
-lib/ssa_ir/ssa_target.mli	budget	val with_unroll : int -> t -> t
+lib/ssa_ir/ssa_target.mli	todo-domain	val with_row_block : int -> t -> t
+lib/ssa_ir/ssa_target.mli	todo-domain	val with_unroll : int -> t -> t
 lib/ssa_ir/ssa_target.mli	tally	val profitable : t -> (Op.t * int) list -> bool
-lib/ssa_ir/ssa_vector_sum.mli	tally	type outcome = | Kept_sequential of Reason.t | Scheduled of { parts : int }
+lib/ssa_ir/ssa_vector_sum.mli	todo-domain	type outcome = | Kept_sequential of Reason.t | Scheduled of { parts : int }
 lib/ssa_ir/ssa_vectorize.mli	tally	type t = { loop : Ssa_id.Region.t; trips : int64; work : int64; executions : int64; ops : (Ssa_target.Op.t * int) list; outcome : outcome; } end
 lib/ssa_ir/ssa_vectorize.mli	tally	val tally : report -> (string * (int * int64)) list
 lib/ssa_ir/ssa_verify.mli	budget	val max_region_depth : int

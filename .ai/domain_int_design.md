@@ -86,6 +86,11 @@ them does with the number. The audit of the exempt entries, by family:
   `Mir_type.Lanes.t` already exist and are unwrapped (`lanes_of`, `lane_ok`,
   `lanes_per_register`, `registers_of_lanes`). The Loop vector record that holds
   `lanes` and `parts` beside its literal bounds is `todo-domain` as a whole.
+- **Block rows, unroll factor, parts, block keys** (7 entries, was `tally` or
+  `budget`): a row count is a domain, not a limit. The same `rows` was `budget` in
+  `Ssa_opt_rows.program` and `tally` in `analyze` two declarations later; a
+  declaration that also returns a count of blocked loops is not exempt either,
+  since one of its `int`s is not. A limit (`max_depth`, `fuel`) stays `budget`.
 
 ## 2. Taxonomy
 
