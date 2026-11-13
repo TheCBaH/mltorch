@@ -161,6 +161,9 @@ jobs:
     - name: file size check
       if: matrix.suite == 'native-test'
       run: make check.file-size
+    - name: loop freeze check
+      if: matrix.suite == 'native-test'
+      run: make check.loop-freeze
     - name: doc reference check
       if: matrix.suite == 'native-test'
       run: make check.doc-refs
