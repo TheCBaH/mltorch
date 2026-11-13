@@ -241,10 +241,13 @@ let build ?vector ?(numerics = Loop_numerics.Reference_f64) ?kernel
   let* outputs = P.create P.Role.Outputs output_sigs in
   (* The module's own bytes: the error record, then constant tables. *)
   let top = ref (align (Int64.of_int Loop_wasm_failure.record_bytes) 16L) in
+  (* An address at or past the memory policy cannot be an [int] under
+     js_of_ocaml, so none is handed out: the kernel gets 0 and the total check
+     below refuses the module, [top] having grown past the cap. *)
   let table_alloc ~bytes =
     let off = align !top 8L in
     top := Int64.add off (Int64.of_int bytes);
-    Int64.to_int off
+    if Int64.compare off memory_cap < 0 then Int64.to_int off else 0
   in
   let kernels = Kernels.create () in
   let* compiled =
@@ -321,7 +324,7 @@ let build ?vector ?(numerics = Loop_numerics.Reference_f64) ?kernel
   let o_at = align (Int64.add ws_at (W.bytes ws)) 64L in
   let total = Int64.add o_at outputs.P.length in
   let* () =
-    if Int64.compare total memory_cap > 0 then
+    if Int64.compare total memory_cap >= 0 then
       Err.fail (`Memory_over_policy total)
     else Err.return ()
   in
