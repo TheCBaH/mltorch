@@ -4,7 +4,7 @@
 # [todo-domain] is a debt marker (an int that names an entity); the ceiling only goes down.
 # [ml:<dir>] scope entries also read the inferred interface of each .ml without an .mli; a library enters with an opening
 # [todo-domain] balance that is part of the ceiling, and the ceiling only goes down from there.
-@todo-domain-ceiling 356
+@todo-domain-ceiling 255
 lib/coralnpu/coral_dma.mli	wire	val offset : t -> int end
 lib/coralnpu/coral_dma.mli	bits	val ctrl_start : int
 lib/coralnpu/coral_dma.mli	bits	val status_done : int
@@ -387,33 +387,6 @@ lib/machine_rivet_aarch64/rivet_a64_image.ml	wire	val merge_fill : executable:bo
 lib/machine_rivet_aarch64/rivet_a64_image.ml	wire	val section_pad : (length:int -> string) option
 lib/machine_rivet_aarch64/rivet_a64_module.ml	todo-domain	val relocation_index : ('a, 'b) Art.t -> (int * int * int option, Art.Relocation.t) Hashtbl.t
 lib/machine_rivet_aarch64/rivet_a64_module.ml	todo-domain	val instrs_of_func : ?mutation:F.Mutation.t -> table_slot:(string -> int option) -> F.R.t Err.Escape.t -> (int * int * int option, Art.Relocation.t) Hashtbl.t -> (Machine_target_aarch64.A64_op.t, Machine_target_aarch64.A64_op.test) Machine_ir.Mir_phys.Func.t -> F.I.t N.item list
-lib/machine_rivet_aarch64/rivet_a64_route.ml	tally	val shape : Machine_ir.Mir_type.t -> (Machine_ir.Mir_target.Bank.t * int) option
-lib/machine_rivet_aarch64/rivet_a64_route.ml	todo-domain	val in_memory : int -> Machine_ir.Mir_phys_verify.Loc.t -> bool
-lib/machine_rivet_aarch64/rivet_a64_route.ml	tally	val shape : Machine_ir.Mir_value.t -> Machine_ir.Mir_target.Bank.t * int
-lib/machine_rivet_aarch64/rivet_a64_route.ml	todo-domain	type st = Machine_alloc.Mir_ref_alloc.Make(Machine_target_aarch64.A64)(Machine_target_aarch64.A64_regs).st = { mutation : Machine_alloc.Mir_ref_alloc.Mutation.t option; mutable next_block : int; mutable slots : Machine_ir.Mir_phys.Slot.t list; mutable previous : Machine_ir.Mir_value.t option; }
-lib/machine_rivet_aarch64/rivet_a64_route.ml	tally	val shape : Machine_ir.Mir_type.t -> (Machine_ir.Mir_target.Bank.t * int) option
-lib/machine_rivet_aarch64/rivet_a64_route.ml	todo-domain	val in_memory : int -> Machine_ir.Mir_phys_verify.Loc.t -> bool
-lib/machine_rivet_aarch64/rivet_a64_route.ml	todo-domain	type t = Machine_alloc.Mir_liveness.Make(Machine_target_aarch64.A64).Interval.t = { value : Machine_ir.Mir_value.t; ranges : (int * int) list; uses : int list; } end
-lib/machine_rivet_aarch64/rivet_a64_route.ml	todo-domain	val spans : func -> (Machine_ir.Mir_id.Block.t * (int * int)) list
-lib/machine_rivet_aarch64/rivet_a64_route.ml	tally	val shape : Machine_ir.Mir_value.t -> Machine_ir.Mir_target.Bank.t * int
-lib/machine_rivet_aarch64/rivet_a64_route.ml	todo-domain	type t = Machine_alloc.Mir_scan.Make(Machine_target_aarch64.A64)(Machine_target_aarch64.A64_regs).Where.t = In of int | Spilled | Unassigned end
-lib/machine_rivet_aarch64/rivet_a64_route.ml	todo-domain	type t = Machine_alloc.Mir_scan.Make(Machine_target_aarch64.A64)(Machine_target_aarch64.A64_regs).Piece.t = { value : Machine_ir.Mir_value.t; mutable ranges : (int * int) list; mutable uses : int list; mutable needs : int list; mutable where : Where.t; }
-lib/machine_rivet_aarch64/rivet_a64_route.ml	todo-domain	val start : t -> int
-lib/machine_rivet_aarch64/rivet_a64_route.ml	todo-domain	val stop : t -> int
-lib/machine_rivet_aarch64/rivet_a64_route.ml	todo-domain	val covers : t -> int -> bool
-lib/machine_rivet_aarch64/rivet_a64_route.ml	todo-domain	val intersection : t -> t -> from:int -> int option
-lib/machine_rivet_aarch64/rivet_a64_route.ml	todo-domain	val next_use : t -> from:int -> int option
-lib/machine_rivet_aarch64/rivet_a64_route.ml	todo-domain	val split : t -> int -> t end
-lib/machine_rivet_aarch64/rivet_a64_route.ml	todo-domain	type t = Machine_alloc.Mir_scan.Make(Machine_target_aarch64.A64)(Machine_target_aarch64.A64_regs).Fixed.t = { view : Machine_ir.Mir_target.View.t; lo : int; hi : int; own : Machine_ir.Mir_value.t list; } end
-lib/machine_rivet_aarch64/rivet_a64_route.ml	todo-domain	val split_for : int -> int
-lib/machine_rivet_aarch64/rivet_a64_route.ml	todo-domain	val must : Piece.t -> at:int -> bool
-lib/machine_rivet_aarch64/rivet_a64_route.ml	todo-domain	type st = Machine_alloc.Mir_scan.Make(Machine_target_aarch64.A64)(Machine_target_aarch64.A64_regs).st = { mutation : Machine_alloc.Mir_scan.Mutation.t option; mutable next_block : int; }
-lib/machine_rivet_aarch64/rivet_a64_route.ml	todo-domain	val scan : st -> bank:Machine_ir.Mir_target.Bank.t -> fixed:Fixed.t list -> depth:(int -> int) -> starts:int list -> split_cost:(int -> 'a) -> loops:(int * int) list -> uses_of:(Machine_ir.Mir_value.t -> int list) -> prefer:(Machine_ir.Mir_value.t -> Machine_ir.Mir_value.t option) -> Piece.t list -> Piece.t list
-lib/machine_rivet_aarch64/rivet_a64_route.ml	todo-domain	type t = Machine_alloc.Mir_liveness.Make(Machine_target_aarch64.A64).Interval.t = { value : Machine_ir.Mir_value.t; ranges : (int * int) list; uses : int list; } end
-lib/machine_rivet_aarch64/rivet_a64_route.ml	todo-domain	val spans : func -> (Machine_ir.Mir_id.Block.t * (int * int)) list
-lib/machine_rivet_aarch64/rivet_a64_route.ml	todo-domain	val key : Machine_ir.Mir_value.t -> int
-lib/machine_rivet_aarch64/rivet_a64_route.ml	todo-domain	val dependencies : ?mutation:Machine_alloc.Mir_schedule.Mutation.t -> instr array -> (int * int) list
-lib/machine_rivet_aarch64/rivet_a64_route.ml	todo-domain	val placeholder : int -> Machine_ir.Mir_type.t -> Machine_ir.Mir_value.t
 lib/machine_rivet_aarch64/rivet_a64_table.ml	todo-domain	val slot_of_symbol : slot list -> String.t -> int option
 lib/machine_rivet_aarch64/rivet_a64_table.ml	todo-domain	val bytes : 'a list -> int
 lib/machine_rivet_aarch64_gnu/gnu_coherence.ml	wire	type section_build = Driver_direct.Pipeline_direct.Make(Aarch64).section_build = { sb_name : string; sb_perms : Asm_core.Perms.t; sb_kind : Asm_core.Lowered_ast.section_kind; mutable sb_align : int; mutable sb_frags : Aarch64.fixup_kind Asm_core.Lowered_ast.fragment list; }
@@ -502,70 +475,6 @@ lib/machine_rivet_riscv32_mir/rv32_mir_outline.ml	todo-domain	val sp_slot : int 
 lib/machine_rivet_riscv32_mir/rv32_mir_outline.ml	wire	val save : string -> int -> Item.t
 lib/machine_rivet_riscv32_mir/rv32_mir_outline.ml	wire	val restore : string -> int -> Item.t
 lib/machine_rivet_riscv32_mir/rv32_mir_outline.ml	todo-domain	val fill : slot:int -> candidate list -> candidate list option
-lib/machine_rivet_riscv32_mir/rv32_mir_route.ml	tally	val shape : Machine_ir.Mir_type.t -> (Machine_ir.Mir_target.Bank.t * int) option
-lib/machine_rivet_riscv32_mir/rv32_mir_route.ml	todo-domain	val in_memory : int -> Machine_ir.Mir_phys_verify.Loc.t -> bool
-lib/machine_rivet_riscv32_mir/rv32_mir_route.ml	tally	val shape : Machine_ir.Mir_value.t -> Machine_ir.Mir_target.Bank.t * int
-lib/machine_rivet_riscv32_mir/rv32_mir_route.ml	todo-domain	type st = Machine_alloc.Mir_ref_alloc.Make(Machine_target_riscv32.Rv32)(Machine_target_riscv32.Rv32_regs).st = { mutation : Machine_alloc.Mir_ref_alloc.Mutation.t option; mutable next_block : int; mutable slots : Machine_ir.Mir_phys.Slot.t list; mutable previous : Machine_ir.Mir_value.t option; }
-lib/machine_rivet_riscv32_mir/rv32_mir_route.ml	tally	val shape : Machine_ir.Mir_type.t -> (Machine_ir.Mir_target.Bank.t * int) option
-lib/machine_rivet_riscv32_mir/rv32_mir_route.ml	todo-domain	val in_memory : int -> Machine_ir.Mir_phys_verify.Loc.t -> bool
-lib/machine_rivet_riscv32_mir/rv32_mir_route.ml	todo-domain	type t = Machine_alloc.Mir_liveness.Make(Machine_target_riscv32.Rv32).Interval.t = { value : Machine_ir.Mir_value.t; ranges : (int * int) list; uses : int list; } end
-lib/machine_rivet_riscv32_mir/rv32_mir_route.ml	todo-domain	val spans : func -> (Machine_ir.Mir_id.Block.t * (int * int)) list
-lib/machine_rivet_riscv32_mir/rv32_mir_route.ml	tally	val shape : Machine_ir.Mir_value.t -> Machine_ir.Mir_target.Bank.t * int
-lib/machine_rivet_riscv32_mir/rv32_mir_route.ml	todo-domain	type t = Machine_alloc.Mir_scan.Make(Machine_target_riscv32.Rv32)(Machine_target_riscv32.Rv32_regs).Where.t = In of int | Spilled | Unassigned end
-lib/machine_rivet_riscv32_mir/rv32_mir_route.ml	todo-domain	type t = Machine_alloc.Mir_scan.Make(Machine_target_riscv32.Rv32)(Machine_target_riscv32.Rv32_regs).Piece.t = { value : Machine_ir.Mir_value.t; mutable ranges : (int * int) list; mutable uses : int list; mutable needs : int list; mutable where : Where.t; }
-lib/machine_rivet_riscv32_mir/rv32_mir_route.ml	todo-domain	val start : t -> int
-lib/machine_rivet_riscv32_mir/rv32_mir_route.ml	todo-domain	val stop : t -> int
-lib/machine_rivet_riscv32_mir/rv32_mir_route.ml	todo-domain	val covers : t -> int -> bool
-lib/machine_rivet_riscv32_mir/rv32_mir_route.ml	todo-domain	val intersection : t -> t -> from:int -> int option
-lib/machine_rivet_riscv32_mir/rv32_mir_route.ml	todo-domain	val next_use : t -> from:int -> int option
-lib/machine_rivet_riscv32_mir/rv32_mir_route.ml	todo-domain	val split : t -> int -> t end
-lib/machine_rivet_riscv32_mir/rv32_mir_route.ml	todo-domain	type t = Machine_alloc.Mir_scan.Make(Machine_target_riscv32.Rv32)(Machine_target_riscv32.Rv32_regs).Fixed.t = { view : Machine_ir.Mir_target.View.t; lo : int; hi : int; own : Machine_ir.Mir_value.t list; } end
-lib/machine_rivet_riscv32_mir/rv32_mir_route.ml	todo-domain	val split_for : int -> int
-lib/machine_rivet_riscv32_mir/rv32_mir_route.ml	todo-domain	val must : Piece.t -> at:int -> bool
-lib/machine_rivet_riscv32_mir/rv32_mir_route.ml	todo-domain	type st = Machine_alloc.Mir_scan.Make(Machine_target_riscv32.Rv32)(Machine_target_riscv32.Rv32_regs).st = { mutation : Machine_alloc.Mir_scan.Mutation.t option; mutable next_block : int; }
-lib/machine_rivet_riscv32_mir/rv32_mir_route.ml	todo-domain	val scan : st -> bank:Machine_ir.Mir_target.Bank.t -> fixed:Fixed.t list -> depth:(int -> int) -> starts:int list -> split_cost:(int -> 'a) -> loops:(int * int) list -> uses_of:(Machine_ir.Mir_value.t -> int list) -> prefer:(Machine_ir.Mir_value.t -> Machine_ir.Mir_value.t option) -> Piece.t list -> Piece.t list
-lib/machine_rivet_riscv32_mir/rv32_mir_route.ml	tally	val shape : Machine_ir.Mir_type.t -> (Machine_ir.Mir_target.Bank.t * int) option
-lib/machine_rivet_riscv32_mir/rv32_mir_route.ml	todo-domain	val in_memory : int -> Machine_ir.Mir_phys_verify.Loc.t -> bool
-lib/machine_rivet_riscv32_mir/rv32_mir_route.ml	todo-domain	type t = Machine_alloc.Mir_liveness.Make(Machine_target_riscv32.Rv32).Interval.t = { value : Machine_ir.Mir_value.t; ranges : (int * int) list; uses : int list; } end
-lib/machine_rivet_riscv32_mir/rv32_mir_route.ml	todo-domain	val spans : func -> (Machine_ir.Mir_id.Block.t * (int * int)) list
-lib/machine_rivet_riscv32_mir/rv32_mir_route.ml	tally	val shape : Machine_ir.Mir_value.t -> Machine_ir.Mir_target.Bank.t * int
-lib/machine_rivet_riscv32_mir/rv32_mir_route.ml	todo-domain	type t = Machine_alloc.Mir_scan.Make(Machine_target_riscv32.Rv32)(Machine_target_riscv32.Rv32_regs.Grouped).Where.t = In of int | Spilled | Unassigned end
-lib/machine_rivet_riscv32_mir/rv32_mir_route.ml	todo-domain	type t = Machine_alloc.Mir_scan.Make(Machine_target_riscv32.Rv32)(Machine_target_riscv32.Rv32_regs.Grouped).Piece.t = { value : Machine_ir.Mir_value.t; mutable ranges : (int * int) list; mutable uses : int list; mutable needs : int list; mutable where : Where.t; }
-lib/machine_rivet_riscv32_mir/rv32_mir_route.ml	todo-domain	val start : t -> int
-lib/machine_rivet_riscv32_mir/rv32_mir_route.ml	todo-domain	val stop : t -> int
-lib/machine_rivet_riscv32_mir/rv32_mir_route.ml	todo-domain	val covers : t -> int -> bool
-lib/machine_rivet_riscv32_mir/rv32_mir_route.ml	todo-domain	val intersection : t -> t -> from:int -> int option
-lib/machine_rivet_riscv32_mir/rv32_mir_route.ml	todo-domain	val next_use : t -> from:int -> int option
-lib/machine_rivet_riscv32_mir/rv32_mir_route.ml	todo-domain	val split : t -> int -> t end
-lib/machine_rivet_riscv32_mir/rv32_mir_route.ml	todo-domain	type t = Machine_alloc.Mir_scan.Make(Machine_target_riscv32.Rv32)(Machine_target_riscv32.Rv32_regs.Grouped).Fixed.t = { view : Machine_ir.Mir_target.View.t; lo : int; hi : int; own : Machine_ir.Mir_value.t list; } end
-lib/machine_rivet_riscv32_mir/rv32_mir_route.ml	todo-domain	val split_for : int -> int
-lib/machine_rivet_riscv32_mir/rv32_mir_route.ml	todo-domain	val must : Piece.t -> at:int -> bool
-lib/machine_rivet_riscv32_mir/rv32_mir_route.ml	todo-domain	type st = Machine_alloc.Mir_scan.Make(Machine_target_riscv32.Rv32)(Machine_target_riscv32.Rv32_regs.Grouped).st = { mutation : Machine_alloc.Mir_scan.Mutation.t option; mutable next_block : int; }
-lib/machine_rivet_riscv32_mir/rv32_mir_route.ml	todo-domain	val scan : st -> bank:Machine_ir.Mir_target.Bank.t -> fixed:Fixed.t list -> depth:(int -> int) -> starts:int list -> split_cost:(int -> 'a) -> loops:(int * int) list -> uses_of:(Machine_ir.Mir_value.t -> int list) -> prefer:(Machine_ir.Mir_value.t -> Machine_ir.Mir_value.t option) -> Piece.t list -> Piece.t list
-lib/machine_rivet_riscv32_mir/rv32_mir_route.ml	tally	val shape : Machine_ir.Mir_type.t -> (Machine_ir.Mir_target.Bank.t * int) option
-lib/machine_rivet_riscv32_mir/rv32_mir_route.ml	todo-domain	val in_memory : int -> Machine_ir.Mir_phys_verify.Loc.t -> bool
-lib/machine_rivet_riscv32_mir/rv32_mir_route.ml	todo-domain	type t = Machine_alloc.Mir_liveness.Make(Machine_target_riscv32.Rv32).Interval.t = { value : Machine_ir.Mir_value.t; ranges : (int * int) list; uses : int list; } end
-lib/machine_rivet_riscv32_mir/rv32_mir_route.ml	todo-domain	val spans : func -> (Machine_ir.Mir_id.Block.t * (int * int)) list
-lib/machine_rivet_riscv32_mir/rv32_mir_route.ml	tally	val shape : Machine_ir.Mir_value.t -> Machine_ir.Mir_target.Bank.t * int
-lib/machine_rivet_riscv32_mir/rv32_mir_route.ml	todo-domain	type t = Machine_alloc.Mir_scan.Make(Machine_target_riscv32.Rv32)(Machine_target_riscv32.Rv32_regs.Grouped8).Where.t = In of int | Spilled | Unassigned end
-lib/machine_rivet_riscv32_mir/rv32_mir_route.ml	todo-domain	type t = Machine_alloc.Mir_scan.Make(Machine_target_riscv32.Rv32)(Machine_target_riscv32.Rv32_regs.Grouped8).Piece.t = { value : Machine_ir.Mir_value.t; mutable ranges : (int * int) list; mutable uses : int list; mutable needs : int list; mutable where : Where.t; }
-lib/machine_rivet_riscv32_mir/rv32_mir_route.ml	todo-domain	val start : t -> int
-lib/machine_rivet_riscv32_mir/rv32_mir_route.ml	todo-domain	val stop : t -> int
-lib/machine_rivet_riscv32_mir/rv32_mir_route.ml	todo-domain	val covers : t -> int -> bool
-lib/machine_rivet_riscv32_mir/rv32_mir_route.ml	todo-domain	val intersection : t -> t -> from:int -> int option
-lib/machine_rivet_riscv32_mir/rv32_mir_route.ml	todo-domain	val next_use : t -> from:int -> int option
-lib/machine_rivet_riscv32_mir/rv32_mir_route.ml	todo-domain	val split : t -> int -> t end
-lib/machine_rivet_riscv32_mir/rv32_mir_route.ml	todo-domain	type t = Machine_alloc.Mir_scan.Make(Machine_target_riscv32.Rv32)(Machine_target_riscv32.Rv32_regs.Grouped8).Fixed.t = { view : Machine_ir.Mir_target.View.t; lo : int; hi : int; own : Machine_ir.Mir_value.t list; } end
-lib/machine_rivet_riscv32_mir/rv32_mir_route.ml	todo-domain	val split_for : int -> int
-lib/machine_rivet_riscv32_mir/rv32_mir_route.ml	todo-domain	val must : Piece.t -> at:int -> bool
-lib/machine_rivet_riscv32_mir/rv32_mir_route.ml	todo-domain	type st = Machine_alloc.Mir_scan.Make(Machine_target_riscv32.Rv32)(Machine_target_riscv32.Rv32_regs.Grouped8).st = { mutation : Machine_alloc.Mir_scan.Mutation.t option; mutable next_block : int; }
-lib/machine_rivet_riscv32_mir/rv32_mir_route.ml	todo-domain	val scan : st -> bank:Machine_ir.Mir_target.Bank.t -> fixed:Fixed.t list -> depth:(int -> int) -> starts:int list -> split_cost:(int -> 'a) -> loops:(int * int) list -> uses_of:(Machine_ir.Mir_value.t -> int list) -> prefer:(Machine_ir.Mir_value.t -> Machine_ir.Mir_value.t option) -> Piece.t list -> Piece.t list
-lib/machine_rivet_riscv32_mir/rv32_mir_route.ml	todo-domain	type t = Machine_alloc.Mir_liveness.Make(Machine_target_riscv32.Rv32).Interval.t = { value : Machine_ir.Mir_value.t; ranges : (int * int) list; uses : int list; } end
-lib/machine_rivet_riscv32_mir/rv32_mir_route.ml	todo-domain	val spans : func -> (Machine_ir.Mir_id.Block.t * (int * int)) list
-lib/machine_rivet_riscv32_mir/rv32_mir_route.ml	todo-domain	val key : Machine_ir.Mir_value.t -> int
-lib/machine_rivet_riscv32_mir/rv32_mir_route.ml	todo-domain	val dependencies : ?mutation:Machine_alloc.Mir_schedule.Mutation.t -> instr array -> (int * int) list
-lib/machine_rivet_riscv32_mir/rv32_mir_route.ml	todo-domain	val placeholder : int -> Machine_ir.Mir_type.t -> Machine_ir.Mir_value.t
-lib/machine_rivet_riscv32_mir/rv32_mir_route.ml	todo-domain	val region_bytes : Machine_interp.Mir_memory.t -> Machine_interp.Mir_interp.Binding.t -> Machine_ir.Mir_id.Region.t -> int -> (Machine_interp.Mir_memory.Key.t * string, string) result
 lib/machine_rivet_x86_64/rivet_x64_elf.ml	wire	val segment : int -> Image.segment -> Elf.Exec.segment
 lib/machine_rivet_x86_64/rivet_x64_exp.ml	todo-domain	val one : int
 lib/machine_rivet_x86_64/rivet_x64_exp.ml	todo-domain	val half : int
@@ -601,33 +510,6 @@ lib/machine_rivet_x86_64/rivet_x64_process.ml	todo-domain	val first_slot : int
 lib/machine_rivet_x86_64/rivet_x64_process.ml	budget	val execute : ?timeout:int -> string -> (string, string) result
 lib/machine_rivet_x86_64/rivet_x64_process.ml	budget	val launch : ?timeout:int -> prepared -> bound:(Machine_ir.Mir_id.Region.t -> string option) -> (outcome, string) result
 lib/machine_rivet_x86_64/rivet_x64_process.ml	budget	val run : ?runtime:Machine_rivet_common.Rivet_runtime.t -> ?timeout:int -> ?probe:bool -> ?entry_mutation:M.Entry_mutation.t -> bound:(Machine_ir.Mir_id.Region.t -> string option) -> (Machine_target_x86_64.X64_op.t, Machine_target_x86_64.X64_op.test) Machine_rivet_common.Rivet_runtime.Art.t -> (outcome, string) result
-lib/machine_rivet_x86_64/rivet_x64_route.ml	tally	val shape : Machine_ir.Mir_type.t -> (Machine_ir.Mir_target.Bank.t * int) option
-lib/machine_rivet_x86_64/rivet_x64_route.ml	todo-domain	val in_memory : int -> Machine_ir.Mir_phys_verify.Loc.t -> bool
-lib/machine_rivet_x86_64/rivet_x64_route.ml	tally	val shape : Machine_ir.Mir_value.t -> Machine_ir.Mir_target.Bank.t * int
-lib/machine_rivet_x86_64/rivet_x64_route.ml	todo-domain	type st = Machine_alloc.Mir_ref_alloc.Make(Machine_target_x86_64.X64)(Machine_target_x86_64.X64_regs).st = { mutation : Machine_alloc.Mir_ref_alloc.Mutation.t option; mutable next_block : int; mutable slots : Machine_ir.Mir_phys.Slot.t list; mutable previous : Machine_ir.Mir_value.t option; }
-lib/machine_rivet_x86_64/rivet_x64_route.ml	tally	val shape : Machine_ir.Mir_type.t -> (Machine_ir.Mir_target.Bank.t * int) option
-lib/machine_rivet_x86_64/rivet_x64_route.ml	todo-domain	val in_memory : int -> Machine_ir.Mir_phys_verify.Loc.t -> bool
-lib/machine_rivet_x86_64/rivet_x64_route.ml	todo-domain	type t = Machine_alloc.Mir_liveness.Make(Machine_target_x86_64.X64).Interval.t = { value : Machine_ir.Mir_value.t; ranges : (int * int) list; uses : int list; } end
-lib/machine_rivet_x86_64/rivet_x64_route.ml	todo-domain	val spans : func -> (Machine_ir.Mir_id.Block.t * (int * int)) list
-lib/machine_rivet_x86_64/rivet_x64_route.ml	tally	val shape : Machine_ir.Mir_value.t -> Machine_ir.Mir_target.Bank.t * int
-lib/machine_rivet_x86_64/rivet_x64_route.ml	todo-domain	type t = Machine_alloc.Mir_scan.Make(Machine_target_x86_64.X64)(Machine_target_x86_64.X64_regs).Where.t = In of int | Spilled | Unassigned end
-lib/machine_rivet_x86_64/rivet_x64_route.ml	todo-domain	type t = Machine_alloc.Mir_scan.Make(Machine_target_x86_64.X64)(Machine_target_x86_64.X64_regs).Piece.t = { value : Machine_ir.Mir_value.t; mutable ranges : (int * int) list; mutable uses : int list; mutable needs : int list; mutable where : Where.t; }
-lib/machine_rivet_x86_64/rivet_x64_route.ml	todo-domain	val start : t -> int
-lib/machine_rivet_x86_64/rivet_x64_route.ml	todo-domain	val stop : t -> int
-lib/machine_rivet_x86_64/rivet_x64_route.ml	todo-domain	val covers : t -> int -> bool
-lib/machine_rivet_x86_64/rivet_x64_route.ml	todo-domain	val intersection : t -> t -> from:int -> int option
-lib/machine_rivet_x86_64/rivet_x64_route.ml	todo-domain	val next_use : t -> from:int -> int option
-lib/machine_rivet_x86_64/rivet_x64_route.ml	todo-domain	val split : t -> int -> t end
-lib/machine_rivet_x86_64/rivet_x64_route.ml	todo-domain	type t = Machine_alloc.Mir_scan.Make(Machine_target_x86_64.X64)(Machine_target_x86_64.X64_regs).Fixed.t = { view : Machine_ir.Mir_target.View.t; lo : int; hi : int; own : Machine_ir.Mir_value.t list; } end
-lib/machine_rivet_x86_64/rivet_x64_route.ml	todo-domain	val split_for : int -> int
-lib/machine_rivet_x86_64/rivet_x64_route.ml	todo-domain	val must : Piece.t -> at:int -> bool
-lib/machine_rivet_x86_64/rivet_x64_route.ml	todo-domain	type st = Machine_alloc.Mir_scan.Make(Machine_target_x86_64.X64)(Machine_target_x86_64.X64_regs).st = { mutation : Machine_alloc.Mir_scan.Mutation.t option; mutable next_block : int; }
-lib/machine_rivet_x86_64/rivet_x64_route.ml	todo-domain	val scan : st -> bank:Machine_ir.Mir_target.Bank.t -> fixed:Fixed.t list -> depth:(int -> int) -> starts:int list -> split_cost:(int -> 'a) -> loops:(int * int) list -> uses_of:(Machine_ir.Mir_value.t -> int list) -> prefer:(Machine_ir.Mir_value.t -> Machine_ir.Mir_value.t option) -> Piece.t list -> Piece.t list
-lib/machine_rivet_x86_64/rivet_x64_route.ml	todo-domain	type t = Machine_alloc.Mir_liveness.Make(Machine_target_x86_64.X64).Interval.t = { value : Machine_ir.Mir_value.t; ranges : (int * int) list; uses : int list; } end
-lib/machine_rivet_x86_64/rivet_x64_route.ml	todo-domain	val spans : func -> (Machine_ir.Mir_id.Block.t * (int * int)) list
-lib/machine_rivet_x86_64/rivet_x64_route.ml	todo-domain	val key : Machine_ir.Mir_value.t -> int
-lib/machine_rivet_x86_64/rivet_x64_route.ml	todo-domain	val dependencies : ?mutation:Machine_alloc.Mir_schedule.Mutation.t -> instr array -> (int * int) list
-lib/machine_rivet_x86_64/rivet_x64_route.ml	todo-domain	val placeholder : int -> Machine_ir.Mir_type.t -> Machine_ir.Mir_value.t
 lib/machine_rivet_x86_64_gnu/gnu_coherence.ml	wire	type section_build = Driver_direct.Pipeline_direct.Make(X86_64).section_build = { sb_name : string; sb_perms : Asm_core.Perms.t; sb_kind : Asm_core.Lowered_ast.section_kind; mutable sb_align : int; mutable sb_frags : X86_64.fixup_kind Asm_core.Lowered_ast.fragment list; }
 lib/machine_rivet_x86_64_gnu/gnu_coherence.ml	wire	val merge_fill : executable:bool -> int -> string
 lib/machine_rivet_x86_64_gnu/gnu_coherence.ml	wire	val section_pad : (length:int -> string) option
@@ -1030,3 +912,5 @@ lib/wasm_ir/wasm.ml	todo-domain	type kind = Func of int | Global of int | Memory
 lib/wasm_ir/wasm.ml	wire	module Data : sig type t = { offset : int; bytes : string; } end
 lib/wasm_ir/wasm.ml	wire	type t = { min_pages : int; max_pages : int option; }
 lib/wasm_ir/wasm.ml	wire	val page_bytes : int end
+lib/machine_rivet_riscv32_mir/rv32_mir_route.mli	todo-domain	val region_bytes : Machine_interp.Mir_memory.t -> Machine_interp.Mir_interp.Binding.t -> Machine_ir.Mir_id.Region.t -> int -> (Machine_interp.Mir_memory.Key.t * string, string) result
+lib/machine_model/mir_model_route.mli	tally	type t = { select : float; schedule : float; allocate : float; scan : float; realize : float; publish : float; relocations : int; symbols : int; } end
