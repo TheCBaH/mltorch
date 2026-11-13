@@ -97,6 +97,13 @@ them does with the number. The audit of the exempt entries, by family:
   its own counters, not a field it reads from an external format; the Loop and SSA
   emitters now carry the same label (`todo-domain`) for each. The scan meter's pair
   of locals (`budget`) is two of them.
+- **Linear-memory addresses and placements** (9 entries, was `wire`): an address and
+  a byte count are both `int` in `table_alloc:(bytes:int -> int)`, and the
+  placement record holds five same-typed fields (`weights`, `inputs`,
+  `workspace`, `outputs`, `total`) where the 32-bit hazard above lives. A byte
+  offset inside the failure record and the Wasm module's own `Data.offset` and
+  memory limits stay `wire`: those are the layout the host or the binary format
+  fixes, not a number the emitter chooses.
 
 ## 2. Taxonomy
 
@@ -313,8 +320,11 @@ Types alone do not stop the next `int`. Three layers:
    instances, so their `of_int`/`to_int` are `defn`; the constants of an index
    tree and of an affine form are `expr-literal` (the index domain
    `[-2^31, 2^31)` is the contract, see `Loop_range.domain`); failure-record
-   words, memory placements and the process exit codes are `wire`. Two
-   32-bit-`int` hazards sit behind the `wire` label and are not hidden by it:
+   words and the process exit codes are `wire`; a linear-memory address or
+   placement (`Placement`'s five fields, `table_alloc`, `heap_base`,
+   `mark_base`, `error_address`) is `todo-domain`, because an address and a byte
+   count are both `int` there and the two are passed for one another. Two
+   32-bit-`int` hazards sit in those entries and are not hidden by them:
    `Loop_bundle_wasm` admits a memory of exactly `2^31` bytes (`memory_cap` is
    rejected with `>`), and narrows `Placement.total` with `Int64.to_int`, which
    wraps under js_of_ocaml at that one value; and its `table_alloc` narrows a
