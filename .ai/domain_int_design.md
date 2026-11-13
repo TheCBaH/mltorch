@@ -81,6 +81,11 @@ them does with the number. The audit of the exempt entries, by family:
   `int`s and passed beside the typed `Vtype.Sew`/`Sz` that exist. `Sz.bits` and
   `Vtype.Sew.bits` are not the domain's own definition (`defn` is a constructor of
   a type that already exists): they return a bare width.
+- **Lane count and lane index** (21 entries, was `tally` or `expr-literal`): an
+  extent and a position of a vector, where `Ssa_type.Lanes.t` and
+  `Mir_type.Lanes.t` already exist and are unwrapped (`lanes_of`, `lane_ok`,
+  `lanes_per_register`, `registers_of_lanes`). The Loop vector record that holds
+  `lanes` and `parts` beside its literal bounds is `todo-domain` as a whole.
 
 ## 2. Taxonomy
 
@@ -233,8 +238,8 @@ Types alone do not stop the next `int`. Three layers:
    library enters with an opening `todo-domain` balance (the three emitters: three
    records of value ids and name counters) that is part of the recorded ceiling;
    the ceiling only goes down from there. Judgement calls in that classification:
-   host-ABI positions and wasm local indices are `wire`, indent depths and lane
-   counts `tally`, the literal an emitter prints `as-written`.
+   host-ABI positions and wasm local indices are `wire`, indent depths `tally`, a
+   lane count `todo-domain`, the literal an emitter prints `as-written`.
 
    The three machine targets (`machine_target_aarch64`, `_riscv32`, `_x86_64`)
    entered next, with an opening `todo-domain` balance of 66. It is register numbers
@@ -243,7 +248,8 @@ Types alone do not stop the next `int`. Three layers:
    instruction-form variants, which carry lane positions and bit indices. Judgement
    calls: a width in bits (`Sz.bits`, `unit_bits`, `shape`, `bitmask_immediate`) is
    a domain and a `todo-domain` (it is returned in tuples beside other `int`s, and the
-   typed `Sz` already exists), a lane count is `tally`, the per-event index in `slot` is a `cell`, and the
+   typed `Sz` already exists), a lane count and a lane index are `todo-domain`
+   (`Mir_type.Lanes` exists and is unwrapped), the per-event index in `slot` is a `cell`, and the
    fuel and depth of the interpreter runs are `budget`. The balance only goes down:
    typing the register number as a `Mir_id.Unit`-style domain retires most of it.
 
@@ -255,8 +261,8 @@ Types alone do not stop the next `int`. Three layers:
    register bit masks are `bits`, instruction immediates in the kernel emitters
    are `wire`, the refusal payloads that report a budget or a count are
    `as-written`, element-width and register-group factor arguments are
-   `todo-domain` (`Vtype.Sew` and `Vtype.Lmul` exist and are bypassed), and lane
-   arguments are `tally`.
+   `todo-domain` (`Vtype.Sew` and `Vtype.Lmul` exist and are bypassed), and so are
+   lane arguments.
 
    The eight `machine_rivet_*` libraries entered last, adding 163 `todo-domain`
    entries: the register-allocation intervals and positions the routes re-export,
@@ -280,7 +286,7 @@ Types alone do not stop the next `int`. Three layers:
    printed through `float_of_int`; a memory-argument alignment and offset, an
    opcode byte, a data-segment offset and the memory limits are `wire`, and the
    offsets are bounded to `[0, 2^31)` at the declaration so they fit a 32-bit
-   `int`; a lane count and a census count are `tally`; the numbers a validation
+   `int`; a lane count is `todo-domain` and a census count is `tally`; the numbers a validation
    error reports are `as-written`. No 32-bit hazard was found: the only `int`s
    that could approach 2^31 are the memory offsets, bounded at the declaration,
    and the printer's literals, which go through `float_of_int`.
