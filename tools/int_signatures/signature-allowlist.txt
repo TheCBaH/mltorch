@@ -4,7 +4,7 @@
 # [todo-domain] is a debt marker (an int that names an entity); the ceiling only goes down.
 # [ml:<dir>] scope entries also read the inferred interface of each .ml without an .mli; a library enters with an opening
 # [todo-domain] balance that is part of the ceiling, and the ceiling only goes down from there.
-@todo-domain-ceiling 335
+@todo-domain-ceiling 351
 lib/coralnpu/coral_dma.mli	wire	val offset : t -> int end
 lib/coralnpu/coral_dma.mli	bits	val ctrl_start : int
 lib/coralnpu/coral_dma.mli	bits	val status_done : int
@@ -827,8 +827,8 @@ lib/ssa_c/ssa_c_ctx.ml	as-written	type error = [ `Unsupported_lanes of int | `Un
 lib/ssa_c/ssa_c_ctx.ml	todo-domain	type t = { esc : error Err.Escape.t; names : (int, string) Hashtbl.t; mutable decls : (string * string * string) list; mutable next_name : int; mutable next_temp : int; mutable used : R.Name.t list; mutable sites : Loop_ir.Loop_failure.t list; mutable site_count : int; mutable local_doubles : int64; mutable vector_types : (string * string) list; mutable vector_helpers : (string * string) list; mutable f32 : bool; locals : (int, int64 * Expr.Local_var.t option) Hashtbl.t; out : Buffer.t; buffers : Ssa_ir.Ssa_buffer.t list; site_table : Loop_ir.Loop_failure.t array option; }
 lib/ssa_c/ssa_c_ctx.ml	tally	val line : t -> int -> ('a, unit, string, unit) format4 -> 'a
 lib/ssa_c/ssa_c_ctx.ml	todo-domain	val check_lanes : t -> Ssa_ir.Ssa_type.Lanes.t -> int
-lib/ssa_c/ssa_c_ctx.ml	wire	val site : t -> Loop_ir.Loop_failure.t -> int
-lib/ssa_c/ssa_c_ctx.ml	wire	val buffer_index : t -> Ssa_ir.Ssa_id.Buffer.t -> int
+lib/ssa_c/ssa_c_ctx.ml	todo-domain	val site : t -> Loop_ir.Loop_failure.t -> int
+lib/ssa_c/ssa_c_ctx.ml	todo-domain	val buffer_index : t -> Ssa_ir.Ssa_id.Buffer.t -> int
 lib/ssa_c/ssa_c_ctx.ml	as-written	val int_lit : int -> string
 lib/ssa_c/ssa_c_op.ml	tally	val check_coord : Ssa_c_ctx.t -> int -> Ssa_ir.Ssa_buffer.t -> Ssa_ir.Ssa_value.t Expr.Coord.t -> unit
 lib/ssa_c/ssa_c_op.ml	todo-domain	val lanes_of : Ssa_ir.Ssa_type.t -> int
@@ -857,34 +857,34 @@ lib/ssa_ir/ssa_vectorize.mli	tally	val tally : report -> (string * (int * int64)
 lib/ssa_ir/ssa_verify.mli	budget	val max_region_depth : int
 lib/ssa_js/ssa_js_ctx.ml	as-written	val lit : int -> A.expr
 lib/ssa_js/ssa_js_ctx.ml	todo-domain	type t = { esc : error Err.Escape.t; names : (int, Js_ident.t) Hashtbl.t; mutable decls : (Js_ident.t * A.expr) list; mutable next_name : int; mutable next_temp : int; mutable sites : LF.t list; mutable site_count : int; mutable tables : A.Stmt.t list; locals : (int, int64 * Expr.Local_var.t option) Hashtbl.t; buffers : Ssa_ir.Ssa_buffer.t list; site_table : LF.t array option; }
-lib/ssa_js/ssa_js_ctx.ml	wire	val buffer_index : t -> Ssa_ir.Ssa_id.Buffer.t -> int
-lib/ssa_js/ssa_js_ctx.ml	wire	val site : t -> LF.t -> int
+lib/ssa_js/ssa_js_ctx.ml	todo-domain	val buffer_index : t -> Ssa_ir.Ssa_id.Buffer.t -> int
+lib/ssa_js/ssa_js_ctx.ml	todo-domain	val site : t -> LF.t -> int
 lib/ssa_wasm/ssa_wasm.mli	wire	val kernel : ?buffers:Ssa_ir.Ssa_buffer.t list -> ?sites:Loop_ir.Loop_failure.t array -> relaxed_madd:bool -> table_alloc:(bytes:int -> int) -> Ssa_ir.Ssa_program.t -> (Loop_ir.Loop_wasm.kernel, error) result
 lib/ssa_wasm/ssa_wasm_ctx.ml	as-written	type error = [ `Local_arrays_too_large of int64 | `Loop_leaves_domain | `Unsupported_format of Ssa_ir.Ssa_id.Buffer.t * string | `Unsupported_lanes of int | `Unsupported_operation of string ]
 lib/ssa_wasm/ssa_wasm_ctx.ml	todo-domain	type t = { esc : error Err.Escape.t; mutable extra : Wasm_type.t list; n_params : int; values : (int, int array) Hashtbl.t; mask_shapes : (int, mask_shape) Hashtbl.t; buffers : Ssa_ir.Ssa_buffer.t list; tables : (int, int * int) Hashtbl.t; locals : (int, int64 * Expr.Local_var.t option) Hashtbl.t; mutable local_top : int64; table_alloc : bytes:int -> int; mutable used : R.Callee.t list; mutable sites : LF.t list; mutable site_count : int; mutable meter : (int * int) option; mutable f32 : bool; relaxed_madd : bool; ranges : Ssa_ir.Ssa_range.t; site_table : LF.t array option; }
 lib/ssa_wasm/ssa_wasm_ctx.ml	as-written	val i32 : int -> I.t
-lib/ssa_wasm/ssa_wasm_ctx.ml	wire	val get : int -> I.t
-lib/ssa_wasm/ssa_wasm_ctx.ml	wire	val set : int -> I.t
+lib/ssa_wasm/ssa_wasm_ctx.ml	todo-domain	val get : int -> I.t
+lib/ssa_wasm/ssa_wasm_ctx.ml	todo-domain	val set : int -> I.t
 lib/ssa_wasm/ssa_wasm_ctx.ml	wire	val arg : int -> int -> Wasm.Mem_arg.t
 lib/ssa_wasm/ssa_wasm_ctx.ml	bits	val fits32 : int -> bool
-lib/ssa_wasm/ssa_wasm_ctx.ml	wire	val fresh : t -> Wasm_type.t -> int
-lib/ssa_wasm/ssa_wasm_ctx.ml	wire	val site : t -> LF.t -> int
+lib/ssa_wasm/ssa_wasm_ctx.ml	todo-domain	val fresh : t -> Wasm_type.t -> int
+lib/ssa_wasm/ssa_wasm_ctx.ml	todo-domain	val site : t -> LF.t -> int
 lib/ssa_wasm/ssa_wasm_ctx.ml	todo-domain	val lanes_per_register : Ssa_ir.Ssa_type.scalar -> int
 lib/ssa_wasm/ssa_wasm_ctx.ml	todo-domain	val registers_of_lanes : t -> Ssa_ir.Ssa_type.Lanes.t -> int -> int
-lib/ssa_wasm/ssa_wasm_ctx.ml	wire	val define : ?shape:mask_shape -> t -> Ssa_ir.Ssa_value.t -> int array
-lib/ssa_wasm/ssa_wasm_ctx.ml	wire	val regs : t -> Ssa_ir.Ssa_value.t -> int array
-lib/ssa_wasm/ssa_wasm_ctx.ml	wire	val reg : t -> Ssa_ir.Ssa_value.t -> int
+lib/ssa_wasm/ssa_wasm_ctx.ml	todo-domain	val define : ?shape:mask_shape -> t -> Ssa_ir.Ssa_value.t -> int array
+lib/ssa_wasm/ssa_wasm_ctx.ml	todo-domain	val regs : t -> Ssa_ir.Ssa_value.t -> int array
+lib/ssa_wasm/ssa_wasm_ctx.ml	todo-domain	val reg : t -> Ssa_ir.Ssa_value.t -> int
 lib/ssa_wasm/ssa_wasm_ctx.ml	wire	val fail : t -> Loop_ir.Loop_js_failure.Kind.t -> (int * I.t list) list -> I.t list
 lib/ssa_wasm/ssa_wasm_ctx.ml	as-written	val i64_of_int : int -> I.t list
-lib/ssa_wasm/ssa_wasm_ctx.ml	budget	val meter : t -> int * int
-lib/ssa_wasm/ssa_wasm_ctx.ml	wire	val buffer_index : t -> Ssa_ir.Ssa_id.Buffer.t -> int
-lib/ssa_wasm/ssa_wasm_ctx.ml	wire	val buffer_param : t -> Ssa_ir.Ssa_id.Buffer.t -> int
+lib/ssa_wasm/ssa_wasm_ctx.ml	todo-domain	val meter : t -> int * int
+lib/ssa_wasm/ssa_wasm_ctx.ml	todo-domain	val buffer_index : t -> Ssa_ir.Ssa_id.Buffer.t -> int
+lib/ssa_wasm/ssa_wasm_ctx.ml	todo-domain	val buffer_param : t -> Ssa_ir.Ssa_id.Buffer.t -> int
 lib/ssa_wasm/ssa_wasm_ctx.ml	bits	val cell_log2 : Ssa_ir.Ssa_format.t -> int
-lib/ssa_wasm/ssa_wasm_ctx.ml	wire	val reserve_local : t -> int64 -> int
+lib/ssa_wasm/ssa_wasm_ctx.ml	todo-domain	val reserve_local : t -> int64 -> int
 lib/ssa_wasm/ssa_wasm_instr.ml	todo-domain	val per_register : Ssa_ir.Ssa_value.t -> int
 lib/ssa_wasm/ssa_wasm_instr.ml	todo-domain	val chunk_count : Ssa_wasm_ctx.t -> Ssa_ir.Ssa_value.t -> int
 lib/ssa_wasm/ssa_wasm_op.ml	todo-domain	val lanes_of : Ssa_ir.Ssa_value.t -> int
-lib/ssa_wasm/ssa_wasm_op.ml	wire	val from_float_failure : Ssa_wasm_ctx.t -> int -> Ssa_wasm_ctx.I.t list
+lib/ssa_wasm/ssa_wasm_op.ml	todo-domain	val from_float_failure : Ssa_wasm_ctx.t -> int -> Ssa_wasm_ctx.I.t list
 lib/ssa_wasm/ssa_wasm_op.ml	as-written	val coord_failure : Ssa_wasm_ctx.t -> Ssa_ir.Ssa_buffer.t -> int list -> Ssa_wasm_ctx.I.t list
 lib/ssa_wasm/ssa_wasm_op.ml	wire	val quant_tables : Ssa_wasm_ctx.t -> Ssa_ir.Ssa_buffer.t -> int * int
 lib/wasm_ir/wasm_census.mli	tally	val count : t -> Role.t -> int

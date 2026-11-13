@@ -91,6 +91,12 @@ them does with the number. The audit of the exempt entries, by family:
   `Ssa_opt_rows.program` and `tally` in `analyze` two declarations later; a
   declaration that also returns a count of blocked loops is not exempt either,
   since one of its `int`s is not. A limit (`max_depth`, `fuel`) stays `budget`.
+- **Wasm local, buffer and site indices** (16 entries, was `wire` or `budget`): ordinals
+  in a numbering private to one emitter. A wasm module does contain a local index,
+  but the emitter's `get`, `set`, `fresh`, `buffer_param` and `reserve_local` are
+  its own counters, not a field it reads from an external format; the Loop and SSA
+  emitters now carry the same label (`todo-domain`) for each. The scan meter's pair
+  of locals (`budget`) is two of them.
 
 ## 2. Taxonomy
 
@@ -243,8 +249,10 @@ Types alone do not stop the next `int`. Three layers:
    library enters with an opening `todo-domain` balance (the three emitters: three
    records of value ids and name counters) that is part of the recorded ceiling;
    the ceiling only goes down from there. Judgement calls in that classification:
-   host-ABI positions and wasm local indices are `wire`, indent depths `tally`, a
-   lane count `todo-domain`, the literal an emitter prints `as-written`.
+   the words of a host-ABI failure record are `wire`, but the ordinals of a private
+   numbering (a wasm local index, a buffer parameter or index, a failure site) are
+   `todo-domain`, as is a lane count; indent depths are `tally`, the literal an
+   emitter prints `as-written`.
 
    The three machine targets (`machine_target_aarch64`, `_riscv32`, `_x86_64`)
    entered next, with an opening `todo-domain` balance of 66. It is register numbers
