@@ -67,6 +67,21 @@ Everything else — extents, positions, offsets, counts, ranks, ATen dim numbers
 ordinals, next-free counters, slot offsets, arena indices, algorithm-local atom/block
 numbers — is a domain.
 
+### An exempt label is a claim
+
+A category in the table says the `int` is not a domain, so it is read against the
+reason above: what does this `int` name, and what could it be confused with? A
+declaration keeps an exempt label only if *every* `int` in it earns it, and one
+function carries one label wherever it is declared (sibling emitters and targets
+included). Entries that name an entity are `todo-domain` whatever the code around
+them does with the number. The audit of the exempt entries, by family:
+
+- **Width in bits, element width, `sew`, `lmul`, `vlen`** (52 entries, was `tally`,
+  `budget` or `wire`): a quantity with a unit, returned in tuples next to other
+  `int`s and passed beside the typed `Vtype.Sew`/`Sz` that exist. `Sz.bits` and
+  `Vtype.Sew.bits` are not the domain's own definition (`defn` is a constructor of
+  a type that already exists): they return a bare width.
+
 ## 2. Taxonomy
 
 Two mechanisms, chosen by whether the domains share arithmetic.
@@ -226,8 +241,9 @@ Types alone do not stop the next `int`. Three layers:
    (`x`, `gpr`, `rax`, `range`, `allocatable`, `view`, `sequence`, the unit
    constructors), the value ids the selectors unwrap to key their tables, and the
    instruction-form variants, which carry lane positions and bit indices. Judgement
-   calls: a width in bits (`Sz.bits`, `unit_bits`, `shape`, `bitmask_immediate`) and
-   a lane count are `tally`, the per-event index in `slot` is a `cell`, and the
+   calls: a width in bits (`Sz.bits`, `unit_bits`, `shape`, `bitmask_immediate`) is
+   a domain and a `todo-domain` (it is returned in tuples beside other `int`s, and the
+   typed `Sz` already exists), a lane count is `tally`, the per-event index in `slot` is a `cell`, and the
    fuel and depth of the interpreter runs are `budget`. The balance only goes down:
    typing the register number as a `Mir_id.Unit`-style domain retires most of it.
 
@@ -238,7 +254,9 @@ Types alone do not stop the next `int`. Three layers:
    are `wire` (a layout shared with the hardware or the guest program), the
    register bit masks are `bits`, instruction immediates in the kernel emitters
    are `wire`, the refusal payloads that report a budget or a count are
-   `as-written`, and lane, element-width and factor arguments are `tally`.
+   `as-written`, element-width and register-group factor arguments are
+   `todo-domain` (`Vtype.Sew` and `Vtype.Lmul` exist and are bypassed), and lane
+   arguments are `tally`.
 
    The eight `machine_rivet_*` libraries entered last, adding 163 `todo-domain`
    entries: the register-allocation intervals and positions the routes re-export,
