@@ -59,8 +59,8 @@ from taking that seriously:
 | Expression-tree literal | `Ceil_div_pos of _ * int` in `Expr` | Typed by the surrounding tree's role parameter |
 | List length / diagnostic count | `expected`/`got` arity payloads | Dimensionless tally |
 | Quantum | quantised values, `zero_point`, `qmin`, `qmax` | One domain by construction (`native_tensor_design.md` §3) |
-| External format | `pt2`, ATen/C bindings, `Jsont.int` on the wire | The external representation *is* the int |
-| Tally | statistics counters, report fields | Dimensionless |
+| External format (`wire`) | a field of `pt2`, ELF, zip, Wasm binary or MMIO layout, an instruction-encoding field, ATen/C bindings, `Jsont.int` on the wire | The external representation *is* the int. A number the emitter or harness chooses and passes between its own functions (a local index, an address it allocates, an output ordinal) is not a field of the format, even if it ends up written into one |
+| Tally | statistics counters, census and report fields | A number that is only ever reported, never used as a width, lane count, row count, index, address or ordinal, and never passed for one |
 | As written | `Non_positive_dim { value }`, a slice's decoded `start`/`stop`, `` `Invalid_k `` | A value reported exactly as supplied, because it failed the check that would have typed it; the domain type would have to admit the very values it exists to exclude |
 
 Everything else — extents, positions, offsets, counts, ranks, ATen dim numbers, ids,
@@ -104,6 +104,21 @@ them does with the number. The audit of the exempt entries, by family:
   offset inside the failure record and the Wasm module's own `Data.offset` and
   memory limits stay `wire`: those are the layout the host or the binary format
   fixes, not a number the emitter chooses.
+- **Output and invocation ordinals, positional index pairs, register number** (10
+  entries, was `wire`, `budget`, `tally` or `cell`): the output ordinal of a run
+  is `todo-domain` in `coral_run` and was `wire` in `Rv32_harness.outcome.outputs`
+  and the native interpreter's `emitted`/`bound`; a harness `run` that takes a
+  timeout (`budget`) and a `bound:(int -> _)` ordinal is not exempt, since one of
+  its `int`s is not. `Slot.at`, `Slot.trace_at` (`~row` and `~lane`, then the
+  array index they return), `Elem.set`'s offset and value, and the per-event
+  `slot` are positions two unlabelled `int`s can swap; `gpr_name`'s register
+  number sits beside a width. A list position with no companion `int`
+  (`nth env what l i`) stays `cell`.
+
+  A declaration is judged on all of its `int`s, and a function keeps one label
+  wherever it is declared: the SSA and Loop emitters' `get`, `set`, `fresh`,
+  `buffer_param` and `reserve_local` agree, and so do `site`, `buffer_index` and
+  `error_address`.
 
 ## 2. Taxonomy
 
@@ -269,7 +284,8 @@ Types alone do not stop the next `int`. Three layers:
    calls: a width in bits (`Sz.bits`, `unit_bits`, `shape`, `bitmask_immediate`) is
    a domain and a `todo-domain` (it is returned in tuples beside other `int`s, and the
    typed `Sz` already exists), a lane count and a lane index are `todo-domain`
-   (`Mir_type.Lanes` exists and is unwrapped), the per-event index in `slot` is a `cell`, and the
+   (`Mir_type.Lanes` exists and is unwrapped), the per-event index in `slot` is a
+   position in a private numbering and so a `todo-domain` too, and the
    fuel and depth of the interpreter runs are `budget`. The balance only goes down:
    typing the register number as a `Mir_id.Unit`-style domain retires most of it.
 
