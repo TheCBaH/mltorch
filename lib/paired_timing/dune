@@ -1,0 +1,9 @@
+; The paired timing rule of the acceptance harness: old and new form timed back
+; to back, the median gain of the kept pairs with a distribution-free interval,
+; and the decision it supports. Pure statistics over recorded samples; it times
+; nothing.
+
+(library
+ (name paired_timing)
+ (wrapped false)
+ (libraries fmt))

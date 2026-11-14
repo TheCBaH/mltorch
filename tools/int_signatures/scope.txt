@@ -39,6 +39,7 @@ ml:lib/native_interp
 lib/native_op_walk
 lib/native_predict
 ml:lib/norm_block
+ml:lib/paired_timing
 ml:lib/pt2
 lib/ssa_backends
 lib/ssa_bridge

@@ -1,0 +1,9 @@
+; The paired timing rule on synthetic runs: the decision for a clear gain, a
+; clear loss, a run straddling zero, and a run whose output differed.
+
+(library
+ (name paired_timing_test)
+ (libraries paired_timing fmt)
+ (inline_tests)
+ (preprocess
+  (pps ppx_expect)))
