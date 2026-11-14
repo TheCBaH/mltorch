@@ -6,7 +6,7 @@ type t = {
   image : Image.t;
   layout : Coral_layout.t;
   profile : Coral_profile.t;
-  internal : (int * string) list;
+  internal : (Core.Table_slot.t * string) list;
 }
 
 type error =
@@ -335,7 +335,7 @@ let build ?overlays ?params
             ~default:Machine_rivet_riscv32.Rv32_profile.default
         in
         Err.map
-          (fun blob -> [ (first + 2, blob) ])
+          (fun blob -> [ (Core.Table_slot.of_int (first + 2), blob) ])
           (Overlays.blob o ~rv32_profile profile overlays image layout ~first)
   in
   let* elf = Coral_elf.write profile layout image in

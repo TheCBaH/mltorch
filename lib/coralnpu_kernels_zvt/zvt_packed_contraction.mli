@@ -41,7 +41,7 @@ module Mutation : sig
     | Short_k  (** the last k step of A and B not packed *)
 end
 
-val overread : Contraction.t -> int
+val overread : Contraction.t -> Coral_transfer.Transfer_units.Bytes.t
 (** The bytes past the end of an operand read in place that the blocks read, for
     the caller to leave readable: none when both operands are packed. *)
 
@@ -66,7 +66,9 @@ val reuses_b : Contraction.t -> bool
 val panel_bytes :
   ?stage_b:Stage.t ->
   Contraction.t ->
-  (int, Coralnpu_kernels.Kernel_refusal.t) result
+  ( Coral_transfer.Transfer_units.Bytes.t,
+    Coralnpu_kernels.Kernel_refusal.t )
+  result
 (** The [.bss] the function declares: B's packed panels and the largest block of
     A's, none for an operand read in place. *)
 

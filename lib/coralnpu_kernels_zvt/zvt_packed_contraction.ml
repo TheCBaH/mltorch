@@ -150,7 +150,8 @@ let overread d0 =
   let one ip (o : C.Operand.t) =
     if ip then (4 * 2 * Int64.to_int o.C.Operand.k) + 128 else 0
   in
-  max (one a_ip d.C.a) (one b_ip d.C.b)
+  Coral_transfer.Transfer_units.Bytes.of_int
+    (max (one a_ip d.C.a) (one b_ip d.C.b))
 
 (* Whether every operand it packs goes by words, two k steps a strided load
    (see [strided_rows]): else an element a load, which the plain function
@@ -178,7 +179,7 @@ let reuses_b d0 =
 let panel_bytes ?stage_b d =
   Kernel_refusal.generate_checked @@ fun esc ->
   let b_bytes, a_bytes = sizes esc ?stage_b d in
-  b_bytes + a_bytes
+  Coral_transfer.Transfer_units.Bytes.of_int (b_bytes + a_bytes)
 
 let items esc ?mutation ?stage_b (d0 : C.t) =
   let ok x = ok esc x

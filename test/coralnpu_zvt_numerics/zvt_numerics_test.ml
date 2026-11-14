@@ -110,11 +110,14 @@ let%expect_test "vtfmm binary32 accumulation" =
             Err.payload
               (Coral_run.run ~flags:[ "--cycles=2000000" ] ~dir image
                  ~bound:(fun s ->
+                   let s = (s : Core.Table_slot.t :> int) in
                    if s = 0 then Some (List.hd k.inputs) else None))
           with
           | Error e -> fail (Fmt.str "%a" Coral_run.Run_error.pp e)
           | Ok o ->
-              let out = List.assoc 1 o.Coral_run.outputs in
+              let out =
+                List.assoc (Core.Table_slot.of_int 1) o.Coral_run.outputs
+              in
               let at r c =
                 Int32.float_of_bits
                   (String.get_int32_le out (4 * ((r * n) + c)))
@@ -313,9 +316,11 @@ let alt_run dir configuration =
       (Fmt.str "%a" Coral_run.Run_error.pp)
       (Err.payload
          (Coral_run.run ~flags:[ "--cycles=2000000" ] ~dir image
-            ~bound:(fun s -> if s = 0 then Some (List.hd k.inputs) else None)))
+            ~bound:(fun s ->
+              let s = (s : Core.Table_slot.t :> int) in
+              if s = 0 then Some (List.hd k.inputs) else None)))
   in
-  Ok (List.assoc 1 o.Coral_run.outputs)
+  Ok (List.assoc (Core.Table_slot.of_int 1) o.Coral_run.outputs)
 
 let%expect_test "vtfmm.alt bfloat16 accumulation" =
   match alt_run (Sys.getenv "CORALNPU_DATA") "vme-core-mini-axi" with

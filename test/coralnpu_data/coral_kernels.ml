@@ -141,11 +141,12 @@ let run ?deadline ?flags ?(dir = dir) ?(out = 2) label (i : Coral_image.t) count
   match
     Err.payload
       (Coral_run.run ?deadline ?flags ~dir i ~bound:(fun k ->
+           let k = (k : Core.Table_slot.t :> int) in
            if k = 0 then Some (input count) else None))
   with
   | Ok o ->
       Fmt.pr "%s: status %ld, %s, minstret %Ld, mcycle %s@." label o.status
-        (check count (List.assoc out o.outputs))
+        (check count (List.assoc (Core.Table_slot.of_int out) o.outputs))
         o.minstret
         (if o.mcycle > 0L then "counted" else "0")
   | Error e -> Fmt.pr "%s: %a@." label Coral_run.Run_error.pp e

@@ -244,7 +244,8 @@ let image ?mutation ?kernel_mutation ?home ?(engine = true) ?engine_mutation
       in
       let fitting stage_b =
         match P.panel_bytes ?stage_b d with
-        | Ok bytes when bytes <= !left && P.fast d -> Some (stage_b, bytes)
+        | Ok bytes when (bytes :> int) <= !left && P.fast d ->
+            Some (stage_b, bytes)
         | _ -> None
       in
       match
@@ -253,8 +254,8 @@ let image ?mutation ?kernel_mutation ?home ?(engine = true) ?engine_mutation
       | Some (stage_b, bytes) -> (
           match text (P.module_ ?stage_b d) with
           | Ok _ as m ->
-              left := !left - bytes;
-              slack := max !slack (P.overread d);
+              left := !left - (bytes :> int);
+              slack := max !slack (P.overread d :> int);
               Some m
           | Error _ ->
               Some
@@ -270,9 +271,10 @@ let image ?mutation ?kernel_mutation ?home ?(engine = true) ?engine_mutation
       (fun choose ->
         fun d ->
          let module T = Coral_transfer.Transfer_plan in
-         match T.check ~budget:!left d (choose ~budget:!left d) with
+         let budget = Coral_transfer.Transfer_units.Bytes.of_int !left in
+         match T.check ~budget d (choose ~budget d) with
          | Ok w ->
-             left := !left - T.Witness.bytes w;
+             left := !left - (T.Witness.bytes w :> int);
              Ok (Some w)
          | Error r -> Error (Fmt.str "transfer plan: %a" T.Refusal.pp r))
       transfer
@@ -288,12 +290,15 @@ let image ?mutation ?kernel_mutation ?home ?(engine = true) ?engine_mutation
     else
       match text (Coralnpu_kernels_zvt.Zvt_sdpa.panel_bytes d) with
       | Error why -> Error why
-      | Ok bytes when bytes > !left ->
-          Error (Fmt.str "the panels need %d bytes, %d available" bytes !left)
+      | Ok bytes when (bytes :> int) > !left ->
+          Error
+            (Fmt.str "the panels need %d bytes, %d available"
+               (bytes :> int)
+               !left)
       | Ok bytes -> (
           match text (Coralnpu_kernels_zvt.Zvt_sdpa.module_ d) with
           | Ok md as m ->
-              left := !left - bytes;
+              left := !left - (bytes :> int);
               attended := (Attention_block.symbol d, md) :: !attended;
               m
           | Error _ as e -> e)
@@ -423,7 +428,8 @@ let simulate ?(budget = read_back_budget) ?label ?expect_cycles (c : Config.t)
         List.concat
           (List.mapi
              (fun k (s : Coral_layout.Placed_slot.t) ->
-               if Coral_layout.Placement.written s.slot.placement then [ k ]
+               if Coral_layout.Placement.written s.slot.placement then
+                 [ Core.Table_slot.of_int k ]
                else [])
              image.Coral_image.layout.Coral_layout.slots)
       in
@@ -483,6 +489,7 @@ let run_once ?(on_run = fun _ -> ()) ?(on_elf = fun _ -> ()) ?route_mutation
   on_elf image.Coral_image.elf;
   let* outputs, status, measured =
     simulate ?budget ?label ?expect_cycles c image ~bound:(fun k ->
+        let k = (k : Core.Table_slot.t :> int) in
         (* the slots an image adds for its overlays are not the table's *)
         if k < Array.length bound then bound.(k) else None)
   in
@@ -502,7 +509,8 @@ let run_once ?(on_run = fun _ -> ()) ?(on_elf = fun _ -> ()) ?route_mutation
         | Some key ->
             Mir_memory.write_string memory key ~offset:0L bytes;
             Ok ())
-      (Ok ()) outputs
+      (Ok ())
+      (List.map (fun ((k : Core.Table_slot.t), b) -> ((k :> int), b)) outputs)
   in
   Ok status
 

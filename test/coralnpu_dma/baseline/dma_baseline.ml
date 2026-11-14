@@ -36,7 +36,15 @@ module G = Dma_gemm
 let gemms =
   List.map
     (fun (engine, geometry, prologue, out, width, depth) ->
-      { G.blocks = 4; depth; engine; geometry; out; prologue; width })
+      {
+        G.blocks = Core.Dim.extent 4;
+        depth = Core.Dim.extent depth;
+        engine;
+        geometry;
+        out;
+        prologue;
+        width = Core.Dim.extent width;
+      })
     G.
       [
         (Engine.Rvv_bf16, Geometry.Resident_b, Prologue.Shared, Out.Dma, 32, 256);
@@ -44,17 +52,47 @@ let gemms =
         (Rvv_i8, Resident_b, Shared, Dma, 64, 256);
         (Zvt_f32, Resident_b, Dma, Dma, 128, 256);
         (Zvt_i8, Resident_b, Shared, Core, 128, 512);
-        (Zvt_i8, Resident_b, Shared, Split 8, 512, 1024);
-        (Rvv_bf16, Resident_a { panel = 32 }, Shared, Dma, 1024, 128);
-        (Rvv_i8, Resident_a { panel = 64 }, Shared, Core, 512, 128);
-        (Zvt_i8, Resident_a { panel = 32 }, Shared, Core, 1024, 1024);
-        (Zvt_i8, Resident_a { panel = 64 }, Shared, Dma, 1024, 1024);
+        ( Zvt_i8,
+          Resident_b,
+          Shared,
+          Split (Coral_transfer.Transfer_units.Rows.of_int 8),
+          512,
+          1024 );
+        ( Rvv_bf16,
+          Resident_a { panel = Core.Dim.extent 32 },
+          Shared,
+          Dma,
+          1024,
+          128 );
+        ( Rvv_i8,
+          Resident_a { panel = Core.Dim.extent 64 },
+          Shared,
+          Core,
+          512,
+          128 );
+        ( Zvt_i8,
+          Resident_a { panel = Core.Dim.extent 32 },
+          Shared,
+          Core,
+          1024,
+          1024 );
+        ( Zvt_i8,
+          Resident_a { panel = Core.Dim.extent 64 },
+          Shared,
+          Dma,
+          1024,
+          1024 );
         (Rvv_f32, Row_major_a, Dma, Core, 32, 128);
         (Rvv_i8, Row_major_a, Shared, Dma, 64, 256);
-        (Zvt_i8, Row_major_a, Shared, Split 8, 256, 512);
-        (Rvv_bf16, Split_k { chunk = 64 }, Shared, Dma, 32, 256);
-        (Rvv_i8, Split_k { chunk = 128 }, Shared, Dma, 64, 1024);
-        (Zvt_i8, Split_k { chunk = 128 }, Shared, Dma, 64, 512);
+        ( Zvt_i8,
+          Row_major_a,
+          Shared,
+          Split (Coral_transfer.Transfer_units.Rows.of_int 8),
+          256,
+          512 );
+        (Rvv_bf16, Split_k { chunk = Core.Dim.extent 64 }, Shared, Dma, 32, 256);
+        (Rvv_i8, Split_k { chunk = Core.Dim.extent 128 }, Shared, Dma, 64, 1024);
+        (Zvt_i8, Split_k { chunk = Core.Dim.extent 128 }, Shared, Dma, 64, 512);
       ]
 
 let kernels =
@@ -206,7 +244,18 @@ module M = Dma_model
 let%expect_test "the model against the measured runs" =
   List.iter
     (fun (engine, geometry, prologue, out, blocks, width, depth, measured) ->
-      let t = { G.blocks; depth; engine; geometry; out; prologue; width } in
+      let ext = Core.Dim.extent in
+      let t =
+        {
+          G.blocks = ext blocks;
+          depth = ext depth;
+          engine;
+          geometry;
+          out;
+          prologue;
+          width = ext width;
+        }
+      in
       let p = M.predict t in
       Fmt.pr "%s: model %.0f, measured %d (%+.0f%%)@." (G.name t) p measured
         (100. *. (p -. float_of_int measured) /. float_of_int measured))
@@ -230,14 +279,70 @@ let%expect_test "the model against the measured runs" =
         (Zvt_i8, Resident_b, Shared, Core, 8, 128, 1024, 331417);
         (Zvt_f32, Resident_b, Dma, Dma, 8, 128, 256, 512109);
         (Zvt_f32, Resident_b, Shared, Core, 8, 128, 256, 331417);
-        (Zvt_i8, Resident_b, Shared, Split 20, 16, 256, 1024, 1047424);
-        (Rvv_i8, Resident_a { panel = 64 }, Shared, Dma, 16, 512, 128, 148370);
-        (Rvv_i8, Resident_a { panel = 64 }, Shared, Core, 16, 512, 128, 154678);
-        (Rvv_bf16, Resident_a { panel = 32 }, Shared, Dma, 8, 1024, 128, 518720);
-        (Zvt_i8, Resident_a { panel = 32 }, Shared, Core, 1, 1024, 128, 125666);
-        (Zvt_i8, Resident_a { panel = 32 }, Shared, Core, 4, 1024, 1024, 1152274);
-        (Rvv_i8, Split_k { chunk = 128 }, Shared, Dma, 64, 64, 1024, 584634);
-        (Zvt_i8, Split_k { chunk = 128 }, Shared, Dma, 8, 32, 1024, 741512);
+        ( Zvt_i8,
+          Resident_b,
+          Shared,
+          Split (Coral_transfer.Transfer_units.Rows.of_int 20),
+          16,
+          256,
+          1024,
+          1047424 );
+        ( Rvv_i8,
+          Resident_a { panel = Core.Dim.extent 64 },
+          Shared,
+          Dma,
+          16,
+          512,
+          128,
+          148370 );
+        ( Rvv_i8,
+          Resident_a { panel = Core.Dim.extent 64 },
+          Shared,
+          Core,
+          16,
+          512,
+          128,
+          154678 );
+        ( Rvv_bf16,
+          Resident_a { panel = Core.Dim.extent 32 },
+          Shared,
+          Dma,
+          8,
+          1024,
+          128,
+          518720 );
+        ( Zvt_i8,
+          Resident_a { panel = Core.Dim.extent 32 },
+          Shared,
+          Core,
+          1,
+          1024,
+          128,
+          125666 );
+        ( Zvt_i8,
+          Resident_a { panel = Core.Dim.extent 32 },
+          Shared,
+          Core,
+          4,
+          1024,
+          1024,
+          1152274 );
+        ( Rvv_i8,
+          Split_k { chunk = Core.Dim.extent 128 },
+          Shared,
+          Dma,
+          64,
+          64,
+          1024,
+          584634 );
+        ( Zvt_i8,
+          Split_k { chunk = Core.Dim.extent 128 },
+          Shared,
+          Dma,
+          8,
+          32,
+          1024,
+          741512 );
         (Rvv_i8, Row_major_a, Shared, Dma, 128, 64, 256, 294312);
         (Zvt_i8, Row_major_a, Shared, Core, 8, 128, 512, 328054);
       ];
@@ -269,7 +374,18 @@ let%expect_test "the model against the measured runs" =
 let%expect_test "the model against runs it was not fitted to" =
   List.iter
     (fun (engine, geometry, prologue, out, blocks, width, depth, measured) ->
-      let t = { G.blocks; depth; engine; geometry; out; prologue; width } in
+      let ext = Core.Dim.extent in
+      let t =
+        {
+          G.blocks = ext blocks;
+          depth = ext depth;
+          engine;
+          geometry;
+          out;
+          prologue;
+          width = ext width;
+        }
+      in
       let p = M.predict t in
       Fmt.pr "%s: model %.0f, measured %d (%+.0f%%)@." (G.name t) p measured
         (100. *. (p -. float_of_int measured) /. float_of_int measured))
@@ -290,10 +406,38 @@ let%expect_test "the model against runs it was not fitted to" =
         (Zvt_i8, Resident_b, Shared, Core, 16, 256, 1024, 1097986);
         (Zvt_i8, Resident_b, Shared, Dma, 16, 512, 1024, 1961336);
         (Zvt_i8, Resident_b, Shared, Core, 16, 512, 1024, 2173969);
-        (Zvt_i8, Resident_b, Shared, Split 8, 16, 512, 1024, 1971328);
-        (Zvt_i8, Resident_a { panel = 64 }, Shared, Core, 1, 1024, 128, 126832);
-        (Zvt_i8, Resident_a { panel = 32 }, Shared, Dma, 4, 1024, 1024, 1621126);
-        (Zvt_i8, Split_k { chunk = 1024 }, Shared, Dma, 8, 256, 4096, 3914286);
+        ( Zvt_i8,
+          Resident_b,
+          Shared,
+          Split (Coral_transfer.Transfer_units.Rows.of_int 8),
+          16,
+          512,
+          1024,
+          1971328 );
+        ( Zvt_i8,
+          Resident_a { panel = Core.Dim.extent 64 },
+          Shared,
+          Core,
+          1,
+          1024,
+          128,
+          126832 );
+        ( Zvt_i8,
+          Resident_a { panel = Core.Dim.extent 32 },
+          Shared,
+          Dma,
+          4,
+          1024,
+          1024,
+          1621126 );
+        ( Zvt_i8,
+          Split_k { chunk = Core.Dim.extent 1024 },
+          Shared,
+          Dma,
+          8,
+          256,
+          4096,
+          3914286 );
       ];
   [%expect
     {|

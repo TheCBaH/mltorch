@@ -61,10 +61,11 @@ let staging esc ?mutation (d : C.t) ~name (st : T.t) =
     List.filter_map Fun.id
       [
         (match st.T.a with
-        | T.A.Copied -> Some ("a0", T.span d `A, name ^ "_a")
+        | T.A.Copied -> Some ("a0", (T.span d `A :> int), name ^ "_a")
         | T.A.In_place | T.A.Streamed _ -> None);
         (match st.T.b with
-        | T.B.Copied | T.B.Shared -> Some ("a1", T.span d `B, name ^ "_b")
+        | T.B.Copied | T.B.Shared ->
+            Some ("a1", (T.span d `B :> int), name ^ "_b")
         | T.B.In_place -> None);
       ]
   in
@@ -72,7 +73,7 @@ let staging esc ?mutation (d : C.t) ~name (st : T.t) =
      beside it, in 256-byte trips (two e8 m8 groups), three quarters of it *)
   let core_b =
     match st.T.b with
-    | T.B.Shared -> T.span d `B * 3 / 4 / 256 * 256
+    | T.B.Shared -> (T.span d `B :> int) * 3 / 4 / 256 * 256
     | T.B.Copied | T.B.In_place -> 0
   in
   let dma_size (src, size, _) = if src = "a1" then size - core_b else size in
@@ -131,7 +132,7 @@ let staging esc ?mutation (d : C.t) ~name (st : T.t) =
         ]
       @ (if core_b = 0 || mutation = Some Mutation.No_share then []
          else
-           let l = name ^ "_share" and head = T.span d `B - core_b in
+           let l = name ^ "_share" and head = (T.span d `B :> int) - core_b in
            add_from "t1" "a1" head
            @ [ la "t2" (name ^ "_b") ]
            @ add_const "t2" head
@@ -371,11 +372,13 @@ let items esc ?mutation ?plan (d : C.t) () =
   let tile_body ~m vl =
     set_vl vl
     @ [ i "mv" [ r "a5"; r "a0" ]; i "mv" [ r "a6"; r "a4" ] ]
-    @ loop (m / rows) ~counter:"t4"
-        (group rows
-        @ add_const "a5" (rows * a_outer)
-        @ add_const "a6" (rows * c_row))
-    @ if m mod rows > 0 then group (m mod rows) else []
+    @ loop
+        (m / (rows :> int))
+        ~counter:"t4"
+        (group (rows :> int)
+        @ add_const "a5" ((rows :> int) * a_outer)
+        @ add_const "a6" ((rows :> int) * c_row))
+    @ if m mod (rows :> int) > 0 then group (m mod (rows :> int)) else []
   in
   let full = n / tile and rest = n mod tile in
   (* every tile of [m] rows from A at a0 into C at a2 *)
@@ -403,18 +406,18 @@ let items esc ?mutation ?plan (d : C.t) () =
         let la rd sym = i "la" [ r rd; A.sym sym ] in
         let h0 = name ^ "_h0" and h1 = name ^ "_h1" and rd = name ^ "_r" in
         let fail = name ^ "_dma_failed" in
-        let blocks = (m + rb - 1) / rb in
-        let last = m - ((blocks - 1) * rb) in
+        let blocks = (m + (rb :> int) - 1) / (rb :> int) in
+        let last = m - ((blocks - 1) * (rb :> int)) in
         let row = bytes esc ~size d.C.k in
         let flags len = len lor (4 lsl 24) in
-        let block_bytes = rb * row
+        let block_bytes = (rb :> int) * row
         and last_bytes = ((last * row) + 15) land lnot 15 in
         (* with C by the DMA a half holds the block's C after its A, and the
            chain started before block j's product also carries block j - 1's
            C out of the other half (a second descriptor, from the second
            block on); a last chain carries the last two blocks' out *)
         let c_dma = stage.T.out = T.Out.Dma in
-        let c_block = rb * c_row in
+        let c_block = (rb :> int) * c_row in
         let half = block_bytes + if c_dma then c_block else 0 in
         let c_out ~at ~src ~dst ~bytes =
           (* descriptor [at] of the chain at t0: [bytes] of C from [src] to
@@ -527,8 +530,8 @@ let items esc ?mutation ?plan (d : C.t) () =
             @ [ i "mv" [ r "a0"; r "s6" ] ]
             @ (if c_dma then add_from "a2" "s6" block_bytes
                else [ i "mv" [ r "a2"; r "s8" ] ])
-            @ tiles ~m:rb
-            @ add_const "s8" (rb * c_row)
+            @ tiles ~m:(rb :> int)
+            @ add_const "s8" ((rb :> int) * c_row)
             @ [
                 i "mv" [ r "s6"; r "s11" ];
                 i "addi" [ r "s5"; r "s5"; A.imm (-1) ];

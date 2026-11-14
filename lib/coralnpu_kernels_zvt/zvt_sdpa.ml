@@ -82,7 +82,8 @@ let plan = Zvt_sdpa_geometry.plan
 
 let panel_bytes t =
   Kernel_refusal.generate_checked @@ fun esc ->
-  Geometry.total (Geometry.make esc t)
+  Coral_transfer.Transfer_units.Bytes.of_int
+    (Geometry.total (Geometry.make esc t))
 
 let block_queries t =
   match panel_bytes t with Ok _ -> Ok bq | Error why -> Error why
@@ -317,7 +318,7 @@ let items esc ?mutation ?dtcm ?(skip = []) (t : A.t) =
   in
   let pack_q =
     at (qp_l, 0) Gpr.t1
-    @ zero_bytes ~dst:Gpr.t1 g.Geometry.q_panel
+    @ zero_bytes ~dst:Gpr.t1 (g.Geometry.q_panel :> int)
     @ [ lw Gpr.t3 Frame.vq ]
     @ vcfg_reg Gpr.t3 e16m4
     @ li Gpr.s10 (2 * d)
@@ -338,7 +339,7 @@ let items esc ?mutation ?dtcm ?(skip = []) (t : A.t) =
     @ at s_arr Gpr.t0
     @ [ insn (Insn.Vse { eew = Vtype.Sew.E32; src = vreg 4; base = Gpr.t0 }) ]
     @ at (oacc_l, 0) Gpr.t1
-    @ zero_bytes ~dst:Gpr.t1 g.Geometry.oacc_bytes
+    @ zero_bytes ~dst:Gpr.t1 (g.Geometry.oacc_bytes :> int)
   in
   (* K's rows [vk] staged, the panel zeroed on a short block, packed, and the
      scores block computed into the tile *)
@@ -354,7 +355,7 @@ let items esc ?mutation ?dtcm ?(skip = []) (t : A.t) =
          insn (Insn.Beqz { src = Gpr.t0; target = skip });
        ]
        @ at (kp_l, 0) Gpr.t1
-       @ zero_bytes ~dst:Gpr.t1 g.Geometry.k_panel
+       @ zero_bytes ~dst:Gpr.t1 (g.Geometry.k_panel :> int)
        @ [ Item.label skip ])
     @ [ lw Gpr.t3 Frame.vk ]
     @ vcfg_reg Gpr.t3 e16m4
@@ -929,12 +930,12 @@ let items esc ?mutation ?dtcm ?(skip = []) (t : A.t) =
       (fun (l, size) ->
         [ Item.align 64; Item.label l; Item.zero (Geometry.align64 size) ])
       [
-        (tile_l, g.Geometry.tile_bytes);
-        (oacc_l, g.Geometry.oacc_bytes);
-        (qp_l, g.Geometry.q_panel);
-        (kp_l, g.Geometry.k_panel);
-        (stage_l, g.Geometry.stage_bytes);
-        (arrays_l, g.Geometry.arrays_bytes);
+        (tile_l, (g.Geometry.tile_bytes :> int));
+        (oacc_l, (g.Geometry.oacc_bytes :> int));
+        (qp_l, (g.Geometry.q_panel :> int));
+        (kp_l, (g.Geometry.k_panel :> int));
+        (stage_l, (g.Geometry.stage_bytes :> int));
+        (arrays_l, (g.Geometry.arrays_bytes :> int));
       ]
 
 let module_ ?mutation ?budget ?dtcm ?skip t =

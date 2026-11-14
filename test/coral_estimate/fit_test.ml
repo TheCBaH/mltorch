@@ -80,7 +80,7 @@ let core =
       &&
       (* [panel_bytes] refuses first: [fast] raises on what it refuses *)
       match P.panel_bytes d with
-      | Ok b -> b <= 32768 * 5 / 8 && P.fast d
+      | Ok b -> (b :> int) <= 32768 * 5 / 8 && P.fast d
       | Error _ -> false)
 
 (* planning a case is the slow part, and the fit asks for its features once

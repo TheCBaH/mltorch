@@ -89,11 +89,14 @@ let run ?deadline ?(dir = dir) ?(expect = negated) label (i : Coral_image.t)
   match
     Err.payload
       (Coral_soc_run.run ?deadline ~dir i ~bound:(fun k ->
+           let k = (k : Core.Table_slot.t :> int) in
            if k = 0 then Some (input count) else None))
   with
   | Ok o ->
       Fmt.pr "%s: status %ld, %s, minstret %Ld, mcycle %Ld@." label o.status
-        (if Coral_soc_run.matches o 2 (expect count) then "negated" else "WRONG")
+        (if Coral_soc_run.matches o (Core.Table_slot.of_int 2) (expect count)
+         then "negated"
+         else "WRONG")
         o.minstret o.mcycle
   | Error e -> Fmt.pr "%s: %a@." label Coral_soc_run.Run_error.pp e
 

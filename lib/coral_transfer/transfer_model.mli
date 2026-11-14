@@ -44,5 +44,9 @@ end
 
 val predict : ?rates:Rates.t -> Contraction.t -> Transfer_plan.t -> float
 
-val choose : ?rates:Rates.t -> budget:int -> Contraction.t -> Transfer_plan.t
+val choose :
+  ?rates:Rates.t ->
+  budget:Transfer_units.Bytes.t ->
+  Contraction.t ->
+  Transfer_plan.t
 (** The candidate with the least {!predict}ed cycles; the first of equals. *)

@@ -35,7 +35,10 @@ module Mutation : sig
 end
 
 val panel_bytes :
-  Attention_block.t -> (int, Coralnpu_kernels.Kernel_refusal.t) result
+  Attention_block.t ->
+  ( Coral_transfer.Transfer_units.Bytes.t,
+    Coralnpu_kernels.Kernel_refusal.t )
+  result
 (** The [.bss] the function declares, or why the descriptor is outside what it
     computes. *)
 

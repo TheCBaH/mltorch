@@ -78,13 +78,15 @@ let run ?profile ?(precision = Precision.binary32) ~negate () =
       | Ok prepared -> (
           match
             H.run prepared ~bound:(fun k ->
+                let k = (k : Core.Table_slot.t :> int) in
                 if k = 0 then Some (input p) else None)
           with
           | Error e -> Fmt.pr "run: %s@." e
           | Ok { H.status; outputs } ->
               Fmt.pr "status %ld@." status;
               List.iter
-                (fun (k, bytes) -> Fmt.pr "slot %d: %s@." k (show p bytes))
+                (fun ((k : Core.Table_slot.t), bytes) ->
+                  Fmt.pr "slot %d: %s@." (k :> int) (show p bytes))
                 outputs))
 
 let%expect_test "negated through workspace" =

@@ -279,7 +279,7 @@ let run_once ?cpu (prepared : H.prepared) ~published memory binding =
       (Ok []) slots
   in
   let bound = Array.of_list (List.rev bound) in
-  let* outcome = H.run ?cpu prepared ~bound:(fun k -> bound.(k)) in
+  let* outcome = H.run ?cpu prepared ~bound:(fun k -> bound.((k :> int))) in
   let* () =
     List.fold_left
       (fun acc (k, bytes) ->
@@ -290,7 +290,10 @@ let run_once ?cpu (prepared : H.prepared) ~published memory binding =
         | Some key ->
             Mir_memory.write_string memory key ~offset:0L bytes;
             Ok ())
-      (Ok ()) outcome.H.outputs
+      (Ok ())
+      (List.map
+         (fun ((k : Core.Table_slot.t), b) -> ((k :> int), b))
+         outcome.H.outputs)
   in
   Ok outcome.H.status
 

@@ -36,11 +36,11 @@ end
 
 type outcome = {
   argv : string list;
-  hashes : (int * int32) list;
+  hashes : (Core.Table_slot.t * int32) list;
       (** Each written slot's {!Coral_mailbox.hash}, by slot index. *)
   mcycle : int64;
   minstret : int64;
-  read_back : (int * string) list;
+  read_back : (Core.Table_slot.t * string) list;
       (** The bytes of each slot asked for by [read_back], by slot index. *)
   status : int32;  (** The entry's return value. *)
   text : string;  (** The simulator's own output. *)
@@ -51,12 +51,12 @@ val run :
   ?deadline:float ->
   ?label:string ->
   ?trace:string ->
-  ?read_back:int list ->
+  ?read_back:Core.Table_slot.t list ->
   ?skip_unchanged:bool ->
   ?budget:int64 ->
   dir:string ->
   Coral_image.t ->
-  bound:(int -> string option) ->
+  bound:(Core.Table_slot.t -> string option) ->
   (outcome, Run_error.t) Err.t
 (** [dir] is the subsystem archive root. [bound k] is read slot [k]'s bytes, cut
     or zero-padded to its size. [deadline] is in seconds (default 600), from the
@@ -72,5 +72,5 @@ val run :
     those bytes are reported. [budget] (default none) bounds the bytes read
     back; above it the run fails with [Read_back_over_budget]. *)
 
-val matches : outcome -> int -> string -> bool
+val matches : outcome -> Core.Table_slot.t -> string -> bool
 (** [matches o k bytes]: written slot [k] hashed as [bytes] do. *)

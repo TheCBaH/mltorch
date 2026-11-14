@@ -111,18 +111,25 @@ let execute ?(matrix = false) dir p ~name ~items ~slots ~inputs ~timings ~dst
   in
   match
     Err.payload
-      (Coral_soc_run.run ~deadline ?trace ~read_back:(Option.to_list timings)
-         ~dir image ~bound:(fun k ->
+      (Coral_soc_run.run ~deadline ?trace
+         ~read_back:(Option.to_list (Option.map Core.Table_slot.of_int timings))
+         ~dir image
+         ~bound:(fun k ->
+           let k = (k : Core.Table_slot.t :> int) in
            if k < Array.length inputs then Some inputs.(k) else None))
   with
   | Error e ->
       Fmt.pr "%s: %a@." name Coral_soc_run.Run_error.pp e;
       exit 1
   | Ok o ->
-      if not (Coral_soc_run.matches o dst expected) then (
+      if not (Coral_soc_run.matches o (Core.Table_slot.of_int dst) expected)
+      then (
         Fmt.pr "%s: the destination is wrong@." name;
         exit 1);
-      (Option.fold ~none:"" ~some:(fun k -> List.assoc k o.read_back) timings, o)
+      ( Option.fold ~none:""
+          ~some:(fun k -> List.assoc (Core.Table_slot.of_int k) o.read_back)
+          timings,
+        o )
 
 let word t k = Int32.to_int (String.get_int32_le t (4 * k))
 
@@ -272,15 +279,18 @@ let overlay dir p =
   let inputs = Array.of_list inputs in
   match
     Err.payload
-      (Coral_soc_run.run ~deadline ?trace ~read_back:[ V.results_slot ] ~dir
-         image ~bound:(fun k ->
+      (Coral_soc_run.run ~deadline ?trace
+         ~read_back:[ Core.Table_slot.of_int V.results_slot ]
+         ~dir image
+         ~bound:(fun k ->
+           let k = (k : Core.Table_slot.t :> int) in
            if k < Array.length inputs then Some inputs.(k) else None))
   with
   | Error e ->
       Fmt.pr "overlay: %a@." Coral_soc_run.Run_error.pp e;
       exit 1
   | Ok o ->
-      let t = List.assoc V.results_slot o.read_back in
+      let t = List.assoc (Core.Table_slot.of_int V.results_slot) o.read_back in
       List.iteri
         (fun k (name, want) ->
           let a0 = word t (3 * k) and status = word t ((3 * k) + 1) in
@@ -326,14 +336,18 @@ let overlay_calls dir p =
   in
   match
     Err.payload
-      (Coral_soc_run.run ~deadline ?trace ~read_back:[ V.Calls.results_slot ]
-         ~dir image ~bound:(fun _ -> None))
+      (Coral_soc_run.run ~deadline ?trace
+         ~read_back:[ Core.Table_slot.of_int V.Calls.results_slot ]
+         ~dir image
+         ~bound:(fun _ -> None))
   with
   | Error e ->
       Fmt.pr "overlay calls: %a@." Coral_soc_run.Run_error.pp e;
       exit 1
   | Ok o ->
-      let t = List.assoc V.Calls.results_slot o.read_back in
+      let t =
+        List.assoc (Core.Table_slot.of_int V.Calls.results_slot) o.read_back
+      in
       let wrong = ref false in
       List.iteri
         (fun k (name, want) ->
@@ -391,8 +405,9 @@ let direct ?(peak = false) dir p (g : G.t) =
     "%s M=%d N=%d K=%d, operands in %s, no DMA: C as expected, %Ld cycles, \
      %.1f ops/cycle@."
     (G.Engine.name g.engine)
-    (G.rows g * g.blocks)
-    g.width g.depth
+    ((G.rows g :> int) * (g.blocks :> int))
+    (g.width :> int)
+    (g.depth :> int)
     (if peak then "DTCM" else "SRAM")
     o.mcycle
     (float_of_int (G.ops g) /. Int64.to_float o.mcycle)
@@ -406,7 +421,9 @@ let gemm_out = function
   | "c-by-core" -> G.Out.Core
   | "c-by-dma" -> Dma
   | o -> (
-      try Scanf.sscanf o "c-split-%d%!" (fun n -> G.Out.Split n)
+      try
+        Scanf.sscanf o "c-split-%d%!" (fun n ->
+            G.Out.Split (Coral_transfer.Transfer_units.Rows.of_int n))
       with Scanf.Scan_failure _ | End_of_file | Failure _ ->
         invalid_arg ("dma_bench: no way out " ^ o))
 
@@ -422,8 +439,9 @@ let gemm_geometry rest =
   match rest with
   | g :: rest' -> (
       match (after "resident-a/" g, after "split-k/" g) with
-      | Some panel, _ -> (G.Geometry.Resident_a { panel }, rest')
-      | _, Some chunk -> (Split_k { chunk }, rest')
+      | Some panel, _ ->
+          (G.Geometry.Resident_a { panel = Core.Dim.extent panel }, rest')
+      | _, Some chunk -> (Split_k { chunk = Core.Dim.extent chunk }, rest')
       | None, None when g = "row-major-a" -> (Row_major_a, rest')
       | None, None -> (Resident_b, rest))
   | [] -> (Resident_b, rest)
@@ -441,18 +459,19 @@ let () =
         (* An RVV block's lanes are a panel of a wider W. *)
         let geometry =
           match G.Engine.lanes engine with
-          | Some panel when panel < width -> G.Geometry.Resident_a { panel }
+          | Some panel when panel < width ->
+              G.Geometry.Resident_a { panel = Core.Dim.extent panel }
           | Some _ | None -> Resident_b
         in
         direct ~peak:(mode = "peak") dir p
           {
-            G.blocks = int_of_string blocks;
-            depth = int_of_string depth;
+            G.blocks = Core.Dim.extent (int_of_string blocks);
+            depth = Core.Dim.extent (int_of_string depth);
             engine;
             geometry;
             out = Dma;
             prologue = Dma;
-            width;
+            width = Core.Dim.extent width;
           };
         sweeps rest
     | "gemm" :: engine :: rest -> (
@@ -460,13 +479,13 @@ let () =
         | geometry, prologue :: out :: blocks :: width :: depth :: rest ->
             gemm dir p
               {
-                G.blocks = int_of_string blocks;
-                depth = int_of_string depth;
+                G.blocks = Core.Dim.extent (int_of_string blocks);
+                depth = Core.Dim.extent (int_of_string depth);
                 engine = gemm_engine engine;
                 geometry;
                 out = gemm_out out;
                 prologue = gemm_prologue prologue;
-                width = int_of_string width;
+                width = Core.Dim.extent (int_of_string width);
               };
             sweeps rest
         | _ ->

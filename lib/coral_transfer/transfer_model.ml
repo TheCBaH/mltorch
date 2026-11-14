@@ -116,7 +116,7 @@ let k_step (r : Rates.t) (d : C.t) (p : P.t) ~a_sram ~rows ~lanes =
    group's own instructions and C's stores *)
 let product r (d : C.t) p ~a_sram rows =
   let n = Int64.to_int d.C.n and k = f (Int64.to_int d.C.k) in
-  let g = P.group_rows d in
+  let g = (P.group_rows d :> int) in
   List.fold_left ( +. ) 0.
     (List.init (cdiv n 32) (fun t ->
          let lanes = min 32 (n - (32 * t)) in
@@ -140,15 +140,15 @@ let predict ?(rates = Rates.fitted) (d : C.t) (p : P.t) =
   let m = Int64.to_int d.C.m and batch = f (Int64.to_int d.C.batch) in
   let copy bytes = r.Rates.dma_start +. (f bytes /. r.Rates.dma) in
   let copies =
-    (match p.P.a with P.A.Copied -> copy (P.span d `A) | _ -> 0.)
+    (match p.P.a with P.A.Copied -> copy (P.span d `A :> int) | _ -> 0.)
     +.
     match p.P.b with
-    | P.B.Copied -> copy (P.span d `B)
+    | P.B.Copied -> copy (P.span d `B :> int)
     | P.B.In_place -> 0.
     | P.B.Shared ->
         (* the core copies three quarters, by 256-byte trips, beside the
            DMA's rest *)
-        let span = P.span d `B in
+        let span = (P.span d `B :> int) in
         let by_core = span * 3 / 4 / 256 * 256 in
         Float.max
           (f by_core /. r.Rates.core_copy)
@@ -158,23 +158,26 @@ let predict ?(rates = Rates.fitted) (d : C.t) (p : P.t) =
     match p.P.a with
     | P.A.In_place -> product r d p ~a_sram:true m
     | P.A.Copied -> product r d p ~a_sram:false m
-    | P.A.Streamed { rows } ->
+    | P.A.Streamed { rows = block_rows } ->
+        let rows = (block_rows :> int) in
+        let row_bytes = (P.row_bytes d :> int)
+        and c_row_bytes = (P.c_row_bytes d :> int) in
         let blocks = cdiv m rows in
         let last = m - ((blocks - 1) * rows) in
-        let bytes = rows * P.row_bytes d in
+        let bytes = rows * row_bytes in
         let full = product r d p ~a_sram:false rows in
         (* each later block's chain beside the block before: A's next block
            and, with C by the DMA, the block before's C; it costs what the
            product does not hide and, when the product reads B from SRAM, a
            contention per byte. A last chain carries the last blocks' C. *)
-        let c_block = rows * P.c_row_bytes d in
+        let c_block = rows * c_row_bytes in
         let chain, c_after =
           match p.P.out with
           | P.Out.Core -> (bytes, 0.)
           | P.Out.Dma ->
               ( bytes + c_block,
                 r.Rates.dma_start
-                +. f (((min blocks 2 - 1) * c_block) + (last * P.c_row_bytes d))
+                +. f (((min blocks 2 - 1) * c_block) + (last * c_row_bytes))
                    /. r.Rates.dma )
         in
         let beside =
@@ -184,7 +187,7 @@ let predict ?(rates = Rates.fitted) (d : C.t) (p : P.t) =
           | P.B.In_place -> f chain *. r.Rates.contention
           | P.B.Copied | P.B.Shared -> 0.
         in
-        copy (if blocks = 1 then last * P.row_bytes d else bytes)
+        copy (if blocks = 1 then last * row_bytes else bytes)
         +. (f (blocks - 1) *. (full +. beside))
         +. product r d p ~a_sram:false last
         +. c_after

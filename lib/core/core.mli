@@ -32,6 +32,10 @@ module Storage_units = Storage_units
 
 (* Generative [private int] domains for ids, ordinals and other numbers that are
    only compared, keyed and printed. See .ai/ (domain-typed integers). *)
+module Table_slot : Tagged_int.S
+(** The ordinal of a mutable region in a table-bound image: what a run binds,
+    reads back and hashes. *)
+
 module Tagged_int : module type of Tagged_int
 
 (* Handwritten printers should use Fmt directly for their structure; this

@@ -436,14 +436,18 @@ let run ~cpu ~items ~in_words ~out_words vectors =
       with
       | Error e -> Error e
       | Ok p -> (
-          let bound = function
+          let bound slot =
+            match (slot : Core.Table_slot.t :> int) with
             | 0 -> Some (words (List.concat vectors))
             | 2 -> Some (String.concat "" (List.init n area))
             | _ -> None
           in
           match H.run ~cpu p ~bound with
           | Error e -> Error e
-          | Ok o -> Ok (List.assoc 1 o.H.outputs, List.assoc 2 o.H.outputs)))
+          | Ok o ->
+              Ok
+                ( List.assoc (Core.Table_slot.of_int 1) o.H.outputs,
+                  List.assoc (Core.Table_slot.of_int 2) o.H.outputs )))
 
 let check_instance ?mutation ~sem ~cpu i =
   let e = C.env mutation in

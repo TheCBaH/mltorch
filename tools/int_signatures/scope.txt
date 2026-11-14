@@ -1,4 +1,7 @@
+ml:lib/attention_block
 lib/contraction
+ml:lib/coral_estimate
+ml:lib/coral_transfer
 lib/coralnpu
 ml:lib/coralnpu_kernels
 ml:lib/coralnpu_kernels_zvt
@@ -6,6 +9,7 @@ lib/coralnpu_rv32
 lib/core
 ml:lib/expr
 ml:lib/expr_internal
+ml:lib/f32_math
 ml:lib/interval_alloc
 ml:lib/js_ast
 ml:lib/loop_ir
@@ -33,6 +37,7 @@ lib/native_graph
 ml:lib/native_interp
 lib/native_op_walk
 lib/native_predict
+ml:lib/norm_block
 ml:lib/pt2
 lib/ssa_backends
 lib/ssa_bridge

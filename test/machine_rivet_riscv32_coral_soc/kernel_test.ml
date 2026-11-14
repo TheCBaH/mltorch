@@ -9,6 +9,7 @@ module C = Contraction
 module L = Coral_layout
 module P = Coral_transfer.Transfer_plan
 module Tm = Coral_transfer.Transfer_model
+module Transfer_bytes = Coral_transfer.Transfer_units.Bytes
 
 let dir = Sys.getenv "CORALNPU_SUBSYSTEM_DATA"
 let entry = "kernel_entry"
@@ -80,11 +81,12 @@ let run ?mutation ~configuration d plan =
       (fun acc (reg : Coral_profile.Region.t) ->
         match reg.Coral_profile.Region.role with
         | Coral_profile.Role.Dtcm ->
-            acc
-            + Int64.to_int
-                (Int64.div (Int64.mul reg.Coral_profile.Region.size 5L) 8L)
+            Transfer_bytes.add acc
+              (Transfer_bytes.of_int
+                 (Int64.to_int
+                    (Int64.div (Int64.mul reg.Coral_profile.Region.size 5L) 8L)))
         | _ -> acc)
-      0 profile.Coral_profile.regions
+      Transfer_bytes.zero profile.Coral_profile.regions
   in
   let plan = match plan with Some p -> p | None -> Tm.choose ~budget d in
   let* w =
@@ -121,15 +123,19 @@ let run ?mutation ~configuration d plan =
     Result.map_error
       (Fmt.str "%a" Coral_soc_run.Run_error.pp)
       (Err.payload
-         (Coral_soc_run.run ~deadline:1800. ~read_back:[ 2 ] ~budget:65536L ~dir
-            image ~bound:(function
-           | 0 -> Some a
-           | 1 -> Some b
-           | _ -> None)))
+         (Coral_soc_run.run ~deadline:1800.
+            ~read_back:[ Core.Table_slot.of_int 2 ]
+            ~budget:65536L ~dir image
+            ~bound:(fun slot_ ->
+              match (slot_ : Core.Table_slot.t :> int) with
+              | 0 -> Some a
+              | 1 -> Some b
+              | _ -> None)))
   in
   Ok
     ( plan,
-      List.assoc 2 o.Coral_soc_run.read_back = Bytes.to_string expected,
+      List.assoc (Core.Table_slot.of_int 2) o.Coral_soc_run.read_back
+      = Bytes.to_string expected,
       o.Coral_soc_run.mcycle )
 
 let%expect_test
@@ -150,7 +156,7 @@ let%expect_test
       show "chosen" None;
       List.iter
         (fun p -> show "candidate" (Some p))
-        (P.candidates ~budget:20480 d))
+        (P.candidates ~budget:(Transfer_bytes.of_int 20480) d))
     [ (192L, 32L, 128L) ];
   (* the shared copy's and C's ring obligations, each defect caught *)
   let d = descriptor ~m:192L ~n:32L ~k:128L in

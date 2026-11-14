@@ -97,9 +97,10 @@ let machine inputs =
   let* prepared = H.prepare ~entry:"mir_entry" ~kernel:[ k; libc ] slots in
   let* { H.outputs; _ } =
     H.run prepared ~bound:(fun k ->
+        let k = (k : Core.Table_slot.t :> int) in
         if k = 0 then Some (Bytes.to_string bytes) else None)
   in
-  match List.assoc_opt 1 outputs with
+  match List.assoc_opt (Core.Table_slot.of_int 1) outputs with
   | None -> Error "no output slot"
   | Some s -> Ok (List.init n (fun i -> String.get_int32_le s (4 * i)))
 

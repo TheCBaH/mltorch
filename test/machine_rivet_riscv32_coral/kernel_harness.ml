@@ -95,12 +95,16 @@ let run ?(sram = false) ?(pad = 0) ?(fill = '\000') ?args
             ~flags:[ Printf.sprintf "--cycles=%d" cycles ]
             ~dir image
             ~bound:(fun i ->
+              let i = (i : Core.Table_slot.t :> int) in
               if i < n_in then Some (padded (List.nth inputs i)) else None)))
   in
   Ok
     {
       outputs =
-        List.mapi (fun k _ -> List.assoc (n_in + k) o.Coral_run.outputs) outputs;
+        List.mapi
+          (fun k _ ->
+            List.assoc (Core.Table_slot.of_int (n_in + k)) o.Coral_run.outputs)
+          outputs;
       cycles = o.Coral_run.mcycle;
       retired = o.Coral_run.minstret;
       segments =

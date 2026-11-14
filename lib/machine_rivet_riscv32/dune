@@ -6,6 +6,7 @@
 (library
  (name machine_rivet_riscv32)
  (libraries
+  core
   elf
   err_trace
   fmt

@@ -101,12 +101,15 @@ let run ?mutation ~vlen d =
       ~cpu:
         (Fmt.str
            "rv32,d=false,zve32f=true,vlen=%d,elen=32,rvv_ta_all_1s=true,rvv_ma_all_1s=true"
-           vlen) prepared ~bound:(function
-      | 0 -> Some a
-      | 1 -> Some b
-      | _ -> None)
+           vlen) prepared ~bound:(fun slot_ ->
+        match (slot_ : Core.Table_slot.t :> int) with
+        | 0 -> Some a
+        | 1 -> Some b
+        | _ -> None)
   in
-  Ok (List.assoc 2 o.H.outputs = Bytes.to_string expected)
+  Ok
+    (List.assoc (Core.Table_slot.of_int 2) o.H.outputs
+    = Bytes.to_string expected)
 
 let%expect_test "integer contractions under qemu" =
   let show name = function

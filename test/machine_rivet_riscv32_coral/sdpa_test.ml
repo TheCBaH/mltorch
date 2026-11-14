@@ -328,7 +328,9 @@ let%expect_test "what d 96 and 130 need" =
   List.iter
     (fun (d, bk) ->
       Fmt.pr "d %d bk %d: %a@." d bk
-        Fmt.(result ~ok:int ~error:Coralnpu_kernels.Kernel_refusal.pp)
+        Fmt.(
+          result ~ok:Coral_transfer.Transfer_units.Bytes.pp
+            ~error:Coralnpu_kernels.Kernel_refusal.pp)
         (Z.Zvt_sdpa.panel_bytes (make ~tq:16 ~tk:32 ~d ~bk ())))
     [ (96, 32); (96, 16); (130, 16) ];
   [%expect
@@ -460,7 +462,9 @@ let%expect_test "d 128" =
   List.iter
     (fun (d, bk) ->
       Fmt.pr "d %d bk %d: %a@." d bk
-        Fmt.(result ~ok:int ~error:Coralnpu_kernels.Kernel_refusal.pp)
+        Fmt.(
+          result ~ok:Coral_transfer.Transfer_units.Bytes.pp
+            ~error:Coralnpu_kernels.Kernel_refusal.pp)
         (Z.Zvt_sdpa.panel_bytes (make ~tq:16 ~tk:32 ~d ~bk ())))
     [ (128, 16); (128, 8) ];
   let t = make ~mask:Dense ~tq:41 ~tk:61 ~d:128 ~bk:16 () in

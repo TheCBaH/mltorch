@@ -40,10 +40,10 @@ end
 
 type outcome = {
   argv : string list;
-  hashes : (int * int32) list;
+  hashes : (Core.Table_slot.t * int32) list;
   mcycle : int64;
   minstret : int64;
-  read_back : (int * string) list;
+  read_back : (Core.Table_slot.t * string) list;
   status : int32;
   text : string;
   wall : float;
@@ -65,9 +65,12 @@ let contents (image : Coral_image.t) ~bound =
       let size = Int64.to_int s.slot.size in
       let bytes =
         if Coral_layout.Placement.read s.slot.placement then
-          match bound k with
+          match bound (Core.Table_slot.of_int k) with
           | Some bytes -> bytes
-          | None -> Option.value (List.assoc_opt k image.internal) ~default:""
+          | None ->
+              Option.value
+                (List.assoc_opt (Core.Table_slot.of_int k) image.internal)
+                ~default:""
         else ""
       in
       let n = min size (String.length bytes) in
@@ -154,6 +157,9 @@ let fetch spi (s : Coral_layout.Placed_slot.t) =
 let run_held ?(deadline = 600.) ?label ?trace ?(read_back = [])
     ?(skip_unchanged = false) ?budget ~dir (image : Coral_image.t) ~bound =
   let open Err.Syntax in
+  let read_back =
+    List.map (fun (s : Core.Table_slot.t) -> (s :> int)) read_back
+  in
   let initial =
     Array.of_list (List.map (fun (_, _, b) -> b) (contents image ~bound))
   in
@@ -399,10 +405,18 @@ let run_held ?(deadline = 600.) ?label ?trace ?(read_back = [])
                                 let o =
                                   {
                                     argv;
-                                    hashes = List.combine indices r.hashes;
+                                    hashes =
+                                      List.map
+                                        (fun (k, h) ->
+                                          (Core.Table_slot.of_int k, h))
+                                        (List.combine indices r.hashes);
                                     mcycle = r.mcycle;
                                     minstret = r.minstret;
-                                    read_back = fetched;
+                                    read_back =
+                                      List.map
+                                        (fun (k, b) ->
+                                          (Core.Table_slot.of_int k, b))
+                                        fetched;
                                     status = r.status;
                                     text;
                                     wall;
@@ -410,7 +424,10 @@ let run_held ?(deadline = 600.) ?label ?trace ?(read_back = [])
                                 in
                                 match
                                   List.find_opt
-                                    (fun (k, bytes) -> not (matches o k bytes))
+                                    (fun (k, bytes) ->
+                                      not
+                                        (matches o (Core.Table_slot.of_int k)
+                                           bytes))
                                     fetched
                                 with
                                 | Some (k, _) ->

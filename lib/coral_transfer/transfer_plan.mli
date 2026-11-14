@@ -7,7 +7,7 @@
 *)
 
 module A : sig
-  type t = Copied | In_place | Streamed of { rows : int }
+  type t = Copied | In_place | Streamed of { rows : Transfer_units.Rows.t }
 end
 
 module B : sig
@@ -34,44 +34,54 @@ val pp : t Fmt.t
 (** Why a plan cannot be emitted. Alphabetical. *)
 module Refusal : sig
   type t =
-    | Block_rows of { rows : int; unit : int }
+    | Block_rows of {
+        rows : Transfer_units.Rows.t;
+        unit : Transfer_units.Rows.t;
+      }
         (** a block of rows not a positive multiple of the fewest rows whose
             bytes are whole beats and whole k steps *)
     | C_not_beats  (** C by the DMA, its rows not whole 16-byte beats *)
     | C_not_streamed  (** C by the DMA, A not streamed *)
     | C_rows_not_contiguous  (** C by the DMA, C's rows not one after another *)
-    | Over_budget of { needed : int; budget : int }
-        (** panels and ring larger than the DTCM given *)
-    | Over_transfer of { bytes : int }  (** a copy past one DMA transfer *)
+    | Over_budget of {
+        needed : Transfer_units.Bytes.t;
+        budget : Transfer_units.Bytes.t;
+      }  (** panels and ring larger than the DTCM given *)
+    | Over_transfer of { bytes : Transfer_units.Bytes.t }
+        (** a copy past one DMA transfer *)
     | Rows_not_contiguous
         (** a streamed A whose rows do not follow each other *)
 
   val pp : t Fmt.t
 end
 
-val span : Contraction.t -> [ `A | `B ] -> int
+val span : Contraction.t -> [ `A | `B ] -> Transfer_units.Bytes.t
 (** Bytes an operand spans from its first element, rounded up to a 16-byte beat:
     what a copy moves. *)
 
-val group_rows : Contraction.t -> int
+val group_rows : Contraction.t -> Transfer_units.Rows.t
 (** The rows a k step reads together: three fused or integer, two ordered. *)
 
-val row_bytes : Contraction.t -> int
+val row_bytes : Contraction.t -> Transfer_units.Bytes.t
 (** One row of A, [k] elements. *)
 
-val unit_rows : ?out:Out.t -> Contraction.t -> int
+val unit_rows : ?out:Out.t -> Contraction.t -> Transfer_units.Rows.t
 (** The fewest rows a ring block may hold: a multiple of {!group_rows} whose
     bytes are whole beats, and, with C by the DMA, its rows of C too. *)
 
-val c_row_bytes : Contraction.t -> int
+val c_row_bytes : Contraction.t -> Transfer_units.Bytes.t
 
-val half_bytes : Contraction.t -> rows:int -> out:Out.t -> int
+val half_bytes :
+  Contraction.t ->
+  rows:Transfer_units.Rows.t ->
+  out:Out.t ->
+  Transfer_units.Bytes.t
 (** A ring half: a block of A's rows, then, with C by the DMA, its rows of C. *)
 
 val rows_contiguous : Contraction.t -> bool
 (** A's rows follow each other ([k] stride 1, row stride [k]). *)
 
-val bytes : Contraction.t -> t -> int
+val bytes : Contraction.t -> t -> Transfer_units.Bytes.t
 (** The DTCM the plan's panels and ring take. *)
 
 (** A checked plan, for the contraction it was checked against. *)
@@ -81,13 +91,17 @@ module Witness : sig
 
   val plan : t -> plan
   val contraction : t -> Contraction.t
-  val bytes : t -> int
+  val bytes : t -> Transfer_units.Bytes.t
 end
 
-val check : budget:int -> Contraction.t -> t -> (Witness.t, Refusal.t) result
+val check :
+  budget:Transfer_units.Bytes.t ->
+  Contraction.t ->
+  t ->
+  (Witness.t, Refusal.t) result
 (** The plan for [d] within [budget] bytes of DTCM. *)
 
-val candidates : budget:int -> Contraction.t -> t list
+val candidates : budget:Transfer_units.Bytes.t -> Contraction.t -> t list
 (** Every plan worth ranking for [d]: B in place, copied or shared; A in place,
     copied, or streamed by the largest block the rest of the budget holds, with
     C by the core or the DMA; each one passes {!check}, and the in-place plan is

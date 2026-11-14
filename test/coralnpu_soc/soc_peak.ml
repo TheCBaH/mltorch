@@ -29,6 +29,7 @@ let run configuration name (k : K.t) ~standalone =
   match
     Err.payload
       (Coral_soc_run.run ~dir image ~bound:(fun i ->
+           let i = (i : Core.Table_slot.t :> int) in
            if i < Array.length inputs then Some inputs.(i) else None))
   with
   | Error e ->
@@ -37,7 +38,9 @@ let run configuration name (k : K.t) ~standalone =
       let out = List.length k.K.slots - 1 in
       Fmt.pr "%s %s: %s, %Ld cycles (standalone %d)@." configuration name
         (if o.status <> 0l then Printf.sprintf "returned %ld" o.status
-         else if Coral_soc_run.matches o out k.K.expected then "as expected"
+         else if
+           Coral_soc_run.matches o (Core.Table_slot.of_int out) k.K.expected
+         then "as expected"
          else "WRONG")
         o.mcycle standalone
 

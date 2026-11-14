@@ -7,6 +7,13 @@ module Role = Role
 module Storage_units = Storage_units
 module Tagged_int = Tagged_int
 
+module Table_slot =
+  Tagged_int.Make
+    (struct
+      let prefix = "slot"
+    end)
+    ()
+
 module Pretty = struct
   let to_string pp v = Fmt.str "%a" pp v
   let pp_none none ppf () = Fmt.string ppf none

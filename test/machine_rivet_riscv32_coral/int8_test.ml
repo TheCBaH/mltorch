@@ -113,13 +113,15 @@ let run ~configuration ~engine d =
       (Fmt.str "%a" Coral_run.Run_error.pp)
       (Err.payload
          (Coral_run.run ~deadline:Deadline.seconds
-            ~flags:[ "--cycles=50000000" ] ~dir image ~bound:(function
-           | 0 -> Some a
-           | 1 -> Some b
-           | _ -> None)))
+            ~flags:[ "--cycles=50000000" ] ~dir image ~bound:(fun slot_ ->
+              match (slot_ : Core.Table_slot.t :> int) with
+              | 0 -> Some a
+              | 1 -> Some b
+              | _ -> None)))
   in
   Ok
-    ( List.assoc 2 o.Coral_run.outputs = Bytes.to_string expected,
+    ( List.assoc (Core.Table_slot.of_int 2) o.Coral_run.outputs
+      = Bytes.to_string expected,
       o.Coral_run.mcycle )
 
 let%expect_test "integer contractions on the vector unit and the matrix engine"

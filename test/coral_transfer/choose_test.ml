@@ -29,7 +29,9 @@ let ordered = Contraction.Numerics.Ordered
 let%expect_test "the plan chosen for each shape" =
   List.iter
     (fun (name, d) ->
-      let p = Tm.choose ~budget:32768 d in
+      let p =
+        Tm.choose ~budget:(Coral_transfer.Transfer_units.Bytes.of_int 32768) d
+      in
       Fmt.pr "%-28s %s%a@." name
         (if p = P.in_place then "in place" else "DMA: ")
         (fun ppf p -> if p <> P.in_place then P.pp ppf p)

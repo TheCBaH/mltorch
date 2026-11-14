@@ -5,4 +5,4 @@
 
 (library
  (name coral_transfer)
- (libraries contraction fmt))
+ (libraries contraction core fmt))

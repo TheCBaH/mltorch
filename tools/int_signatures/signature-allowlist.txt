@@ -4,7 +4,18 @@
 # [todo-domain] is a debt marker (an int that names an entity); the ceiling only goes down.
 # [ml:<dir>] scope entries also read the inferred interface of each .ml without an .mli; a library enters with an opening
 # [todo-domain] balance that is part of the ceiling, and the ceiling only goes down from there.
-@todo-domain-ceiling 460
+@todo-domain-ceiling 435
+lib/coral_estimate/coral_census.mli	hash	val compare : t -> t -> int
+lib/coral_estimate/coral_census.mli	tally	type t = { counts : (Class.t * float) list; contracts : (Contract_call.t * float) list; attends : (Attend_call.t * float) list; bodies : (Class.t * float) list list; unknown : int; }
+lib/coral_transfer/transfer_units.mli	defn	type t = private int
+lib/coral_transfer/transfer_units.mli	defn	val of_int : int -> t
+lib/coral_transfer/transfer_units.mli	defn	val to_int : t -> int
+lib/coral_transfer/transfer_units.mli	hash	val compare : t -> t -> int
+lib/coral_transfer/transfer_units.mli	defn	type t = private int
+lib/coral_transfer/transfer_units.mli	defn	val of_int : int -> t
+lib/coral_transfer/transfer_units.mli	defn	val to_int : t -> int
+lib/coral_transfer/transfer_units.mli	hash	val compare : t -> t -> int
+lib/coral_transfer/dma_geometry.ml	todo-domain	val lanes : t -> int option end
 lib/coralnpu/coral_dma.mli	wire	val offset : t -> int end
 lib/coralnpu/coral_dma.mli	bits	val ctrl_start : int
 lib/coralnpu/coral_dma.mli	bits	val status_done : int
@@ -28,8 +39,8 @@ lib/coralnpu_kernels/peak_kernels.ml	todo-domain	val bytes : t -> int
 lib/coralnpu_kernels/peak_kernels.ml	todo-domain	val set : t -> bytes -> int -> int -> unit end
 lib/coralnpu_kernels/peak_kernels.ml	todo-domain	val slot : Coral_layout.Placement.t -> int -> L.Slot.t
 lib/coralnpu_kernels/peak_kernels.ml	tally	val iterations : int
-lib/coralnpu_kernels/peak_kernels.ml	todo-domain	val sew_of_bits : int -> Vtype.Sew.t
-lib/coralnpu_kernels/peak_kernels.ml	todo-domain	val lmul_of_factor : int -> Vtype.Lmul.t
+lib/coralnpu_kernels/peak_kernels.ml	defn	val sew_of_bits : int -> Vtype.Sew.t
+lib/coralnpu_kernels/peak_kernels.ml	defn	val lmul_of_factor : int -> Vtype.Lmul.t
 lib/coralnpu_kernels/peak_kernels.ml	todo-domain	val vset_item : ?avl:Machine_rivet_riscv32.Rv32_kernel_reg.Gpr.t -> int -> int -> Item.t
 lib/coralnpu_kernels/peak_kernels.ml	wire	val imm12 : int -> Imm.Imm12.t
 lib/coralnpu_kernels/peak_kernels.ml	wire	val addi : Insn.Gpr.t -> Insn.Gpr.t -> int -> Item.t
@@ -42,7 +53,7 @@ lib/coralnpu_kernels/peak_kernels.ml	wire	val flh : Insn.Fpr.t -> Insn.Gpr.t -> 
 lib/coralnpu_kernels/peak_kernels.ml	tally	val one : t -> int
 lib/coralnpu_kernels/peak_kernels.ml	tally	val sum : t -> int
 lib/coralnpu_kernels/peak_kernels.ml	todo-domain	val accumulator : t -> sew:int -> Elem.t option end
-lib/coralnpu_kernels/peak_kernels.ml	todo-domain	val elementwise : sew:int -> lmul:int -> Vv_op.t -> (t, string) result
+lib/coralnpu_kernels/peak_kernels.ml	defn	val elementwise : sew:int -> lmul:int -> Vv_op.t -> (t, string) result
 lib/coralnpu_kernels/peak_kernels.ml	todo-domain	type shape = { rows : int; width : int; depth : int; blocks : int; src : Elem.t; dst : Elem.t; sa : int; sb : int; }
 lib/coralnpu_kernels/peak_kernels.ml	todo-domain	val a : shape -> int -> int -> int
 lib/coralnpu_kernels/peak_kernels.ml	todo-domain	val b : shape -> int -> int -> int
@@ -58,10 +69,7 @@ lib/coralnpu_kernels/peak_kernels.ml	todo-domain	val gemm : ?width:int -> Gemm.I
 lib/coralnpu_kernels_zvt/vexpr.mli	todo-domain	val input : int -> t
 lib/coralnpu_kernels_zvt/vexpr.mli	tally	type t = { items : Machine_rivet_riscv32.Rv32_kernel_item.t list; result : Machine_rivet_riscv32.Rv32_kernel_reg.Vreg.t; peak : int; } end
 lib/coralnpu_kernels_zvt/vexpr.mli	todo-domain	val emit : lmul:int -> scratch:Machine_rivet_riscv32.Rv32_kernel_reg.Gpr.t -> free:Machine_rivet_riscv32.Rv32_kernel_reg.Vreg.t list -> inputs: (Machine_rivet_riscv32.Rv32_kernel_reg.Vreg.t * [ `Consumed | `Kept ]) array -> t -> (Plan.t, string) result
-lib/coralnpu_kernels_zvt/zvt_packed_contraction.mli	todo-domain	val overread : Contraction.t -> int
 lib/coralnpu_kernels_zvt/zvt_packed_contraction.mli	todo-domain	type t = | Always | Outside of { base : int; bytes : int } end
-lib/coralnpu_kernels_zvt/zvt_packed_contraction.mli	todo-domain	val panel_bytes : ?stage_b:Stage.t -> Contraction.t -> (int, Coralnpu_kernels.Kernel_refusal.t) result
-lib/coralnpu_kernels_zvt/zvt_sdpa.mli	todo-domain	val panel_bytes : Attention_block.t -> (int, Coralnpu_kernels.Kernel_refusal.t) result
 lib/coralnpu_kernels_zvt/zvt_sdpa.mli	todo-domain	val block_queries : Attention_block.t -> (int, Coralnpu_kernels.Kernel_refusal.t) result
 lib/coralnpu_kernels_zvt/zvt_sdpa.mli	todo-domain	val module_ : ?mutation:Mutation.t -> ?budget:int -> ?dtcm:int * int -> ?skip:Phase.t list -> Attention_block.t -> ( Riscv32_encode.Instruction.t Asm_core.Normalized_ast.module_, Coralnpu_kernels.Kernel_refusal.t ) result
 lib/coralnpu_kernels_zvt/dma_gemm.ml	todo-domain	val streamed : int
@@ -77,10 +85,6 @@ lib/coralnpu_kernels_zvt/dma_gemm.ml	todo-domain	val zeros : int
 lib/coralnpu_kernels_zvt/dma_gemm.ml	todo-domain	val packed : int end
 lib/coralnpu_kernels_zvt/dma_gemm.ml	wire	val words : int list -> string
 lib/coralnpu_kernels_zvt/dma_gemm.ml	todo-domain	val core_trip : int
-lib/coralnpu_kernels_zvt/dma_gemm.ml	todo-domain	type t = Coral_transfer.Dma_geometry.t = { blocks : int; depth : int; engine : Engine.t; geometry : Geometry.t; out : Out.t; prologue : Prologue.t; width : int; }
-lib/coralnpu_kernels_zvt/dma_gemm.ml	todo-domain	val rows : t -> int
-lib/coralnpu_kernels_zvt/dma_gemm.ml	todo-domain	val lanes : t -> int
-lib/coralnpu_kernels_zvt/dma_gemm.ml	todo-domain	val block_depth : t -> int
 lib/coralnpu_kernels_zvt/dma_gemm.ml	todo-domain	val chunks : t -> int
 lib/coralnpu_kernels_zvt/dma_gemm.ml	todo-domain	val steps : t -> int
 lib/coralnpu_kernels_zvt/dma_gemm.ml	todo-domain	val b_row : t -> int
@@ -119,19 +123,13 @@ lib/coralnpu_kernels_zvt/peak_zvt.ml	todo-domain	val c_row : plan -> int
 lib/coralnpu_kernels_zvt/peak_zvt.ml	todo-domain	val block_items : ?prefix:string -> ?a_pitch:int -> ?b_pitch:int -> ?b_pass:int -> ?split:int * Coralnpu_kernels.Peak_kernels.Insn.Gpr.t -> ?c_row:int -> ?accumulate:bool -> plan -> (Coralnpu_kernels.Peak_kernels.Item.t list, [> `Constant_range of Coralnpu_kernels.Peak_kernels.Insn.Constant_range.t | `Register_index of Machine_rivet_riscv32.Rv32_kernel_reg.Register_index.t ]) Err.t
 lib/coralnpu_kernels_zvt/zvt_sdpa_geometry.ml	todo-domain	val bq : int
 lib/coralnpu_kernels_zvt/zvt_sdpa_geometry.ml	todo-domain	val plan : rows:int -> depth:int -> n:int -> P.Tile_gemm.plan
-lib/coralnpu_kernels_zvt/zvt_sdpa_geometry.ml	todo-domain	type t = { d : int; depth : int; bk : int; tile_bytes : int; oacc_bytes : int; q_panel : int; k_panel : int; stage_bytes : int; arrays_bytes : int; q_blocks : int; q_tail : int; k_blocks : int; k_tail : int; }
+lib/coralnpu_kernels_zvt/zvt_sdpa_geometry.ml	todo-domain	type t = { d : int; depth : int; bk : int; tile_bytes : Coral_transfer.Transfer_units.Bytes.t; oacc_bytes : Coral_transfer.Transfer_units.Bytes.t; q_panel : Coral_transfer.Transfer_units.Bytes.t; k_panel : Coral_transfer.Transfer_units.Bytes.t; stage_bytes : Coral_transfer.Transfer_units.Bytes.t; arrays_bytes : Coral_transfer.Transfer_units.Bytes.t; q_blocks : int; q_tail : int; k_blocks : int; k_tail : int; }
 lib/coralnpu_kernels_zvt/zvt_sdpa_geometry.ml	todo-domain	val align64 : int -> int
 lib/coralnpu_kernels_zvt/zvt_sdpa_geometry.ml	todo-domain	val total : t -> int end
 lib/coralnpu_rv32/coral_cpus.mli	tally	val with_cpus : int -> (unit -> 'a) -> 'a
 lib/coralnpu_rv32/coral_cpus.mli	tally	val pool : unit -> int
-lib/coralnpu_rv32/coral_image.mli	todo-domain	type t = { elf : string; image : Image.t; layout : Coral_layout.t; profile : Coral_profile.t; internal : (int * string) list; }
 lib/coralnpu_rv32/coral_image.mli	as-written	type error = [ Coral_layout.error | Coral_dma.error | Coral_elf.error | Coral_overlay.error | `Layout_unsettled | `Mailbox_full of int | `Overlay_needs_dma | `Runtime_form of string ]
-lib/coralnpu_rv32/coral_run.mli	todo-domain	type outcome = { argv : string list; mcycle : int64; minstret : int64; outputs : (int * string) list; status : int32; text : string; wall : float; }
-lib/coralnpu_rv32/coral_run.mli	todo-domain	val run : ?deadline:float -> ?flags:string list -> ?label:string -> ?expect_cycles:int64 -> ?expect_instructions:int64 -> dir:string -> Coral_image.t -> bound:(int -> string option) -> (outcome, Run_error.t) Err.t
 lib/coralnpu_rv32/coral_soc_run.mli	as-written	type t = | Digest_mismatch of int32 | Guest_trap of Coral_run.Trap.t | Mailbox_malformed of Coral_mailbox.Malformed.t | No_core_csr | Read_back_mismatch of int | Read_back_over_budget of Over_budget.t | Simulator_crashed of { status : string; tail : string } | Simulator_missing of string | Spi_failed of string | Timeout
-lib/coralnpu_rv32/coral_soc_run.mli	todo-domain	type outcome = { argv : string list; hashes : (int * int32) list; mcycle : int64; minstret : int64; read_back : (int * string) list; status : int32; text : string; wall : float; }
-lib/coralnpu_rv32/coral_soc_run.mli	todo-domain	val run : ?deadline:float -> ?label:string -> ?trace:string -> ?read_back:int list -> ?skip_unchanged:bool -> ?budget:int64 -> dir:string -> Coral_image.t -> bound:(int -> string option) -> (outcome, Run_error.t) Err.t
-lib/coralnpu_rv32/coral_soc_run.mli	todo-domain	val matches : outcome -> int -> string -> bool
 lib/coralnpu_rv32/coral_spi.mli	wire	val connect : port:int -> t
 lib/coralnpu_rv32/coral_spi.mli	tally	val idle : t -> int -> unit
 lib/coralnpu_rv32/coral_spi.mli	tally	val read : t -> int64 -> beats:int -> string
@@ -700,8 +698,7 @@ lib/machine_rivet_riscv32/rv32_harness.ml	wire	val syscall : int -> Machine_rive
 lib/machine_rivet_riscv32/rv32_harness.ml	wire	val map : path:string -> len:int -> flags:int -> prot:int -> into:string -> open_code:int -> map_code:int -> name:string -> Machine_rivet_riscv32.Rv32_asm.E.Instruction.t Machine_rivet_riscv32.Rv32_asm.N.item list
 lib/machine_rivet_riscv32/rv32_harness.ml	wire	val at : string -> int -> Machine_rivet_riscv32.Rv32_asm.E.Instruction.t Machine_rivet_riscv32.Rv32_asm.N.item list
 lib/machine_rivet_riscv32/rv32_harness.ml	todo-domain	val harness : ?abi:Abi.t -> ?min_vlenb:int -> entry:string -> layout -> (Machine_rivet_riscv32.Rv32_asm.E.Instruction.t Machine_rivet_riscv32.Rv32_asm.N.module_, string) result
-lib/machine_rivet_riscv32/rv32_harness.ml	todo-domain	type outcome = { status : int32; outputs : (int * string) list; }
-lib/machine_rivet_riscv32/rv32_harness.ml	todo-domain	val run : ?timeout:int -> ?cpu:string -> prepared -> bound:(int -> string option) -> (outcome, string) result
+lib/machine_rivet_riscv32/rv32_harness.ml	budget	val run : ?timeout:int -> ?cpu:string -> prepared -> bound:(Core.Table_slot.t -> string option) -> (outcome, string) result
 lib/machine_rivet_riscv32/rv32_image.ml	wire	type section_build = Driver_direct.Pipeline_direct.Make(Riscv32_encode).section_build = { sb_name : string; sb_perms : Asm_core.Perms.t; sb_kind : Asm_core.Lowered_ast.section_kind; mutable sb_align : int; mutable sb_frags : Riscv32_encode.fixup_kind Asm_core.Lowered_ast.fragment list; }
 lib/machine_rivet_riscv32/rv32_image.ml	wire	val merge_fill : executable:bool -> int -> string
 lib/machine_rivet_riscv32/rv32_image.ml	wire	val section_pad : (length:int -> string) option
@@ -712,17 +709,13 @@ lib/machine_rivet_riscv32/rv32_kernel_item.ml	todo-domain	type t = { index : int
 lib/machine_rivet_riscv32/rv32_kernel_item.ml	wire	type t = Align of int | Bss | Export of { name : string; label : Machine_rivet_riscv32.Rv32_kernel_label.t; } | Insn of Machine_rivet_riscv32.Rv32_kernel_insn.t | Label of Machine_rivet_riscv32.Rv32_kernel_label.t | Note of string option | Text | Zero of int
 lib/machine_rivet_riscv32/rv32_kernel_item.ml	wire	val align : int -> t
 lib/machine_rivet_riscv32/rv32_kernel_item.ml	wire	val zero : int -> t
-lib/machine_rivet_riscv32/rv32_kernel_vtype.ml	todo-domain	val bits : t -> int
-lib/machine_rivet_riscv32/rv32_kernel_vtype.ml	todo-domain	val of_bits : int -> t option
-lib/machine_rivet_riscv32/rv32_kernel_vtype.ml	todo-domain	val factor : t -> int
-lib/machine_rivet_riscv32/rv32_kernel_vtype.ml	todo-domain	val of_factor : int -> t option
+lib/machine_rivet_riscv32/rv32_kernel_vtype.ml	defn	val bits : t -> int
+lib/machine_rivet_riscv32/rv32_kernel_vtype.ml	defn	val of_bits : int -> t option
+lib/machine_rivet_riscv32/rv32_kernel_vtype.ml	defn	val factor : t -> int
+lib/machine_rivet_riscv32/rv32_kernel_vtype.ml	defn	val of_factor : int -> t option
 lib/machine_rivet_riscv32/rv32_libc.ml	todo-domain	val f : int -> Machine_rivet_riscv32.Rv32_asm.E.Operand.t
 lib/machine_rivet_riscv32/rv32_process.ml	wire	type outcome = { exit_code : int; stdout : string; }
 lib/machine_rivet_riscv32/rv32_process.ml	budget	val execute : ?timeout:int -> ?cpu:string -> ?args:string list -> string -> (outcome, string) result
-lib/machine_rivet_riscv32_coral/rv32_mir_coral.ml	todo-domain	val image : ?mutation:Machine_rivet_riscv32_mir.Rv32_mir_module.F.Mutation.t -> ?kernel_mutation:Coralnpu_kernels.Rvv_contraction.Mutation.t -> ?home:(Table.slot -> Coral_layout.Home.t) -> ?engine:bool -> ?engine_mutation:Coralnpu_kernels_zvt.Zvt_contraction.Mutation.t -> ?transfer:(budget:int -> Contraction.t -> Coral_transfer.Transfer_plan.t) -> ?dma:Dma.t -> ?itcm:Int64.t -> Config.t -> Q.published -> (Coral_image.t, string) result
-lib/machine_rivet_riscv32_coral/rv32_mir_coral.ml	todo-domain	val simulate : ?budget:int64 -> ?label:string -> ?expect_cycles:int64 -> Config.t -> Coral_image.t -> bound:(int -> string option) -> ((int * string) list * int32 * Run.t, string) result
-lib/machine_rivet_riscv32_coral/rv32_mir_coral.ml	todo-domain	val exec_of : ?mutation:Machine_rivet_riscv32_mir.Rv32_mir_module.F.Mutation.t -> ?kernel_mutation:Coralnpu_kernels.Rvv_contraction.Mutation.t -> ?route_mutation:Mutation.t -> ?registers:Q.Registers.t -> ?engine:bool -> ?engine_mutation:Coralnpu_kernels_zvt.Zvt_contraction.Mutation.t -> ?transfer:(budget:int -> Contraction.t -> Coral_transfer.Transfer_plan.t) -> ?dma:Dma.t -> ?itcm:Int64.t -> ?on_run:(Run.t -> unit) -> ?on_elf:(string -> unit) -> ?on_image:((Machine_ir.Mir_id.Region.t * Coral_profile.Role.t) list -> unit) -> ?home:(Table.slot -> Coral_layout.Home.t) -> ?budget:int64 -> ?label:string -> ?expect_cycles:int64 -> Config.t -> sites:Machine_ir.Mir_failure.Site_entry.t array -> Machine_ir.Mir_verify.Generic.t -> (Route.Exec.t, string) result
-lib/machine_rivet_riscv32_coral/rv32_mir_coral.ml	todo-domain	val route : ?mutation:Machine_rivet_riscv32_mir.Rv32_mir_module.F.Mutation.t -> ?kernel_mutation:Coralnpu_kernels.Rvv_contraction.Mutation.t -> ?route_mutation:Mutation.t -> ?registers:Q.Registers.t -> ?engine:bool -> ?engine_mutation:Coralnpu_kernels_zvt.Zvt_contraction.Mutation.t -> ?transfer:(budget:int -> Contraction.t -> Coral_transfer.Transfer_plan.t) -> ?dma:Dma.t -> ?itcm:Int64.t -> ?on_run:(Run.t -> unit) -> ?on_elf:(string -> unit) -> ?on_image:((Machine_ir.Mir_id.Region.t * Coral_profile.Role.t) list -> unit) -> ?home:(Table.slot -> Coral_layout.Home.t) -> ?budget:int64 -> ?label:string -> ?expect_cycles:int64 -> Config.t -> Route.Route.t
 lib/machine_rivet_riscv32_mir/rv32_mir_route.mli	todo-domain	val region_bytes : Machine_interp.Mir_memory.t -> Machine_interp.Mir_interp.Binding.t -> Machine_ir.Mir_id.Region.t -> int -> (Machine_interp.Mir_memory.Key.t * string, string) result
 lib/machine_rivet_riscv32_mir/rv32_mir_census.ml	tally	type t = { instructions : int; vector : (string * int) list; configurations : int; grouped : int; spills : int; reloads : int; remats : int; frame_bytes : int64; helper_calls : int; }
 lib/machine_rivet_riscv32_mir/rv32_mir_form.ml	todo-domain	val bytes : t -> int end

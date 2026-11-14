@@ -149,9 +149,14 @@ let () =
               ]
             ~dir image
             ~bound:(fun i ->
+              let i = (i : Core.Table_slot.t :> int) in
               if i < Array.length inputs then Some inputs.(i) else None)))
   in
-  let out = List.assoc (List.length k.K.slots - 1) outcome.Coral_run.outputs in
+  let out =
+    List.assoc
+      (Core.Table_slot.of_int (List.length k.K.slots - 1))
+      outcome.Coral_run.outputs
+  in
   if outcome.Coral_run.status <> 0l then (
     Fmt.pr "%s: the kernel returned %ld@." name outcome.Coral_run.status;
     exit 1);

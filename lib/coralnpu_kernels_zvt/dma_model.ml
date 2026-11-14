@@ -99,14 +99,16 @@ let predict ?(r = measured) (t : G.t) =
   in
   let c_in = if split then f (G.c_block t) else 0. in
   let share i =
-    if split && (i / t.blocks) + 1 < G.chunks t then
-      f (G.chunk_bytes t) /. f t.blocks
+    if split && (i / (t.blocks :> int)) + 1 < G.chunks t then
+      f (G.chunk_bytes t) /. f (t.blocks :> int)
     else 0.
   in
   (* C's bytes a step by the core's stores, and by the DMA, a descriptor a
      row when A is resident. *)
   let c = f (G.c_step t) in
-  let c_core = c *. f (G.Out.by_core ~rows:(G.rows t) t.out) /. f (G.rows t) in
+  let c_core =
+    c *. f (G.Out.by_core ~rows:(G.rows t) t.out :> int) /. f (G.rows t :> int)
+  in
   let c_dma = c -. c_core in
   let extra = f (max 0 (G.c_descriptors t - 1)) *. r.descriptor in
   let step_ops = f (G.ops t / n) in
@@ -127,7 +129,7 @@ let predict ?(r = measured) (t : G.t) =
     match t.geometry with
     | Row_major_a ->
         let e = f (Coralnpu_kernels.Peak_kernels.Elem.bytes (G.shape t).src) in
-        let stride = f (G.rows t) *. e in
+        let stride = f (G.rows t :> int) *. e in
         let rate =
           Float.min r.repack_peak (r.repack_beat *. Float.max 1. (16. /. stride))
         in
@@ -192,13 +194,15 @@ let variants ?(a_row_major = false) ~budget ~engine ~m ~width ~depth () =
     | Some n ->
         (if width = n then [ G.Geometry.Resident_b ] else [])
         @
-        if width mod n = 0 then [ G.Geometry.Resident_a { panel = n } ] else []
+        if width mod n = 0 then
+          [ G.Geometry.Resident_a { panel = Core.Dim.extent n } ]
+        else []
     | None ->
         G.Geometry.Resident_b
         :: List.filter_map
              (fun panel ->
                if panel <= width && width mod panel = 0 then
-                 Some (G.Geometry.Resident_a { panel })
+                 Some (G.Geometry.Resident_a { panel = Core.Dim.extent panel })
                else None)
              [ 32; 64; 128; 256 ]
   in
@@ -206,7 +210,11 @@ let variants ?(a_row_major = false) ~budget ~engine ~m ~width ~depth () =
   let outs : G.Geometry.t -> G.Out.t list = function
     | Resident_b when G.Engine.matrix engine ->
         G.Out.[ Core; Dma ]
-        @ List.init ((rows / 4) - 1) (fun k -> G.Out.Split (4 * (k + 1)))
+        @ List.init
+            (((rows :> int) / 4) - 1)
+            (fun k ->
+              G.Out.Split
+                (Coral_transfer.Transfer_units.Rows.of_int (4 * (k + 1))))
     | Resident_a _ | Resident_b | Row_major_a -> G.Out.[ Core; Dma ]
     | Split_k _ -> [ G.Out.Dma ]
   in
@@ -214,8 +222,8 @@ let variants ?(a_row_major = false) ~budget ~engine ~m ~width ~depth () =
     packed_geometries
     @ List.filter_map
         (fun chunk ->
-          if chunk < depth && depth mod chunk = 0 && m / rows >= 2 then
-            Some (G.Geometry.Split_k { chunk })
+          if chunk < depth && depth mod chunk = 0 && m / (rows :> int) >= 2 then
+            Some (G.Geometry.Split_k { chunk = Core.Dim.extent chunk })
           else None)
         [ 64; 128; 256; 512; 1024; 2048 ]
   in
@@ -240,7 +248,7 @@ let variants ?(a_row_major = false) ~budget ~engine ~m ~width ~depth () =
         geometries
     else geometries
   in
-  if m mod rows <> 0 then Error (Refusal.Rows { m; rows })
+  if m mod (rows :> int) <> 0 then Error (Refusal.Rows { m; rows :> int })
   else
     let all =
       List.concat_map
@@ -250,13 +258,13 @@ let variants ?(a_row_major = false) ~budget ~engine ~m ~width ~depth () =
               List.map
                 (fun out ->
                   {
-                    G.blocks = m / rows;
-                    depth;
+                    G.blocks = Core.Dim.extent (m / (rows :> int));
+                    depth = Core.Dim.extent depth;
                     engine;
                     geometry;
                     out;
                     prologue;
-                    width;
+                    width = Core.Dim.extent width;
                   })
                 (outs geometry))
             G.Prologue.[ Dma; Shared ])

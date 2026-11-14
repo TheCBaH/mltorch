@@ -17,6 +17,11 @@
  (deps
   signature-allowlist.txt
   (source_tree ../../lib)
+  (alias ../../lib/attention_block/check)
+  (alias ../../lib/coral_estimate/check)
+  (alias ../../lib/coral_transfer/check)
+  (alias ../../lib/f32_math/check)
+  (alias ../../lib/norm_block/check)
   (alias ../../lib/coralnpu_kernels/check)
   (alias ../../lib/coralnpu_kernels_zvt/check)
   (alias ../../lib/interval_alloc/check)

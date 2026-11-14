@@ -211,13 +211,14 @@ let run ?(sram = false) ?(engine = Engine.plain) ?operands ?seed ~spread d =
       (Fmt.str "%a" Coral_run.Run_error.pp)
       (Err.payload
          (Coral_run.run ~deadline:Deadline.seconds
-            ~flags:[ "--cycles=50000000" ] ~dir image ~bound:(function
-           | 0 -> Some a
-           | 1 -> Some b
-           | 2 -> seed
-           | _ -> None)))
+            ~flags:[ "--cycles=50000000" ] ~dir image ~bound:(fun slot_ ->
+              match (slot_ : Core.Table_slot.t :> int) with
+              | 0 -> Some a
+              | 1 -> Some b
+              | 2 -> seed
+              | _ -> None)))
   in
-  let actual = List.assoc 2 o.Coral_run.outputs in
+  let actual = List.assoc (Core.Table_slot.of_int 2) o.Coral_run.outputs in
   Ok
     {
       actual;

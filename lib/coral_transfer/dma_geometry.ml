@@ -22,10 +22,12 @@ module Engine = struct
     | Zvt_f32 -> "zvt f32"
     | Zvt_i8 -> "zvt i8"
 
-  let rows = function
-    | Rvv_bf16 | Rvv_f32 -> 3
-    | Rvv_i8 -> 2
-    | Zvt_bf16 | Zvt_f32 | Zvt_i8 -> 32
+  let rows =
+    let r = Transfer_units.Rows.of_int in
+    function
+    | Rvv_bf16 | Rvv_f32 -> r 3
+    | Rvv_i8 -> r 2
+    | Zvt_bf16 | Zvt_f32 | Zvt_i8 -> r 32
 
   let matrix = function
     | Rvv_bf16 | Rvv_f32 | Rvv_i8 -> false
@@ -48,17 +50,20 @@ module Out = struct
   type t =
     | Core  (** the block's own stores, straight to SRAM: no C ring *)
     | Dma  (** staged in the C ring, copied by the next step's chain *)
-    | Split of int
+    | Split of Transfer_units.Rows.t
         (** Zvt: the block's first [n] rows by its own stores, the rest by the
             DMA, through the C ring *)
 
   let name = function
     | Core -> "c-by-core"
     | Dma -> "c-by-dma"
-    | Split n -> Printf.sprintf "c-split-%d" n
+    | Split n -> Printf.sprintf "c-split-%d" (n :> int)
 
   (* The rows of a block the core stores, of [rows]. *)
-  let by_core ~rows = function Core -> rows | Dma -> 0 | Split n -> n
+  let by_core ~rows = function
+    | Core -> rows
+    | Dma -> Transfer_units.Rows.of_int 0
+    | Split n -> n
 end
 
 (* Who copies the resident operand into DTCM in the prologue. Alphabetical. *)
@@ -78,31 +83,31 @@ end
 (* Which operand stays in DTCM. Alphabetical. *)
 module Geometry = struct
   type t =
-    | Resident_a of { panel : int }
+    | Resident_a of { panel : Core.Dim.extent Core.Dim.t }
         (** A, with B streamed by panels of [panel] columns: for W too wide for
             DTCM *)
     | Resident_b  (** B, with A streamed by blocks of rows *)
     | Row_major_a
         (** as resident B, with A row-major in SRAM as an activation is: each
             block's rows arrive as they are and the core packs them in DTCM *)
-    | Split_k of { chunk : int }
+    | Split_k of { chunk : Core.Dim.extent Core.Dim.t }
         (** B by chunks of [chunk] rows, for K too deep for DTCM: the next chunk
             arrives beside the current one's steps, A streams by blocks of a
             chunk's columns, and C's partial sums go out and come back *)
 
   let name = function
-    | Resident_a { panel } -> Printf.sprintf "resident-a/%d" panel
+    | Resident_a { panel } -> Printf.sprintf "resident-a/%d" (panel :> int)
     | Resident_b -> "resident-b"
     | Row_major_a -> "row-major-a"
-    | Split_k { chunk } -> Printf.sprintf "split-k/%d" chunk
+    | Split_k { chunk } -> Printf.sprintf "split-k/%d" (chunk :> int)
 end
 
 type t = {
-  blocks : int;
-  depth : int;
+  blocks : Core.Dim.extent Core.Dim.t;
+  depth : Core.Dim.extent Core.Dim.t;
   engine : Engine.t;
   geometry : Geometry.t;
   out : Out.t;
   prologue : Prologue.t;
-  width : int;
+  width : Core.Dim.extent Core.Dim.t;
 }

@@ -119,7 +119,7 @@ let profile =
 
 let bound =
   let operands = List.concat_map fst cases in
-  fun k -> List.nth_opt operands k
+  fun k -> List.nth_opt operands (k : Core.Table_slot.t :> int)
 
 let params = { L.Params.stack = 2048L; staging = 0L }
 
@@ -151,7 +151,9 @@ let%expect_test "as overlays, both attentions run bitwise" =
     or_fail Coral_image.pp_error (Err.payload (build ~overlays:true))
   in
   let n_in = 3 * List.length shapes in
-  let outputs = List.mapi (fun j _ -> n_in + j) shapes in
+  let outputs =
+    List.mapi (fun j _ -> Core.Table_slot.of_int (n_in + j)) shapes
+  in
   (match
      Err.payload
        (Coral_soc_run.run ~deadline:Deadline.seconds ~read_back:outputs ~dir
@@ -161,7 +163,11 @@ let%expect_test "as overlays, both attentions run bitwise" =
   | Ok o ->
       List.iteri
         (fun j (_, expected) ->
-          let got = List.assoc (n_in + j) o.Coral_soc_run.read_back in
+          let got =
+            List.assoc
+              (Core.Table_slot.of_int (n_in + j))
+              o.Coral_soc_run.read_back
+          in
           Fmt.pr "attention %d: %s@." j
             (if got = expected then "bitwise" else "DIFFERS"))
         cases;

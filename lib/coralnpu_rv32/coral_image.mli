@@ -13,7 +13,7 @@ type t = {
           symbols at their addresses. *)
   layout : Coral_layout.t;
   profile : Coral_profile.t;
-  internal : (int * string) list;
+  internal : (Core.Table_slot.t * string) list;
       (** The bytes of the slots the builder added for {!build}'s overlays, by
           slot index; a run writes them as it does a caller's [In] slots. *)
 }

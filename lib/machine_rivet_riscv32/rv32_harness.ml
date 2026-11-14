@@ -212,7 +212,7 @@ let prepare ?(profile = Rv32_profile.default) ?abi ~entry ~kernel slots =
       | Error e -> Error e
       | Ok elf -> Ok { elf; lay; profile })
 
-type outcome = { status : int32; outputs : (int * string) list }
+type outcome = { status : int32; outputs : (Core.Table_slot.t * string) list }
 
 (* One run: [bound k] is slot [k]'s initial bytes. The result holds every
    [Out] slot's bytes by index. [cpu] replaces the profile's qemu CPU (another
@@ -236,7 +236,7 @@ let run ?timeout ?cpu (p : prepared) ~bound =
                 (fun bytes ->
                   Bytes.blit_string bytes 0 b off
                     (min (String.length bytes) s.size))
-                (bound k))
+                (bound (Core.Table_slot.of_int k)))
           p.lay.slots;
         Bytes.unsafe_to_string b
       in
@@ -270,7 +270,7 @@ let run ?timeout ?cpu (p : prepared) ~bound =
                 (List.mapi
                    (fun k ((s : slot), off) ->
                      if s.placement = Out then
-                       [ (k, String.sub out off s.size) ]
+                       [ (Core.Table_slot.of_int k, String.sub out off s.size) ]
                      else [])
                    p.lay.slots);
           })

@@ -59,7 +59,7 @@ type outcome = {
   argv : string list;
   mcycle : int64;
   minstret : int64;
-  outputs : (int * string) list;
+  outputs : (Core.Table_slot.t * string) list;
   status : int32;
   text : string;
   wall : float;
@@ -187,7 +187,9 @@ let payload (image : Coral_image.t) ~bound =
     (fun k (s : Coral_layout.Placed_slot.t) ->
       if Coral_layout.Placement.read s.slot.placement then (
         let size = Int64.to_int s.slot.size in
-        let bytes = Option.value (bound k) ~default:"" in
+        let bytes =
+          Option.value (bound (Core.Table_slot.of_int k)) ~default:""
+        in
         let n = min size (String.length bytes) in
         Buffer.add_substring b bytes 0 n;
         Buffer.add_string b (String.make (size - n) '\000')))
@@ -204,7 +206,7 @@ let outputs (image : Coral_image.t) data =
            let size = Int64.to_int s.slot.size in
            let bytes = String.sub data !at size in
            at := !at + size;
-           [ (k, bytes) ])
+           [ (Core.Table_slot.of_int k, bytes) ])
          else [])
        image.layout.slots)
 

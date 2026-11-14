@@ -493,14 +493,18 @@ let run ~items ~inputs ~outputs vectors =
       match H.prepare ~entry:"conformance" ~kernel:[ m ] slots with
       | Error e -> Error e
       | Ok p -> (
-          let bound = function
+          let bound slot =
+            match (slot : Core.Table_slot.t :> int) with
             | 0 -> Some (words (List.concat vectors))
             | 2 -> Some (String.concat "" (List.init n area))
             | _ -> None
           in
           match H.run p ~bound with
           | Error e -> Error e
-          | Ok o -> Ok (List.assoc 1 o.H.outputs, List.assoc 2 o.H.outputs)))
+          | Ok o ->
+              Ok
+                ( List.assoc (Core.Table_slot.of_int 1) o.H.outputs,
+                  List.assoc (Core.Table_slot.of_int 2) o.H.outputs )))
 
 let word s k =
   Int64.logand (Int64.of_int32 (String.get_int32_le s (4 * k))) 0xFFFF_FFFFL

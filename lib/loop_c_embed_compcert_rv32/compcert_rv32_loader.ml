@@ -110,9 +110,11 @@ module Ilp32f = struct
     let* p = prepared l size in
     let region = String.init size (fun i -> Bigarray.Array1.get io i) in
     let* { H.status; outputs } =
-      H.run p ~bound:(fun k -> if k = 0 then Some region else None)
+      H.run p ~bound:(fun k ->
+          let k = (k : Core.Table_slot.t :> int) in
+          if k = 0 then Some region else None)
     in
-    match List.assoc_opt 0 outputs with
+    match List.assoc_opt (Core.Table_slot.of_int 0) outputs with
     | None -> Error "the process returned no region"
     | Some bytes ->
         String.iteri (fun i c -> Bigarray.Array1.set io i c) bytes;

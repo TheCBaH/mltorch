@@ -31,12 +31,12 @@ module Geometry = struct
     d : int;
     depth : int;  (** [d] taken to a multiple of four *)
     bk : int;
-    tile_bytes : int;
-    oacc_bytes : int;
-    q_panel : int;
-    k_panel : int;
-    stage_bytes : int;
-    arrays_bytes : int;
+    tile_bytes : Coral_transfer.Transfer_units.Bytes.t;
+    oacc_bytes : Coral_transfer.Transfer_units.Bytes.t;
+    q_panel : Coral_transfer.Transfer_units.Bytes.t;
+    k_panel : Coral_transfer.Transfer_units.Bytes.t;
+    stage_bytes : Coral_transfer.Transfer_units.Bytes.t;
+    arrays_bytes : Coral_transfer.Transfer_units.Bytes.t;
     q_blocks : int;
     q_tail : int;
     k_blocks : int;
@@ -82,12 +82,14 @@ module Geometry = struct
       bk;
       (* the bfloat16 P^T rows lie in the tile's first half; the context
          block reads [4 * 2 * bq + 128] bytes past them *)
-      tile_bytes = max (bk * bq * 4) ((bk * bq * 2) + (8 * bq) + 128);
-      oacc_bytes = bq * d * 4;
-      q_panel;
-      k_panel;
-      stage_bytes;
-      arrays_bytes = 6 * bq * 4;
+      tile_bytes =
+        Coral_transfer.Transfer_units.Bytes.of_int
+          (max (bk * bq * 4) ((bk * bq * 2) + (8 * bq) + 128));
+      oacc_bytes = Coral_transfer.Transfer_units.Bytes.of_int (bq * d * 4);
+      q_panel = Coral_transfer.Transfer_units.Bytes.of_int q_panel;
+      k_panel = Coral_transfer.Transfer_units.Bytes.of_int k_panel;
+      stage_bytes = Coral_transfer.Transfer_units.Bytes.of_int stage_bytes;
+      arrays_bytes = Coral_transfer.Transfer_units.Bytes.of_int (6 * bq * 4);
       q_blocks;
       q_tail = tq - ((q_blocks - 1) * bq);
       k_blocks;
@@ -97,6 +99,7 @@ module Geometry = struct
   let align64 n = (n + 63) / 64 * 64
 
   let total g =
-    align64 g.tile_bytes + align64 g.oacc_bytes + align64 g.q_panel
-    + align64 g.k_panel + align64 g.stage_bytes + align64 g.arrays_bytes
+    let a (b : Coral_transfer.Transfer_units.Bytes.t) = align64 (b :> int) in
+    a g.tile_bytes + a g.oacc_bytes + a g.q_panel + a g.k_panel
+    + a g.stage_bytes + a g.arrays_bytes
 end

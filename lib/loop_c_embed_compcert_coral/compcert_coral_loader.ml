@@ -64,9 +64,11 @@ module Make (C : CONFIG) = struct
     let* outcome =
       render Coral_run.Run_error.pp
         (Coral_run.run ~deadline:C.deadline ~dir:C.dir image ~bound:(fun k ->
-             if k = 0 then Some region else None))
+             if Core.Table_slot.equal k (Core.Table_slot.of_int 0) then
+               Some region
+             else None))
     in
-    match List.assoc_opt 0 outcome.outputs with
+    match List.assoc_opt (Core.Table_slot.of_int 0) outcome.outputs with
     | None -> Error "the guest returned no region"
     | Some bytes ->
         String.iteri (fun i c -> Bigarray.Array1.set io i c) bytes;
