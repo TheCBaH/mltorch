@@ -25,7 +25,7 @@ let wrap_loops ~extent vars inner =
           {
             var;
             lo = Loop_index.Const 0;
-            hi = Loop_index.Const (extent a);
+            hi = Loop_index.Const (extent a : Dim.extent Dim.t :> int);
             body;
           };
       ])
@@ -36,6 +36,7 @@ let wrap_loops ~extent vars inner =
    reading row [step] straight from the slots just written. The meter is the
    key's, shared with every other local and the emitter. *)
 let write_trace ctx ~array ~offset (s : Expr.Scan.t) =
+  let offset = (offset : Slot.offset Slot.t :> int) in
   let width = s.Expr.Scan.width and steps = s.Expr.Scan.steps in
   ctx.meter := true;
   emit ctx (Loop_stmt.Mark Loop_mark.Scan);
@@ -90,7 +91,7 @@ let write_trace ctx ~array ~offset (s : Expr.Scan.t) =
                  Loop_index.Add
                    ( Loop_index.Const offset,
                      Loop_index.Scale (width, Loop_index.Var step) );
-               width;
+               width = Dim.extent width;
              })
           ctx.locals;
     }
@@ -165,7 +166,8 @@ let write_local ctx ~array ~slots (l : Region_local.t) =
              hi = Loop_index.Const extent;
              body;
            })
-  | Region_local.Rhs.Scan s -> write_trace ctx ~array ~offset s);
+  | Region_local.Rhs.Scan s ->
+      write_trace ctx ~array ~offset:range.Slot.Range.offset s);
   Slots { array; range; shape }
 
 (* One output of a Region computation: the value it stores, the shape and
@@ -192,7 +194,7 @@ let singleton partition a =
    the store is not equivalent (an f32 round before a Bool member's nonzero test
    reads a working value below binary32's range as false). *)
 let lower_nest ctx ~canonical_shape ~canonical_partition ~locals ~emitters =
-  let extent_of shape a = Dim.to_int (Vec6.get shape a) in
+  let extent_of shape a = Vec6.get shape a in
   let slots = Region_slots.of_locals locals in
   let array = fresh_array ctx in
   let key_vars =
@@ -207,7 +209,7 @@ let lower_nest ctx ~canonical_shape ~canonical_partition ~locals ~emitters =
     List.fold_left
       (fun env (a, var) ->
         Loop_range.Env.add_var var
-          (Loop_range.span ~lo:0 ~hi:(extent_of canonical_shape a))
+          (Loop_range.span ~lo:0 ~hi:(Dim.to_int (extent_of canonical_shape a)))
           env)
       ctx.ranges key_vars
   in
@@ -244,7 +246,8 @@ let lower_nest ctx ~canonical_shape ~canonical_partition ~locals ~emitters =
       List.fold_left
         (fun env (a, var) ->
           Loop_range.Env.add_var var
-            (Loop_range.span ~lo:0 ~hi:(extent_of e.output_shape a))
+            (Loop_range.span ~lo:0
+               ~hi:(Dim.to_int (extent_of e.output_shape a)))
             env)
         bound.ranges out_vars
     in

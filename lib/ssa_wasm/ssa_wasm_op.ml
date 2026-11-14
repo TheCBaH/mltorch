@@ -11,7 +11,7 @@ let elem_of (v : Ssa_value.t) =
 
 let lanes_of (v : Ssa_value.t) =
   match v.Ssa_value.ty with
-  | Ssa_type.Vec (_, l) | Ssa_type.Mask l -> Ssa_type.Lanes.to_int l
+  | Ssa_type.Vec (_, l) | Ssa_type.Mask l -> l
   | _ -> invalid_arg "Ssa_wasm: a vector operand"
 
 (* ---- scalar arithmetic ---------------------------------------------------------- *)
@@ -94,7 +94,7 @@ let from_float_failure st x =
 
 (* The first axis, in order, whose component is outside the buffer's shape names
    the failure; none is a defect of the program, recorded as such. *)
-let coord_failure st (b : Ssa_buffer.t) (comps : int list) =
+let coord_failure st (b : Ssa_buffer.t) (comps : Ssa_wasm_ctx.Local.t list) =
   let exts = extents b in
   let rec chain k = function
     | [] -> [ i32 (W.kind_index F.Kind.Defect); call st R.Callee.Fail_set ]
@@ -148,7 +148,7 @@ let check_coord st (b : Ssa_buffer.t) (c : Ssa_value.t Expr.Coord.t) =
 (* ---- loads, stores, locals ------------------------------------------------------ *)
 
 let quant_tables st (b : Ssa_buffer.t) =
-  Hashtbl.find st.tables (b.Ssa_buffer.id :> int)
+  Ssa_ir.Ssa_id.Buffer.Tbl.find st.tables b.Ssa_buffer.id
 
 (* One cell decoded to the working value a [Decode] names. [at] is the element
    offset instructions; [coord] the access's coordinates, for a per-channel
@@ -320,8 +320,8 @@ let gather elem (lanes : I.t list list) =
   let rec registers = function
     | [] -> []
     | l ->
-        let reg = List.filteri (fun i _ -> i < per) l in
-        let rest = List.filteri (fun i _ -> i >= per) l in
+        let reg = List.filteri (fun i _ -> i < (per :> int)) l in
+        let rest = List.filteri (fun i _ -> i >= (per :> int)) l in
         reg :: registers rest
   in
   List.map
@@ -370,7 +370,9 @@ let reshape_mask st (m : Ssa_value.t) ~(target : mask_shape) =
     in
     match target with
     | Narrow ->
-        List.init (lanes / 4) (fun j ->
+        List.init
+          ((lanes :> int) / 4)
+          (fun j ->
             let l k = lane_value ((4 * j) + k) @ [ n Wasm_op.I32_wrap_i64 ] in
             l 0
             @ [ vn Wasm_op.I32x4_splat ]
@@ -379,7 +381,9 @@ let reshape_mask st (m : Ssa_value.t) ~(target : mask_shape) =
                      l (k + 1)
                      @ [ I.Simd_lane (Wasm.Simd_lane.I32x4_replace, k + 1) ])))
     | Wide ->
-        List.init (lanes / 2) (fun j ->
+        List.init
+          ((lanes :> int) / 2)
+          (fun j ->
             let l k =
               lane_value ((2 * j) + k) @ [ n Wasm_op.I64_extend_i32_s ]
             in

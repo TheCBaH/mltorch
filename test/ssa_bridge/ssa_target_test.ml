@@ -38,8 +38,8 @@ let%expect_test "every target prices every operation as the Loop planner does" =
           let tag = Fmt.str "%s" loop.Loop_target.name in
           if ssa.Ssa_target.name <> loop.Loop_target.name then
             note "%s: name %s" tag ssa.Ssa_target.name;
-          if ssa.Ssa_target.vector_bits <> loop.Loop_target.vector_bits then
-            note "%s: vector_bits" tag;
+          if (ssa.Ssa_target.vector_bits :> int) <> loop.Loop_target.vector_bits
+          then note "%s: vector_bits" tag;
           if
             Ssa_type.Lanes.to_int ssa.Ssa_target.lanes <> loop.Loop_target.lanes
           then note "%s: lanes" tag;
@@ -48,8 +48,8 @@ let%expect_test "every target prices every operation as the Loop planner does" =
           if ssa.Ssa_target.fma <> loop.Loop_target.fma then note "%s: fma" tag;
           if ssa.Ssa_target.relaxed_madd <> loop.Loop_target.relaxed_madd then
             note "%s: relaxed_madd" tag;
-          if ssa.Ssa_target.row_block <> loop.Loop_target.row_block then
-            note "%s: row_block" tag;
+          if (ssa.Ssa_target.row_block :> int) <> loop.Loop_target.row_block
+          then note "%s: row_block" tag;
           if
             Ssa_numerics.Precision.name ssa.Ssa_target.precision
             <> Loop_numerics.Precision.name loop.Loop_target.precision

@@ -22,7 +22,10 @@
     remainder loop beside the vector loop is left as it was. *)
 
 val program :
-  rows:int -> policy:Ssa_effects.policy -> Ssa_program.t -> Ssa_program.t * int
+  rows:Ssa_blocking.Rows.t ->
+  policy:Ssa_effects.policy ->
+  Ssa_program.t ->
+  Ssa_program.t * int
 (** [rows] is the target's block factor ({!Ssa_target.t}[.row_block]); fewer
     than two blocks nothing. The result and how many loops were blocked. *)
 
@@ -41,9 +44,9 @@ type refusal =
 val refusal_name : refusal -> string
 
 val analyze :
-  rows:int ->
+  rows:Ssa_blocking.Rows.t ->
   policy:Ssa_effects.policy ->
   Ssa_program.t ->
-  (Ssa_id.Region.t * (int, refusal) result) list
+  (Ssa_id.Region.t * (Ssa_blocking.Rows.t, refusal) result) list
 (** Every loop that holds a vector loop in the shape above, by its body region,
     and the block factor it would get or the condition that failed. *)

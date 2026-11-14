@@ -24,7 +24,7 @@ val kernel :
   ?sites:Loop_ir.Loop_failure.t array ->
   name:string ->
   Ssa_ir.Ssa_program.t ->
-  (Loop_ir.Loop_c.t * Loop_ir.Loop_failure.t array, error) result
+  (Loop_ir.Loop_c_kernel.t * Loop_ir.Loop_failure.t array, error) result
 (** The kernel in the shape the C hosts take, and the failure sites its records
     are decoded against. [buffers] (default {!arguments}) are the arguments
     taken, in order: a caller that binds every declared buffer positionally

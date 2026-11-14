@@ -23,11 +23,11 @@ type local =
   | Prev_row of {
       handle : Ssa_type.local Ssa_builder.value;
       base : Ssa_type.index Ssa_builder.value;
-      width : int;
+      width : Dim.extent Dim.t;
     }
   | Slots of {
       handle : Ssa_type.local Ssa_builder.value;
-      count : int;
+      count : Slot.count Slot.t;
       shape : Region_local.Shape.t;
     }
 

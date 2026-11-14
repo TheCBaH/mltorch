@@ -9,7 +9,10 @@ let planned ~unroll target =
   Ssa_backends.Pipeline.Planned
     {
       numerics = Ssa_ir.Ssa_numerics.Fp32_ordered;
-      target = Ssa_ir.Ssa_target.with_unroll unroll target;
+      target =
+        Ssa_ir.Ssa_target.with_unroll
+          (Ssa_ir.Ssa_blocking.Unroll.of_int unroll)
+          target;
     }
 
 let routes =

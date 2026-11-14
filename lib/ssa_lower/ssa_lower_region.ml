@@ -16,14 +16,16 @@ module B = Ssa_builder
    is never visible to the next. Locals hold working binary64, so the result
    conversion is spliced into the emitter only. *)
 
-let extent_of shape a = Dim.to_int (Vec6.get shape a)
+let extent_of shape a = Vec6.get shape a
 let zero b = B.index b 0L
-let const b n = B.index b (Int64.of_int n)
 
 (* A loop over [0, extent) with a body that returns nothing. *)
 let count_loop b ~extent body =
   let B.Nil =
-    B.for_ b ~lo:(zero b) ~hi:(const b extent) ~init:B.Nil (fun b i B.Nil ->
+    B.for_ b ~lo:(zero b)
+      ~hi:(B.index b (Int64.of_int (extent : Dim.fence Dim.t :> int)))
+      ~init:B.Nil
+      (fun b i B.Nil ->
         body b i;
         B.Nil)
   in
@@ -34,10 +36,11 @@ let count_loop b ~extent body =
    reading row [step] straight from the object just written. The meter is the
    key's, shared with every other local and the emitter. *)
 let write_trace ctx ~handle (s : Expr.Scan.t) =
-  let width = s.Expr.Scan.width and steps = s.Expr.Scan.steps in
+  let width = Dim.extent s.Expr.Scan.width
+  and steps = Dim.fence s.Expr.Scan.steps in
   ctx.meter := true;
   B.mark ctx.b Ssa_mark.Scan;
-  count_loop ctx.b ~extent:width (fun b l ->
+  count_loop ctx.b ~extent:(Dim.fence_of_extent width) (fun b l ->
       let inner =
         {
           ctx with
@@ -48,11 +51,13 @@ let write_trace ctx ~handle (s : Expr.Scan.t) =
       B.local_write b handle l (Ssa_lower_value.value inner s.Expr.Scan.init);
       B.mark b Ssa_mark.Local);
   count_loop ctx.b ~extent:steps (fun b step ->
-      let row = B.index_scale b (Int64.of_int width) step in
+      let row = B.index_scale b (Int64.of_int (width :> int)) step in
       let next =
-        B.index_scale b (Int64.of_int width) (B.index_add b step (const b 1))
+        B.index_scale b
+          (Int64.of_int (width :> int))
+          (B.index_add b step (B.index b 1L))
       in
-      count_loop b ~extent:width (fun b l ->
+      count_loop b ~extent:(Dim.fence_of_extent width) (fun b l ->
           B.meter_charge b;
           B.mark b Ssa_mark.Scan_update;
           let inner =
@@ -75,10 +80,11 @@ let write_trace ctx ~handle (s : Expr.Scan.t) =
 (* One local's object, written into the key's block. Returns the binding a LATER
    local or the emitter reads it through. *)
 let write_local ctx (l : Region_local.t) =
-  let count = (Region_local.Rhs.slot_count l.Region_local.rhs :> int) in
+  let count = Region_local.Rhs.slot_count l.Region_local.rhs in
   let shape = Region_local.Shape.of_rhs l.Region_local.rhs in
   let handle =
-    B.local_alloc ~var:l.Region_local.id ctx.b ~slots:(Int64.of_int count)
+    B.local_alloc ~var:l.Region_local.id ctx.b
+      ~slots:(Int64.of_int (count :> int))
   in
   (match l.Region_local.rhs with
   | Region_local.Rhs.Scalar body ->
@@ -89,7 +95,7 @@ let write_local ctx (l : Region_local.t) =
       (* The body is evaluated once per position with its own binder bound to
          the position, the loop shape [Reduce]'s fold uses. *)
       count_loop ctx.b
-        ~extent:(extent :> int)
+        ~extent:(Dim.fence_of_extent (Dim.extent (extent :> int)))
         (fun b p ->
           let inner =
             {
@@ -127,8 +133,9 @@ let rec nest b ~extent axes inductions body =
   match axes with
   | [] -> body b (List.rev inductions)
   | a :: rest ->
-      count_loop b ~extent:(extent a) (fun b i ->
-          nest b ~extent rest ((a, i) :: inductions) body)
+      count_loop b
+        ~extent:(Dim.fence_of_extent (extent a))
+        (fun b i -> nest b ~extent rest ((a, i) :: inductions) body)
 
 (* One nest over the canonical key: the shared locals once per key, then each
    emitter in order, each over its own Whole axes at its own physical key. Every

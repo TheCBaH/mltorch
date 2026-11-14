@@ -6,8 +6,7 @@
 
 type position = {
   region : Ssa_id.Region.t;
-  index : int;
-      (** the defining statement within its region, -1 for a parameter *)
+  at : Ssa_id.Stmt.t option;  (** [None] for a region parameter *)
 }
 
 type t = {
@@ -28,15 +27,16 @@ let build (p : Ssa_program.t) =
   let uses = ref Ssa_id.Value.Map.empty in
   let parent = ref Ssa_id.Region.Map.empty in
   let define region index (v : Ssa_value.t) =
-    def := Ssa_id.Value.Map.add v.Ssa_value.id { region; index } !def
+    def := Ssa_id.Value.Map.add v.Ssa_value.id { region; at = index } !def
   in
   let use v = uses := bump !uses v in
   let rec region ~within (r : Ssa_region.t) =
     parent := Ssa_id.Region.Map.add r.Ssa_region.id within !parent;
     let id = r.Ssa_region.id in
-    List.iter (define id (-1)) r.Ssa_region.params;
+    List.iter (define id None) r.Ssa_region.params;
     List.iteri
       (fun index s ->
+        let index = Some (Ssa_id.Stmt.of_int index) in
         (match s with
         | Ssa_stmt.Instr i ->
             List.iter use (Ssa_instr.operands i);
@@ -91,9 +91,12 @@ let rec within t ~region ~ancestor =
 (* Lexical dominance: a definition is visible at a statement of [region] when it
    is a parameter of, or defined by an earlier statement of, [region] or an
    enclosing region. [index] is the position of the using statement. *)
-let visible t (v : Ssa_value.t) ~region ~index =
+let visible t (v : Ssa_value.t) ~region ~(index : Ssa_id.Stmt.t) =
   match defined_at t v with
   | None -> false
   | Some d ->
-      if Ssa_id.Region.equal d.region region then d.index < index
+      if Ssa_id.Region.equal d.region region then
+        match d.at with
+        | None -> true
+        | Some at -> Ssa_id.Stmt.compare at index < 0
       else within t ~region ~ancestor:d.region

@@ -47,7 +47,7 @@ val plan :
     is made, for a rewrite that must run at the plan's own precision. *)
 
 val blocked :
-  group:int ->
+  group:Ssa_ir.Ssa_blocking.Group.t ->
   Loop_ir.Loop_bundle.invocation ->
   (Ssa_ir.Ssa_program.t option, string) result
 (** The [Exact] program with independent outputs blocked in groups of [group]
@@ -58,14 +58,14 @@ val c :
   pipeline:Pipeline.t ->
   name:string ->
   Loop_ir.Loop_bundle.invocation ->
-  (Loop_ir.Loop_c.t, string) result
+  (Loop_ir.Loop_c_kernel.t, string) result
 (** For {!Loop_ir.Loop_bundle_c.build}'s [kernel]. *)
 
 val wasm :
   pipeline:Pipeline.t ->
   table_alloc:(bytes:int -> int) ->
   Loop_ir.Loop_bundle.invocation ->
-  (Loop_ir.Loop_wasm.kernel, string) result
+  (Loop_ir.Loop_wasm_module.kernel, string) result
 (** For {!Loop_ir.Loop_bundle_wasm.build}'s [kernel]. A [Planned] pipeline for a
     relaxed-SIMD target makes the fused vector operation. *)
 

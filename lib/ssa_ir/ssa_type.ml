@@ -13,6 +13,14 @@ module Lanes =
     end)
     ()
 
+(* A width in bits: a scalar's, or a vector register's. *)
+module Bits =
+  Core.Tagged_int.Make
+    (struct
+      let prefix = "b"
+    end)
+    ()
+
 (* One lane's position within a vector: a different domain from the count of
    lanes, so an extract's lane cannot be passed for a width. *)
 module Lane =
@@ -38,11 +46,11 @@ type t =
    holds. A predicate is a single truth value: as a vector it is a mask, whose
    lanes take the width of the values it compares. *)
 let bits = function
-  | F32 -> 32
-  | F64 -> 64
-  | I64 -> 64
-  | Index -> 32
-  | Pred -> 1
+  | F32 -> Bits.of_int 32
+  | F64 -> Bits.of_int 64
+  | I64 -> Bits.of_int 64
+  | Index -> Bits.of_int 32
+  | Pred -> Bits.of_int 1
 
 let scalar_name = function
   | F32 -> "f32"

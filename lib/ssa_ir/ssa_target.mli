@@ -56,7 +56,7 @@ type support =
 
 type t = {
   name : string;
-  vector_bits : int;  (** the physical register width *)
+  vector_bits : Ssa_type.Bits.t;  (** the physical register width *)
   precision : Ssa_numerics.Precision.t;
       (** the working precision of the lanes this description prices *)
   lanes : Ssa_type.Lanes.t;
@@ -74,11 +74,11 @@ type t = {
       (** whether vector code may use a multiply-add the engine fuses or not at
           its choice ([f32x4.relaxed_madd]): a plan built for it states that its
           results are either one, never that they are bitwise reproducible *)
-  row_block : int;
+  row_block : Ssa_blocking.Rows.t;
       (** how many consecutive iterations of a scalar loop around a vector loop
           one blocked iteration covers (see {!Ssa_opt_block}); 1 is no blocking.
           Registers, not lanes, bound it: each row holds its own accumulators *)
-  unroll : int;
+  unroll : Ssa_blocking.Unroll.t;
       (** how many consecutive trips of a vector loop one unrolled trip covers,
           its copies interleaved ({!Ssa_opt_unroll}); 1 is no unrolling. A
           parameter chosen by measurement per target and register shape *)
@@ -133,10 +133,10 @@ val with_inner_loops : bool -> t -> t
 (** The same target with vector loops that hold inner loops allowed or not, at
     every precision. *)
 
-val with_row_block : int -> t -> t
+val with_row_block : Ssa_blocking.Rows.t -> t -> t
 (** The same target with another row-block factor, at every precision. *)
 
-val with_unroll : int -> t -> t
+val with_unroll : Ssa_blocking.Unroll.t -> t -> t
 (** The same target unrolling its vector loops [n] times (the [unroll] field),
     at every precision. *)
 

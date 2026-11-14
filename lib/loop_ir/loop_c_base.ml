@@ -16,7 +16,7 @@ let pp_error ppf : [< error ] -> unit = function
       Format.fprintf ppf "binary32 is not admitted: %a" Loop_numerics.Refusal.pp
         r
 
-type t = {
+type t = Loop_c_kernel.t = {
   source : string;
   prelude : string;
   helpers : R.Name.t list;

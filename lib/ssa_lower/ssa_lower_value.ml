@@ -103,8 +103,8 @@ and local ctx v =
 and local_at ctx v i =
   let handle, base, extent =
     match local_of ctx v with
-    | Slots { handle; count; _ } -> (handle, None, count)
-    | Prev_row { handle; base; width } -> (handle, Some base, width)
+    | Slots { handle; count; _ } -> (handle, None, (count :> int))
+    | Prev_row { handle; base; width } -> (handle, Some base, (width :> int))
   in
   let i = Ssa_lower_index.index ctx i in
   B.check_local ctx.b ~var:v ~extent:(Int64.of_int extent) i;
@@ -178,7 +178,8 @@ and scan_inline ctx (s : Expr.Scan.t) row lane =
               Expr.Reduce_var.Map.add s.Expr.Scan.step step ctx.reducers;
             locals =
               Expr.Local_var.Map.add s.Expr.Scan.prev
-                (Prev_row { handle = prev; base = zero b; width })
+                (Prev_row
+                   { handle = prev; base = zero b; width = Dim.extent width })
                 ctx.locals;
           }
         in

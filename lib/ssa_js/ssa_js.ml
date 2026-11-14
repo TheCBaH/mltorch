@@ -13,6 +13,8 @@ let typed_array = Ssa_js_ctx.typed_array
 
 (* ---- one instruction ----------------------------------------------------------- *)
 
+module Op = Ssa_js_ctx.Operation
+
 let refuse cx what = Ssa_js_ctx.refuse cx (`Unsupported_operation what)
 
 let unary cx ~f32 (op : Expr.Value.unary_op) a =
@@ -21,11 +23,11 @@ let unary cx ~f32 (op : Expr.Value.unary_op) a =
     match op with
     | Expr.Value.Cos -> math "cos" [ a ]
     | Expr.Value.Erf ->
-        if f32 then refuse cx "a binary32 erf" else runtime R.Name.Erf [ a ]
+        if f32 then refuse cx Op.Binary32_erf else runtime R.Name.Erf [ a ]
     | Expr.Value.Exp ->
         if f32 then runtime R.Name.Exp_f32 [ a ] else math "exp" [ a ]
     | Expr.Value.Log -> math "log" [ a ]
-    | Expr.Value.Round_bf16 -> refuse cx "a bfloat16 rounding as an operation"
+    | Expr.Value.Round_bf16 -> refuse cx Op.Bfloat16_rounding
     | Expr.Value.Sin -> math "sin" [ a ]
     | Expr.Value.Sqrt -> math "sqrt" [ a ]
     | Expr.Value.Trunc -> math "trunc" [ a ]
@@ -55,13 +57,16 @@ let contract cx (d : Contraction.t) ~a ~b ~c =
   (match d.Contraction.format with
   | Contraction.Element.F32 -> ()
   | Contraction.Element.Bf16 | Contraction.Element.I8 _ ->
-      refuse cx "a contraction over other than binary32");
+      refuse cx Op.Contraction_format);
   (match d.Contraction.numerics with
   | Contraction.Numerics.Ordered | Contraction.Numerics.Fused_sequential -> ()
-  | Contraction.Numerics.Paired -> refuse cx "a paired contraction");
-  let stride what (x : int64) =
+  | Contraction.Numerics.Paired -> refuse cx Op.Contraction_paired);
+  let stride (what : [ `Extent | `Stride ]) (x : int64) =
     if Int64.compare x 0x7FFF_FFFFL > 0 then
-      refuse cx ("a contraction " ^ what ^ " past 31 bits")
+      refuse cx
+        (match what with
+        | `Extent -> Op.Contraction_extent_past_31_bits
+        | `Stride -> Op.Contraction_stride_past_31_bits)
     else idx_lit x
   in
   let ao = d.Contraction.a and bo = d.Contraction.b in
@@ -74,7 +79,7 @@ let contract cx (d : Contraction.t) ~a ~b ~c =
       List.filter_map
         (fun (t, (s : int64)) ->
           if Int64.equal s 0L then None
-          else Some (bin A.Mul (A.Var t) (stride "stride" s)))
+          else Some (bin A.Mul (A.Var t) (stride `Stride s)))
         terms
     with
     | [] -> num 0.
@@ -108,7 +113,7 @@ let contract cx (d : Contraction.t) ~a ~b ~c =
       {
         var = counter;
         init = num 0.;
-        test = bin A.Lt (A.Var counter) (stride "extent" extent);
+        test = bin A.Lt (A.Var counter) (stride `Extent extent);
         body;
       }
   in
@@ -155,7 +160,7 @@ let instr cx ~(limits : Expr.Scan_limits.t) (i : Ssa_instr.t) : A.Stmt.t list =
   let set e = assign cx (first_result i) e in
   match op with
   | Ssa_op.Mark _ | Ssa_op.Mark_lanes _ -> []
-  | Ssa_op.Attend _ -> refuse cx "an attention"
+  | Ssa_op.Attend _ -> refuse cx Op.Attention
   | Ssa_op.Contract { desc = d; a; b; c; _ } -> contract cx d ~a ~b ~c
   | Ssa_op.Check_access { buffer; at } -> (
       let b = find_buffer cx buffer in
@@ -192,7 +197,10 @@ let instr cx ~(limits : Expr.Scan_limits.t) (i : Ssa_instr.t) : A.Stmt.t list =
           (bin A.Or
              (bin A.Lt (v at) (num 0.))
              (bin A.Ge (v at) (idx_lit extent)))
-          [ return_ (record F.Kind.Unbound_local [ (F.Field.Site, lit s) ]) ];
+          [
+            return_
+              (record F.Kind.Unbound_local [ (F.Field.Site, lit (s :> int)) ]);
+          ];
       ]
   | Ssa_op.Check_scan { var = lv; row; lane; row_extent; lane_extent } ->
       let row_site =
@@ -231,12 +239,12 @@ let instr cx ~(limits : Expr.Scan_limits.t) (i : Ssa_instr.t) : A.Stmt.t list =
           (bin A.Or
              (bin A.Lt (v row) (num 0.))
              (bin A.Ge (v row) (idx_lit row_extent)))
-          [ return_ (rec_ F.Projection.Row row_site row_extent) ];
+          [ return_ (rec_ F.Projection.Row (row_site :> int) row_extent) ];
         if_
           (bin A.Or
              (bin A.Lt (v lane) (num 0.))
              (bin A.Ge (v lane) (idx_lit lane_extent)))
-          [ return_ (rec_ F.Projection.Lane lane_site lane_extent) ];
+          [ return_ (rec_ F.Projection.Lane (lane_site :> int) lane_extent) ];
       ]
   | Ssa_op.Const c ->
       set
@@ -251,8 +259,7 @@ let instr cx ~(limits : Expr.Scan_limits.t) (i : Ssa_instr.t) : A.Stmt.t list =
         | Ssa_op.Convert.F32_to_f64 -> v a
         | Ssa_op.Convert.F64_to_f32 -> math "fround" [ v a ]
         | Ssa_op.Convert.I64_to_f64 -> number_of (v a)
-        | Ssa_op.Convert.I64_to_f32 ->
-            refuse cx "an int64 to binary32 conversion"
+        | Ssa_op.Convert.I64_to_f32 -> refuse cx Op.Int64_to_binary32
         | Ssa_op.Convert.Index_to_f64 -> float_of_index (v a)
         | Ssa_op.Convert.Index_to_i64 -> big_of (v a))
   | Ssa_op.Float_binary (o, a, b) ->
@@ -262,7 +269,7 @@ let instr cx ~(limits : Expr.Scan_limits.t) (i : Ssa_instr.t) : A.Stmt.t list =
   | Ssa_op.Float_fma (a, b, c) ->
       if is_f32 (first_result i) then
         set (runtime R.Name.Fma_f32 [ v a; v b; v c ])
-      else refuse cx "a binary64 fused multiply-add"
+      else refuse cx Op.Binary64_fma
   | Ssa_op.Float_max (a, b) -> set (math "max" [ v a; v b ])
   | Ssa_op.Float_to_i64 a ->
       let x = v a in
@@ -343,7 +350,7 @@ let instr cx ~(limits : Expr.Scan_limits.t) (i : Ssa_instr.t) : A.Stmt.t list =
             ];
         ]
   | Ssa_op.Index_scale_in_domain (k, a) -> set (bin A.Mul (idx_lit k) (v a))
-  | Ssa_op.Lanewise _ -> refuse cx "a lane-wise operation"
+  | Ssa_op.Lanewise _ -> refuse cx Op.Lane_wise
   | Ssa_op.Load { buffer; at; decode = d }
   | Ssa_op.Load_in_bounds { buffer; at; decode = d } ->
       let b = find_buffer cx buffer in
@@ -359,11 +366,11 @@ let instr cx ~(limits : Expr.Scan_limits.t) (i : Ssa_instr.t) : A.Stmt.t list =
       let stmts =
         set (A.New (A.Global A.Global.Float64_array, [ idx_lit slots ]))
       in
-      Hashtbl.replace cx.locals (r.Ssa_value.id :> int) (slots, lv);
+      Ssa_ir.Ssa_id.Value.Tbl.replace cx.locals r.Ssa_value.id (slots, lv);
       stmts
   | Ssa_op.Local_read { local; at; cell = _ } ->
       let check =
-        match Hashtbl.find_opt cx.locals (local.Ssa_value.id :> int) with
+        match Ssa_ir.Ssa_id.Value.Tbl.find_opt cx.locals local.Ssa_value.id with
         | Some (slots, Some lv) ->
             let s =
               site cx
@@ -381,7 +388,8 @@ let instr cx ~(limits : Expr.Scan_limits.t) (i : Ssa_instr.t) : A.Stmt.t list =
                    (bin A.Ge (v at) (idx_lit slots)))
                 [
                   return_
-                    (record F.Kind.Unbound_local [ (F.Field.Site, lit s) ]);
+                    (record F.Kind.Unbound_local
+                       [ (F.Field.Site, lit (s :> int)) ]);
                 ];
             ]
         | Some (_, None) | None -> []
@@ -446,7 +454,7 @@ let instr cx ~(limits : Expr.Scan_limits.t) (i : Ssa_instr.t) : A.Stmt.t list =
       ]
   | Ssa_op.Vec_extract _ | Ssa_op.Vec_insert _ | Ssa_op.Vec_iota _
   | Ssa_op.Vec_load _ | Ssa_op.Vec_splat _ | Ssa_op.Vec_store _ ->
-      refuse cx "a vector operation"
+      refuse cx Op.Vector
 
 (* ---- control flow -------------------------------------------------------------- *)
 
@@ -652,14 +660,14 @@ let program ?buffers ?sites (p : Ssa_program.t) =
   let cx =
     {
       esc;
-      names = Hashtbl.create 64;
+      names = Ssa_ir.Ssa_id.Value.Tbl.create 64;
       decls = [];
       next_name = 0;
       next_temp = 0;
       sites = [];
       site_count = 0;
       tables = [];
-      locals = Hashtbl.create 8;
+      locals = Ssa_ir.Ssa_id.Value.Tbl.create 8;
       buffers;
       site_table = sites;
     }

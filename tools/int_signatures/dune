@@ -34,7 +34,9 @@
   (alias ../../lib/machine_target_x86_64/check)
   (alias ../../lib/pt2/check)
   (alias ../../lib/ssa_c/check)
+  (alias ../../lib/ssa_ir/check)
   (alias ../../lib/ssa_js/check)
+  (alias ../../lib/ssa_lower/check)
   (alias ../../lib/ssa_wasm/check)
   (alias ../../lib/wasm_ir/check))
  (action

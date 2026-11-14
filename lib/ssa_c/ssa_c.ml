@@ -258,7 +258,7 @@ let kernel ?buffers ?sites ~name:fname (p : Ssa_program.t) =
   if cx.f32 then use cx R.Name.F32_prelude;
   let used = cx.used in
   ( {
-      Loop_ir.Loop_c.source = fn;
+      Loop_ir.Loop_c_kernel.source = fn;
       prelude;
       helpers = List.filter (fun n -> List.mem n used) R.Name.all;
       local_doubles = cx.local_doubles;

@@ -24,7 +24,7 @@ type error =
 
 val pp_error : Format.formatter -> [< error ] -> unit
 
-type t = {
+type t = Loop_c_kernel.t = {
   source : string;  (** the function definition *)
   prelude : string;
       (** text the definition needs before it that is not a runtime helper (an

@@ -184,7 +184,7 @@ let vtype cx ty =
   let elem, l = vec_parts ty in
   vector_type cx ~elem l
 
-let lanes_of ty = Ssa_type.Lanes.to_int (snd (vec_parts ty))
+let lanes_of ty = snd (vec_parts ty)
 let elem_f32 ty = fst (vec_parts ty) = `F32
 
 (* A helper applying a scalar expression to every lane. *)
@@ -203,7 +203,9 @@ let lane_helper cx ~prefix ~ty ~arity ~body =
     (Printf.sprintf
        "static inline %s %s(%s) { %s r; for (int k = 0; k < %d; k++) r[k] = \
         %s; return r; }"
-       t fname params t n args);
+       t fname params t
+       (n :> int)
+       args);
   fname
 
 let splat_helper cx ty =
@@ -215,7 +217,8 @@ let splat_helper cx ty =
     (Printf.sprintf
        "static inline %s %s(%s x) { %s r; for (int k = 0; k < %d; k++) r[k] = \
         x; return r; }"
-       t fname elem t n);
+       t fname elem t
+       (n :> int));
   fname
 
 let mask_splat_helper cx ty =
@@ -226,7 +229,8 @@ let mask_splat_helper cx ty =
     (Printf.sprintf
        "static inline %s %s(int p) { %s r; for (int k = 0; k < %d; k++) r[k] = \
         p ? -1 : 0; return r; }"
-       t fname t n);
+       t fname t
+       (n :> int));
   fname
 
 (* A mask as the lanes of the vector type it selects between. *)
@@ -243,7 +247,9 @@ let select_helper cx ~mask_ty ~ty =
            t fname mt t t t mt mt)
   | `F32 ->
       let n = lanes_of ty in
-      let narrow = vector_type cx ~elem:`Mask32 (Ssa_type.Lanes.of_int n) in
+      let narrow =
+        vector_type cx ~elem:`Mask32 (Ssa_type.Lanes.of_int (n :> int))
+      in
       vector_helper cx fname
         (Printf.sprintf
            "static inline %s %s(%s m, %s a, %s b) { %s w = \
@@ -332,7 +338,8 @@ let lanewise cx (inner : Ssa_op.t) ~(result : Ssa_value.t) =
            "static inline %s %s(%s best, %s value) { %s r; for (int k = 0; k < \
             %d; k++) r[k] = (value[k] > best[k] || value[k] != value[k]) ? -1 \
             : 0; return r; }"
-           mt fname (vtype cx vt) (vtype cx vt) mt count);
+           mt fname (vtype cx vt) (vtype cx vt) mt
+           (count :> int));
       Printf.sprintf "%s(%s, %s)" fname (n best) (n value)
   | Ssa_op.Pred_not a -> Printf.sprintf "(~%s)" (n a)
   | Ssa_op.Pred_or (a, b) -> Printf.sprintf "(%s | %s)" (n a) (n b)
@@ -441,7 +448,7 @@ let instr cx depth (i : Ssa_instr.t) =
              })
       in
       line cx depth "if (%s < 0 || %s >= %s) %s" (n at) (n at) (i64_lit extent)
-        (fail F.Kind.Unbound_local [ string_of_int s ])
+        (fail F.Kind.Unbound_local [ string_of_int (s :> int) ])
   | Ssa_op.Check_scan { var; row; lane; row_extent; lane_extent } ->
       let record which s extent =
         fail F.Kind.Scan_projection
@@ -476,10 +483,10 @@ let instr cx depth (i : Ssa_instr.t) =
       in
       line cx depth "if (%s < 0 || %s >= %s) %s" (n row) (n row)
         (i64_lit row_extent)
-        (record "1" row_site row_extent);
+        (record "1" (row_site :> int) row_extent);
       line cx depth "if (%s < 0 || %s >= %s) %s" (n lane) (n lane)
         (i64_lit lane_extent)
-        (record "0" lane_site lane_extent)
+        (record "0" (lane_site :> int) lane_extent)
   | Ssa_op.Const c ->
       let _, r = first_result cx i in
       assign cx depth r (const c)
@@ -614,7 +621,7 @@ let instr cx depth (i : Ssa_instr.t) =
       assign cx depth r (decode_cell ?channel cx b decode cell)
   | Ssa_op.Local_alloc { slots; var } ->
       let res, r = first_result cx i in
-      Hashtbl.replace cx.locals (res.Ssa_value.id :> int) (slots, var);
+      Ssa_ir.Ssa_id.Value.Tbl.replace cx.locals res.Ssa_value.id (slots, var);
       let off = cx.local_doubles in
       cx.local_doubles <- Int64.add off slots;
       line cx depth "%s = local + %Ld;" r off;
@@ -623,7 +630,7 @@ let instr cx depth (i : Ssa_instr.t) =
       let _, r = first_result cx i in
       (* outside the object fails as unbound when it names a variable; with no
          variable it is a defect of the program, never a row *)
-      (match Hashtbl.find_opt cx.locals (local.Ssa_value.id :> int) with
+      (match Ssa_ir.Ssa_id.Value.Tbl.find_opt cx.locals local.Ssa_value.id with
       | Some (slots, Some var) ->
           let s =
             site cx
@@ -636,7 +643,7 @@ let instr cx depth (i : Ssa_instr.t) =
           in
           line cx depth "if (%s < 0 || %s >= %s) %s" (n at) (n at)
             (i64_lit slots)
-            (fail F.Kind.Unbound_local [ string_of_int s ])
+            (fail F.Kind.Unbound_local [ string_of_int (s :> int) ])
       | Some (_, None) | None -> ());
       match cell with
       | Ssa_op.Cell.F64 ->

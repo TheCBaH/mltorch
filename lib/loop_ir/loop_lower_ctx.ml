@@ -18,7 +18,11 @@ type supply = {
    scan update's [prev]: [width] cells of a trace, or of a rolling row, starting
    at [base]. *)
 type local =
-  | Prev_row of { array : Loop_array.t; base : Loop_index.t; width : int }
+  | Prev_row of {
+      array : Loop_array.t;
+      base : Loop_index.t;
+      width : Dim.extent Dim.t;
+    }
   | Slots of {
       array : Loop_array.t;
       range : Slot.Range.t;

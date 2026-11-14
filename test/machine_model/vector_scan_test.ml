@@ -277,7 +277,9 @@ let%expect_test "row blocking under production allocation" =
   List.iter
     (fun rows ->
       let target =
-        Ssa_ir.Ssa_target.with_row_block rows Ssa_ir.Ssa_target.neon128
+        Ssa_ir.Ssa_target.with_row_block
+          (Ssa_ir.Ssa_blocking.Rows.of_int rows)
+          Ssa_ir.Ssa_target.neon128
       in
       let c =
         Result.get_ok

@@ -78,15 +78,15 @@ let expect position expected (v : Ssa_value.t) =
 
 let ( let* ) = Result.bind
 
-(* Operands from [first], each required to be [expected]. *)
-let expect_all ~first expected vs =
+(* Operands from the first, each required to be [expected]. *)
+let expect_all expected vs =
   let rec go n = function
     | [] -> Ok ()
     | v :: rest ->
         let* () = expect (Position.of_int n) expected v in
         go (n + 1) rest
   in
-  go first vs
+  go 0 vs
 
 let pred = scalar Ssa_type.Pred
 
@@ -219,7 +219,7 @@ let rec result_types : Ssa_op.t -> (Ssa_type.t list, error) result = function
       Ok [ t ]
   | Ssa_op.Vec_load { at; steps; decode; lanes; _ } -> (
       let* () = lanes_valid lanes in
-      let* () = expect_all ~first:0 index (Expr.Coord.to_list at) in
+      let* () = expect_all index (Expr.Coord.to_list at) in
       let* () = steps_in_domain steps in
       match decode with
       | Ssa_op.Decode.I64 -> Error I64_vector
@@ -236,7 +236,7 @@ let rec result_types : Ssa_op.t -> (Ssa_type.t list, error) result = function
           Ok [ Ssa_type.Vec (Ssa_type.F64, lanes) ])
   | Ssa_op.Vec_store { at; steps; encode; value; lanes; _ } -> (
       let* () = lanes_valid lanes in
-      let* () = expect_all ~first:0 index (Expr.Coord.to_list at) in
+      let* () = expect_all index (Expr.Coord.to_list at) in
       let* () = steps_in_domain steps in
       match encode with
       | Ssa_op.Encode.I64 -> Error I64_vector
@@ -255,7 +255,7 @@ let rec result_types : Ssa_op.t -> (Ssa_type.t list, error) result = function
           in
           Ok [])
   | Ssa_op.Check_access { at; _ } ->
-      let* () = expect_all ~first:0 index (Ssa_access.operands at) in
+      let* () = expect_all index (Ssa_access.operands at) in
       Ok []
   | Ssa_op.Check_local { at; extent; _ } ->
       let* () = positive_divisor extent in
@@ -264,7 +264,7 @@ let rec result_types : Ssa_op.t -> (Ssa_type.t list, error) result = function
   | Ssa_op.Check_scan { row; lane; row_extent; lane_extent; _ } ->
       let* () = positive_divisor row_extent in
       let* () = positive_divisor lane_extent in
-      let* () = expect_all ~first:0 index [ row; lane ] in
+      let* () = expect_all index [ row; lane ] in
       Ok []
   | Ssa_op.Local_alloc { slots; _ } ->
       let* () = positive_divisor slots in
@@ -309,10 +309,10 @@ let rec result_types : Ssa_op.t -> (Ssa_type.t list, error) result = function
       let* () = expect (Position.of_int 0) f64 a in
       Ok [ i64 ]
   | Ssa_op.I64_arith (_, a, b) | Ssa_op.I64_div (a, b) ->
-      let* () = expect_all ~first:0 i64 [ a; b ] in
+      let* () = expect_all i64 [ a; b ] in
       Ok [ i64 ]
   | Ssa_op.I64_compare (_, a, b) ->
-      let* () = expect_all ~first:0 i64 [ a; b ] in
+      let* () = expect_all i64 [ a; b ] in
       Ok [ pred ]
   | Ssa_op.Index_of_i64 a ->
       let* () = expect (Position.of_int 0) i64 a in
@@ -329,10 +329,10 @@ let rec result_types : Ssa_op.t -> (Ssa_type.t list, error) result = function
       let* () = expect (Position.of_int 0) index a in
       Ok [ index ]
   | Ssa_op.Index_compare (_, a, b) ->
-      let* () = expect_all ~first:0 index [ a; b ] in
+      let* () = expect_all index [ a; b ] in
       Ok [ pred ]
   | Ssa_op.Index_max (a, b) | Ssa_op.Index_min (a, b) ->
-      let* () = expect_all ~first:0 index [ a; b ] in
+      let* () = expect_all index [ a; b ] in
       Ok [ index ]
   | Ssa_op.Pool_better (a, b) ->
       let* _ = same_float a b in
@@ -341,7 +341,7 @@ let rec result_types : Ssa_op.t -> (Ssa_type.t list, error) result = function
       let* () = expect (Position.of_int 0) pred a in
       Ok [ pred ]
   | Ssa_op.Pred_or (a, b) ->
-      let* () = expect_all ~first:0 pred [ a; b ] in
+      let* () = expect_all pred [ a; b ] in
       Ok [ pred ]
   | Ssa_op.Select (p, a, b) -> (
       let* () = expect (Position.of_int 0) pred p in
@@ -381,7 +381,7 @@ let rec result_types : Ssa_op.t -> (Ssa_type.t list, error) result = function
       | found ->
           Error (Operand_not_float { position = Position.of_int 0; found }))
   | Ssa_op.Index_add (a, b) | Ssa_op.Index_add_in_domain (a, b) ->
-      let* () = expect_all ~first:0 index [ a; b ] in
+      let* () = expect_all index [ a; b ] in
       Ok [ index ]
   | Ssa_op.Index_scale (k, a) | Ssa_op.Index_scale_in_domain (k, a) ->
       if not (Ssa_const.in_index_domain k) then Error (Scale_out_of_domain k)
@@ -389,12 +389,12 @@ let rec result_types : Ssa_op.t -> (Ssa_type.t list, error) result = function
         let* () = expect (Position.of_int 0) index a in
         Ok [ index ]
   | Ssa_op.Load { at; decode; _ } | Ssa_op.Load_in_bounds { at; decode; _ } ->
-      let* () = expect_all ~first:0 index (Ssa_access.operands at) in
+      let* () = expect_all index (Ssa_access.operands at) in
       Ok [ Ssa_op.Decode.result decode ]
   | Ssa_op.Attend _ | Ssa_op.Contract _ | Ssa_op.Mark _ -> Ok []
   | Ssa_op.Store { at; encode; value; _ } ->
       let coords = Ssa_access.operands at in
-      let* () = expect_all ~first:0 index coords in
+      let* () = expect_all index coords in
       let* () =
         expect
           (Position.of_int (List.length coords))

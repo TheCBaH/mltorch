@@ -14,9 +14,8 @@ let key (op : Ssa_op.t) =
   match op with
   | Ssa_op.Load { buffer; decode; _ }
   | Ssa_op.Load_in_bounds { buffer; decode; _ } ->
-      let buffer_id (b : Ssa_id.Buffer.t) = (b :> int) in
       Some
-        ( buffer_id buffer,
+        ( buffer,
           Fmt.str "%s %s"
             (Ssa_op.Decode.name decode)
             (String.concat ","
@@ -28,7 +27,7 @@ let key (op : Ssa_op.t) =
 
 let pass ~alias (p : Ssa_program.t) =
   (* each scope maps (buffer, address) to the value an earlier load produced *)
-  let scopes : (int * string, Ssa_value.t) Hashtbl.t list ref =
+  let scopes : (Ssa_id.Buffer.t * string, Ssa_value.t) Hashtbl.t list ref =
     ref [ Hashtbl.create 32 ]
   in
   let table () = List.hd !scopes in
@@ -37,9 +36,7 @@ let pass ~alias (p : Ssa_program.t) =
     let dead =
       Hashtbl.fold
         (fun ((b, _) as k) _ acc ->
-          if Ssa_effects.may_write alias summary (Ssa_id.Buffer.of_int b) then
-            k :: acc
-          else acc)
+          if Ssa_effects.may_write alias summary b then k :: acc else acc)
         t []
     in
     List.iter (Hashtbl.remove t) dead

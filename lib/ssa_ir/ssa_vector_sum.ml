@@ -21,7 +21,10 @@ module Reason = struct
 end
 
 module Decision = struct
-  type outcome = Kept_sequential of Reason.t | Scheduled of { parts : int }
+  type outcome =
+    | Kept_sequential of Reason.t
+    | Scheduled of { parts : Ssa_blocking.Parts.t }
+
   type t = { loop : Ssa_id.Region.t; trips : int64; outcome : outcome }
 end
 
@@ -101,7 +104,7 @@ let schedule ~(target : Ssa_target.t) info t (s : Ssa_region.t Ssa_stmt.t) =
         | [ term; chain ] -> (term, chain)
         | _ -> invalid_arg "Ssa_vector_sum: a sum's yields"
       in
-      let kinds = Hashtbl.create 32 in
+      let kinds = Ssa_id.Value.Tbl.create 32 in
       let cx =
         make_ctx ~esc:(body_escape esc) ~t ~program:info.program ~kinds
           ~consts:info.consts ~lanes ~trips:(fun _ -> 16)
@@ -114,7 +117,7 @@ let schedule ~(target : Ssa_target.t) info t (s : Ssa_region.t Ssa_stmt.t) =
       (* one part's term: the body cloned at a base index, vectorized, with its
          effect threaded on from [eff] *)
       let part ~base ~eff =
-        Hashtbl.replace kinds (base.Ssa_value.id :> int) (Aff 1L);
+        Ssa_id.Value.Tbl.replace kinds base.Ssa_value.id (Aff 1L);
         let cl = Ssa_clone.create t ~subst:[ (iv, base); (eff_param, eff) ] in
         let stmts = Ssa_clone.stmts cl f.body.Ssa_region.body in
         let term' = Ssa_clone.value cl term
@@ -342,7 +345,7 @@ let ordered ~(target : Ssa_target.t) info t (s : Ssa_region.t Ssa_stmt.t) =
         | [ term; chain ] -> (term, chain)
         | _ -> invalid_arg "Ssa_vector_sum: a sum's yields"
       in
-      let kinds = Hashtbl.create 32 in
+      let kinds = Ssa_id.Value.Tbl.create 32 in
       let cx =
         make_ctx ~esc:(body_escape esc) ~t ~program:info.program ~kinds
           ~consts:info.consts ~lanes ~trips:(fun _ -> 16)
@@ -354,7 +357,7 @@ let ordered ~(target : Ssa_target.t) info t (s : Ssa_region.t Ssa_stmt.t) =
         (v, instr ~results:[ v ] (Ssa_op.Const c))
       in
       let part ~base ~eff =
-        Hashtbl.replace kinds (base.Ssa_value.id :> int) (Aff 1L);
+        Ssa_id.Value.Tbl.replace kinds base.Ssa_value.id (Aff 1L);
         let cl = Ssa_clone.create t ~subst:[ (iv, base); (eff_param, eff) ] in
         let stmts = Ssa_clone.stmts cl f.body.Ssa_region.body in
         let term' = Ssa_clone.value cl term
@@ -485,13 +488,13 @@ let vector_loop ~step (body : Ssa_region.t) =
    they could. A vector loop that is only a sibling of the sum, nested in the
    same enclosing loop, does not count. *)
 let under_vector_loops (p : Ssa_program.t) =
-  let inside = Hashtbl.create 16 in
+  let inside = Ssa_id.Region.Tbl.create 16 in
   let rec region ~under (r : Ssa_region.t) =
     List.iter (stmt ~under) r.Ssa_region.body
   and stmt ~under : Ssa_region.t Ssa_stmt.t -> unit = function
     | Ssa_stmt.Instr _ -> ()
     | Ssa_stmt.Ordered_sum { body; _ } ->
-        if under then Hashtbl.replace inside (body.Ssa_region.id :> int) ();
+        if under then Ssa_id.Region.Tbl.replace inside body.Ssa_region.id ();
         region ~under body
     | Ssa_stmt.For { step; body; _ } ->
         region ~under:(under || vector_loop ~step body) body
@@ -509,7 +512,7 @@ let program ~target (p : Ssa_program.t) =
   let rule t (s : Ssa_region.t Ssa_stmt.t) =
     match s with
     | Ssa_stmt.Ordered_sum { body; seed; _ }
-      when (not (Hashtbl.mem inside (body.Ssa_region.id :> int)))
+      when (not (Ssa_id.Region.Tbl.mem inside body.Ssa_region.id))
            &&
            match seed.Ssa_value.ty with
            | Ssa_type.Scalar (Ssa_type.F32 | Ssa_type.F64) -> true
@@ -530,7 +533,8 @@ let program ~target (p : Ssa_program.t) =
         match Err.payload (schedule ~target info t s) with
         | Ok (parts, stmts) ->
             Ssa_rewrite.mark_changed t;
-            decide (Decision.Scheduled { parts });
+            decide
+              (Decision.Scheduled { parts = Ssa_blocking.Parts.of_int parts });
             stmts
         | Error r ->
             decide (Decision.Kept_sequential r);
@@ -555,7 +559,7 @@ let ordered_program ~target (p : Ssa_program.t) =
   let rule t (s : Ssa_region.t Ssa_stmt.t) =
     match s with
     | Ssa_stmt.Ordered_sum { body; lo; hi; _ }
-      when not (Hashtbl.mem inside (body.Ssa_region.id :> int)) -> (
+      when not (Ssa_id.Region.Tbl.mem inside body.Ssa_region.id) -> (
         let trips =
           match Ssa_range.trips info.ranges ~lo ~hi ~step:1L with
           | Ssa_range.Exactly n -> n
@@ -568,7 +572,7 @@ let ordered_program ~target (p : Ssa_program.t) =
         match Err.payload (ordered ~target info t s) with
         | Ok stmts ->
             Ssa_rewrite.mark_changed t;
-            decide (Decision.Scheduled { parts = 1 });
+            decide (Decision.Scheduled { parts = Ssa_blocking.Parts.of_int 1 });
             stmts
         | Error r ->
             decide (Decision.Kept_sequential r);

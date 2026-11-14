@@ -3,18 +3,20 @@ module A = Js_ast
 module R = Loop_ir.Loop_js_runtime
 module F = Loop_ir.Loop_js_failure
 module LF = Loop_ir.Loop_failure
+module Operation = Ssa_js_operation
 
 type error =
   [ `Unsupported_format of Ssa_id.Buffer.t * string
-  | `Unsupported_operation of string ]
+  | `Unsupported_operation of Operation.t ]
 
 let pp_error ppf : [< error ] -> unit = function
   | `Unsupported_format (b, f) ->
       Fmt.pf ppf "%a: format %s has no JavaScript implementation"
         Ssa_id.Buffer.pp b f
-  | `Unsupported_operation o -> Fmt.pf ppf "%s has no JavaScript form" o
+  | `Unsupported_operation o ->
+      Fmt.pf ppf "%a has no JavaScript form" Operation.pp o
 
-let function_name = Loop_ir.Loop_js.function_name
+let function_name = Loop_ir.Loop_js_abi.function_name
 let id = Js_ident.v
 
 (* ---- expressions: the AST is untyped, the SSA types keep it honest ------------- *)
@@ -48,14 +50,14 @@ let float_of_index i = bin A.Add i (num 0.)
 
 type t = {
   esc : error Err.Escape.t;
-  names : (int, Js_ident.t) Hashtbl.t;
+  names : Js_ident.t Ssa_ir.Ssa_id.Value.Tbl.t;
   mutable decls : (Js_ident.t * A.expr) list;
   mutable next_name : int;
   mutable next_temp : int;
   mutable sites : LF.t list;
   mutable site_count : int;
   mutable tables : A.Stmt.t list;
-  locals : (int, int64 * Expr.Local_var.t option) Hashtbl.t;
+  locals : (int64 * Expr.Local_var.t option) Ssa_ir.Ssa_id.Value.Tbl.t;
   buffers : Ssa_buffer.t list;
   site_table : LF.t array option;
 }
@@ -67,11 +69,14 @@ let buffer_index cx bid =
   let rec go i = function
     | [] -> invalid_arg "Ssa_js: an undeclared buffer"
     | (b : Ssa_buffer.t) :: rest ->
-        if Ssa_id.Buffer.equal b.Ssa_buffer.id bid then i else go (i + 1) rest
+        if Ssa_id.Buffer.equal b.Ssa_buffer.id bid then
+          Ssa_ir.Ssa_emit_id.Param.of_int i
+        else go (i + 1) rest
   in
   go 0 cx.buffers
 
-let buffer_var cx bid = A.Var (id ("b" ^ string_of_int (buffer_index cx bid)))
+let buffer_var cx bid =
+  A.Var (id ("b" ^ string_of_int (buffer_index cx bid :> int)))
 
 let find_buffer cx bid =
   match
@@ -103,7 +108,7 @@ let init_of cx (ty : Ssa_type.t) =
   | Ssa_type.Scalar Ssa_type.I64 -> Some (big_lit 0L)
   | Ssa_type.Scalar Ssa_type.Pred -> Some (bool false)
   | Ssa_type.Mask _ | Ssa_type.Vec _ ->
-      refuse cx (`Unsupported_operation "a vector or mask")
+      refuse cx (`Unsupported_operation Operation.Vector_or_mask)
 
 let is_erased (v : Ssa_value.t) = Ssa_type.equal v.Ssa_value.ty Ssa_type.Effect
 
@@ -116,12 +121,12 @@ let define cx (v : Ssa_value.t) =
   | Some init ->
       let n = id (Printf.sprintf "v%d" cx.next_name) in
       cx.next_name <- cx.next_name + 1;
-      Hashtbl.replace cx.names (v.Ssa_value.id :> int) n;
+      Ssa_ir.Ssa_id.Value.Tbl.replace cx.names v.Ssa_value.id n;
       cx.decls <- (n, init) :: cx.decls;
       Some n
 
 let ident cx (v : Ssa_value.t) =
-  match Hashtbl.find_opt cx.names (v.Ssa_value.id :> int) with
+  match Ssa_ir.Ssa_id.Value.Tbl.find_opt cx.names v.Ssa_value.id with
   | Some n -> n
   | None -> invalid_arg "Ssa_js: a value used before it is defined"
 
@@ -138,7 +143,7 @@ let site cx f =
       let k = cx.site_count in
       cx.sites <- f :: cx.sites;
       cx.site_count <- k + 1;
-      k
+      Ssa_ir.Ssa_emit_id.Site.of_int k
   | Some table ->
       (* a check the table has no entry for is one its own lowering proved can
          never fire: its index is one past the table, a defect to a decoder *)
@@ -147,7 +152,7 @@ let site cx f =
         else if LF.same_site table.(i) f then i
         else find (i + 1)
       in
-      find 0
+      Ssa_ir.Ssa_emit_id.Site.of_int (find 0)
 
 let assign cx (v : Ssa_value.t) e =
   match define cx v with
@@ -173,9 +178,10 @@ let access_offset cx b = function
   | Ssa_access.Flat o -> var cx o
 
 let quant_scales cx bid =
-  id ("b" ^ string_of_int (buffer_index cx bid) ^ "_scale")
+  id ("b" ^ string_of_int (buffer_index cx bid :> int) ^ "_scale")
 
-let quant_zeros cx bid = id ("b" ^ string_of_int (buffer_index cx bid) ^ "_zero")
+let quant_zeros cx bid =
+  id ("b" ^ string_of_int (buffer_index cx bid :> int) ^ "_zero")
 
 let decode cx (b : Ssa_buffer.t) (d : Ssa_op.Decode.t) ~(at : Ssa_access.t) cell
     =

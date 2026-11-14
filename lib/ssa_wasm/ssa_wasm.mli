@@ -27,7 +27,7 @@ val kernel :
   relaxed_madd:bool ->
   table_alloc:(bytes:int -> int) ->
   Ssa_ir.Ssa_program.t ->
-  (Loop_ir.Loop_wasm.kernel, error) result
+  (Loop_ir.Loop_wasm_module.kernel, error) result
 (** A kernel for composition into a module. [buffers] (default {!arguments}) are
     the arguments taken after [local], in order. [sites] is a failure-site table
     to decode against, as for {!Ssa_c.kernel}. *)
@@ -36,7 +36,7 @@ val lower :
   ?relaxed_madd:bool ->
   ?numerics:Loop_ir.Loop_numerics.t ->
   Ssa_ir.Ssa_program.t ->
-  (Loop_ir.Loop_wasm.t, error) result
+  (Loop_ir.Loop_wasm_module.t, error) result
 (** A whole module with the layout {!Loop_ir.Loop_wasm.lower} makes.
     [relaxed_madd] (default [false]) says the plan was made for relaxed SIMD:
     [numerics] defaults to the reference policy. *)

@@ -23,7 +23,7 @@
    - The body is straight-line and its only effects are vector loads and
      stores and marks: nothing fails, so no failure moves. *)
 
-let id (v : Ssa_value.t) = (v.Ssa_value.id :> int)
+let id (v : Ssa_value.t) = v.Ssa_value.id
 
 let instr ?token ~results op =
   { Ssa_instr.results; op; token; origin = Ssa_origin.Unknown }
@@ -132,10 +132,10 @@ let independent ~alias instrs =
    [k + 1] after its last load and after each of its later instructions, a
    load issued early only once its operands are defined. *)
 let interleave ~outside copies =
-  let defined = Hashtbl.create 64 in
+  let defined = Ssa_id.Value.Tbl.create 64 in
   let ready (i : Ssa_instr.t) =
     List.for_all
-      (fun v -> Hashtbl.mem defined (id v) || outside v)
+      (fun v -> Ssa_id.Value.Tbl.mem defined (id v) || outside v)
       (Ssa_op.operands i.Ssa_instr.op)
   in
   (* every instruction defines a result (an effect at least), so its result
@@ -145,7 +145,9 @@ let interleave ~outside copies =
   let emit (i : Ssa_instr.t) =
     out := i :: !out;
     Hashtbl.replace issued (key i) ();
-    List.iter (fun r -> Hashtbl.replace defined (id r) ()) i.Ssa_instr.results
+    List.iter
+      (fun r -> Ssa_id.Value.Tbl.replace defined (id r) ())
+      i.Ssa_instr.results
   in
   let rec go = function
     | [] -> ()
@@ -176,6 +178,7 @@ let interleave ~outside copies =
   List.rev !out
 
 let pass ~unroll ~alias (p : Ssa_program.t) =
+  let unroll = (unroll : Ssa_blocking.Unroll.t :> int) in
   if unroll <= 1 then (p, false)
   else
     let ranges = Ssa_range.analyze p in
@@ -247,14 +250,14 @@ let pass ~unroll ~alias (p : Ssa_program.t) =
                     bases
                 in
                 let prelude = List.concat_map snd bases in
-                let inside = Hashtbl.create 64 in
+                let inside = Ssa_id.Value.Tbl.create 64 in
                 List.iter
                   (fun (i : Ssa_instr.t) ->
                     List.iter
-                      (fun v -> Hashtbl.replace inside (id v) ())
+                      (fun v -> Ssa_id.Value.Tbl.replace inside (id v) ())
                       i.Ssa_instr.results)
                   (List.concat copies);
-                let outside v = not (Hashtbl.mem inside (id v)) in
+                let outside v = not (Ssa_id.Value.Tbl.mem inside (id v)) in
                 (* the effect chain, again, in issue order *)
                 let cur = ref e' in
                 let body_instrs =

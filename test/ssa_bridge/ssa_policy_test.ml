@@ -102,12 +102,16 @@ let%expect_test "a scheduled sum is exactly its definition" =
           let terms = Array.init k (fun i -> r32 (a.(i) *. b.(i))) in
           let expected =
             match parts_of r with
-            | [ parts ] -> scheduled_sum ~lanes:16 ~parts ~seed:0. terms
+            | [ parts ] ->
+                scheduled_sum ~lanes:16 ~parts:(parts :> int) ~seed:0. terms
             | _ -> sequential ~precision:r.Ssa_plan.precision a b
           in
           Fmt.pr "K=%3d: %s parts=%s; %a; matches the definition: %b@." k
             (Ssa_numerics.Precision.name r.Ssa_plan.precision)
-            (String.concat "," (List.map string_of_int (parts_of r)))
+            (String.concat ","
+               (List.map
+                  (fun (p : Ssa_blocking.Parts.t) -> string_of_int (p :> int))
+                  (parts_of r)))
             Ssa_check.pp_verdict verdict
             (Core.Float_bits.equal_portable (output plan r ~bind) expected))
     [ 31; 64; 65; 70; 100; 127; 200; 230; 260 ];
@@ -124,10 +128,10 @@ let%expect_test "a scheduled sum is exactly its definition" =
       | None -> ()
       | Some r ->
           let terms = Array.init k (fun i -> r32 (a.(i) *. b.(i))) in
-          let parts = List.hd (parts_of r) in
+          let parts = (List.hd (parts_of r) :> int) in
           Fmt.pr "seed %d, %d parts: %b@." seed parts
             (Core.Float_bits.equal_portable (output plan r ~bind)
-               (scheduled_sum ~lanes:16 ~parts ~seed:0. terms)))
+               (scheduled_sum ~lanes:16 ~parts:(parts :> int) ~seed:0. terms)))
     [ 1; 2; 3; 4; 5 ];
   [%expect
     {|
@@ -409,7 +413,7 @@ let%expect_test "a sum beside a vector loop is scheduled" =
             in
             let s =
               match parts_of r with
-              | p :: _ -> scheduled_sum ~lanes ~parts:p ~seed:0. terms
+              | p :: _ -> scheduled_sum ~lanes ~parts:(p :> int) ~seed:0. terms
               | [] -> sequential_sum terms
             in
             r32 (input.(i) *. s))
@@ -423,7 +427,10 @@ let%expect_test "a sum beside a vector loop is scheduled" =
                 d.Ssa_vectorize.Decision.outcome
                 = Ssa_vectorize.Decision.Vectorized)
               r.Ssa_plan.vectorized))
-        (String.concat "," (List.map string_of_int (parts_of r)))
+        (String.concat ","
+           (List.map
+              (fun (p : Ssa_blocking.Parts.t) -> string_of_int (p :> int))
+              (parts_of r)))
         (Array.for_all2 Core.Float_bits.equal_portable out expected))
     [ ("neon128", Ssa_target.neon128); ("zve32f128", Ssa_target.zve32f128) ];
   [%expect

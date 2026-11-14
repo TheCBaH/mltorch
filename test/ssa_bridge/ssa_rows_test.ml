@@ -22,7 +22,11 @@ let marks c = List.map (Ssa_interp.Counters.mark c) Ssa_mark.all
 
 let check name ~rows plan ~bind =
   let vectorized = fst (Ssa_opt.run ~alias ~target (lowered plan)) in
-  let blocked, n = Ssa_opt_rows.program ~rows ~policy:alias vectorized in
+  let blocked, n =
+    Ssa_opt_rows.program
+      ~rows:(Ssa_blocking.Rows.of_int rows)
+      ~policy:alias vectorized
+  in
   (match Err.payload (Ssa_verify.check blocked) with
   | Ok () -> ()
   | Error e -> Fmt.pr "does not verify: %a@." Ssa_verify.pp_error e);
@@ -115,12 +119,14 @@ let decisions ?(rows = 2) ?(policy = alias) ?(vectorize = true) p =
            else [])
          p)
   in
-  match Ssa_opt_rows.analyze ~rows ~policy p with
+  match
+    Ssa_opt_rows.analyze ~rows:(Ssa_blocking.Rows.of_int rows) ~policy p
+  with
   | [] -> Fmt.pr "not a candidate@."
   | l ->
       List.iter
         (function
-          | _, Ok n -> Fmt.pr "blocks by %d@." n
+          | _, Ok n -> Fmt.pr "blocks by %d@." (n : Ssa_blocking.Rows.t :> int)
           | _, Error r -> Fmt.pr "refused: %s@." (Ssa_opt_rows.refusal_name r))
         l
 
@@ -201,13 +207,15 @@ let failing_vector_rows () =
 
 let%expect_test "a vector loop that can fail is refused" =
   (match
-     Ssa_opt_rows.analyze ~rows:2 ~policy:alias (failing_vector_rows ())
+     Ssa_opt_rows.analyze
+       ~rows:(Ssa_blocking.Rows.of_int 2)
+       ~policy:alias (failing_vector_rows ())
    with
   | [] -> Fmt.pr "not a candidate@."
   | l ->
       List.iter
         (function
-          | _, Ok n -> Fmt.pr "blocks by %d@." n
+          | _, Ok n -> Fmt.pr "blocks by %d@." (n : Ssa_blocking.Rows.t :> int)
           | _, Error r -> Fmt.pr "refused: %s@." (Ssa_opt_rows.refusal_name r))
         l);
   [%expect {| refused: the body can fail |}]
@@ -231,7 +239,8 @@ let%expect_test "planned: neon blocks two rows, bitwise the unblocked plan" =
             ( Fmt.str "%a" Ssa_check.pp_verdict verdict,
               match p with Some p -> p.Ssa_plan.blocked | None -> -1 )
           in
-          let v1, b1 = run (Ssa_target.with_row_block 1 neon)
+          let v1, b1 =
+            run (Ssa_target.with_row_block (Ssa_blocking.Rows.of_int 1) neon)
           and v2, b2 = run neon in
           Fmt.pr "matmul %dx%dx%d %s: unblocked %s (%d), blocked %s (%d)@." m k
             n name v1 b1 v2 b2)

@@ -232,11 +232,11 @@ let kernel ?buffers ?sites ~relaxed_madd ~table_alloc (p : Ssa_program.t) =
       esc;
       extra = [];
       n_params = 1 + List.length buffers;
-      values = Hashtbl.create 64;
-      mask_shapes = Hashtbl.create 8;
+      values = Ssa_ir.Ssa_id.Value.Tbl.create 64;
+      mask_shapes = Ssa_ir.Ssa_id.Value.Tbl.create 8;
       buffers;
-      tables = Hashtbl.create 4;
-      locals = Hashtbl.create 8;
+      tables = Ssa_ir.Ssa_id.Buffer.Tbl.create 4;
+      locals = Ssa_ir.Ssa_id.Value.Tbl.create 8;
       local_top = 0L;
       table_alloc;
       used = [];
@@ -264,7 +264,8 @@ let kernel ?buffers ?sites ~relaxed_madd ~table_alloc (p : Ssa_program.t) =
               let table = if narrow then f32_bytes else f64_bytes in
               let scales = table_alloc ~bytes in
               let zeros = table_alloc ~bytes in
-              Hashtbl.replace st.tables (b.Ssa_buffer.id :> int) (scales, zeros);
+              Ssa_ir.Ssa_id.Buffer.Tbl.replace st.tables b.Ssa_buffer.id
+                (scales, zeros);
               [
                 {
                   Wasm.Data.offset = scales;
@@ -291,7 +292,7 @@ let kernel ?buffers ?sites ~relaxed_madd ~table_alloc (p : Ssa_program.t) =
         [ I.I64_const (Expr.Scan_limits.max_updates limits); set remaining ]
   in
   {
-    Loop_ir.Loop_wasm.func =
+    Loop_ir.Loop_wasm_module.func =
       {
         Wasm.Func.type_ =
           {
@@ -318,7 +319,8 @@ let kernel ?buffers ?sites ~relaxed_madd ~table_alloc (p : Ssa_program.t) =
 let lower ?(relaxed_madd = false)
     ?(numerics = Loop_ir.Loop_numerics.Reference_f64) (p : Ssa_program.t) =
   Err.payload
-    (Loop_ir.Loop_wasm.lower_with ~numerics (fun ~mark_base:_ ~table_alloc ->
+    (Loop_ir.Loop_wasm_module.lower_with ~numerics
+       (fun ~mark_base:_ ~table_alloc ->
          match kernel ~relaxed_madd ~table_alloc p with
          | Ok k -> Err.return k
          | Error e -> Err.fail e))

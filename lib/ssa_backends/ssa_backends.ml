@@ -153,7 +153,7 @@ let c ~pipeline ~name inv =
   let* p, precision = prepare pipeline inv in
   let* buffers = arguments inv p ~named:Ssa_c.arguments in
   match Ssa_c.kernel ~buffers ~sites:(sites inv) ~name p with
-  | Ok (k, _) -> Ok { k with Loop_ir.Loop_c.precision }
+  | Ok (k, _) -> Ok { k with Loop_ir.Loop_c_kernel.precision }
   | Error e -> Error (Fmt.str "%a" Ssa_c.pp_error e)
 
 let wasm ~pipeline ~table_alloc inv =
@@ -167,7 +167,7 @@ let wasm ~pipeline ~table_alloc inv =
   match
     Ssa_wasm.kernel ~buffers ~sites:(sites inv) ~relaxed_madd ~table_alloc p
   with
-  | Ok k -> Ok { k with Loop_ir.Loop_wasm.precision }
+  | Ok k -> Ok { k with Loop_ir.Loop_wasm_module.precision }
   | Error e -> Error (Fmt.str "%a" Ssa_wasm.pp_error e)
 
 let js ~pipeline inv =

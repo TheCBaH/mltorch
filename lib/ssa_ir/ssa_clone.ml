@@ -5,25 +5,25 @@
    what it was unless [subst] says otherwise. Fresh ids are drawn from the
    rewrite context, so a clone and its original can both live in one program. *)
 
-type t = { context : Ssa_rewrite.t; renaming : (int, Ssa_value.t) Hashtbl.t }
+type t = { context : Ssa_rewrite.t; renaming : Ssa_value.t Ssa_id.Value.Tbl.t }
 
 let create context ~subst =
-  let renaming = Hashtbl.create 32 in
+  let renaming = Ssa_id.Value.Tbl.create 32 in
   List.iter
     (fun ((from : Ssa_value.t), to_) ->
-      Hashtbl.replace renaming (from.Ssa_value.id :> int) to_)
+      Ssa_id.Value.Tbl.replace renaming from.Ssa_value.id to_)
     subst;
   { context; renaming }
 
 let value t (v : Ssa_value.t) =
-  match Hashtbl.find_opt t.renaming (v.Ssa_value.id :> int) with
+  match Ssa_id.Value.Tbl.find_opt t.renaming v.Ssa_value.id with
   | Some w -> w
   | None -> v
 
 (* The new definition standing for [v]. *)
 let define t (v : Ssa_value.t) =
   let w = Ssa_rewrite.fresh t.context v.Ssa_value.ty in
-  Hashtbl.replace t.renaming (v.Ssa_value.id :> int) w;
+  Ssa_id.Value.Tbl.replace t.renaming v.Ssa_value.id w;
   w
 
 let fresh_region t =

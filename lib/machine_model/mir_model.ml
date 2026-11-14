@@ -181,7 +181,7 @@ let source ?contractions ?bf16_pairs ?site ?(constant = fun _ -> false)
   let blocked g =
     Result.map_error
       (fun s -> Reason.Source s)
-      (Ssa_backends.blocked ~group:g inv)
+      (Ssa_backends.blocked ~group:(Ssa_ir.Ssa_blocking.Group.of_int g) inv)
   in
   (* a binary32 attention is the loops of its reference, built on the lowered
      program so the plan narrows them with everything else *)

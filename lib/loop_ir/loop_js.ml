@@ -1,7 +1,7 @@
 module B = Js_build
 module Failure = Loop_js_failure
 
-let function_name = "loop_kernel"
+let function_name = Loop_js_abi.function_name
 
 (* Names by first appearance, per emission, as [Loop_pp] does. Every multi-operand
    node names its operands left to right with explicit [let]s: an OCaml call

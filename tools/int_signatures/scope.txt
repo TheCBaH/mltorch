@@ -1,3 +1,4 @@
+lib/contraction
 lib/coralnpu
 ml:lib/coralnpu_kernels
 ml:lib/coralnpu_kernels_zvt
@@ -33,11 +34,12 @@ lib/native_interp
 lib/native_op_walk
 lib/native_predict
 ml:lib/pt2
+lib/ssa_backends
 lib/ssa_bridge
 ml:lib/ssa_c
-lib/ssa_ir
+ml:lib/ssa_ir
 ml:lib/ssa_js
-lib/ssa_lower
+ml:lib/ssa_lower
 ml:lib/ssa_wasm
 lib/walk_core
 ml:lib/wasm_ir

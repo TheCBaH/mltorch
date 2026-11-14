@@ -9,7 +9,7 @@
    walk when it wants a fixpoint. *)
 
 type t = {
-  subst : (int, Ssa_value.t) Hashtbl.t;
+  subst : Ssa_value.t Ssa_id.Value.Tbl.t;
   mutable next_value : Ssa_id.Value.Next.t;
   mutable next_region : Ssa_id.Region.Next.t;
   mutable changed : bool;
@@ -17,7 +17,7 @@ type t = {
 
 (* Redirect every use of [from] to [to_] from here on. *)
 let alias t ~(from : Ssa_value.t) ~(to_ : Ssa_value.t) =
-  Hashtbl.replace t.subst (from.Ssa_value.id :> int) to_;
+  Ssa_id.Value.Tbl.replace t.subst from.Ssa_value.id to_;
   t.changed <- true
 
 let fresh t ty =
@@ -28,7 +28,7 @@ let fresh t ty =
 let mark_changed t = t.changed <- true
 
 let rec resolve t (v : Ssa_value.t) =
-  match Hashtbl.find_opt t.subst (v.Ssa_value.id :> int) with
+  match Ssa_id.Value.Tbl.find_opt t.subst v.Ssa_value.id with
   | Some w -> resolve t w
   | None -> v
 
@@ -92,7 +92,7 @@ let program ?(enter = ignore) ?(leave = ignore) ?(enter_stmt = ignore)
     (rule : rule) (p : Ssa_program.t) =
   let t =
     {
-      subst = Hashtbl.create 64;
+      subst = Ssa_id.Value.Tbl.create 64;
       next_value = p.Ssa_program.next_value;
       next_region = p.Ssa_program.next_region;
       changed = false;

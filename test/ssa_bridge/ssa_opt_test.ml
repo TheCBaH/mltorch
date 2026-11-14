@@ -874,9 +874,12 @@ let recurrence_at d =
       in
       ())
 
+module Unroll = Ssa_blocking.Unroll
+
 let unrolled name ~unroll p =
   let target =
-    Ssa_target.with_unroll unroll (Ssa_target.forced Ssa_target.neon128)
+    Ssa_target.with_unroll (Unroll.of_int unroll)
+      (Ssa_target.forced Ssa_target.neon128)
   in
   match Ssa_plan.fp32_vector ~alias ~target p with
   | Error _ -> Fmt.pr "%s: not admitted@." name
@@ -958,7 +961,7 @@ let interleaved name p =
   let p, _ =
     Ssa_opt.run ~alias ~passes:[ Ssa_opt.guards; Ssa_opt.simplify ] p
   in
-  let q, _ = Ssa_opt_unroll.pass ~unroll:2 ~alias p in
+  let q, _ = Ssa_opt_unroll.pass ~unroll:(Unroll.of_int 2) ~alias p in
   let steps (p : Ssa_program.t) =
     List.filter_map
       (function Ssa_stmt.For { step; _ } -> Some step | _ -> None)

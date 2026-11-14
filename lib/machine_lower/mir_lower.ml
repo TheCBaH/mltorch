@@ -44,12 +44,12 @@ let summary ?target ?fma (plan : Ssa_plan.t) =
     | Some t ->
         ( Mir_type.Lanes.of_int (Ssa_type.Lanes.to_int t.Ssa_target.lanes),
           Printf.sprintf "%s/row_block=%d%s" t.Ssa_target.name
-            t.Ssa_target.row_block
-            (if t.Ssa_target.unroll > 1 then
-               Printf.sprintf "/unroll=%d" t.Ssa_target.unroll
+            (t.Ssa_target.row_block :> int)
+            (if (t.Ssa_target.unroll :> int) > 1 then
+               Printf.sprintf "/unroll=%d" (t.Ssa_target.unroll :> int)
              else ""),
           Mir_planning.Capability.Vector_bits
-            (Int64.of_int t.Ssa_target.vector_bits)
+            (Int64.of_int (t.Ssa_target.vector_bits :> int))
           ::
           (match fma with
           | Mir_planning.Fma.Dots | Mir_planning.Fma.Exact ->

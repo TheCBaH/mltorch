@@ -59,12 +59,12 @@ let refuse (esc : escape) r = Err.Escape.throw esc ~pp_error:Reason.pp r
 type kind = Uni | Aff of int64 | Vec
 
 let kind_of kinds (v : Ssa_value.t) =
-  match Hashtbl.find_opt kinds (v.Ssa_value.id :> int) with
+  match Ssa_id.Value.Tbl.find_opt kinds v.Ssa_value.id with
   | Some k -> k
   | None -> Uni
 
 let set kinds (v : Ssa_value.t) k =
-  Hashtbl.replace kinds (v.Ssa_value.id :> int) k
+  Ssa_id.Value.Tbl.replace kinds v.Ssa_value.id k
 
 let stride_ok s = Ssa_const.in_index_domain s
 
@@ -237,16 +237,14 @@ let rec classify_stmt esc kinds : Ssa_region.t Ssa_stmt.t -> unit = function
 
 type access = {
   buffer : Ssa_id.Buffer.t;
-  coords : int list;  (** the value ids of the six coordinates *)
+  coords : Ssa_id.Value.t list;  (** the value ids of the six coordinates *)
   write : bool;
 }
 
 let accesses esc body =
   let out = ref [] in
   let coords (c : Ssa_value.t Expr.Coord.t) =
-    List.map
-      (fun (v : Ssa_value.t) -> (v.Ssa_value.id :> int))
-      (Expr.Coord.to_list c)
+    List.map (fun (v : Ssa_value.t) -> v.Ssa_value.id) (Expr.Coord.to_list c)
   in
   let rec region (r : Ssa_region.t) = List.iter stmt r.Ssa_region.body
   and stmt : Ssa_region.t Ssa_stmt.t -> unit = function
@@ -258,8 +256,7 @@ let accesses esc body =
             out := { buffer; coords = coords c; write = true } :: !out
         | Ssa_op.Load_in_bounds { buffer; at = Ssa_access.Flat v; _ } ->
             out :=
-              { buffer; coords = [ (v.Ssa_value.id :> int) ]; write = false }
-              :: !out
+              { buffer; coords = [ v.Ssa_value.id ]; write = false } :: !out
         | Ssa_op.Store { at = Ssa_access.Flat _; _ } ->
             refuse esc Reason.Non_affine_access
         | _ -> ())
@@ -292,11 +289,11 @@ type ctx = {
   esc : escape;
   t : Ssa_rewrite.t;
   program : Ssa_program.t;
-  kinds : (int, kind) Hashtbl.t;
-  consts : (int, unit) Hashtbl.t;
+  kinds : kind Ssa_id.Value.Tbl.t;
+  consts : unit Ssa_id.Value.Tbl.t;
   lanes : Ssa_type.Lanes.t;
-  vmap : (int, Ssa_value.t) Hashtbl.t;
-  mutable splats : (int, Ssa_value.t) Hashtbl.t list;
+  vmap : Ssa_value.t Ssa_id.Value.Tbl.t;
+  mutable splats : Ssa_value.t Ssa_id.Value.Tbl.t list;
   mutable out : Ssa_region.t Ssa_stmt.t list;
   mutable ops : (Ssa_target.Op.t * int) list;
   mutable weight : int;
@@ -317,7 +314,7 @@ let fresh cx ty = Ssa_rewrite.fresh cx.t ty
 let in_region cx f =
   let saved_out = cx.out and saved_splats = cx.splats in
   cx.out <- [];
-  cx.splats <- Hashtbl.copy (List.hd saved_splats) :: saved_splats;
+  cx.splats <- Ssa_id.Value.Tbl.copy (List.hd saved_splats) :: saved_splats;
   Fun.protect
     ~finally:(fun () ->
       cx.out <- saved_out;
@@ -334,17 +331,17 @@ let vector_type cx (ty : Ssa_type.t) =
 let vec_of cx (v : Ssa_value.t) =
   match kind_of cx.kinds v with
   | Vec -> (
-      match Hashtbl.find_opt cx.vmap (v.Ssa_value.id :> int) with
+      match Ssa_id.Value.Tbl.find_opt cx.vmap v.Ssa_value.id with
       | Some w -> w
       | None -> invalid_arg "Ssa_vectorize: a vector with no definition")
   | Aff _ -> refuse cx.esc Reason.Non_affine_access
   | Uni -> (
       count cx
-        (if Hashtbl.mem cx.consts (v.Ssa_value.id :> int) then
+        (if Ssa_id.Value.Tbl.mem cx.consts v.Ssa_value.id then
            Ssa_target.Op.Const
          else Ssa_target.Op.Splat);
       let scope = List.hd cx.splats in
-      match Hashtbl.find_opt scope (v.Ssa_value.id :> int) with
+      match Ssa_id.Value.Tbl.find_opt scope v.Ssa_value.id with
       | Some s -> s
       | None ->
           let s = fresh cx (vector_type cx v.Ssa_value.ty) in
@@ -356,7 +353,7 @@ let vec_of cx (v : Ssa_value.t) =
                  token = None;
                  origin = Ssa_origin.Unknown;
                });
-          Hashtbl.replace scope (v.Ssa_value.id :> int) s;
+          Ssa_id.Value.Tbl.replace scope v.Ssa_value.id s;
           s)
 
 (* The lane step along each axis of a coordinate: a uniform component does not
@@ -474,7 +471,7 @@ let emit_instr cx (i : Ssa_instr.t) =
               match kind_of cx.kinds a with
               | Aff step ->
                   let r = define (Ssa_type.Vec (Ssa_type.F64, cx.lanes)) in
-                  Hashtbl.replace cx.vmap (result.Ssa_value.id :> int) r;
+                  Ssa_id.Value.Tbl.replace cx.vmap result.Ssa_value.id r;
                   count cx Ssa_target.Op.Index_value;
                   finish ~results:[ r ]
                     (Ssa_op.Vec_iota { base = a; step; lanes = cx.lanes })
@@ -491,7 +488,7 @@ let emit_instr cx (i : Ssa_instr.t) =
                   refuse cx.esc (Reason.Channel_varies buffer)
               | Some _ | None -> ());
               let r = define (vector_type cx (Ssa_op.Decode.result decode)) in
-              Hashtbl.replace cx.vmap (result.Ssa_value.id :> int) r;
+              Ssa_id.Value.Tbl.replace cx.vmap result.Ssa_value.id r;
               count cx (load_op cx buffer steps decode);
               finish ?token:i.Ssa_instr.token
                 ~results:[ r; List.nth i.Ssa_instr.results 1 ]
@@ -503,7 +500,7 @@ let emit_instr cx (i : Ssa_instr.t) =
               match Ssa_typing.result_types lanewise with
               | Ok [ ty ] ->
                   let r = define ty in
-                  Hashtbl.replace cx.vmap (result.Ssa_value.id :> int) r;
+                  Ssa_id.Value.Tbl.replace cx.vmap result.Ssa_value.id r;
                   finish ~results:[ r ] lanewise
               | Ok _ | Error _ -> refuse cx.esc (Reason.No_vector_form op))))
 
@@ -522,7 +519,7 @@ let rec emit_stmt cx : Ssa_region.t Ssa_stmt.t -> unit = function
           (fun (p : Ssa_value.t) ->
             if kind_of cx.kinds p = Vec then (
               let q = fresh cx (vector_type cx p.Ssa_value.ty) in
-              Hashtbl.replace cx.vmap (p.Ssa_value.id :> int) q;
+              Ssa_id.Value.Tbl.replace cx.vmap p.Ssa_value.id q;
               q)
             else p)
           carried
@@ -538,7 +535,7 @@ let rec emit_stmt cx : Ssa_region.t Ssa_stmt.t -> unit = function
           (fun (p : Ssa_value.t) (r : Ssa_value.t) ->
             if kind_of cx.kinds p = Vec then (
               let q = fresh cx (vector_type cx r.Ssa_value.ty) in
-              Hashtbl.replace cx.vmap (r.Ssa_value.id :> int) q;
+              Ssa_id.Value.Tbl.replace cx.vmap r.Ssa_value.id q;
               q)
             else r)
           carried f.results
@@ -586,7 +583,7 @@ let rec emit_stmt cx : Ssa_region.t Ssa_stmt.t -> unit = function
       let results =
         if vector then (
           let q = fresh cx (vector_type cx sum.Ssa_value.ty) in
-          Hashtbl.replace cx.vmap (sum.Ssa_value.id :> int) q;
+          Ssa_id.Value.Tbl.replace cx.vmap sum.Ssa_value.id q;
           [ q; List.nth f.results 1 ])
         else f.results
       in
@@ -656,25 +653,25 @@ let rec has_vector (r : Ssa_region.t) =
 type info = {
   program : Ssa_program.t;
   ranges : Ssa_range.t;
-  consts : (int, unit) Hashtbl.t;
-  loop_trips : (int, int) Hashtbl.t;  (** body region id -> constant trips *)
-  executions : (int, int64) Hashtbl.t;
+  consts : unit Ssa_id.Value.Tbl.t;
+  loop_trips : int Ssa_id.Region.Tbl.t;  (** body region id -> constant trips *)
+  executions : int64 Ssa_id.Region.Tbl.t;
       (** body region id -> enclosing product *)
 }
 
 let survey (p : Ssa_program.t) =
   let ranges = Ssa_range.analyze p in
-  let consts = Hashtbl.create 64 in
-  let loop_trips = Hashtbl.create 16 and executions = Hashtbl.create 16 in
+  let consts = Ssa_id.Value.Tbl.create 64 in
+  let loop_trips = Ssa_id.Region.Tbl.create 16
+  and executions = Ssa_id.Region.Tbl.create 16 in
   let rec region ~enclosing (r : Ssa_region.t) =
     List.iter (stmt ~enclosing) r.Ssa_region.body
   and stmt ~enclosing : Ssa_region.t Ssa_stmt.t -> unit = function
     | Ssa_stmt.Instr i -> (
         match i.Ssa_instr.op with
         | Ssa_op.Const _ ->
-            Hashtbl.replace consts
-              ((List.hd i.Ssa_instr.results).Ssa_value.id :> int)
-              ()
+            Ssa_id.Value.Tbl.replace consts
+              (List.hd i.Ssa_instr.results).Ssa_value.id ()
         | _ -> ())
     | Ssa_stmt.For { lo; hi; step; body; _ } ->
         let n =
@@ -682,11 +679,10 @@ let survey (p : Ssa_program.t) =
           | Ssa_range.Exactly n -> Some n
           | Ssa_range.Zero | Ssa_range.At_least_one | Ssa_range.Unknown -> None
         in
-        Hashtbl.replace executions (body.Ssa_region.id :> int) enclosing;
+        Ssa_id.Region.Tbl.replace executions body.Ssa_region.id enclosing;
         (match n with
         | Some n ->
-            Hashtbl.replace loop_trips
-              (body.Ssa_region.id :> int)
+            Ssa_id.Region.Tbl.replace loop_trips body.Ssa_region.id
               (Int64.to_int n)
         | None -> ());
         region
@@ -698,11 +694,10 @@ let survey (p : Ssa_program.t) =
           | Ssa_range.Exactly n -> Some n
           | Ssa_range.Zero | Ssa_range.At_least_one | Ssa_range.Unknown -> None
         in
-        Hashtbl.replace executions (body.Ssa_region.id :> int) enclosing;
+        Ssa_id.Region.Tbl.replace executions body.Ssa_region.id enclosing;
         (match n with
         | Some n ->
-            Hashtbl.replace loop_trips
-              (body.Ssa_region.id :> int)
+            Ssa_id.Region.Tbl.replace loop_trips body.Ssa_region.id
               (Int64.to_int n)
         | None -> ());
         region
@@ -720,7 +715,7 @@ let rec work info (s : Ssa_region.t Ssa_stmt.t) =
   let trips (body : Ssa_region.t) =
     Int64.of_int
       (Option.value ~default:1
-         (Hashtbl.find_opt info.loop_trips (body.Ssa_region.id :> int)))
+         (Ssa_id.Region.Tbl.find_opt info.loop_trips body.Ssa_region.id))
   in
   let inner (body : Ssa_region.t) =
     let sum =
@@ -747,8 +742,8 @@ let make_ctx ~esc ~t ~program ~kinds ~consts ~lanes ~trips =
     kinds;
     consts;
     lanes;
-    vmap = Hashtbl.create 32;
-    splats = [ Hashtbl.create 8 ];
+    vmap = Ssa_id.Value.Tbl.create 32;
+    splats = [ Ssa_id.Value.Tbl.create 8 ];
     out = [];
     ops = [];
     weight = 1;

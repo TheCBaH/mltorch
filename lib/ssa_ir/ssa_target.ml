@@ -94,14 +94,14 @@ type support = Native | Expanded
 
 type t = {
   name : string;
-  vector_bits : int;
+  vector_bits : Ssa_type.Bits.t;
   precision : Ssa_numerics.Precision.t;
   lanes : Ssa_type.Lanes.t;
   inner_loops : bool;
   fma : bool;
   relaxed_madd : bool;
-  row_block : int;
-  unroll : int;
+  row_block : Ssa_blocking.Rows.t;
+  unroll : Ssa_blocking.Unroll.t;
   support : Op.t -> support;
   cost : Op.t -> float;
   at : Ssa_numerics.Precision.t -> t;
@@ -110,7 +110,8 @@ type t = {
 (* The lanes of one register in the working precision, and how many registers a
    logical vector spans. *)
 let reg_lanes ~precision bits =
-  bits / Ssa_type.bits (Ssa_numerics.Precision.scalar precision)
+  (bits : Ssa_type.Bits.t :> int)
+  / (Ssa_type.bits (Ssa_numerics.Precision.scalar precision) :> int)
 
 (* What one lane costs scalar, in units of one binary64 add. A conversion
    narrows and widens (two instructions); a division or square root is slower
@@ -149,8 +150,9 @@ let expansion_overhead = 1.
    scalar binary64 on a dense matvec and sixteen 2.9x (see the fp32 design
    record). *)
 let rec make ?(inner_loops = fun _ -> true) ?(fma = false)
-    ?(relaxed_madd = false) ?(row_block = 1) ?(unroll = 1) ~name ~vector_bits
-    ~f64_lanes ~f32_lanes ~native ~native_cost precision =
+    ?(relaxed_madd = false) ?(row_block = Ssa_blocking.Rows.of_int 1)
+    ?(unroll = Ssa_blocking.Unroll.of_int 1) ~name ~vector_bits ~f64_lanes
+    ~f32_lanes ~native ~native_cost precision =
   let lanes =
     match precision with
     | Ssa_numerics.Precision.F32 -> f32_lanes
@@ -230,7 +232,7 @@ let native = function
   | _ -> true
 
 let wasm128 =
-  let vector_bits = 128 in
+  let vector_bits = Ssa_type.Bits.of_int 128 in
   make ~name:"wasm128" ~vector_bits ~f64_lanes:4 ~f32_lanes:16 ~native
     ~native_cost:(fun ~precision ~lanes op ->
       native_cost ~vector_bits ~precision ~lanes op)
@@ -249,13 +251,15 @@ let wasm128_relaxed =
   relaxed base
 
 let neon ~f32_lanes ~name =
-  let vector_bits = 128 in
+  let vector_bits = Ssa_type.Bits.of_int 128 in
   (* Nested vector loops lose on native binary64 (measured) and win in
      binary32, where sixteen independent cells hide each sum's latency. *)
   make
     ~inner_loops:(function
       | Ssa_numerics.Precision.F32 -> true | Ssa_numerics.Precision.F64 -> false)
-    ~fma:true ~row_block:2 ~name ~vector_bits ~f64_lanes:4 ~f32_lanes ~native
+    ~fma:true
+    ~row_block:(Ssa_blocking.Rows.of_int 2)
+    ~name ~vector_bits ~f64_lanes:4 ~f32_lanes ~native
     ~native_cost:(fun ~precision ~lanes op ->
       native_cost ~vector_bits ~precision ~lanes op)
     Ssa_numerics.Precision.F64
@@ -269,7 +273,7 @@ let neon ~f32_lanes ~name =
    for an RV32 core, so the planning numbers are neon128's binary32 ones until
    the Coral NPU simulators measure them. *)
 let zve32f ~f32_lanes ~unroll ~name =
-  let vector_bits = 128 in
+  let vector_bits = Ssa_type.Bits.of_int 128 in
   let native = function
     | Op.Bool_store | Op.Transcendental -> false
     | _ -> true
@@ -301,25 +305,33 @@ let zve32f ~f32_lanes ~unroll ~name =
        ~inner_loops:(function
          | Ssa_numerics.Precision.F32 -> true
          | Ssa_numerics.Precision.F64 -> false)
-       ~fma:true ~row_block:2 ~unroll ~name ~vector_bits ~f64_lanes:4 ~f32_lanes
-       ~native ~native_cost Ssa_numerics.Precision.F64)
+       ~fma:true
+       ~row_block:(Ssa_blocking.Rows.of_int 2)
+       ~unroll ~name ~vector_bits ~f64_lanes:4 ~f32_lanes ~native ~native_cost
+       Ssa_numerics.Precision.F64)
 
 let neon128 = neon ~f32_lanes:16 ~name:"neon128"
 let neon128_x32 = neon ~f32_lanes:32 ~name:"neon128_x32"
-let zve32f128 = zve32f ~f32_lanes:16 ~unroll:2 ~name:"zve32f128"
-let zve32f128_x32 = zve32f ~f32_lanes:32 ~unroll:1 ~name:"zve32f128_x32"
+
+let zve32f128 =
+  zve32f ~f32_lanes:16 ~unroll:(Ssa_blocking.Unroll.of_int 2) ~name:"zve32f128"
+
+let zve32f128_x32 =
+  zve32f ~f32_lanes:32
+    ~unroll:(Ssa_blocking.Unroll.of_int 1)
+    ~name:"zve32f128_x32"
 
 let rec scalar =
   {
     name = "scalar";
-    vector_bits = 64;
+    vector_bits = Ssa_type.Bits.of_int 64;
     precision = Ssa_numerics.Precision.F64;
     lanes = Ssa_type.Lanes.of_int 1;
     inner_loops = false;
     fma = false;
     relaxed_madd = false;
-    row_block = 1;
-    unroll = 1;
+    row_block = Ssa_blocking.Rows.of_int 1;
+    unroll = Ssa_blocking.Unroll.of_int 1;
     support = (fun _ -> Expanded);
     cost =
       (fun op ->

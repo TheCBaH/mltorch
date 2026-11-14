@@ -222,9 +222,8 @@ let build t ~factor (shape : shape) (original : Ssa_region.t Ssa_stmt.t) ~inits
               w )
         in
         let cl = Ssa_clone.create t ~subst:[ (shape.h, w) ] in
-        Hashtbl.replace cl.Ssa_clone.renaming
-          (shape.inner.iv.Ssa_value.id :> int)
-          v_iv';
+        Ssa_id.Value.Tbl.replace cl.Ssa_clone.renaming
+          shape.inner.iv.Ssa_value.id v_iv';
         let setup = Ssa_clone.stmts cl shape.setup in
         (w_stmts @ setup, cl))
   in
@@ -313,6 +312,7 @@ let build t ~factor (shape : shape) (original : Ssa_region.t Ssa_stmt.t) ~inits
   [ lo_i; fhi_i; full ] @ rest
 
 let program ~rows ~policy (p : Ssa_program.t) =
+  let rows = (rows : Ssa_blocking.Rows.t :> int) in
   let blocked = ref 0 in
   if rows < 2 then (p, 0)
   else
@@ -337,6 +337,7 @@ let program ~rows ~policy (p : Ssa_program.t) =
 
 (* Every loop that is a candidate by its outer shape and what became of it. *)
 let analyze ~rows ~policy (p : Ssa_program.t) =
+  let rows = (rows : Ssa_blocking.Rows.t :> int) in
   let ranges = Ssa_range.analyze p in
   let out = ref [] in
   let rec region (r : Ssa_region.t) = List.iter stmt r.Ssa_region.body
@@ -348,7 +349,8 @@ let analyze ~rows ~policy (p : Ssa_program.t) =
             let factor = Stdlib.min (Int64.to_int shape.trips) rows in
             out :=
               ( body.Ssa_region.id,
-                if factor < 2 then Error Too_few_rows else Ok factor )
+                if factor < 2 then Error Too_few_rows
+                else Ok (Ssa_blocking.Rows.of_int factor) )
               :: !out
         | Error Shape -> ()
         | Error r -> out := (body.Ssa_region.id, Error r) :: !out)

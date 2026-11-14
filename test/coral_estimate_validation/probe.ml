@@ -47,7 +47,9 @@ let prepare ~out (config : C.Config.t) (variant : Variant.t) =
   in
   let bundle = T.bundle graph in
   let target =
-    Ssa_ir.Ssa_target.with_unroll variant.unroll Ssa_ir.Ssa_target.zve32f128
+    Ssa_ir.Ssa_target.with_unroll
+      (Ssa_ir.Ssa_blocking.Unroll.of_int variant.unroll)
+      Ssa_ir.Ssa_target.zve32f128
   in
   let pipeline =
     Ssa_backends.Pipeline.Planned

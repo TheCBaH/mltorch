@@ -64,15 +64,15 @@ module Outcome = struct
   type t = Found of Found.t | Refused of Refusal.t
 end
 
-let key (v : Ssa_value.t) = (v.Ssa_value.id :> int)
+let key (v : Ssa_value.t) = v.Ssa_value.id
 
 (* Every constant of the program, by the value it defines. *)
 let constants (p : Ssa_program.t) =
-  let t = Hashtbl.create 64 in
+  let t = Ssa_id.Value.Tbl.create 64 in
   let rec region (r : Ssa_region.t) = List.iter stmt r.Ssa_region.body
   and stmt = function
     | Ssa_stmt.Instr { Ssa_instr.op = Ssa_op.Const c; results = [ v ]; _ } ->
-        Hashtbl.replace t (key v) c
+        Ssa_id.Value.Tbl.replace t (key v) c
     | Ssa_stmt.Instr _ -> ()
     | Ssa_stmt.For { body; _ } | Ssa_stmt.Ordered_sum { body; _ } -> region body
     | Ssa_stmt.If { then_; else_; _ } ->
@@ -86,7 +86,7 @@ let constants (p : Ssa_program.t) =
 type loop = { iv : Ssa_value.t; extent : int64 option }
 
 let index_const consts (v : Ssa_value.t) =
-  match Hashtbl.find_opt consts (key v) with
+  match Ssa_id.Value.Tbl.find_opt consts (key v) with
   | Some (Ssa_const.Index k) -> Some k
   | _ -> None
 
@@ -131,7 +131,7 @@ let recognize ~numerics ?bf16 ~consts ~ranges ~buffer ~(loops : loop list)
         | Ssa_range.Range _ | Ssa_range.Empty -> None)
   in
   let positive_zero (v : Ssa_value.t) =
-    match Hashtbl.find_opt consts (key v) with
+    match Ssa_id.Value.Tbl.find_opt consts (key v) with
     | Some (Ssa_const.F32 x) -> x = 0. && 1. /. x > 0.
     | _ -> false
   in
@@ -159,12 +159,16 @@ let recognize ~numerics ?bf16 ~consts ~ranges ~buffer ~(loops : loop list)
      product; or a sum of one
      term over [0, 1) from +0 whose body is that again (a 1x1 window), which
      is the product rounded once and makes the whole an ordered sum *)
-  let alias = Hashtbl.create 8 in
+  let alias = Ssa_id.Value.Tbl.create 8 in
   let rec resolve (v : Ssa_value.t) =
-    match Hashtbl.find_opt alias (key v) with Some w -> resolve w | None -> v
+    match Ssa_id.Value.Tbl.find_opt alias (key v) with
+    | Some w -> resolve w
+    | None -> v
   in
   let zero v = known (resolve v) = Some 0L in
-  let loads = Hashtbl.create 4 and product = ref None and nested = ref false in
+  let loads = Ssa_id.Value.Tbl.create 4
+  and product = ref None
+  and nested = ref false in
   let rec walk (r : Ssa_region.t) term =
     List.iter
       (function
@@ -177,7 +181,7 @@ let recognize ~numerics ?bf16 ~consts ~ranges ~buffer ~(loops : loop list)
               _;
             }
           when zero b || zero a ->
-            Hashtbl.replace alias (key v) (if zero b then a else b)
+            Ssa_id.Value.Tbl.replace alias (key v) (if zero b then a else b)
         | Ssa_stmt.Instr
             {
               Ssa_instr.op =
@@ -192,7 +196,7 @@ let recognize ~numerics ?bf16 ~consts ~ranges ~buffer ~(loops : loop list)
               results = [ v; _ ];
               _;
             } ->
-            Hashtbl.replace loads (key v) (id, at, decode)
+            Ssa_id.Value.Tbl.replace loads (key v) (id, at, decode)
         | Ssa_stmt.Instr
             { Ssa_instr.op = Ssa_op.Load _ | Ssa_op.Check_access _; _ } ->
             refuse Refusal.Guarded
@@ -221,7 +225,7 @@ let recognize ~numerics ?bf16 ~consts ~ranges ~buffer ~(loops : loop list)
     match !product with Some p -> p | None -> refuse Refusal.Not_product
   in
   let load v =
-    match Hashtbl.find_opt loads (key v) with
+    match Ssa_id.Value.Tbl.find_opt loads (key v) with
     | Some l -> l
     | None -> refuse Refusal.Not_product
   in

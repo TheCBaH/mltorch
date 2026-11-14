@@ -90,7 +90,7 @@ and local_at ctx v i =
         ( array,
           (if offset = 0 then None else Some (Loop_index.Const offset)),
           (range.Slot.Range.count :> int) )
-    | Prev_row { array; base; width } -> (array, Some base, width)
+    | Prev_row { array; base; width } -> (array, Some base, (width :> int))
   in
   let i = Loop_lower_index.checked ctx i in
   if not (within ctx i ~extent) then
@@ -202,7 +202,12 @@ and scan_inline ctx (s : Expr.Scan.t) row lane =
       ranges;
       locals =
         Expr.Local_var.Map.add s.Expr.Scan.prev
-          (Prev_row { array = prev; base = Loop_index.Const 0; width })
+          (Prev_row
+             {
+               array = prev;
+               base = Loop_index.Const 0;
+               width = Dim.extent width;
+             })
           ctx.locals;
     }
   in

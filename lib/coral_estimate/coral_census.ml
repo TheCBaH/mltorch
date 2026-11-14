@@ -118,7 +118,7 @@ let bump_assoc l x w =
 let groups ty =
   match ty with
   | Ssa_type.Vec (s, l) ->
-      let bits = Ssa_type.bits s * Ssa_type.Lanes.to_int l in
+      let bits = (Ssa_type.bits s :> int) * Ssa_type.Lanes.to_int l in
       float_of_int ((bits + 127) / 128)
   | Ssa_type.Mask l -> float_of_int ((Ssa_type.Lanes.to_int l + 127) / 128)
   | _ -> 1.

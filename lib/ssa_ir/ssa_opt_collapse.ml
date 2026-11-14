@@ -26,10 +26,7 @@
      row ([v1] absent), a transposed pair or a partial row fail the shape
      and the pair stays nested. *)
 
-module Id_map = Map.Make (Int)
-
-let id (v : Ssa_value.t) = (v.Ssa_value.id :> int)
-let bid (b : Ssa_id.Buffer.t) = (b :> int)
+module Id_map = Ssa_id.Buffer.Map
 
 (* The access of a statement: its buffer, and its coordinate when it is one
    this pass may rewrite (an in-bounds load or a store at a coordinate). *)
@@ -68,9 +65,7 @@ let access_counts r =
     (fun m (i : Ssa_instr.t) ->
       List.fold_left
         (fun m (b, _) ->
-          Id_map.update (bid b)
-            (fun n -> Some (1 + Option.value n ~default:0))
-            m)
+          Id_map.update b (fun n -> Some (1 + Option.value n ~default:0)) m)
         m (accesses i.Ssa_instr.op))
     Id_map.empty r
 
@@ -138,7 +133,7 @@ let plan ~(buffers : Ssa_buffer.t Id_map.t) ~total ~v1 ~v2 ~n2
           match accesses i.Ssa_instr.op with
           | [ (b, Rewritable c) ] -> (
               let buf =
-                match Id_map.find_opt (bid b) buffers with
+                match Id_map.find_opt b buffers with
                 | Some buf -> buf
                 | None -> refuse Refusal.Buffer_unknown
               in
@@ -154,10 +149,10 @@ let plan ~(buffers : Ssa_buffer.t Id_map.t) ~total ~v1 ~v2 ~n2
                          (Expr.Coord.get buf.Ssa_buffer.extents a2)
                          n2)
                   then refuse Refusal.Inner_not_whole;
-                  (match Id_map.find_opt (bid b) m with
+                  (match Id_map.find_opt b m with
                   | Some a' when a' <> a -> refuse Refusal.Axis_conflict
                   | _ -> ());
-                  Id_map.add (bid b) a m
+                  Id_map.add b a m
               | _ -> refuse Refusal.Axis_not_adjacent)
           | _ -> refuse Refusal.Not_rewritable)
       Id_map.empty body
@@ -179,7 +174,7 @@ let pass (p : Ssa_program.t) =
   let total = access_counts p.Ssa_program.entry in
   let buffers =
     List.fold_left
-      (fun m (b : Ssa_buffer.t) -> Id_map.add (bid b.Ssa_buffer.id) b m)
+      (fun m (b : Ssa_buffer.t) -> Id_map.add b.Ssa_buffer.id b m)
       Id_map.empty p.Ssa_program.buffers
   in
   let merged = ref Id_map.empty in
@@ -257,7 +252,7 @@ let pass (p : Ssa_program.t) =
                 in
                 let rewrite (op : Ssa_op.t) =
                   let at buffer c =
-                    match Id_map.find_opt (bid buffer) merges with
+                    match Id_map.find_opt buffer merges with
                     | Some a -> Expr.Coord.set c a zero
                     | None -> c
                   in
@@ -338,7 +333,7 @@ let pass (p : Ssa_program.t) =
   let buffers =
     List.map
       (fun (b : Ssa_buffer.t) ->
-        match Id_map.find_opt (bid b.Ssa_buffer.id) !merged with
+        match Id_map.find_opt b.Ssa_buffer.id !merged with
         | None -> b
         | Some a ->
             let a2 = Option.get (axis_after a) in

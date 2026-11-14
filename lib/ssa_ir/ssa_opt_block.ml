@@ -61,7 +61,8 @@ type candidate = {
   trips : int64;
   shared_reads : int;
       (** reads of the reduction that do not depend on the output *)
-  decision : (int, refusal) result;  (** the group size, or why not *)
+  decision : (Ssa_blocking.Group.t, refusal) result;
+      (** the group size, or why not *)
 }
 
 type shape = {
@@ -310,18 +311,19 @@ let choose (shape : shape) =
           Int64.compare shape.trips (Int64.of_int g) >= 0 && pressure g <= 16)
         sizes
     with
-    | Some g -> Ok g
+    | Some g -> Ok (Ssa_blocking.Group.of_int g)
     | None -> Error Too_few_trips
 
-type group = Auto | Fixed of int
+type group = Auto | Fixed of Ssa_blocking.Group.t
 
 let decide ~group shape =
   match group with
   | Auto -> choose shape
   | Fixed g ->
+      let g = (g :> int) in
       if Int64.compare shape.trips (Int64.of_int g) < 0 then Error Too_few_trips
       else if shape.shared_reads = 0 then Error Unprofitable
-      else Ok g
+      else Ok (Ssa_blocking.Group.of_int g)
 
 (* Every loop of the program and what the pass would do with it. *)
 let analyze ~policy ~group (p : Ssa_program.t) =
@@ -414,10 +416,9 @@ let jam t ~clones ~pre ~sum_lo ~sum_hi ~seed ~sum_results ~sum_body ~post
            pres := !pres @ setup @ Ssa_clone.stmts cl pre;
            seeds := !seeds @ [ Ssa_clone.value cl seed ];
            (* the reduction's own index is shared by every clone *)
-           Hashtbl.replace cl.Ssa_clone.renaming (kiv.Ssa_value.id :> int) kiv';
-           Hashtbl.replace cl.Ssa_clone.renaming
-             (sum_effect_param.Ssa_value.id :> int)
-             !cur;
+           Ssa_id.Value.Tbl.replace cl.Ssa_clone.renaming kiv.Ssa_value.id kiv';
+           Ssa_id.Value.Tbl.replace cl.Ssa_clone.renaming
+             sum_effect_param.Ssa_value.id !cur;
            let body = Ssa_clone.stmts cl sum_body.Ssa_region.body in
            let term = Ssa_clone.value cl term_value in
            cur := Ssa_clone.value cl term_effect;
@@ -458,12 +459,10 @@ let jam t ~clones ~pre ~sum_lo ~sum_hi ~seed ~sum_results ~sum_body ~post
     List.concat
       (List.mapi
          (fun j (_, cl) ->
-           Hashtbl.replace cl.Ssa_clone.renaming
-             (sum_value.Ssa_value.id :> int)
+           Ssa_id.Value.Tbl.replace cl.Ssa_clone.renaming sum_value.Ssa_value.id
              (List.nth sums j);
-           Hashtbl.replace cl.Ssa_clone.renaming
-             (sum_effect.Ssa_value.id :> int)
-             !chain;
+           Ssa_id.Value.Tbl.replace cl.Ssa_clone.renaming
+             sum_effect.Ssa_value.id !chain;
            let stmts = Ssa_clone.stmts cl post in
            List.iter
              (function
@@ -478,8 +477,9 @@ let jam t ~clones ~pre ~sum_lo ~sum_hi ~seed ~sum_results ~sum_body ~post
   in
   (!pres @ [ loop ] @ posts, !chain)
 
-let build t ~g (shape : shape) (original : Ssa_region.t Ssa_stmt.t) ~inits
-    ~results =
+let build t ~(g : Ssa_blocking.Group.t) (shape : shape)
+    (original : Ssa_region.t Ssa_stmt.t) ~inits ~results =
+  let g = (g :> int) in
   let q = Int64.div shape.trips (Int64.of_int g) in
   let full_hi = Int64.add shape.lo (Int64.mul q (Int64.of_int g)) in
   let lo_v, lo_i = const t index_ty (Ssa_const.Index shape.lo) in

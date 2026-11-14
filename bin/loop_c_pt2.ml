@@ -326,7 +326,8 @@ let () =
                 target =
                   (match vector with
                   | Some t ->
-                      Ssa_ir.Ssa_target.with_row_block t.Loop_target.row_block
+                      Ssa_ir.Ssa_target.with_row_block
+                        (Ssa_ir.Ssa_blocking.Rows.of_int t.Loop_target.row_block)
                         Ssa_ir.Ssa_target.neon128
                   | None -> Ssa_ir.Ssa_target.scalar);
               })

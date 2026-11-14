@@ -39,7 +39,7 @@ end
 module Decision : sig
   type outcome =
     | Kept_sequential of Reason.t
-    | Scheduled of { parts : int }
+    | Scheduled of { parts : Ssa_blocking.Parts.t }
         (** how many accumulator vectors the schedule uses *)
 
   type t = { loop : Ssa_id.Region.t; trips : int64; outcome : outcome }

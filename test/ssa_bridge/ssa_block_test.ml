@@ -31,7 +31,11 @@ let case ~group (m, k, n) =
     | Error _ -> failwith "refused"
   in
   let blocked = run_pipeline ~group program in
-  let plain = run_pipeline ~group:(Ssa_opt_block.Fixed 1_000_000) program in
+  let plain =
+    run_pipeline
+      ~group:(Ssa_opt_block.Fixed (Ssa_blocking.Group.of_int 1_000_000))
+      program
+  in
   let counters p =
     let c = Ssa_interp.Counters.create () in
     ignore (Ssa_lower.Ssa_exec.run ~counters:c plan p ~bind);
@@ -63,7 +67,8 @@ let%expect_test "matmul blocked: values, work and reads" =
 
 let%expect_test "every group size agrees, remainders included" =
   List.iter
-    (fun g -> case ~group:(Ssa_opt_block.Fixed g) (3, 5, 11))
+    (fun g ->
+      case ~group:(Ssa_opt_block.Fixed (Ssa_blocking.Group.of_int g)) (3, 5, 11))
     [ 2; 3; 4; 8; 11 ];
   [%expect
     {|
@@ -135,7 +140,7 @@ let decisions ?(group = Ssa_opt_block.Auto) p =
       List.iter
         (fun (c : Ssa_opt_block.candidate) ->
           match c.decision with
-          | Ok g -> Fmt.pr "blocks by %d (%Ld trips)@." g c.trips
+          | Ok g -> Fmt.pr "blocks by %d (%Ld trips)@." (g :> int) c.trips
           | Error r -> Fmt.pr "refused: %s@." (Ssa_opt_block.refusal_name r))
         l
 
@@ -154,7 +159,9 @@ let%expect_test "blocking is refused by the condition that fails" =
   (* nothing the reduction reads is shared across outputs *)
   decisions (outputs ~term:(fun bld ~k:_ ~w -> load_at bld 0 w) ());
   (* too few outputs for the group asked for *)
-  decisions ~group:(Ssa_opt_block.Fixed 8) (outputs ());
+  decisions
+    ~group:(Ssa_opt_block.Fixed (Ssa_blocking.Group.of_int 8))
+    (outputs ());
   (* a scratch object in the reduction *)
   decisions
     (outputs

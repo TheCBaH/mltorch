@@ -17,7 +17,7 @@ let pp_error ppf : [< error ] -> unit = function
 
 type t = {
   esc : error Err.Escape.t;
-  names : (int, string) Hashtbl.t;
+  names : string Ssa_ir.Ssa_id.Value.Tbl.t;
   mutable decls : (string * string * string) list;  (** name, type, init *)
   mutable next_name : int;
   mutable next_temp : int;
@@ -28,7 +28,7 @@ type t = {
   mutable vector_types : (string * string) list;  (** typedef name, text *)
   mutable vector_helpers : (string * string) list;  (** function name, text *)
   mutable f32 : bool;
-  locals : (int, int64 * Expr.Local_var.t option) Hashtbl.t;
+  locals : (int64 * Expr.Local_var.t option) Ssa_ir.Ssa_id.Value.Tbl.t;
       (** a scratch object's slots and the variable it names *)
   out : Buffer.t;
   buffers : Ssa_buffer.t list;
@@ -38,7 +38,7 @@ type t = {
 let create ?site_table ~esc buffers =
   {
     esc;
-    names = Hashtbl.create 64;
+    names = Ssa_ir.Ssa_id.Value.Tbl.create 64;
     decls = [];
     next_name = 0;
     next_temp = 0;
@@ -49,7 +49,7 @@ let create ?site_table ~esc buffers =
     vector_types = [];
     vector_helpers = [];
     f32 = false;
-    locals = Hashtbl.create 8;
+    locals = Ssa_ir.Ssa_id.Value.Tbl.create 8;
     out = Buffer.create 4096;
     buffers;
     site_table;
@@ -75,10 +75,10 @@ let line cx depth fmt =
 let check_lanes cx lanes =
   let n = Ssa_type.Lanes.to_int lanes in
   if n < 2 || n land (n - 1) <> 0 then refuse cx (`Unsupported_lanes n);
-  n
+  lanes
 
 let vector_type cx ~elem lanes =
-  let n = check_lanes cx lanes in
+  let n = (check_lanes cx lanes :> int) in
   let name, text =
     match elem with
     | `F32 ->
@@ -133,12 +133,12 @@ let define cx (v : Ssa_value.t) =
   | Some (ty, init) ->
       let name = Printf.sprintf "v%d" cx.next_name in
       cx.next_name <- cx.next_name + 1;
-      Hashtbl.replace cx.names (v.Ssa_value.id :> int) name;
+      Ssa_ir.Ssa_id.Value.Tbl.replace cx.names v.Ssa_value.id name;
       cx.decls <- (name, ty, init) :: cx.decls;
       name
 
 let name cx (v : Ssa_value.t) =
-  match Hashtbl.find_opt cx.names (v.Ssa_value.id :> int) with
+  match Ssa_ir.Ssa_id.Value.Tbl.find_opt cx.names v.Ssa_value.id with
   | Some n -> n
   | None -> invalid_arg "Ssa_c: a value used before it is defined"
 
@@ -154,7 +154,7 @@ let site cx (f : Loop_ir.Loop_failure.t) =
       let k = cx.site_count in
       cx.sites <- f :: cx.sites;
       cx.site_count <- k + 1;
-      k
+      Ssa_ir.Ssa_emit_id.Site.of_int k
   | Some table ->
       (* the first entry of the caller's table that names the same failure; a
          check the table has no entry for is one its own lowering proved can
@@ -165,7 +165,7 @@ let site cx (f : Loop_ir.Loop_failure.t) =
         else if Loop_ir.Loop_failure.same_site table.(i) f then i
         else find (i + 1)
       in
-      find 0
+      Ssa_ir.Ssa_emit_id.Site.of_int (find 0)
 
 let vector_helper cx name text =
   if not (List.mem_assoc name cx.vector_helpers) then
@@ -175,11 +175,13 @@ let buffer_index cx id =
   let rec go i = function
     | [] -> invalid_arg "Ssa_c: an undeclared buffer"
     | (b : Ssa_buffer.t) :: rest ->
-        if Ssa_id.Buffer.equal b.Ssa_buffer.id id then i else go (i + 1) rest
+        if Ssa_id.Buffer.equal b.Ssa_buffer.id id then
+          Ssa_ir.Ssa_emit_id.Param.of_int i
+        else go (i + 1) rest
   in
   go 0 cx.buffers
 
-let buffer_name cx id = "b" ^ string_of_int (buffer_index cx id)
+let buffer_name cx id = "b" ^ string_of_int (buffer_index cx id :> int)
 
 let find_buffer cx id =
   match

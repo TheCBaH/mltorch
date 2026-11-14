@@ -54,7 +54,7 @@ let attempt ~policy ~elements ~(target : Ssa_target.t) info t
         if (not target.Ssa_target.inner_loops) && has_loop f.body then
           refuse esc Reason.Inner_loops_declined;
         let iv = List.hd f.body.Ssa_region.params in
-        let kinds = Hashtbl.create 64 in
+        let kinds = Ssa_id.Value.Tbl.create 64 in
         set kinds iv (Aff 1L);
         List.iter (classify_stmt esc kinds) f.body.Ssa_region.body;
         check_memory esc ~policy f.body.Ssa_region.body;
@@ -62,7 +62,7 @@ let attempt ~policy ~elements ~(target : Ssa_target.t) info t
           make_ctx ~esc ~t ~program:info.program ~kinds ~consts:info.consts
             ~lanes ~trips:(fun id ->
               Option.value ~default:16
-                (Hashtbl.find_opt info.loop_trips (id :> int)))
+                (Ssa_id.Region.Tbl.find_opt info.loop_trips id))
         in
         let body, () =
           in_region cx (fun () ->
@@ -126,7 +126,7 @@ let attempt ~policy ~elements ~(target : Ssa_target.t) info t
           work = work info s;
           executions =
             Option.value ~default:1L
-              (Hashtbl.find_opt info.executions (body_id :> int));
+              (Ssa_id.Region.Tbl.find_opt info.executions body_id);
           ops = n_ops;
           outcome;
         }

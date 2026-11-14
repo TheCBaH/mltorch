@@ -23,7 +23,7 @@ type error =
 
 val pp_error : Format.formatter -> [< error ] -> unit
 
-type t = {
+type t = Loop_wasm_module.t = {
   module_ : Wasm.Module.t;
       (** defines the smallest memory that covers the static region *)
   local_base : int;
@@ -66,7 +66,7 @@ val lower :
     A kernel is a function over symbolic callees, not yet a module: the whole
     model composes many of them and links once. *)
 
-type kernel = {
+type kernel = Loop_wasm_module.kernel = {
   func : Wasm.Func.t;
       (** [(local, b0, ..) -> i32]; its calls are symbolic, to be renumbered by
           {!Loop_wasm_link.link} *)
@@ -88,15 +88,6 @@ val kernel :
   table_alloc:(bytes:int -> int) ->
   Loop_program.t ->
   (kernel, [> error ]) Err.t
-
-val lower_with :
-  ?numerics:Loop_numerics.t ->
-  ?count_marks:bool ->
-  (mark_base:int option -> table_alloc:(bytes:int -> int) -> (kernel, 'e) Err.t) ->
-  (t, 'e) Err.t
-(** {!lower} for a kernel some other emitter makes: [produce] gets the mark base
-    and the constant-table allocator the module's layout fixes, and its kernel
-    is linked, given a memory and exported exactly as {!lower} does. *)
 
 val with_pages : t -> pages:int -> Wasm.Module.t
 (** The module with [pages] initial memory pages; [Invalid_argument] below the

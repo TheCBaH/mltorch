@@ -11,6 +11,15 @@ module LF = Loop_ir.Loop_failure
 let ( @ ) a b = List.rev_append (List.rev a) b
 let map f l = List.rev (List.rev_map f l)
 
+(* A WebAssembly local of the function being built: parameters first, then
+   the locals it declares. *)
+module Local =
+  Core.Tagged_int.Make
+    (struct
+      let prefix = "local"
+    end)
+    ()
+
 type error =
   [ `Local_arrays_too_large of int64
   | `Loop_leaves_domain
@@ -44,19 +53,21 @@ type t = {
   esc : error Err.Escape.t;
   mutable extra : Wasm_type.t list;  (** locals past the parameters, reversed *)
   n_params : int;
-  values : (int, int array) Hashtbl.t;
+  values : Local.t array Ssa_ir.Ssa_id.Value.Tbl.t;
       (** a value's locals, one per register *)
-  mask_shapes : (int, mask_shape) Hashtbl.t;
+  mask_shapes : mask_shape Ssa_ir.Ssa_id.Value.Tbl.t;
   buffers : Ssa_buffer.t list;
-  tables : (int, int * int) Hashtbl.t;  (** per-channel scale and zero tables *)
-  locals : (int, int64 * Expr.Local_var.t option) Hashtbl.t;
+  tables : (int * int) Ssa_ir.Ssa_id.Buffer.Tbl.t;
+      (** per-channel scale and zero tables *)
+  locals : (int64 * Expr.Local_var.t option) Ssa_ir.Ssa_id.Value.Tbl.t;
       (** a scratch object's slots and the variable it names *)
   mutable local_top : int64;
   table_alloc : bytes:int -> int;
   mutable used : R.Callee.t list;
   mutable sites : LF.t list;
   mutable site_count : int;
-  mutable meter : (int * int) option;  (** [scan_remaining], [scan_live] *)
+  mutable meter : (Local.t * Local.t) option;
+      (** [scan_remaining], [scan_live] *)
   mutable f32 : bool;
   relaxed_madd : bool;
   ranges : Ssa_range.t;
@@ -68,8 +79,8 @@ let refuse st e = Err.Escape.throw st.esc ~pp_error e
 let n op = I.Numeric op
 let i32 k = I.I32_const (Int32.of_int k)
 let i64c k = I.I64_const k
-let get i = I.Local_get i
-let set i = I.Local_set i
+let get i = I.Local_get (Local.to_int i)
+let set i = I.Local_set (Local.to_int i)
 let f64 x = I.F64_const (Int64.bits_of_float x)
 let f32 x = I.F32_const (Int32.bits_of_float x)
 let arg align offset = { Wasm.Mem_arg.align; offset }
@@ -83,7 +94,7 @@ let call st c =
 let fresh st ty =
   let id = st.n_params + List.length st.extra in
   st.extra <- ty :: st.extra;
-  id
+  Local.of_int id
 
 let site st f =
   match st.site_table with
@@ -91,7 +102,7 @@ let site st f =
       let k = st.site_count in
       st.sites <- f :: st.sites;
       st.site_count <- k + 1;
-      k
+      Ssa_ir.Ssa_emit_id.Site.of_int k
   | Some table ->
       (* a check the table has no entry for is one its own lowering proved can
          never fire: its index is one past the table, a defect to a decoder *)
@@ -100,7 +111,7 @@ let site st f =
         else if LF.same_site table.(i) f then i
         else find (i + 1)
       in
-      find 0
+      Ssa_ir.Ssa_emit_id.Site.of_int (find 0)
 
 (* An index literal that becomes an [i32] immediate. *)
 let index_const k =
@@ -111,8 +122,9 @@ let is_erased (v : Ssa_value.t) = Ssa_type.equal v.Ssa_value.ty Ssa_type.Effect
 
 (* ---- types ---------------------------------------------------------------------- *)
 
-let lanes_per_register : Ssa_type.scalar -> int = function
-  | (Ssa_type.F32 | Ssa_type.F64) as e -> 128 / Ssa_type.bits e
+let lanes_per_register : Ssa_type.scalar -> Ssa_type.Lanes.t = function
+  | (Ssa_type.F32 | Ssa_type.F64) as e ->
+      Ssa_type.Lanes.of_int (128 / (Ssa_type.bits e :> int))
   | Ssa_type.I64 | Ssa_type.Index | Ssa_type.Pred ->
       invalid_arg "Ssa_wasm: a vector of a non-float"
 
@@ -136,7 +148,7 @@ let local_types st (v : Ssa_value.t) ~shape : Wasm_type.t list =
   | Ssa_type.Vec (s, l) ->
       if s = Ssa_type.F32 then st.f32 <- true;
       List.init
-        (registers_of_lanes st l (lanes_per_register s))
+        (registers_of_lanes st l (lanes_per_register s :> int))
         (fun _ -> Wasm_type.V128)
   | Ssa_type.Mask l ->
       let per = match shape with Wide -> 2 | Narrow -> 4 in
@@ -148,15 +160,15 @@ let define ?(shape = Wide) st (v : Ssa_value.t) =
   | [] -> [||]
   | tys ->
       let regs = Array.of_list (List.map (fresh st) tys) in
-      Hashtbl.replace st.values (v.Ssa_value.id :> int) regs;
+      Ssa_ir.Ssa_id.Value.Tbl.replace st.values v.Ssa_value.id regs;
       (match v.Ssa_value.ty with
       | Ssa_type.Mask _ ->
-          Hashtbl.replace st.mask_shapes (v.Ssa_value.id :> int) shape
+          Ssa_ir.Ssa_id.Value.Tbl.replace st.mask_shapes v.Ssa_value.id shape
       | _ -> ());
       regs
 
 let regs st (v : Ssa_value.t) =
-  match Hashtbl.find_opt st.values (v.Ssa_value.id :> int) with
+  match Ssa_ir.Ssa_id.Value.Tbl.find_opt st.values v.Ssa_value.id with
   | Some r -> r
   | None -> invalid_arg "Ssa_wasm: a value used before it is defined"
 
@@ -165,7 +177,7 @@ let read st v = [ get (reg st v) ]
 
 let mask_shape st (v : Ssa_value.t) =
   Option.value ~default:Wide
-    (Hashtbl.find_opt st.mask_shapes (v.Ssa_value.id :> int))
+    (Ssa_ir.Ssa_id.Value.Tbl.find_opt st.mask_shapes v.Ssa_value.id)
 
 (* ---- failures ------------------------------------------------------------------- *)
 
@@ -222,12 +234,14 @@ let buffer_index st id =
   let rec go i = function
     | [] -> invalid_arg "Ssa_wasm: an undeclared buffer"
     | (b : Ssa_buffer.t) :: rest ->
-        if Ssa_id.Buffer.equal b.Ssa_buffer.id id then i else go (i + 1) rest
+        if Ssa_id.Buffer.equal b.Ssa_buffer.id id then
+          Ssa_ir.Ssa_emit_id.Param.of_int i
+        else go (i + 1) rest
   in
   go 0 st.buffers
 
 (* Parameter 0 is the [local] base pointer, so buffer [k] is parameter [k + 1]. *)
-let buffer_param st id = 1 + buffer_index st id
+let buffer_param st id = Local.of_int (1 + (buffer_index st id :> int))
 
 let find_buffer st id =
   match

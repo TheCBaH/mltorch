@@ -16,7 +16,7 @@
 
 type error =
   [ `Unsupported_format of Ssa_ir.Ssa_id.Buffer.t * string
-  | `Unsupported_operation of string ]
+  | `Unsupported_operation of Ssa_js_ctx.Operation.t ]
 
 val pp_error : Format.formatter -> [< error ] -> unit
 val function_name : string
