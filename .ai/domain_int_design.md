@@ -59,13 +59,66 @@ from taking that seriously:
 | Expression-tree literal | `Ceil_div_pos of _ * int` in `Expr` | Typed by the surrounding tree's role parameter |
 | List length / diagnostic count | `expected`/`got` arity payloads | Dimensionless tally |
 | Quantum | quantised values, `zero_point`, `qmin`, `qmax` | One domain by construction (`native_tensor_design.md` §3) |
-| External format | `pt2`, ATen/C bindings, `Jsont.int` on the wire | The external representation *is* the int |
-| Tally | statistics counters, report fields | Dimensionless |
+| External format (`wire`) | a field of `pt2`, ELF, zip, Wasm binary or MMIO layout, an instruction-encoding field, ATen/C bindings, `Jsont.int` on the wire | The external representation *is* the int. A number the emitter or harness chooses and passes between its own functions (a local index, an address it allocates, an output ordinal) is not a field of the format, even if it ends up written into one |
+| Tally | statistics counters, census and report fields | A number that is only ever reported, never used as a width, lane count, row count, index, address or ordinal, and never passed for one |
 | As written | `Non_positive_dim { value }`, a slice's decoded `start`/`stop`, `` `Invalid_k `` | A value reported exactly as supplied, because it failed the check that would have typed it; the domain type would have to admit the very values it exists to exclude |
 
 Everything else — extents, positions, offsets, counts, ranks, ATen dim numbers, ids,
 ordinals, next-free counters, slot offsets, arena indices, algorithm-local atom/block
 numbers — is a domain.
+
+### An exempt label is a claim
+
+A category in the table says the `int` is not a domain, so it is read against the
+reason above: what does this `int` name, and what could it be confused with? A
+declaration keeps an exempt label only if *every* `int` in it earns it, and one
+function carries one label wherever it is declared (sibling emitters and targets
+included). Entries that name an entity are `todo-domain` whatever the code around
+them does with the number. The audit of the exempt entries, by family:
+
+- **Width in bits, element width, `sew`, `lmul`, `vlen`** (52 entries, was `tally`,
+  `budget` or `wire`): a quantity with a unit, returned in tuples next to other
+  `int`s and passed beside the typed `Vtype.Sew`/`Sz` that exist. `Sz.bits` and
+  `Vtype.Sew.bits` are not the domain's own definition (`defn` is a constructor of
+  a type that already exists): they return a bare width.
+- **Lane count and lane index** (21 entries, was `tally` or `expr-literal`): an
+  extent and a position of a vector, where `Ssa_type.Lanes.t` and
+  `Mir_type.Lanes.t` already exist and are unwrapped (`lanes_of`, `lane_ok`,
+  `lanes_per_register`, `registers_of_lanes`). The Loop vector record that holds
+  `lanes` and `parts` beside its literal bounds is `todo-domain` as a whole.
+- **Block rows, unroll factor, parts, block keys** (7 entries, was `tally` or
+  `budget`): a row count is a domain, not a limit. The same `rows` was `budget` in
+  `Ssa_opt_rows.program` and `tally` in `analyze` two declarations later; a
+  declaration that also returns a count of blocked loops is not exempt either,
+  since one of its `int`s is not. A limit (`max_depth`, `fuel`) stays `budget`.
+- **Wasm local, buffer and site indices** (16 entries, was `wire` or `budget`): ordinals
+  in a numbering private to one emitter. A wasm module does contain a local index,
+  but the emitter's `get`, `set`, `fresh`, `buffer_param` and `reserve_local` are
+  its own counters, not a field it reads from an external format; the Loop and SSA
+  emitters now carry the same label (`todo-domain`) for each. The scan meter's pair
+  of locals (`budget`) is two of them.
+- **Linear-memory addresses and placements** (9 entries, was `wire`): an address and
+  a byte count are both `int` in `table_alloc:(bytes:int -> int)`, and the
+  placement record holds five same-typed fields (`weights`, `inputs`,
+  `workspace`, `outputs`, `total`) where the 32-bit hazard above lives. A byte
+  offset inside the failure record and the Wasm module's own `Data.offset` and
+  memory limits stay `wire`: those are the layout the host or the binary format
+  fixes, not a number the emitter chooses.
+- **Output and invocation ordinals, positional index pairs, register number** (10
+  entries, was `wire`, `budget`, `tally` or `cell`): the output ordinal of a run
+  is `todo-domain` in `coral_run` and was `wire` in `Rv32_harness.outcome.outputs`
+  and the native interpreter's `emitted`/`bound`; a harness `run` that takes a
+  timeout (`budget`) and a `bound:(int -> _)` ordinal is not exempt, since one of
+  its `int`s is not. `Slot.at`, `Slot.trace_at` (`~row` and `~lane`, then the
+  array index they return), `Elem.set`'s offset and value, and the per-event
+  `slot` are positions two unlabelled `int`s can swap; `gpr_name`'s register
+  number sits beside a width. A list position with no companion `int`
+  (`nth env what l i`) stays `cell`.
+
+  A declaration is judged on all of its `int`s, and a function keeps one label
+  wherever it is declared: the SSA and Loop emitters' `get`, `set`, `fresh`,
+  `buffer_param` and `reserve_local` agree, and so do `site`, `buffer_index` and
+  `error_address`.
 
 ## 2. Taxonomy
 
@@ -218,16 +271,21 @@ Types alone do not stop the next `int`. Three layers:
    library enters with an opening `todo-domain` balance (the three emitters: three
    records of value ids and name counters) that is part of the recorded ceiling;
    the ceiling only goes down from there. Judgement calls in that classification:
-   host-ABI positions and wasm local indices are `wire`, indent depths and lane
-   counts `tally`, the literal an emitter prints `as-written`.
+   the words of a host-ABI failure record are `wire`, but the ordinals of a private
+   numbering (a wasm local index, a buffer parameter or index, a failure site) are
+   `todo-domain`, as is a lane count; indent depths are `tally`, the literal an
+   emitter prints `as-written`.
 
    The three machine targets (`machine_target_aarch64`, `_riscv32`, `_x86_64`)
    entered next, with an opening `todo-domain` balance of 66. It is register numbers
    (`x`, `gpr`, `rax`, `range`, `allocatable`, `view`, `sequence`, the unit
    constructors), the value ids the selectors unwrap to key their tables, and the
    instruction-form variants, which carry lane positions and bit indices. Judgement
-   calls: a width in bits (`Sz.bits`, `unit_bits`, `shape`, `bitmask_immediate`) and
-   a lane count are `tally`, the per-event index in `slot` is a `cell`, and the
+   calls: a width in bits (`Sz.bits`, `unit_bits`, `shape`, `bitmask_immediate`) is
+   a domain and a `todo-domain` (it is returned in tuples beside other `int`s, and the
+   typed `Sz` already exists), a lane count and a lane index are `todo-domain`
+   (`Mir_type.Lanes` exists and is unwrapped), the per-event index in `slot` is a
+   position in a private numbering and so a `todo-domain` too, and the
    fuel and depth of the interpreter runs are `budget`. The balance only goes down:
    typing the register number as a `Mir_id.Unit`-style domain retires most of it.
 
@@ -238,7 +296,9 @@ Types alone do not stop the next `int`. Three layers:
    are `wire` (a layout shared with the hardware or the guest program), the
    register bit masks are `bits`, instruction immediates in the kernel emitters
    are `wire`, the refusal payloads that report a budget or a count are
-   `as-written`, and lane, element-width and factor arguments are `tally`.
+   `as-written`, element-width and register-group factor arguments are
+   `todo-domain` (`Vtype.Sew` and `Vtype.Lmul` exist and are bypassed), and so are
+   lane arguments.
 
    The eight `machine_rivet_*` libraries entered last, adding 163 `todo-domain`
    entries: the register-allocation intervals and positions the routes re-export,
@@ -262,7 +322,7 @@ Types alone do not stop the next `int`. Three layers:
    printed through `float_of_int`; a memory-argument alignment and offset, an
    opcode byte, a data-segment offset and the memory limits are `wire`, and the
    offsets are bounded to `[0, 2^31)` at the declaration so they fit a 32-bit
-   `int`; a lane count and a census count are `tally`; the numbers a validation
+   `int`; a lane count is `todo-domain` and a census count is `tally`; the numbers a validation
    error reports are `as-written`. No 32-bit hazard was found: the only `int`s
    that could approach 2^31 are the memory offsets, bounded at the declaration,
    and the printer's literals, which go through `float_of_int`.
@@ -276,8 +336,11 @@ Types alone do not stop the next `int`. Three layers:
    instances, so their `of_int`/`to_int` are `defn`; the constants of an index
    tree and of an affine form are `expr-literal` (the index domain
    `[-2^31, 2^31)` is the contract, see `Loop_range.domain`); failure-record
-   words, memory placements and the process exit codes are `wire`. Two
-   32-bit-`int` hazards sit behind the `wire` label and are not hidden by it:
+   words and the process exit codes are `wire`; a linear-memory address or
+   placement (`Placement`'s five fields, `table_alloc`, `heap_base`,
+   `mark_base`, `error_address`) is `todo-domain`, because an address and a byte
+   count are both `int` there and the two are passed for one another. Two
+   32-bit-`int` hazards sit in those entries and are not hidden by them:
    `Loop_bundle_wasm` admits a memory of exactly `2^31` bytes (`memory_cap` is
    rejected with `>`), and narrows `Placement.total` with `Int64.to_int`, which
    wraps under js_of_ocaml at that one value; and its `table_alloc` narrows a
