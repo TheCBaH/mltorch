@@ -339,3 +339,55 @@ let%expect_test "a model whose memory exceeds the 2 GiB policy is refused" =
           Fmt.pr "accepted with %d bytes of memory@."
             w.Loop_bundle_wasm.placement.Loop_bundle_wasm.Placement.total));
   [%expect {| refused: 2400000000 bytes exceed the 2 GiB memory policy |}]
+
+(* The memory policy is a positive [int32]: every address, and the placement's
+   [total], stay below 2^31, so the placement's [int] fields and a table's
+   address hold under js_of_ocaml's 32-bit [int]. A kernel made by hand asks
+   the layout's allocator for [pad] bytes of constant table and then for 8
+   more; [build_padded] reports the second address it was handed and the
+   outcome. *)
+let build_padded pad =
+  let second = ref (-1) in
+  let g =
+    Graph_builder.build ~name:"pad"
+      ~outputs:(fun o -> [ o ])
+      Graph_builder.(
+        let* x = input ~shape:(Vec6.shape ~n:1 ~t:1 ~d:1 ~h:1 ~w:1 ~c:16) () in
+        relu x)
+    |> Err.or_raise ~pp_error:Graph_builder.pp_error
+  in
+  let kernel ~table_alloc (inv : Loop_bundle.invocation) =
+    let _ = table_alloc ~bytes:pad in
+    second := table_alloc ~bytes:8;
+    Result.map_error
+      (Fmt.str "%a" Loop_wasm.pp_error)
+      (Err.payload (Loop_wasm.kernel ~table_alloc inv.Loop_bundle.program))
+  in
+  let outcome =
+    match
+      Err.payload (Loop_bundle.build ~config:Loop_bundle_wasm.default_config g)
+    with
+    | Error e -> Fmt.str "bundle: %a" Loop_bundle.pp_error e
+    | Ok b -> (
+        match Err.payload (Loop_bundle_wasm.build ~kernel b) with
+        | Error e -> Fmt.str "refused: %a" Loop_bundle_wasm.pp_error e
+        | Ok w ->
+            Fmt.str "accepted: total %d"
+              w.Loop_bundle_wasm.placement.Loop_bundle_wasm.Placement.total)
+  in
+  Fmt.pr "pad %d: second table at %d; %s@." pad !second outcome
+
+let%expect_test "a placement of exactly 2 GiB is refused" =
+  (* 2^31 - 512 of padding makes the total exactly 2^31: the first byte past a
+     positive int32, which an [int] under js_of_ocaml cannot hold. *)
+  build_padded 2_147_483_000;
+  build_padded 2_147_483_136;
+  [%expect
+    {|
+    pad 2147483000: second table at 2147483112; accepted: total 2147483520
+    pad 2147483136: second table at 2147483248; refused: 2147483648 bytes exceed the 2 GiB memory policy |}]
+
+let%expect_test "a table address past the policy is never handed to a kernel" =
+  build_padded 2_147_483_600;
+  [%expect
+    {| pad 2147483600: second table at 0; refused: 2147484160 bytes exceed the 2 GiB memory policy |}]
