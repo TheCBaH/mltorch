@@ -1,26 +1,11 @@
-(* Library ownership index.
+(* Library index, read from the dune files alone.
 
-   Every library under lib/ should be claimed by exactly one design doc in .ai/,
-   through a header line in the doc's first lines:
+     libraries list <root> [name...]   name, dir, role, dependencies
+     libraries check <root>            fail on any drift
 
-     Libraries: name, name, ...
-     Status: YYYY-MM-DD <one line>
-
-     libraries list <root> [name...]      name, dir, owner, role, dependencies
-     libraries check <unowned> <root>     fail on any drift
-
-   The check fails on:
-     - a library no doc claims that is not listed in <unowned>;
-     - a library claimed by more than one doc;
-     - a [Libraries:] name that is no library (stale);
-     - a doc with [Libraries:] and no dated [Status:];
-     - an <unowned> entry that is claimed or does not exist (stale);
-     - more unowned entries than the recorded ceiling, or fewer without
-       lowering it.
-
-   <unowned> lines are library names; [#] starts a comment and
-   [@unowned-ceiling N] records the ceiling. The role is the first sentence of
-   the comment that opens the library's dune file. *)
+   The role is the first sentence of the comment that opens the library's dune
+   file. The check fails on a library with no such comment and on two libraries
+   with one name; it reads no design document. *)
 
 let read_file path =
   let ic = open_in_bin path in
@@ -180,146 +165,41 @@ let all_libs root =
   |> List.filter (fun d -> Sys.is_directory (Filename.concat lib d))
   |> List.concat_map (libs_of_dir root)
 
-(* ---- docs --------------------------------------------------------------- *)
-
-type doc = {
-  file : string;
-  claims : string list;
-  status : string option;  (** the ISO date *)
-}
-
-let is_date s =
-  String.length s >= 10
-  &&
-    try Scanf.sscanf (String.sub s 0 10) "%4d-%2d-%2d%!" (fun _ _ _ -> true)
-    with _ -> false
-
-let header_lines = 40
-
-let docs root =
-  let dir = Filename.concat root ".ai" in
-  let files = Sys.readdir dir in
-  Array.sort compare files;
-  Array.to_list files
-  |> List.filter (fun f -> Filename.check_suffix f ".md")
-  |> List.map (fun f ->
-      let lines =
-        String.split_on_char '\n' (read_file (Filename.concat dir f))
-      in
-      let lines = List.filteri (fun i _ -> i < header_lines) lines in
-      let after prefix l =
-        let p = String.length prefix in
-        if String.length l >= p && String.sub l 0 p = prefix then
-          Some (String.trim (String.sub l p (String.length l - p)))
-        else None
-      in
-      let claims =
-        List.concat_map
-          (fun l ->
-            match after "Libraries:" l with
-            | Some r ->
-                String.map (fun c -> if c = ',' then ' ' else c) r
-                |> String.split_on_char ' '
-                |> List.filter (fun w -> w <> "")
-            | None -> [])
-          lines
-      in
-      let status =
-        List.find_map
-          (fun l ->
-            match after "Status:" l with
-            | Some r when is_date r -> Some (String.sub r 0 10)
-            | _ -> None)
-          lines
-      in
-      { file = f; claims; status })
-
-let owners ds name =
-  List.filter_map
-    (fun d -> if List.mem name d.claims then Some d.file else None)
-    ds
-
 (* ---- commands ----------------------------------------------------------- *)
 
 let list root names =
-  let ds = docs root in
   List.iter
     (fun l ->
       if names = [] || List.mem l.name names then
-        let owner =
-          match owners ds l.name with [] -> "-" | o -> String.concat "," o
-        in
-        Printf.printf "%s\tlib/%s\t%s\t%s\t%s\n" l.name l.dir owner l.role
+        Printf.printf "%s\tlib/%s\t%s\t%s\n" l.name l.dir l.role
           (String.concat " " l.deps))
     (all_libs root)
 
-let ceiling_prefix = "@unowned-ceiling "
-
-let read_unowned path =
-  let ceiling = ref None and names = ref [] in
-  let p = String.length ceiling_prefix in
-  List.iter
-    (fun l ->
-      let l = String.trim l in
-      if l = "" || l.[0] = '#' then ()
-      else if String.length l > p && String.sub l 0 p = ceiling_prefix then
-        ceiling :=
-          int_of_string_opt (String.trim (String.sub l p (String.length l - p)))
-      else names := l :: !names)
-    (String.split_on_char '\n' (read_file path));
-  (!ceiling, List.rev !names)
-
-let check unowned root =
+let check root =
   let ls = all_libs root in
-  let ds = docs root in
-  let known = List.map (fun l -> l.name) ls in
   let errors = ref [] in
   let err fmt = Printf.ksprintf (fun s -> errors := s :: !errors) fmt in
-  let ceiling, listed = read_unowned unowned in
   List.iter
     (fun l ->
-      match (owners ds l.name, List.mem l.name listed) with
-      | [], false ->
-          err
-            "lib/%s: library %s has no owner; add it to a `Libraries:` line in \
-             the .ai design doc that describes it"
-            l.dir l.name
-      | [], true -> ()
-      | [ _ ], true ->
-          err "%s is owned but still listed as unowned; delete it from %s"
-            l.name unowned
-      | [ _ ], false -> ()
-      | os, _ ->
-          err "library %s is claimed by several docs: %s" l.name
-            (String.concat ", " os))
+      if l.role = "" then
+        err
+          "lib/%s: library %s has no role; open its dune file with a comment \
+           whose first sentence says what the library is for"
+          l.dir l.name)
     ls;
-  List.iter
-    (fun d ->
-      List.iter
-        (fun c ->
-          if not (List.mem c known) then
-            err ".ai/%s: `Libraries:` names %s, which is no library under lib/"
-              d.file c)
-        d.claims;
-      if d.claims <> [] && d.status = None then
-        err ".ai/%s: has `Libraries:` but no `Status: YYYY-MM-DD` line" d.file)
-    ds;
-  List.iter
-    (fun n ->
-      if not (List.mem n known) then
-        err "%s: %s is no library under lib/ (stale entry)" unowned n)
-    listed;
-  let count = List.length listed in
-  (match ceiling with
-  | None -> err "%s: missing %sN" unowned ceiling_prefix
-  | Some c when count > c ->
-      err "unowned libraries: %d, ceiling %d; claim them in a doc instead" count
-        c
-  | Some c when count < c ->
-      err "unowned libraries are down to %d; lower %s from %d" count
-        (String.trim ceiling_prefix)
-        c
-  | Some _ -> ());
+  let rec dup = function
+    | [] -> ()
+    | l :: rest ->
+        (match
+           List.find_opt (fun m -> m.name = l.name && m.dir <> l.dir) rest
+         with
+        | Some m ->
+            err "library name %s is defined in lib/%s and lib/%s" l.name l.dir
+              m.dir
+        | None -> ());
+        dup rest
+  in
+  dup ls;
   match List.rev !errors with
   | [] -> ()
   | es ->
@@ -330,9 +210,8 @@ let () =
   match Array.to_list Sys.argv |> List.tl with
   | [ "list"; root ] -> list root []
   | "list" :: root :: names -> list root names
-  | [ "check"; unowned; root ] -> check unowned root
+  | [ "check"; root ] -> check root
   | _ ->
       prerr_endline
-        "usage: libraries list <root> [name...] | libraries check <unowned> \
-         <root>";
+        "usage: libraries list <root> [name...] | libraries check <root>";
       exit 2

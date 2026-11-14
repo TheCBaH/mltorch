@@ -1,3 +1,5 @@
+; Parser and typed model of the ATen function-schema strings in native_functions.yaml.
+
 (library
  (name aten_schema)
  (wrapped false)

@@ -1,3 +1,5 @@
+; Reports on a transformers replay: identity, expectation, policy and matrix.
+
 (library
  (name transformers_reports)
  (libraries

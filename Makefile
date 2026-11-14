@@ -777,15 +777,15 @@ check.doc-refs:
 check.int-signatures:
 	opam exec -- dune build @tools/int_signatures/runtest
 
-# Library ownership: every lib/*/dune library is claimed by a `Libraries:` line
-# in one .ai/ design doc, or listed in tools/libraries/unowned.txt, whose
-# ceiling only goes down. `make libraries` lists name, dir, owner doc, role and
-# dependencies (tab separated); `make libraries LIBS="core expr"` filters.
+# Library index, read from the dune files: every lib/*/dune library opens with
+# a comment whose first sentence is its role, and names are unique.
+# `make libraries` lists name, dir, role and dependencies (tab separated);
+# `make libraries LIBS="core expr"` filters. No design document is consulted.
 libraries:
 	@opam exec -- dune exec --no-print-directory tools/libraries/libraries.exe -- list . $(LIBS)
 
 check.libraries:
-	opam exec -- dune exec --no-print-directory tools/libraries/libraries.exe -- check tools/libraries/unowned.txt .
+	opam exec -- dune exec --no-print-directory tools/libraries/libraries.exe -- check .
 
 # Variant-order check: a type marked (* @alphabetical *) keeps its constructors
 # in lowercased byte order (tools/variant_order). Also part of runtest.

@@ -1,3 +1,5 @@
+; The runtime the generated schema types and their codecs depend on.
+
 (library
  (name schema_runtime)
  (wrapped false)

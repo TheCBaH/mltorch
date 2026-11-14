@@ -1,3 +1,5 @@
+; Selects and chains the metadata of a transformers model for replay.
+
 (library
  (name transformers_metadata)
  (libraries

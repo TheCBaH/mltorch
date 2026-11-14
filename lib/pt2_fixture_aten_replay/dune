@@ -1,3 +1,5 @@
+; Replays a recorded PT2 fixture node by node through the ATen bindings.
+
 (library
  (name pt2_fixture_aten_replay)
  (libraries

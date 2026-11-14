@@ -1,3 +1,5 @@
+; Reads schema.yaml and generates the OCaml source for the PyTorch export-schema types.
+
 (library
  (name pytorch_schema)
  (wrapped false)

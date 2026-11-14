@@ -1,3 +1,5 @@
+; The file-system and process half of the timm fixture reader.
+
 (library
  (name timm_fixture_unix)
  (libraries

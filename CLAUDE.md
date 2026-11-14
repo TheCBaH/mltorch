@@ -403,13 +403,13 @@ test/*_cram.t                                      ← cram tests decode real mo
 
 ### Libraries
 
-`make libraries` lists every `lib/*/dune` library — dune name, directory, the
-`.ai/` design doc that owns it, a one-line role from the dune file's opening
-comment, and its dependencies (tab separated; `make libraries LIBS="core expr"`
-filters). A design doc claims libraries with `Libraries:` and a dated `Status:`
-line near its title; `make check.libraries` (part of `make precommit` and CI)
-fails on a library no doc claims unless it is on the ceiling in
-`tools/libraries/unowned.txt`, which only goes down. Executables are in `bin/`
+`make libraries` lists every `lib/*/dune` library — dune name, directory, a
+one-line role from the dune file's opening comment, and its dependencies (tab
+separated; `make libraries LIBS="core expr"` filters). `make check.libraries`
+(part of `make precommit` and CI) reads the dune files alone and fails on a
+library whose dune file does not open with a role comment, and on a repeated
+library name; it consults no design document, so a new library needs no doc
+to land. Executables are in `bin/`
 and `js/`; `bin/schema_gen.ml` is the schema CLI.
 
 Layering the listing does not show:

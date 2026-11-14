@@ -1,3 +1,5 @@
+; Reads the timm evaluation fixtures: index, preprocessing and recorded outputs.
+
 (library
  (name timm_fixture)
  (libraries
