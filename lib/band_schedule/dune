@@ -1,0 +1,8 @@
+; Row-banded execution of a chain of row-local kernels: the input rows a kernel
+; needs for an output band, the schedule that runs the chain block by block with
+; produced rows retained until their last use, and the window each producer
+; needs. Pure arithmetic over rows; no target, no memory, no code.
+
+(library
+ (name band_schedule)
+ (libraries fmt))

@@ -1,0 +1,10 @@
+; The band schedule's cases, hermetic: row ranges per node, the chunked
+; producer that runs ahead, retention by last use and the window each producer
+; needs.
+
+(library
+ (name band_schedule_test)
+ (libraries band_schedule fmt)
+ (inline_tests)
+ (preprocess
+  (pps ppx_expect)))
