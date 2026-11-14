@@ -358,6 +358,27 @@ Types alone do not stop the next `int`. Three layers:
    found: every decoded size is bounded when decoded, and `product` folds in
    `int64` and narrows only to the runtime's own `int` range, so on js_of_ocaml
    it bounds to 32 bits.
+
+   **Scope widened to the optimization path and the language.** `ssa_ir`, `ssa_lower`,
+   `machine_alloc`, `machine_ir`, `machine_lower`, `machine_check`, `machine_interp`,
+   `machine_model`, `interval_alloc`, `native`, `native4d`, `walk_core`, `expr`,
+   `expr_internal`, `native_interp`, `native_aten_bridge`, `contraction`,
+   `ssa_backends` and the Coral transfer, estimate and block libraries are read as
+   `ml:` or by their interfaces. Judgement calls in that pass: an `int` the
+   expression language carries as written (a literal, a scan width or step count, a
+   gather extent) is `expr-literal`; an argument decoded from a serialized model or
+   an ATen call is `wire`; a count a failure row reports as written is `as-written`;
+   the per-event counter slot is `wire` (a host reads the counters in that order).
+   Ids that were bare ints (`Local_var`, `Reduce_var`, a statement position, a unit,
+   a slot) are `Tagged_int` domains with an interface, and a table keyed by one uses
+   the id's own `Tbl` or `Map` rather than an `int` key. A library whose modules
+   apply functors needs an `.mli` on each, or the checker reads every result
+   signature once per application (the allocator and scheduler functors, the route
+   modules). The tool reads dune's preprocessed copy of a cppo or ppx library and
+   passes the external packages of every internal dependency to `ocamlc -i`.
+   `native_op_walk`, a generator of random shapes for the walk tests, stays out of
+   scope.
+
 2. **A review question**, added to the conventions: *"what does this `int` name, and
    what could it be confused with?"*
 3. **Exit hygiene**: the count of `(x :> int)`/`Dim.to_int` exits is tracked, and

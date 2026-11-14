@@ -4,8 +4,8 @@ ml:lib/coralnpu_kernels
 ml:lib/coralnpu_kernels_zvt
 lib/coralnpu_rv32
 lib/core
-lib/expr
-lib/expr_internal
+ml:lib/expr
+ml:lib/expr_internal
 lib/interval_alloc
 ml:lib/js_ast
 ml:lib/loop_ir
@@ -26,11 +26,11 @@ ml:lib/machine_rivet_x86_64_gnu
 ml:lib/machine_target_aarch64
 ml:lib/machine_target_riscv32
 ml:lib/machine_target_x86_64
-lib/native
-lib/native4d
-lib/native_aten_bridge
+ml:lib/native
+ml:lib/native4d
+ml:lib/native_aten_bridge
 lib/native_graph
-lib/native_interp
+ml:lib/native_interp
 lib/native_op_walk
 lib/native_predict
 ml:lib/pt2
@@ -41,5 +41,5 @@ ml:lib/ssa_ir
 ml:lib/ssa_js
 ml:lib/ssa_lower
 ml:lib/ssa_wasm
-lib/walk_core
+ml:lib/walk_core
 ml:lib/wasm_ir

@@ -4,7 +4,7 @@
 # [todo-domain] is a debt marker (an int that names an entity); the ceiling only goes down.
 # [ml:<dir>] scope entries also read the inferred interface of each .ml without an .mli; a library enters with an opening
 # [todo-domain] balance that is part of the ceiling, and the ceiling only goes down from there.
-@todo-domain-ceiling 347
+@todo-domain-ceiling 416
 lib/coralnpu/coral_dma.mli	wire	val offset : t -> int end
 lib/coralnpu/coral_dma.mli	bits	val ctrl_start : int
 lib/coralnpu/coral_dma.mli	bits	val status_done : int
@@ -167,12 +167,161 @@ lib/core/tagged_int.mli	defn	val of_int : int -> t
 lib/core/tagged_int.mli	tally	val check_room : t -> count:int -> unit
 lib/core/tagged_int.mli	tally	val alloc_n : t -> int -> id list * t
 lib/core/tagged_int.mli	hash	val compare : t -> t -> int
+lib/expr/expr_api.ml	as-written	module Index_overflow : sig type t = { op : index_op; lhs : int; rhs : int; } end
+lib/expr/expr_api.ml	hash	val compare : t -> t -> int
+lib/expr/expr_api.ml	hash	val hash : t -> int
+lib/expr/expr_api.ml	hash	val compare : ('a -> 'a -> int) -> 'a t -> 'a t -> int
+lib/expr/expr_api.ml	tally	val cardinal : 'a t -> int
+lib/expr/expr_api.ml	hash	val compare : t -> t -> int
+lib/expr/expr_api.ml	tally	val cardinal : t -> int
+lib/expr/expr_api.ml	hash	val compare : t -> t -> int
+lib/expr/expr_api.ml	hash	val hash : t -> int
+lib/expr/expr_api.ml	hash	val compare : ('a -> 'a -> int) -> 'a t -> 'a t -> int
+lib/expr/expr_api.ml	tally	val cardinal : 'a t -> int
+lib/expr/expr_api.ml	hash	val compare : t -> t -> int
+lib/expr/expr_api.ml	tally	val cardinal : t -> int
+lib/expr/expr_api.ml	expr-literal	type _ t = private Add : Role.Delta.t t * Role.Delta.t t -> Role.Delta.t t | Assume_position : Role.Delta.t t -> Role.Position.t t | Ceil_div_pos : Role.Delta.t t * int -> Role.Delta.t t | Clamp_low : Role.Delta.t t -> Role.Position.t t | Const : int -> Role.Delta.t t | Data : Source.t * Role.Position.t t Coord.t * int -> Role.Position.t t | Floor_div_pos : Role.Delta.t t * int -> Role.Delta.t t | Max : Role.Delta.t t * Role.Delta.t t -> Role.Delta.t t | Min : Role.Delta.t t * Role.Delta.t t -> Role.Delta.t t | Of_position : Role.Position.t t -> Role.Delta.t t | Output : Axis.t -> Role.Position.t t | Reduce : Reduce_var.t -> Role.Position.t t | Scale : int * Role.Delta.t t -> Role.Delta.t t | Zero : Role.Position.t t
+lib/expr/expr_api.ml	as-written	type error = [ `Non_positive_divisor of int ]
+lib/expr/expr_api.ml	expr-literal	val const : int -> Role.Delta.t t
+lib/expr/expr_api.ml	expr-literal	val scale : int -> Role.Delta.t t -> Role.Delta.t t
+lib/expr/expr_api.ml	expr-literal	val data : Source.t -> Role.Position.t t Coord.t -> int -> Role.Position.t t
+lib/expr/expr_api.ml	expr-literal	val floor_div_pos : Role.Delta.t t -> int -> (Role.Delta.t t, error) Err.t
+lib/expr/expr_api.ml	expr-literal	val ceil_div_pos : Role.Delta.t t -> int -> (Role.Delta.t t, error) Err.t end
+lib/expr/expr_api.ml	expr-literal	module Window : sig type t = { hlo : int; hhi : int; wlo : int; whi : int; } end
+lib/expr/expr_api.ml	expr-literal	val geometry : t -> int list end
+lib/expr/expr_api.ml	as-written	type error = [ `Index_overflow of Index_overflow.t | `Non_positive_divisor of int ]
+lib/expr/expr_api.ml	expr-literal	val window : t -> out_h:int -> out_w:int -> (Window.t, error) Err.t
+lib/expr/expr_api.ml	expr-literal	val flat_index : t -> ih:int -> iw:int -> (int, error) Err.t end
+lib/expr/expr_api.ml	expr-literal	type t = private { width : int; steps : int; lane : Reduce_var.t; step : Reduce_var.t; prev : Local_var.t; init : float Value.t; update : float Value.t; }
+lib/expr/expr_api.ml	as-written	type error = Bad_steps of int | Bad_width of int | Prev_in_init | State_over_limit of { limit : int; } | Step_in_init | Unbounded_reduction_context | Updates_over_limit of { limit : int64; }
+lib/expr/expr_api.ml	hash	val compare : float t -> float t -> int
+lib/expr/expr_api.ml	hash	val hash : float t -> int end
+lib/expr/expr_api.ml	budget	val create : max_state:int -> max_updates:int64 -> (t, error) Err.t
+lib/expr/expr_api.ml	budget	val max_state : t -> int
+lib/expr/expr_api.ml	as-written	type error = State_over_limit of { limit : int; } | Updates_exhausted of { limit : int64; }
+lib/expr/expr_api.ml	budget	val scan : limits:Scan_limits.t -> width:int -> steps:int -> init:(lane:Role.Position.t Index.t -> float Value.t t) -> update:(step:Role.Position.t Index.t -> lane:Role.Position.t Index.t -> previous_at:(Role.Position.t Index.t -> float Value.t) -> float Value.t t) -> (Scan.t, Scan.error) Err.t t end
+lib/expr/expr_api.ml	tally	val size : float Value.t -> int
+lib/expr/expr_api.ml	tally	val depth : float Value.t -> int
+lib/expr/expr_api.ml	tally	val size_i64 : int64 Value.t -> int
+lib/expr/expr_api.ml	tally	val depth_i64 : int64 Value.t -> int
+lib/expr/expr_api.ml	budget	val measure_with_locals : local:(Local_var.t -> int * int) -> max_size:int -> max_depth:int -> float Value.t -> int * int
+lib/expr/expr_api.ml	budget	val exceeds_with_locals : local:(Local_var.t -> int * int) -> max_size:int -> max_depth:int -> float Value.t -> [ `Depth | `Size ] option
+lib/expr/expr_api.ml	tally	val scan_cost : float Value.t -> int64 * int
+lib/expr/expr_api.ml	tally	val intrinsics : float Value.t -> int
+lib/expr/expr_api.ml	tally	val assume_sites : float Value.t -> int
+lib/expr/expr_api.ml	as-written	type error = [ `Duplicate_local_binder of Local_var.t | `Duplicate_reducer_binder of Reduce_var.t | `Free_reducer of Reduce_var.t | `Too_deep of int | `Too_large of int | `Unbound_local of Local_var.t ]
+lib/expr/expr_api.ml	budget	val value : ?max_size:int -> ?max_depth:int -> float Value.t -> (unit, error) Err.t
+lib/expr/expr_api.ml	budget	val fragment : ?max_size:int -> ?max_depth:int -> ?allowed_free:Reduce_var.Set.t -> locals:Local_var.Set.t -> float Value.t -> (unit, error) Err.t
+lib/expr/expr_api.ml	budget	val value_i64 : ?max_size:int -> ?max_depth:int -> int64 Value.t -> (unit, error) Err.t end
+lib/expr/expr_api.ml	as-written	module Gather_index_out_of_range : sig type t = { raw : int64; extent : int; } end
+lib/expr/expr_api.ml	as-written	val resolve_gather_index : int64 -> extent:int -> (int, [> `Gather_index_out_of_range of Gather_index_out_of_range.t ]) Err.t
+lib/expr/expr_api.ml	as-written	type index_error = [ `Data_index_unexpected_here | `Gather_index_out_of_range of Gather_index_out_of_range.t | `Index_not_exact_in_float of int | `Index_overflow of Index_overflow.t | `Non_positive_divisor of int | `Unbound_reducer of Reduce_var.t ]
+lib/expr/expr_api.ml	expr-literal	val index : output:int Coord.t -> reducers:(Reduce_var.t -> int option) -> 'role Index.t -> (int, index_error) Err.t
+lib/expr/expr_api.ml	expr-literal	val eval_index : ([> index_error ] as 'e) Err.Escape.t -> widen:(index_error -> 'e) -> output:int Coord.t -> reducers:(Reduce_var.t -> int option) -> resolve_data:(Source.t -> int Coord.t -> (int64, 'e) Err.t) -> 'role Index.t -> int
+lib/expr/expr_api.ml	expr-literal	val float_of_index : int -> (float, index_error) Err.t
+lib/expr/expr_api.ml	as-written	type t = { local : Local_var.t option; row : int; lane : int; } end
+lib/expr/expr_api.ml	as-written	module Scan_bounds : sig type t = { projection : Scan_projection.t; extent : int; } end
+lib/expr/expr_api.ml	as-written	type scan_reader = Local_var.t -> row:int -> lane:int -> (float, scan_error) Err.t
+lib/expr/expr_api.ml	as-written	type error = [ `Coord_out_of_range of Source.t * Axis.t * int * int Coord.t | `Data_index_unexpected_here | `Data_source_wrong_format of string | `Gather_index_out_of_range of Gather_index_out_of_range.t | `I64_division_by_zero | `I64_division_overflow | `I64_from_float_infinite | `I64_from_float_nan | `I64_from_float_out_of_range of float | `Index_not_exact_in_float of int | `Index_overflow of Index_overflow.t | `Non_positive_divisor of int | `Scan_meter of Scan_meter.error | `Scan_meter_required | `Scan_projection of scan_error | `Unbound_local of Local_var.t | `Unbound_reducer of Reduce_var.t | `Unknown_source of Source.t ]
+lib/expr/expr_api.ml	expr-literal	type t = { load : Source.t -> int Coord.t -> (float, error) Err.t; load_index : Source.t -> int Coord.t -> (int64, error) Err.t; } end
+lib/expr/expr_api.ml	as-written	val value : ?local:(Local_var.t -> float option) -> ?local_at:(Local_var.t -> int -> float option) -> ?local_i64:(Local_var.t -> int64 option) -> ?local_at_i64:(Local_var.t -> int -> int64 option) -> ?scan:scan_reader -> ?scan_meter:Scan_meter.t -> ?reducer:(Reduce_var.t * int) list -> ?on_reduction:(unit -> unit) -> Env.t -> output:int Coord.t -> float Value.t -> (float, error) Err.t
+lib/expr/expr_api.ml	as-written	val value_i64 : ?local:(Local_var.t -> float option) -> ?local_at:(Local_var.t -> int -> float option) -> ?local_i64:(Local_var.t -> int64 option) -> ?local_at_i64:(Local_var.t -> int -> int64 option) -> ?scan:scan_reader -> ?scan_meter:Scan_meter.t -> ?reducer:(Reduce_var.t * int) list -> ?on_reduction:(unit -> unit) -> Env.t -> output:int Coord.t -> int64 Value.t -> (int64, error) Err.t end
 lib/expr_internal/axis.mli	expr-literal	val to_int : t -> int
 lib/expr_internal/axis.mli	expr-literal	val compare : t -> t -> int
+lib/expr_internal/local_var.mli	hash	val hash : t -> int
+lib/expr_internal/reduce_var.mli	hash	val hash : t -> int
 lib/expr_internal/source.mli	expr-literal	val create : int -> t
 lib/expr_internal/source.mli	expr-literal	val to_int : t -> int
 lib/expr_internal/source.mli	expr-literal	val compare : t -> t -> int
 lib/expr_internal/source.mli	expr-literal	val hash : t -> int
+lib/expr_internal/builder.ml	budget	val scan_width_ceiling : int
+lib/expr_internal/builder.ml	expr-literal	val scan : limits:Expr_internal.Scan_limits.t -> width:int -> steps:int -> init:(lane:Expr_internal.Role.Position.t Expr_internal.Index.t -> Ordinal.Next.t -> float Expr_internal.Value.t * 'a) -> update:(step:Expr_internal.Role.Position.t Expr_internal.Index.t -> lane:Expr_internal.Role.Position.t Expr_internal.Index.t -> previous_at:(Expr_internal.Role.Position.t Expr_internal.Index.t -> float Expr_internal.Value.t) -> 'a -> float Expr_internal.Expr_repr.value * 'b) -> state -> (Expr_internal.Scan.t, Expr_internal.Scan.error) Err.t * 'b
+lib/expr_internal/check.ml	as-written	type error = [ `Duplicate_local_binder of Expr_internal.Local_var.t | `Duplicate_reducer_binder of Expr_internal.Reduce_var.t | `Free_reducer of Expr_internal.Reduce_var.t | `Too_deep of int | `Too_large of int | `Unbound_local of Expr_internal.Local_var.t ]
+lib/expr_internal/check.ml	budget	val fragment : ?max_size:int -> ?max_depth:int -> ?allowed_free:Expr_internal.Reduce_var.Set.t -> locals:Expr_internal.Local_var.Set.t -> float Expr_internal.Value.t -> (unit, [> `Duplicate_local_binder of Expr_internal.Local_var.t | `Duplicate_reducer_binder of Expr_internal.Reduce_var.t | `Free_reducer of Expr_internal.Reduce_var.Set.elt | `Too_deep of int | `Too_large of int | `Unbound_local of Expr_internal.Local_var.Set.elt ]) Err.t
+lib/expr_internal/check.ml	budget	val value : ?max_size:int -> ?max_depth:int -> float Expr_internal.Value.t -> (unit, [> `Duplicate_local_binder of Expr_internal.Local_var.t | `Duplicate_reducer_binder of Expr_internal.Reduce_var.t | `Free_reducer of Expr_internal.Reduce_var.Set.elt | `Too_deep of int | `Too_large of int | `Unbound_local of Expr_internal.Local_var.Set.elt ]) Err.t
+lib/expr_internal/check.ml	budget	val value_i64 : ?max_size:int -> ?max_depth:int -> int64 Expr_internal.Value.t -> (unit, [> `Duplicate_local_binder of Expr_internal.Local_var.t | `Duplicate_reducer_binder of Expr_internal.Reduce_var.t | `Free_reducer of Expr_internal.Reduce_var.Set.elt | `Too_deep of int | `Too_large of int | `Unbound_local of Expr_internal.Local_var.Set.elt ]) Err.t
+lib/expr_internal/checked.ml	as-written	module Index_overflow : sig type t = { op : index_op; lhs : int; rhs : int; } end
+lib/expr_internal/checked.ml	as-written	type error = [ `Index_overflow of Index_overflow.t | `Non_positive_divisor of int ]
+lib/expr_internal/checked.ml	as-written	val add : int -> int -> (int, [> `Index_overflow of Index_overflow.t ]) Err.t
+lib/expr_internal/checked.ml	as-written	val sub : int -> int -> (int, [> `Index_overflow of Index_overflow.t ]) Err.t
+lib/expr_internal/checked.ml	as-written	val mul : int -> int -> (int, [> `Index_overflow of Index_overflow.t ]) Err.t
+lib/expr_internal/checked.ml	expr-literal	val floor_div_pos : int -> int -> (int, [> `Non_positive_divisor of int ]) Err.t
+lib/expr_internal/checked.ml	expr-literal	val ceil_div_pos : int -> int -> (int, [> `Non_positive_divisor of int ]) Err.t
+lib/expr_internal/eval.ml	as-written	val value : ?local:(Expr_internal.Local_var.t -> float option) -> ?local_at:(Expr_internal.Local_var.t -> int -> float option) -> ?local_i64:(Expr_internal.Local_var.t -> int64 option) -> ?local_at_i64:(Expr_internal.Local_var.t -> int -> int64 option) -> ?scan:Expr_internal.Eval_common.scan_reader -> ?scan_meter:Expr_internal.Scan_meter.t -> ?reducer:(Expr_internal.Reduce_var.t * int) list -> ?on_reduction:(unit -> unit) -> Expr_internal.Eval_common.Env.t -> output:int Expr_internal.Coord.t -> 'a Expr_internal.Value.t -> ('a, Expr_internal.Eval_common.error Err.Error.t) result
+lib/expr_internal/eval.ml	as-written	val value_i64 : ?local:(Expr_internal.Local_var.t -> float option) -> ?local_at:(Expr_internal.Local_var.t -> int -> float option) -> ?local_i64:(Expr_internal.Local_var.t -> int64 option) -> ?local_at_i64:(Expr_internal.Local_var.t -> int -> int64 option) -> ?scan:Expr_internal.Eval_common.scan_reader -> ?scan_meter:Expr_internal.Scan_meter.t -> ?reducer:(Expr_internal.Reduce_var.t * int) list -> ?on_reduction:(unit -> unit) -> Expr_internal.Eval_common.Env.t -> output:int Expr_internal.Coord.t -> int64 Expr_internal.Value.t -> (int64, Expr_internal.Eval_common.error) Err.t
+lib/expr_internal/eval_common.ml	as-written	module Gather_index_out_of_range : sig type t = { raw : int64; extent : int; } end
+lib/expr_internal/eval_common.ml	as-written	val resolve_gather_index : int64 -> extent:int -> (int, [> `Gather_index_out_of_range of Gather_index_out_of_range.t ]) Err.t
+lib/expr_internal/eval_common.ml	as-written	type index_error = [ `Data_index_unexpected_here | `Gather_index_out_of_range of Gather_index_out_of_range.t | `Index_not_exact_in_float of int | `Index_overflow of Expr_internal.Checked.Index_overflow.t | `Non_positive_divisor of int | `Unbound_reducer of Expr_internal.Reduce_var.t ]
+lib/expr_internal/eval_common.ml	expr-literal	val eval_index : ([> index_error ] as 'a) Err.Escape.t -> widen:(index_error -> 'a) -> output:int Expr_internal.Coord.t -> reducers:(Expr_internal.Reduce_var.t -> int option) -> resolve_data:(Expr_internal.Source.t -> int Expr_internal.Coord.t -> (int64, 'a) Err.t) -> 'r Expr_internal.Index.t -> int
+lib/expr_internal/eval_common.ml	expr-literal	val index : output:int Expr_internal.Coord.t -> reducers:(Expr_internal.Reduce_var.t -> int option) -> 'a Expr_internal.Index.t -> (int, index_error Err.Error.t) result
+lib/expr_internal/eval_common.ml	expr-literal	val float_of_index : int -> (float, [> `Index_not_exact_in_float of int ]) Err.t
+lib/expr_internal/eval_common.ml	as-written	type t = { local : Expr_internal.Local_var.t option; row : int; lane : int; } end
+lib/expr_internal/eval_common.ml	as-written	module Scan_bounds : sig type t = { projection : Scan_projection.t; extent : int; } end
+lib/expr_internal/eval_common.ml	as-written	type scan_reader = Expr_internal.Local_var.t -> row:int -> lane:int -> (float, scan_error) Err.t
+lib/expr_internal/eval_common.ml	as-written	type error = [ `Coord_out_of_range of Expr_internal.Source.t * Expr_internal.Axis.t * int * int Expr_internal.Coord.t | `Data_index_unexpected_here | `Data_source_wrong_format of string | `Gather_index_out_of_range of Gather_index_out_of_range.t | `I64_division_by_zero | `I64_division_overflow | `I64_from_float_infinite | `I64_from_float_nan | `I64_from_float_out_of_range of float | `Index_not_exact_in_float of int | `Index_overflow of Expr_internal.Checked.Index_overflow.t | `Non_positive_divisor of int | `Scan_meter of Expr_internal.Scan_meter.error | `Scan_meter_required | `Scan_projection of scan_error | `Unbound_local of Expr_internal.Local_var.t | `Unbound_reducer of Expr_internal.Reduce_var.t | `Unknown_source of Expr_internal.Source.t ]
+lib/expr_internal/eval_common.ml	expr-literal	type t = { load : Expr_internal.Source.t -> int Expr_internal.Coord.t -> (float, error) Err.t; load_index : Expr_internal.Source.t -> int Expr_internal.Coord.t -> (int64, error) Err.t; } end
+lib/expr_internal/expr_repr.ml	expr-literal	and scan = { width : int; steps : int; lane : Expr_internal.Reduce_var.t; step : Expr_internal.Reduce_var.t; prev : Expr_internal.Local_var.t; init : float value; update : float value; }
+lib/expr_internal/fold.ml	tally	val index_assume_sites : int -> 'r Expr_internal.Index.t -> int
+lib/expr_internal/fold.ml	tally	val measure_with_locals_gen : over -> local:(Expr_internal.Local_var.t -> int * int) -> (Expr_internal.Local_var.Set.t -> int -> int -> float Expr_internal.Value.t -> int * int) * (Expr_internal.Local_var.Set.t -> int -> int -> int64 Expr_internal.Value.t -> int * int)
+lib/expr_internal/fold.ml	budget	val metered : over -> local:(Expr_internal.Local_var.t -> int * int) -> max_size:int -> max_depth:int -> float Expr_internal.Value.t -> int * int
+lib/expr_internal/fold.ml	budget	val metered_i64 : over -> local:(Expr_internal.Local_var.t -> int * int) -> max_size:int -> max_depth:int -> int64 Expr_internal.Value.t -> int * int
+lib/expr_internal/fold.ml	budget	val measure_with_locals : local:(Expr_internal.Local_var.t -> int * int) -> max_size:int -> max_depth:int -> float Expr_internal.Value.t -> int * int
+lib/expr_internal/fold.ml	budget	val measure_with_locals_i64 : local:(Expr_internal.Local_var.t -> int * int) -> max_size:int -> max_depth:int -> int64 Expr_internal.Value.t -> int * int
+lib/expr_internal/fold.ml	budget	val measure : max_size:int -> max_depth:int -> float Expr_internal.Value.t -> int * int
+lib/expr_internal/fold.ml	tally	val unmetered : float Expr_internal.Value.t -> int * int
+lib/expr_internal/fold.ml	tally	val size : float Expr_internal.Value.t -> int
+lib/expr_internal/fold.ml	tally	val depth : float Expr_internal.Value.t -> int
+lib/expr_internal/fold.ml	budget	val measure_i64 : max_size:int -> max_depth:int -> int64 Expr_internal.Value.t -> int * int
+lib/expr_internal/fold.ml	tally	val unmetered_i64 : int64 Expr_internal.Value.t -> int * int
+lib/expr_internal/fold.ml	tally	val size_i64 : int64 Expr_internal.Value.t -> int
+lib/expr_internal/fold.ml	tally	val depth_i64 : int64 Expr_internal.Value.t -> int
+lib/expr_internal/fold.ml	budget	val exceeds_with_locals : local:(Expr_internal.Local_var.t -> int * int) -> max_size:int -> max_depth:int -> float Expr_internal.Value.t -> [ `Depth | `Size ] option
+lib/expr_internal/fold.ml	budget	val exceeds : max_size:int -> max_depth:int -> float Expr_internal.Value.t -> [ `Depth | `Size ] option
+lib/expr_internal/fold.ml	budget	val exceeds_with_locals_i64 : local:(Expr_internal.Local_var.t -> int * int) -> max_size:int -> max_depth:int -> int64 Expr_internal.Value.t -> [ `Depth | `Size ] option
+lib/expr_internal/fold.ml	budget	val exceeds_i64 : max_size:int -> max_depth:int -> int64 Expr_internal.Value.t -> [ `Depth | `Size ] option
+lib/expr_internal/fold.ml	tally	val scan_cost : float Expr_internal.Value.t -> Int64.t * int
+lib/expr_internal/fold.ml	tally	val scan_cost_i64 : int64 Expr_internal.Value.t -> Int64.t * int
+lib/expr_internal/fold.ml	tally	val scan_cost_bool : Expr_internal.Expr_repr.bool_expr -> int64 * int
+lib/expr_internal/fold.ml	tally	val assume_sites : float Expr_internal.Value.t -> int
+lib/expr_internal/fold.ml	tally	val intrinsics : float Expr_internal.Value.t -> int
+lib/expr_internal/index.ml	expr-literal	type _ t = Add : Expr_internal.Role.Delta.t t * Expr_internal.Role.Delta.t t -> Expr_internal.Role.Delta.t t | Assume_position : Expr_internal.Role.Delta.t t -> Expr_internal.Role.Position.t t | Ceil_div_pos : Expr_internal.Role.Delta.t t * int -> Expr_internal.Role.Delta.t t | Clamp_low : Expr_internal.Role.Delta.t t -> Expr_internal.Role.Position.t t | Const : int -> Expr_internal.Role.Delta.t t | Data : Expr_internal.Source.t * Expr_internal.Role.Position.t t Expr_internal.Coord.t * int -> Expr_internal.Role.Position.t t | Floor_div_pos : Expr_internal.Role.Delta.t t * int -> Expr_internal.Role.Delta.t t | Max : Expr_internal.Role.Delta.t t * Expr_internal.Role.Delta.t t -> Expr_internal.Role.Delta.t t | Min : Expr_internal.Role.Delta.t t * Expr_internal.Role.Delta.t t -> Expr_internal.Role.Delta.t t | Of_position : Expr_internal.Role.Position.t t -> Expr_internal.Role.Delta.t t | Output : Expr_internal.Axis.t -> Expr_internal.Role.Position.t t | Reduce : Expr_internal.Reduce_var.t -> Expr_internal.Role.Position.t t | Scale : int * Expr_internal.Role.Delta.t t -> Expr_internal.Role.Delta.t t | Zero : Expr_internal.Role.Position.t t
+lib/expr_internal/index.ml	as-written	type error = [ `Non_positive_divisor of int ]
+lib/expr_internal/index.ml	expr-literal	val const : int -> Expr_internal.Role.Delta.t t
+lib/expr_internal/index.ml	expr-literal	val data : Expr_internal.Source.t -> Expr_internal.Role.Position.t t Expr_internal.Coord.t -> int -> Expr_internal.Role.Position.t t
+lib/expr_internal/index.ml	expr-literal	val scale : int -> Expr_internal.Role.Delta.t t -> Expr_internal.Role.Delta.t t
+lib/expr_internal/index.ml	expr-literal	val floor_div_pos : Expr_internal.Role.Delta.t t -> int -> (Expr_internal.Role.Delta.t t, [> `Non_positive_divisor of int ]) Err.t
+lib/expr_internal/index.ml	expr-literal	val ceil_div_pos : Expr_internal.Role.Delta.t t -> int -> (Expr_internal.Role.Delta.t t, [> `Non_positive_divisor of int ]) Err.t
+lib/expr_internal/intrinsic.ml	expr-literal	module Window : sig type t = { hlo : int; hhi : int; wlo : int; whi : int; } end
+lib/expr_internal/intrinsic.ml	expr-literal	val geometry : t -> int list end
+lib/expr_internal/intrinsic.ml	as-written	val window : t -> out_h:int -> out_w:int -> (Window.t, [> `Index_overflow of Expr_internal.Checked.Index_overflow.t ]) Err.t
+lib/expr_internal/intrinsic.ml	as-written	val flat_index : t -> ih:int -> iw:int -> (int, [> `Index_overflow of Expr_internal.Checked.Index_overflow.t ]) Err.t
+lib/expr_internal/pp.ml	expr-literal	val at : names:(Expr_internal.Local_var.t -> string option) -> string Expr_internal.Reduce_var.Map.t -> string Expr_internal.Local_var.Map.t -> int -> Format.formatter -> float Expr_internal.Value.t -> int
+lib/expr_internal/pp.ml	expr-literal	val at_i64 : names:(Expr_internal.Local_var.t -> string option) -> string Expr_internal.Reduce_var.Map.t -> string Expr_internal.Local_var.Map.t -> int -> Format.formatter -> int64 Expr_internal.Value.t -> int
+lib/expr_internal/pp.ml	expr-literal	val scan_body : names:(Expr_internal.Local_var.t -> string option) -> string Expr_internal.Reduce_var.Map.t -> string Expr_internal.Local_var.Map.t -> int -> Format.formatter -> Expr_internal.Expr_repr.scan -> int
+lib/expr_internal/pp.ml	expr-literal	val guard_at : names:(Expr_internal.Local_var.t -> string option) -> string Expr_internal.Reduce_var.Map.t -> string Expr_internal.Local_var.Map.t -> int -> Format.formatter -> Expr_internal.Expr_repr.bool_expr -> int
+lib/expr_internal/scan.ml	expr-literal	type t = Expr_internal.Expr_repr.scan = { width : int; steps : int; lane : Expr_internal.Reduce_var.t; step : Expr_internal.Reduce_var.t; prev : Expr_internal.Local_var.t; init : float Expr_internal.Expr_repr.value; update : float Expr_internal.Expr_repr.value; }
+lib/expr_internal/scan.ml	as-written	type error = Bad_steps of int | Bad_width of int | Prev_in_init | State_over_limit of { limit : int; } | Step_in_init | Unbounded_reduction_context | Updates_over_limit of { limit : int64; }
+lib/expr_internal/scan_admission.ml	expr-literal	val index_const : 'r Expr_internal.Index.t -> int option
+lib/expr_internal/scan_admission.ml	expr-literal	val static_extent : 'a Expr_internal.Index.t -> 'b Expr_internal.Index.t -> int option
+lib/expr_internal/scan_admission.ml	expr-literal	val combine : int option -> int option -> int option
+lib/expr_internal/scan_limits.ml	budget	type t = { max_state : int; max_updates : int64; }
+lib/expr_internal/scan_limits.ml	budget	val hard_max_state : int
+lib/expr_internal/scan_limits.ml	budget	val create : max_state:int -> max_updates:Int64.t -> (t, error) Err.t
+lib/expr_internal/scan_limits.ml	budget	val max_state : t -> int
+lib/expr_internal/scan_meter.ml	budget	type t = { limits : Expr_internal.Scan_limits.t; mutable live_state : int; mutable updates_remaining : int64; }
+lib/expr_internal/scan_meter.ml	as-written	type error = State_over_limit of { limit : int; } | Updates_exhausted of { limit : int64; }
+lib/expr_internal/scan_meter.ml	budget	val reserve : t -> width:int -> (unit, error) Err.t
+lib/expr_internal/scan_meter.ml	budget	val release : t -> width:int -> unit
+lib/expr_internal/value.ml	expr-literal	val index_tag : 'r Expr_internal.Index.t -> int
+lib/expr_internal/value.ml	expr-literal	val level : int Expr_internal.Reduce_var.Map.t -> Expr_internal.Reduce_var.Map.key -> int
+lib/expr_internal/value.ml	expr-literal	val ( <?> ) : int -> (unit -> int) -> int
+lib/expr_internal/value.ml	expr-literal	val cmp_index : int Expr_internal.Reduce_var.Map.t -> int Expr_internal.Reduce_var.Map.t -> 'r Expr_internal.Index.t -> 's Expr_internal.Index.t -> int
+lib/expr_internal/value.ml	expr-literal	val tag : float t -> int
+lib/expr_internal/value.ml	expr-literal	val cmp_intrinsic : int Expr_internal.Reduce_var.Map.t -> int Expr_internal.Reduce_var.Map.t -> Expr_internal.Intrinsic.t -> Expr_internal.Intrinsic.t -> int
+lib/expr_internal/value.ml	expr-literal	val tag_i64 : int64 t -> int
+lib/expr_internal/value.ml	expr-literal	val tag_bool : Expr_internal.Expr_repr.bool_expr -> int
+lib/expr_internal/value.ml	hash	val compare : float t -> float t -> int
+lib/expr_internal/value.ml	hash	val hash : float t -> int
 lib/js_ast/js_build.mli	expr-literal	val ceil_div_pos : idx t -> int -> idx t
 lib/js_ast/js_build.mli	expr-literal	val const : int -> idx t
 lib/js_ast/js_build.mli	expr-literal	val floor_div_pos : idx t -> int -> idx t
@@ -768,9 +917,206 @@ lib/native/vec6.mli	gate	val shape : n:int -> t:int -> d:int -> h:int -> w:int -
 lib/native/vec6.mli	gate	val coord : n:int -> t:int -> d:int -> h:int -> w:int -> c:int -> coord
 lib/native/vec6.mli	gate	val deltas : n:int -> t:int -> d:int -> h:int -> w:int -> c:int -> deltas
 lib/native/vec6.mli	cell	val offset_of : shape -> n:Dim.index Dim.t -> t:Dim.index Dim.t -> d:Dim.index Dim.t -> h:Dim.index Dim.t -> w:Dim.index Dim.t -> c:Dim.index Dim.t -> int
+lib/native/axis.ml	defn	val to_int : t -> int
+lib/native/half.ml	bits	val f32_halves : float -> int * int
+lib/native/half.ml	bits	val to_float : int -> float
+lib/native/half.ml	bits	val of_float : float -> int
+lib/native/half.ml	bits	val pp : Format.formatter -> int -> unit end
+lib/native/half.ml	bits	val to_float : int -> float
+lib/native/half.ml	bits	val of_float : float -> int
+lib/native/half.ml	bits	val pp : Format.formatter -> int -> unit end
+lib/native/json_util.ml	wire	val jint : int -> Jsont.json
+lib/native/kernel_hard.ml	budget	val depth : int
+lib/native/kernel_hard.ml	budget	val eval_recursion : int
+lib/native/kernel_hard.ml	budget	val size : int
+lib/native/kernel_hard.ml	budget	val values : int
+lib/native/kernel_hard.ml	budget	val dep_depth : int
+lib/native/kernel_hard.ml	budget	val inputs : int
+lib/native/kernel_hard.ml	budget	val outputs : int
+lib/native/kernel_hard.ml	budget	val max_local_slots : int
+lib/native/kernel_hard.ml	budget	val max_scan_state : int
+lib/native/kernel_hard.ml	budget	val eval_depth : int
+lib/native/kernel_hard.ml	budget	val eval_stack_budget : int
+lib/native/kernel_hard.ml	budget	val transition_cost : body_depth:'a -> int
+lib/native/kernel_hard_shared.ml	budget	val depth : int
+lib/native/kernel_hard_shared.ml	budget	val eval_recursion : int
+lib/native/kernel_hard_shared.ml	budget	val size : int
+lib/native/kernel_hard_shared.ml	budget	val values : int
+lib/native/kernel_hard_shared.ml	budget	val dep_depth : int
+lib/native/kernel_hard_shared.ml	budget	val inputs : int
+lib/native/kernel_hard_shared.ml	budget	val outputs : int
+lib/native/kernel_hard_shared.ml	budget	val max_local_slots : int
+lib/native/kernel_hard_shared.ml	budget	val max_scan_state : int
+lib/native/ops/attention_layer.ml	tally	val sequences : Vec6.shape -> int
+lib/native/ops/attention_layer.ml	todo-domain	val head_shape : x_shape:Vec6.shape -> heads:int -> d:int -> Vec6.shape
+lib/native/ops/concat.ml	todo-domain	val select_segment : Axis.t -> Semantics.position S.index Vec6.t -> (int * Dim.extent Dim.t * S.input) list -> S.t
+lib/native/ops/concat.ml	todo-domain	val select_by_index : params -> Semantics.position S.index Vec6.t -> Semantics.position S.index Vec6.t -> int -> S.input list -> S.t
+lib/native/ops/factory.ml	todo-domain	val length_exact : Exact.t -> (int, [> `Arange of Shape_error.Arange.t ]) Err.t
+lib/native/ops/factory.ml	todo-domain	val length : params -> (int, [> `Arange of Shape_error.Arange.t ]) Err.t
+lib/native/ops/factory.ml	todo-domain	val value : params -> int -> float
+lib/native/ops/factory.ml	as-written	module Overflow : sig type t = { start : int64; step : int64; i : int; } end
+lib/native/ops/factory.ml	as-written	val value_i64_exact : Exact.t -> int -> (int64, [> `Arange_i64_overflow of Overflow.t ]) Err.t
+lib/native/ops/index_tensor.ml	todo-domain	val axis_at : int -> Axis.t
+lib/native/ops/index_tensor.ml	defn	val rank_int : Rank.t -> int
+lib/native/ops/index_tensor.ml	todo-domain	val trailing : params -> int
+lib/native/ops/index_tensor.ml	todo-domain	val broadcast_rank : params -> int
+lib/native/ops/lstm.ml	as-written	type t = Hx_arity of int | Params_arity of { expected : int; got : int; } | Train
+lib/native/ops/lstm.ml	tally	val params_per_direction : has_biases:bool -> int
+lib/native/ops/lstm.ml	tally	val params_length : has_biases:bool -> bidirectional:bool -> num_layers:int -> int
+lib/native/ops/lstm.ml	todo-domain	val group_params : has_biases:bool -> bidirectional:bool -> num_layers:int -> 'a list -> (('a * 'a * ('a * 'a) option) * ('a * 'a * ('a * 'a) option) option) list
+lib/native/ops/lstm.ml	todo-domain	type params = { hidden_size : int; input_size : int; batch_first : bool; }
+lib/native/ops/lstm.ml	todo-domain	val state_shape : p:params -> layers:int -> batch:int -> Vec6.shape
+lib/native/ops/lstm.ml	todo-domain	val weight_ih_shape : params -> layer_input_size:int -> Vec6.shape
+lib/native/ops/lstm.ml	todo-domain	val check_direction : p:params -> layer_input_size:int -> Direction_shapes.t -> (unit, [> `Operand_shape of Shape_error.Operand_shape.t ]) Err.t
+lib/native/ops/lstm.ml	todo-domain	val gate_i : int
+lib/native/ops/lstm.ml	todo-domain	val gate_f : int
+lib/native/ops/lstm.ml	todo-domain	val gate_g : int
+lib/native/ops/lstm.ml	todo-domain	val gate_o : int
+lib/native/ops/lstm.ml	todo-domain	val unsafe_floor_div_pos : Expr.Role.Delta.t Expr.Index.t -> int -> Expr.Role.Delta.t Expr.Index.t
+lib/native/ops/lstm.ml	todo-domain	val mod_k : k:int -> Expr.Role.Delta.t Expr.Index.t -> Expr.Role.Position.t Expr.Index.t
+lib/native/ops/lstm.ml	todo-domain	val row_index : k:int -> gate:int -> Expr.Role.Position.t Expr.Index.t -> Expr.Role.Position.t Expr.Index.t
+lib/native/ops/lstm.ml	todo-domain	val sum_over : int -> (Expr.Role.Position.t Expr.Index.t -> float Expr.Value.t Expr.Builder.t) -> float Expr.Value.t Expr.Builder.t
+lib/native/ops/lstm.ml	todo-domain	val gate_sum : k:int -> input_size:int -> weight_hh:Tensor_sig.t -> weight_ih:Tensor_sig.t -> bias:(Tensor_sig.t * Tensor_sig.t) option -> previous_at:(Expr.Role.Position.t Expr.Index.t -> float Expr.Value.t) -> layer_input:(Expr.Role.Position.t Expr.Index.t -> float Expr.Value.t) -> gate:int -> Expr.Role.Position.t Expr.Index.t -> float Expr.Value.t Expr.Builder.t
+lib/native/ops/lstm.ml	todo-domain	val one_step : k:int -> input_size:int -> weight_hh:Tensor_sig.t -> weight_ih:Tensor_sig.t -> bias:(Tensor_sig.t * Tensor_sig.t) option -> layer_input:(Expr.Role.Position.t Expr.Index.t -> float Expr.Value.t) -> lane:Expr.Role.Position.t Expr.Index.t -> previous_at:(Expr.Role.Position.t Expr.Index.t -> float Expr.Value.t) -> float Expr.Value.t Expr.Builder.t
+lib/native/ops/lstm.ml	todo-domain	val original_time : seq:int -> is_reverse:bool -> Expr.Role.Position.t Expr.Index.t -> Expr.Role.Position.t Expr.Index.t
+lib/native/ops/lstm.ml	todo-domain	val read_prev_layer : k:int -> seq:int -> t:Expr.Role.Position.t Expr.Index.t -> col:Expr.Role.Position.t Expr.Index.t -> read_fn * read_fn option -> float Expr.Value.t
+lib/native/ops/lstm.ml	todo-domain	val build_one : scan_limits:Expr.Scan_limits.t -> k:int -> seq:int -> batch:Expr.Role.Position.t Expr.Index.t -> time_axis:Expr_internal.Axis.t -> batch_axis:Expr_internal.Axis.t -> input_size:int -> input:Tensor_sig.t -> h0:Tensor_sig.t -> c0:Tensor_sig.t -> is_reverse:bool -> state_row:int -> prev:(read_fn * read_fn option) option -> Direction_operands.t -> (read_fn -> ('a, [> `Scan of Expr.Scan.error ] as 'e) Err.t Region_program.Builder.t) -> ('a, 'e) Err.t Region_program.Builder.t
+lib/native/ops/lstm.ml	todo-domain	val build_layers : scan_limits:Expr.Scan_limits.t -> k:int -> seq:int -> batch:Expr.Role.Position.t Expr.Index.t -> time_axis:Expr_internal.Axis.t -> batch_axis:Expr_internal.Axis.t -> directions:int -> input_size:int -> input:Tensor_sig.t -> h0:Tensor_sig.t -> c0:Tensor_sig.t -> layers:(int * Layer_operands.t) list -> prev:(read_fn * read_fn option) option -> acc:(int * read_fn) list -> finish:((int * read_fn) list -> ('a, [> `Scan of Expr.Scan.error ] as 'b) Err.t Region_program.Builder.t) -> ('a, 'b) Err.t Region_program.Builder.t
+lib/native/ops/lstm.ml	todo-domain	val output_expr : output:Region_group.Ordinal.t -> by_a:(row:Expr.Role.Position.t Expr.Index.t -> lane:Expr.Role.Position.t Expr.Index.t -> 'a Expr.Value.t) array -> num_layers:int -> directions:int -> k:int -> seq:int -> time_axis:Expr.Axis.t -> 'a Expr.Value.t
+lib/native/ops/norm.ml	todo-domain	val normalized_count_unchecked : x_shape:Vec6.shape -> dims:Axis.t list -> int
+lib/native/ops/norm_batch.ml	todo-domain	val reduction_count_unchecked : x_shape:Vec6.shape -> params -> int
+lib/native/ops/norm_group.ml	todo-domain	val count_unchecked : x_shape:Vec6.shape -> batch:Axis.t -> channel:Axis.t -> cpg:int -> int
+lib/native/ops/norm_shared.ml	todo-domain	val normalized_count_unchecked : x_shape:Vec6.shape -> dims:Axis.t list -> int
+lib/native/ops/pad.ml	todo-domain	type entry = { before : int; after : int; }
+lib/native/ops/pad.ml	todo-domain	type t = { pad : int list; rank : Rank.t; mode : string; fault : fault; }
+lib/native/ops/pad.ml	todo-domain	val params_of_aten : rank:Rank.t -> pad:int list -> mode:string -> value:float option -> (params, [> `Bad_pad_list of Bad_pad_list.t ]) Err.t
+lib/native/ops/pad.ml	as-written	val bound : what:Shape_error.Window_over_limit.quantity -> int -> (int64, Shape_error.t) Err.t
+lib/native/ops/reduce.ml	todo-domain	val reduced_count_unchecked : x_shape:Vec6.shape -> t -> int
+lib/native/ops/reshape.ml	todo-domain	val strides : Vec6.shape -> int Vec6.t
+lib/native/ops/resize.ml	expr-literal	val index_const : int -> Semantics.delta index
+lib/native/ops/resize.ml	expr-literal	val index_scale : int -> Semantics.delta index -> Semantics.delta index
+lib/native/ops/resize.ml	expr-literal	val index_scale : int -> Semantics.delta index -> Semantics.delta index
+lib/native/ops/resize.ml	expr-literal	val index_const : int -> Semantics.delta index
+lib/native/ops/resize.ml	expr-literal	val index_scale : int -> Semantics.delta index -> Semantics.delta index
+lib/native/ops/split.ml	budget	val output_limit : int
+lib/native/ops/split.ml	budget	val output_limit : int
+lib/native/ops/split.ml	budget	val output_count_over_limit : int -> [> `Output_count_over_limit of Shape_error.Output_count.t ]
+lib/native/ops/window_axis.ml	as-written	val factor : what:Shape_error.Window_over_limit.quantity -> int -> (int64, Shape_error.t) Err.t
+lib/native/ops/window_axis.ml	expr-literal	val index_const : int -> Semantics.delta index
+lib/native/ops/window_axis.ml	expr-literal	val index_scale : int -> Semantics.delta index -> Semantics.delta index
+lib/native/payload.ml	defn	type ('elt, 'ba, 'q) fmt = BF16 : (int, Bigarray.int16_unsigned_elt, [ `Real ]) fmt | Bool : (int, Bigarray.int8_unsigned_elt, [ `Real ]) fmt | F16 : (int, Bigarray.int16_unsigned_elt, [ `Real ]) fmt | F32 : (float, Bigarray.float32_elt, [ `Real ]) fmt | F64 : (float, Bigarray.float64_elt, [ `Real ]) fmt | I16 : (int, Bigarray.int16_signed_elt, [ `Quant ]) fmt | I32 : (int32, Bigarray.int32_elt, [ `Real ]) fmt | I64 : (int64, Bigarray.int64_elt, [ `Real ]) fmt | I8 : (int, Bigarray.int8_signed_elt, [ `Quant ]) fmt
+lib/native/payload.ml	todo-domain	val cell_bytes : ('e, 'b, 'q) fmt -> int
+lib/native/payload.ml	todo-domain	val packed_cell_bytes : packed_fmt -> int
+lib/native/payload.ml	wire	val qrange : ('e, 'b, 'q) fmt -> int * int
+lib/native/payload.ml	todo-domain	val get_float : ('e, 'b, 'q) payload -> c:Dim.index Dim.t -> i:int -> float
+lib/native/payload.ml	todo-domain	val get_float32 : ('e, 'b, 'q) payload -> c:Dim.index Dim.t -> i:int -> float
+lib/native/payload.ml	todo-domain	val set_float : ('e, 'b, 'q) payload -> c:Dim.index Dim.t -> i:int -> float -> unit
+lib/native/payload.ml	budget	val enc_data_union : max_elts:int option -> numel:int -> iter_floats:((int -> float -> unit) -> 'a) -> Jsont.json
+lib/native/region_slots_i64.ml	todo-domain	val reader : t -> int64 array -> (Expr.Local_var.Map.key -> int64 option) * (Expr.Local_var.Map.key -> int -> int64 option)
+lib/native/region_slots_i64.ml	todo-domain	val fill : Region_local_i64.t list -> t -> env:Expr.Eval.Env.t -> output:int Expr.Coord.t -> int64 array
+lib/native/semantics.ml	expr-literal	val index_const : int -> delta index
+lib/native/semantics.ml	expr-literal	val index_scale : int -> delta index -> delta index
+lib/native/symint.ml	expr-literal	type t = Add of t * t | Const of int | Scale of int * t | Var of string
+lib/native/symint.ml	expr-literal	val const : int -> t
+lib/native/symint.ml	expr-literal	val scale : int -> t -> t
+lib/native/symint.ml	as-written	type var_info = { lo : int; hi : int; divisor : int; }
+lib/native/symint.ml	as-written	type env = { decls : (string * var_info) list; binds : (string * int) list; }
+lib/native/symint.ml	expr-literal	val declare : env -> string -> lo:int -> hi:int -> ?divisor:int -> unit -> env
+lib/native/symint.ml	as-written	type range = { name : string; value : int; lo : int; hi : int; }
+lib/native/symint.ml	as-written	type div = { name : string; value : int; divisor : int; }
+lib/native/symint.ml	expr-literal	val bind : env -> string -> int -> (env, [> `Not_divisible of div | `Out_of_range of range ]) Err.t
+lib/native/symint.ml	expr-literal	val eval : env -> t -> int option
+lib/native/symint.ml	expr-literal	type size = Static of int | Sym of t
+lib/native/symint.ml	expr-literal	val resolve : env -> size -> int option
+lib/native/tensor.ml	todo-domain	val read_at_raw : packed -> (Axis.t -> int) -> float
+lib/native/tensor.ml	todo-domain	val read_at_raw32 : packed -> (Axis.t -> int) -> float
+lib/native/tensor.ml	todo-domain	val read_i64_at6 : packed -> (Axis.t -> int) -> (int64, [> `Wrong_format of Payload.packed_fmt ]) Err.t
+lib/native/tensor.ml	todo-domain	val read_bool_at6 : packed -> (Axis.t -> int) -> (bool, [> `Wrong_format of Payload.packed_fmt ]) Err.t
+lib/native/tensor.ml	budget	val jsont : ?max_elts:int -> unit -> packed Jsont.t
+lib/native/tensor.ml	budget	val pp_with_digits : digits:int -> Format.formatter -> packed -> unit
+lib/native/transform/map_verify_check.ml	budget	val settle : budget:Map_verify_types.Budget.t -> probe:int -> tolerance:float -> label:Correspondence.relation -> proof:Map_verify_types.Strength.proof -> rounds:int -> meter:Ground_eval.Meter.t -> scratch:Ground_expr.Arena.t -> lhs:Ground_eval.Term.t -> rhs:Ground_eval.Term.t -> lhs_env:Ground_eval.Env.t -> rhs_env:Ground_eval.Env.t -> lhs_boundary:(Ground_expr.Origin.t -> Cluster_var.t option) -> rhs_boundary:(Ground_expr.Origin.t -> Cluster_var.t option) -> coord:Vec6.coord -> members:Map_verify_types.Member.Erased.t * Map_verify_types.Member.Erased.t -> Map_verify_types.Verdict.t
+lib/native/transform/map_verify_check.ml	budget	val value_tiers : probe:int -> tolerance:float -> label:Correspondence.relation -> coord:Vec6.coord -> members:Map_verify_types.Member.Erased.t * Map_verify_types.Member.Erased.t -> lhs:Ground_expr.t -> rhs:Ground_expr.t -> ln:Ground_expr.t -> rn:Ground_expr.t -> Map_verify_types.Verdict.t
+lib/native/transform/map_verify_check.ml	budget	val counterexample : probe:int -> lhs:Ground_expr.t -> rhs:Ground_expr.t -> Ground_expr.Valuation.t option
+lib/native/transform/map_verify_check.ml	hash	val compare_at : budget:Map_verify_types.Budget.t -> index:Boundary_index.t -> probe:int -> tolerance:float -> label:Correspondence.relation -> under_test:Cluster_var.t option -> ('a, 'b) sides -> canonical:('a, 'b) Map_verify_types.Member.t -> other:('a, 'b) Map_verify_types.Member.t -> Vec6.coord -> Map_verify_types.Verdict.t
+lib/native/transform/map_verify_check.ml	budget	val sampled_coords : Vec6.shape -> int -> int * Vec6.coord list
+lib/native/transform/map_verify_check.ml	budget	val check_members : budget:Map_verify_types.Budget.t -> index:Boundary_index.t -> probe:int -> tolerance:float -> label:Correspondence.relation -> under_test:Cluster_var.t option -> ('a, 'b) sides -> canonical:('a, 'b) Map_verify_types.Member.t -> others:('a, 'b) Map_verify_types.Member.t list -> shape:Vec6.shape -> Map_verify_types.Verdict.t * Map_verify_types.Coverage.t
+lib/native/transform/map_verify_check.ml	budget	val check_cluster : budget:Map_verify_types.Budget.t -> index:Boundary_index.t -> probe:int -> tolerance:float -> ('src, 'dst) sides -> ('src, 'dst) Correspondence.Cluster.t -> (Map_verify_types.Outcome.t, [> `Missing_signature of Correspondence.Id.t ]) Err.t
+lib/native/transform/map_verify_types.ml	tally	val rank : t -> int
+lib/native/transform/map_verify_types.ml	hash	val compare : t -> t -> int
+lib/native/transform/map_verify_types.ml	budget	type t = { max_coords : int; max_ground_nodes : int64; max_nodes : int; max_rounds : int; sample : int option; }
+lib/native/transform/map_verify_types.ml	budget	val probe : t -> int
+lib/native/transform/map_verify_types.ml	budget	val max_verified_steps : t -> int
+lib/native/transform/map_verify_types.ml	budget	val max_clusters : t -> int
+lib/native/transform/map_verify_types.ml	budget	type t = Exhaustive | Not_applicable | Sampled of int
+lib/native/transform/map_verify_types.ml	budget	val sampled : int -> (t, [> `Invalid_coverage of int ]) Err.t
+lib/native/transform/map_verify_types.ml	budget	type t = Eval of Ground_eval.error | Exhausted of { coord : Vec6.coord; lhs : Member.Erased.t; rhs : Member.Erased.t; } | Max_ground_nodes of int64 | Max_nodes of int | Max_rounds | Max_clusters of int | Out_of_bounds of Ground_expr.Cell.t | Too_large of int | Unbound_constant of Ground_expr.Cell.t | Unsupported_format of { blocked : Ground_expr.Cell.t; member : Member.Erased.t; } | Unsupported_relation of Correspondence.relation
+lib/native/transform/map_verify_types.ml	tally	val rank : t -> int
+lib/native/transform/map_verify_types.ml	hash	val compare : String.t list -> String.t list -> int
+lib/native/transform/map_verify_types.ml	hash	val compare : ('a -> 'a -> int) -> 'a t -> 'a t -> int
+lib/native/transform/map_verify_types.ml	tally	val cardinal : 'a t -> int
+lib/native/transform/map_verify_types.ml	tally	type t = int By_label.t
+lib/native/transform/map_verify_types.ml	tally	val of_entries : Entry.t list -> int By_label.t
+lib/native/transform/map_verify_types.ml	tally	val total : int By_label.t -> int
+lib/native/transform/map_verify_types.ml	tally	val pp : Format.formatter -> int By_label.t -> unit end
+lib/native/transform/map_verify_types.ml	tally	val tally : t -> int Tally.By_label.t
+lib/native/transform/map_verify_types.ml	tally	val by_group : t -> (Group_path.t * int Tally.By_label.t) list
+lib/native/transform/map_verify_types.ml	budget	type error = [ `Cluster_format of Graph_ir.Tensor_id.t * Graph_ir.Tensor_id.t | `Cluster_shape of Graph_ir.Tensor_id.t * Graph_ir.Tensor_id.t | `Graph_output_arity of int * int | `Graph_output_mismatch of Graph_ir.Tensor_id.t * Graph_ir.Tensor_id.t | `Missing_signature of Graph_ir.Tensor_id.t | `Node_endpoint of Graph_ir.Node_id.t Cluster_relation.issue | `Provenance_endpoint of Graph_ir.Tensor_id.t Cluster_relation.issue | `Unclosed_claim of Graph_ir.Tensor_id.t | `Value_endpoint of Graph_ir.Tensor_id.t Cluster_relation.issue ]
+lib/native/transform/rewrite_groups.ml	todo-domain	val rebuild_groups : Graph_ir.Group.t -> removed:Graph_ir.Node_id.Set.t -> placements:(Graph_ir.Group_id.t * [< `Group of Graph_common.Group_id.t * string option * Graph_common.Node_id.t list | `Nodes of Graph_common.Node_id.t list ]) list -> position:(Graph_common.Node_id.t -> int) -> Graph_ir.Group.t
 lib/native4d/shape4.mli	gate	val of_ints : n:int -> h:int -> w:int -> c:int -> t
 lib/native4d/wide_permute.mli	budget	val max_blocks : int
 lib/native4d/wide_permute.mli	budget	val max_permutes : int
+lib/native4d/axis4.ml	hash	val compare : t -> t -> int
+lib/native4d/builder.ml	tally	and output_count = { count : int; }
+lib/native4d/eval_direct4.ml	as-written	type arity_mismatch = { expected : int; actual : int; }
+lib/native4d/eval_symbolic4.ml	todo-domain	val first_free_tid : Native4d.Graph.graph -> int
+lib/native4d/framework.ml	budget	val run : ?budget:Map_verify.Budget.t -> ?max_clusters:int -> ?coefficient_tolerance:float -> ?probe:int -> ?src_constants:Tensor.packed Graph_ir.Tensor_id.Map.t -> ?dst_constants:Tensor.packed Graph_ir.Tensor_id.Map.t -> ?src_constant_store:Constant_store.t -> ?dst_constant_store:Constant_store.t -> ('src, 'dst) Graph_map.t -> src:'src Native_side.Snapshot.t -> dst:'dst Side4.Snapshot.t -> (Map_verify.Report.t, Map_verify.error) Err.t end
+lib/native4d/framework.ml	budget	val run : ?budget:Map_verify.Budget.t -> ?max_clusters:int -> ?coefficient_tolerance:float -> ?probe:int -> ?src_constants:Tensor.packed Graph_ir.Tensor_id.Map.t -> ?dst_constants:Tensor.packed Graph_ir.Tensor_id.Map.t -> ?src_constant_store:Constant_store.t -> ?dst_constant_store:Constant_store.t -> ('src, 'dst) Graph_map.t -> src:'src Side4.Snapshot.t -> dst:'dst Side4.Snapshot.t -> (Map_verify.Report.t, Map_verify.error) Err.t end
+lib/native4d/framework.ml	as-written	type error = [ `Bad_constant_payload of Graph_ir.Tensor_id.t | `Binding_overwrite of Graph_ir.Tensor_id.t | `Cluster_format of Graph_ir.Tensor_id.t * Graph_ir.Tensor_id.t | `Cluster_shape of Graph_ir.Tensor_id.t * Graph_ir.Tensor_id.t | `Constant_payload_overwrite of Graph_ir.Tensor_id.t | `Cycle of Graph_ir.Node_id.t | `Discontiguous_allocation | `Duplicate_definition of Const_ssa.Value_id.t | `Duplicate_group_id of Graph_ir.Group_id.t | `Duplicate_group_item of Graph_ir.Node_id.t | `Duplicate_node_id of Graph_ir.Node_id.t | `Duplicate_tensor_def of Graph_ir.Tensor_id.t | `Graph_output_arity of int * int | `Graph_output_mismatch of Graph_ir.Tensor_id.t * Graph_ir.Tensor_id.t | `Graph_shape of Side4.Dialect.shape_error | `Id_reuse_with_changed_value of Graph_ir.Tensor_id.t | `Input_defined_by_node of Graph_ir.Tensor_id.t | `Invalid_literal of Const_ssa.Value_id.t | `Invalid_sig of Graph_ir.Tensor_id.t * Side4.Dialect.shape_error | `Missing_export of Const_ssa.Value_id.t | `Missing_operand of Const_ssa.Value_id.t * Const_ssa.Value_id.t | `Node_endpoint of Graph_ir.Node_id.t Cluster_relation.issue | `Node_not_grouped of Graph_ir.Node_id.t | `Not_a_constant of Graph_ir.Tensor_id.t | `Not_topological of Graph_ir.Node_id.t | `Output_arity of Graph_view.arity | `Output_id_mismatch of Const_ssa.Value_id.t * Graph_ir.Tensor_id.t | `Output_shape_mismatch of Graph_ir.Tensor_id.t | `Output_signature_mismatch of Const_ssa.Value_id.t | `Overlapping_replacements of Graph_ir.Node_id.t | `Provenance_endpoint of Graph_ir.Tensor_id.t Cluster_relation.issue | `Shape of Graph_shape.error | `Sig_key_mismatch of Graph_view.sig_key | `Stale_allocator | `Substitution_conflict of Graph_ir.Tensor_id.t | `Substitution_cycle of Graph_ir.Tensor_id.t | `Unclaimed_redefinition of Graph_ir.Tensor_id.t | `Unclaimed_substitution of Graph_ir.Tensor_id.t | `Unclosed_claim of Graph_ir.Tensor_id.t | `Unknown_group_item of Graph_ir.Node_id.t | `Unknown_input_kind of Graph_ir.Tensor_id.t | `Unknown_node of Graph_ir.Node_id.t | `Unknown_operand of Graph_ir.Tensor_id.t | `Unknown_output of Graph_ir.Tensor_id.t | `Unknown_source_edge of Graph_ir.Tensor_id.t | `Unsupported_op of string | `Value_endpoint of Graph_ir.Tensor_id.t Cluster_relation.issue ]
+lib/native4d/framework.ml	as-written	type error = [ `Bad_constant_payload of Graph_ir.Tensor_id.t | `Binding_overwrite of Graph_ir.Tensor_id.t | `Cluster_format of Graph_ir.Tensor_id.t * Graph_ir.Tensor_id.t | `Cluster_shape of Graph_ir.Tensor_id.t * Graph_ir.Tensor_id.t | `Constant_payload_overwrite of Graph_ir.Tensor_id.t | `Count_overflow of Pass.Count_overflow.t | `Cycle of Graph_ir.Node_id.t | `Discontiguous_allocation | `Duplicate_definition of Const_ssa.Value_id.t | `Duplicate_group_id of Graph_ir.Group_id.t | `Duplicate_group_item of Graph_ir.Node_id.t | `Duplicate_node_id of Graph_ir.Node_id.t | `Duplicate_tensor_def of Graph_ir.Tensor_id.t | `Graph_output_arity of int * int | `Graph_output_mismatch of Graph_ir.Tensor_id.t * Graph_ir.Tensor_id.t | `Graph_shape of Side4.Dialect.shape_error | `Id_reuse_with_changed_value of Graph_ir.Tensor_id.t | `Input_defined_by_node of Graph_ir.Tensor_id.t | `Invalid_literal of Const_ssa.Value_id.t | `Invalid_sig of Graph_ir.Tensor_id.t * Side4.Dialect.shape_error | `Malformed_outcome of string | `Missing_export of Const_ssa.Value_id.t | `Missing_operand of Const_ssa.Value_id.t * Const_ssa.Value_id.t | `Node_endpoint of Graph_ir.Node_id.t Cluster_relation.issue | `Node_not_grouped of Graph_ir.Node_id.t | `Not_a_constant of Graph_ir.Tensor_id.t | `Not_converged of string | `Not_topological of Graph_ir.Node_id.t | `Output_arity of Graph_view.arity | `Output_id_mismatch of Const_ssa.Value_id.t * Graph_ir.Tensor_id.t | `Output_shape_mismatch of Graph_ir.Tensor_id.t | `Output_signature_mismatch of Const_ssa.Value_id.t | `Overlapping_replacements of Graph_ir.Node_id.t | `Provenance_endpoint of Graph_ir.Tensor_id.t Cluster_relation.issue | `Shape of Graph_shape.error | `Sig_key_mismatch of Graph_view.sig_key | `Stale_allocator | `Substitution_conflict of Graph_ir.Tensor_id.t | `Substitution_cycle of Graph_ir.Tensor_id.t | `Unclaimed_redefinition of Graph_ir.Tensor_id.t | `Unclaimed_substitution of Graph_ir.Tensor_id.t | `Unclosed_claim of Graph_ir.Tensor_id.t | `Unknown_group_item of Graph_ir.Node_id.t | `Unknown_input_kind of Graph_ir.Tensor_id.t | `Unknown_node of Graph_ir.Node_id.t | `Unknown_operand of Graph_ir.Tensor_id.t | `Unknown_output of Graph_ir.Tensor_id.t | `Unknown_source_edge of Graph_ir.Tensor_id.t | `Unsupported_op of string | `Value_endpoint of Graph_ir.Tensor_id.t Cluster_relation.issue | `Verification of Verification.t ]
+lib/native4d/framework.ml	tally	val length : t -> int end
+lib/native4d/framework.ml	budget	type ctx = Pass.Make(Side4).ctx = { budget : Map_verify.Budget.t option; policy : Map_verify.Policy.t option; probe : int option; max_verified_steps : int option; trace : bool; max_trace_entries : int; max_audit_reports : int; frames : Pass.Frame.t list; index : int64; }
+lib/native4d/framework.ml	budget	val fixpoint : ?max_iters:int -> t -> t
+lib/native4d/framework.ml	budget	val run_all : ?verify:Map_verify.Policy.t -> ?verify_budget:Map_verify.Budget.t -> ?verify_probe:int -> ?max_verified_steps:int -> 'v Rewrite.Make(Side4).t -> t list -> ('v Rewrite.Make(Side4).step, error) Err.t
+lib/native4d/framework.ml	budget	val run_reporting : ?verify:Map_verify.Policy.t -> ?verify_budget:Map_verify.Budget.t -> ?verify_probe:int -> ?max_verified_steps:int -> ?trace:bool -> ?max_trace_entries:int -> ?max_audit_reports:int -> 'v Rewrite.Make(Side4).t -> t list -> ('v outcome, error) Err.t end
+lib/native4d/graph_shape4.ml	todo-domain	val conv2d_params : Native4d.Ops4.Conv_params.t -> groups:int -> Conv.Conv2d.params
+lib/native4d/lower_engine.ml	todo-domain	val unit_conv_params : in_channels:int -> Native4d.Ops4.Conv_params.t
+lib/native_aten_bridge/op_bridge_decode.ml	wire	val int_arg : ?default:int -> Pytorch_types.Node.t -> String.t -> (int, [> `Decode of [> `Missing_argument of String.t | `Unresolved_sym_arg of D.Unresolved_sym_arg.t | `Wrong_argument_kind of D.Wrong_argument_kind.t ] ]) Err.t
+lib/native_aten_bridge/op_bridge_decode.ml	wire	val dim_arg : ?default:int -> Pytorch_types.Node.t -> String.t -> (Aten_int.Dim.t, [> `Decode of [> `Missing_argument of String.t | `Unresolved_sym_arg of D.Unresolved_sym_arg.t | `Wrong_argument_kind of D.Wrong_argument_kind.t ] ]) Err.t
+lib/native_aten_bridge/op_bridge_decode.ml	wire	val ints_arg : ?default:int list -> Pytorch_types.Node.t -> String.t -> (int list, [> `Decode of [> `Unresolved_sym_arg of D.Unresolved_sym_arg.t | `Wrong_argument_kind of D.Wrong_argument_kind.t ] ]) Err.t
+lib/native_aten_bridge/op_bridge_decode.ml	wire	val sizes_arg : ?default:int list -> Pytorch_types.Node.t -> String.t -> (Aten_int.Size.t list, [> `Decode of [> `Unresolved_sym_arg of D.Unresolved_sym_arg.t | `Wrong_argument_kind of D.Wrong_argument_kind.t ] ]) Err.t
+lib/native_aten_bridge/op_bridge_decode.ml	wire	val aten_sizes : rank:Rank.t -> Vec6.shape -> int list
+lib/native_aten_bridge/op_bridge_decode.ml	wire	val of_sizes : int list -> (Vec6.shape, Aten_shape.error) Err.t
+lib/native_aten_bridge/op_bridge_decode.ml	wire	val norm_dim : op:string -> rank:Rank.t -> Aten_int.Dim.t -> (int, [> `Invalid_dim of Op_bridge_error.Invalid_dim.t ]) Err.t
+lib/native_aten_bridge/op_bridge_decode.ml	wire	val chunk_sizes : extent:int -> split_size:int -> int list
+lib/native_aten_bridge/op_bridge_decode.ml	wire	val norm_unsqueeze_dim : op:string -> rank:Rank.t -> Aten_int.Dim.t -> (int, [> `Invalid_dim of Op_bridge_error.Invalid_dim.t ]) Err.t
+lib/native_aten_bridge/op_bridge_decode.ml	wire	val require_rank : string -> expected:int -> [ `atc_tensor_opaque ] Ctypes.structure Ctypes_static.ptr -> (unit, [> `Operand_rank of Op_bridge_error.Operand_rank.t ]) Err.t
+lib/native_aten_bridge/op_bridge_decode.ml	wire	val trailing_axes : rank:Rank.t -> k:int -> Axis.t list
+lib/native_aten_bridge/op_bridge_decode.ml	wire	val int_opt_arg : Pytorch_types.Node.t -> String.t -> (int option, [> `Decode of [> `Unresolved_sym_arg of D.Unresolved_sym_arg.t | `Wrong_argument_kind of D.Wrong_argument_kind.t ] ]) Err.t
+lib/native_aten_bridge/op_bridge_decode.ml	wire	val hw2 : string -> int list -> (int * int, [> `Invalid_hw_arg of Op_bridge_error.invalid_hw_arg ]) Err.t
+lib/native_aten_bridge/op_bridge_decode.ml	wire	val w1 : string -> int list -> (int, [> `Invalid_w_arg of Op_bridge_error.invalid_hw_arg ]) Err.t
+lib/native_aten_bridge/op_bridge_decode.ml	wire	val dhw3 : string -> int list -> (int * int * int, [> `Invalid_dhw_arg of Op_bridge_error.invalid_hw_arg ]) Err.t
+lib/native_aten_bridge/op_bridge_decode.ml	wire	val pos : op:string -> param:Op_config.Bad.param -> int -> (Op_config.Pos.t, [> `Bad_config of Op_config.Bad.t ]) Err.t
+lib/native_aten_bridge/op_bridge_decode.ml	wire	val nonneg : op:string -> param:Op_config.Bad.param -> int -> (Op_config.Nonneg.t, [> `Bad_config of Op_config.Bad.t ]) Err.t
+lib/native_aten_bridge/op_bridge_decode.ml	wire	val extent : op:string -> param:Op_config.Bad.param -> int -> (Dim.extent Dim.t, [> `Bad_config of Op_config.Bad.t ]) Err.t
+lib/native_aten_bridge/op_bridge_decode.ml	wire	val conv_axis_window : op:string -> kernel:int -> stride:int -> pad:int -> dilation:int -> (Conv.Conv2d.axis_window, [> `Bad_config of Op_config.Bad.t ]) Err.t
+lib/native_aten_bridge/op_bridge_decode.ml	wire	val conv_in_channels : weight_in_per_group:int -> groups:Op_config.Pos.t -> (Dim.extent Dim.t, [> `Build of Graph_builder.error ]) Err.t
+lib/native_aten_bridge/op_bridge_decode.ml	wire	val make_conv2d_params : op:string -> int array -> int -> int -> int -> int -> int -> int -> int -> (Conv.Conv2d.params, [> `Bad_config of Op_config.Bad.t | `Build of Graph_builder.error ]) Err.t
+lib/native_aten_bridge/op_bridge_decode.ml	wire	val make_conv1d_params : op:string -> int array -> int -> int -> int -> int -> (Conv.Conv1d.params, [> `Bad_config of Op_config.Bad.t | `Build of Graph_builder.error ]) Err.t
+lib/native_aten_bridge/op_bridge_decode.ml	wire	val make_conv3d_params : op:string -> int array -> int -> int -> int -> int -> int -> int -> int -> int -> int -> int -> (Conv.Conv3d.params, [> `Bad_config of Op_config.Bad.t | `Build of Graph_builder.error ]) Err.t
+lib/native_aten_bridge/op_bridge_decode.ml	wire	val make_conv2d_padding_params : op:string -> int -> int -> string -> int -> int -> int -> (Conv.Conv2d_padding.params, [> `Bad_config of Op_config.Bad.t | `Unsupported_padding_mode of string ]) Err.t
+lib/native_aten_bridge/op_bridge_decode.ml	wire	val make_convolution_params : op:string -> int -> int -> int -> int -> int -> int -> bool -> int -> int -> int -> (Conv.Convolution.params, [> `Bad_config of Op_config.Bad.t ]) Err.t
+lib/native_aten_bridge/op_bridge_decode.ml	wire	val pool_window_fields : op:string -> int -> int -> int -> int -> int -> int -> (Dim.extent Dim.t Op_config.Hw.t * Op_config.Pos.t Op_config.Hw.t * Op_config.Nonneg.t Op_config.Hw.t, [> `Bad_config of Op_config.Bad.t ]) Err.t
+lib/native_aten_bridge/op_bridge_decode.ml	wire	val make_pool_params : op:string -> ceil_mode:bool -> int -> int -> int -> int -> int -> int -> (Pool.MaxPool2d.params, [> `Bad_config of Op_config.Bad.t ]) Err.t
+lib/native_aten_bridge/op_bridge_decode.ml	wire	val make_avg_pool_params : op:string -> ceil_mode:bool -> count_include_pad:bool -> int -> int -> int -> int -> int -> int -> (Pool.AvgPool2d.params, [> `Bad_config of Op_config.Bad.t ]) Err.t
+lib/native_aten_bridge/op_bridge_decode.ml	wire	val pool_stride : int list -> Pytorch_types.Node.t -> (int list, [> `Decode of [> `Unresolved_sym_arg of D.Unresolved_sym_arg.t | `Wrong_argument_kind of D.Wrong_argument_kind.t ] ]) Err.t
+lib/native_aten_bridge/op_bridge_decode.ml	wire	val resolve_upsample_size : op:string -> in_h:int -> in_w:int -> int list -> float list -> (int * int, [> `Invalid_hw_arg of Op_bridge_error.invalid_hw_arg | `Validation_failure of string ]) Err.t
+lib/native_aten_bridge/op_bridge_error.ml	as-written	type invalid_hw_arg = { name : string; values : int list; }
+lib/native_aten_bridge/op_bridge_error.ml	as-written	module Dims_count : sig type t = { op : string; rank : Rank.t; got : int; } end
+lib/native_aten_bridge/op_bridge_error.ml	as-written	module Normalized_rank : sig type t = { op : Norm.Target.t; rank : Rank.t; got : int; } end
+lib/native_aten_bridge/op_bridge_error.ml	as-written	type option = Dilation of int list | Divisor_override of int
+lib/native_aten_bridge/op_bridge_error.ml	as-written	type fault = Length_mismatch of { expected : Rank.t; got : int; } | Multiple_live_entries of int list | No_live_entry | Wrong_dtype of { position : int; dtype : Aten_scalar_type.t; } | Wrong_rank of { position : int; rank : Rank.t; }
+lib/native_aten_bridge/op_bridge_error.ml	as-written	val pp_int_list : Format.formatter -> int list -> unit
+lib/native_aten_bridge/tensor_bridge.ml	as-written	type error = [ `Expand_size of Aten_shape.Expand_size.t | `Index_out_of_range of Aten_shape.Index_bound.t | `Non_positive_extent of int | `Null_data_ptr of Aten_scalar_type.t | `Numel_over_limit of Vec6.Numel_bound.t | `Rank_out_of_range of Aten_shape.rank_bound | `Repeat_size of Aten_shape.Repeat_size.t | `Slice_step of Aten_int.Step.t | `Unsupported_dtype of Aten_scalar_type.t | `View_size of Aten_shape.View_size.t ]
 lib/native_interp/native_interp.mli	as-written	type unsupported_option = [ `Alpha of float | `Approximate of string | `Dilation of int list | `Divisor_override of int | `Dtype | `Indexing of string | `Memory_format of [ `Channels_last | `Channels_last_3d | `Unknown ] | `Momentum of float | `Repeat_interleave_dim | `Rounding_mode of string | `Training of bool | `Vector_norm_ord of float ]
 lib/native_interp/native_interp.mli	arity	type unsupported_input = [ `Non_tensor | `Not_exactly_one_user_input of int ]
 lib/native_interp/native_interp.mli	arity	type t = { param : hw_param; got : int } end
@@ -785,6 +1131,51 @@ lib/native_interp/native_interp.mli	budget	type transformed = | Transformed : { 
 lib/native_interp/native_interp.mli	budget	val transform : ?preload:bool -> ?verify:Map_verify.Policy.t -> ?verify_budget:Map_verify.Budget.t -> ?verify_probe:int -> Pt2_archive.t -> passes:Pass.t list -> (transformed, error) Err.t
 lib/native_interp/native_interp.mli	budget	val transform_lowered : ?constants:Tensor.packed Graph_ir.Tensor_id.Map.t -> ?verify:Map_verify.Policy.t -> ?verify_budget:Map_verify.Budget.t -> ?verify_probe:int -> ?max_verified_steps:int -> ?max_verify_clusters:int -> ?trace:bool -> ?max_trace_entries:int -> ?max_audit_reports:int -> Pt2_native_graph.t -> passes:Pass.t list -> (transformed, error) Err.t
 lib/native_interp/native_interp.mli	tally	type loaded = { from_state : int; from_archive : int; from_plan : int; }
+lib/native_interp/native_interp_decode.ml	wire	val sym_int_value : Native_interp_error.error Err.Escape.t -> Pytorch_types.Node.t -> string -> Pytorch_types.SymIntArgument.t -> int
+lib/native_interp/native_interp_decode.ml	wire	val ints_arg : Native_interp_error.error Err.Escape.t -> ?default:int list -> Pytorch_types.Node.t -> string -> int list
+lib/native_interp/native_interp_decode.ml	wire	val int_arg : Native_interp_error.error Err.Escape.t -> ?default:int -> Pytorch_types.Node.t -> string -> int
+lib/native_interp/native_interp_decode.ml	wire	val dim_arg : Native_interp_error.error Err.Escape.t -> ?default:int -> Pytorch_types.Node.t -> string -> Aten_int.Dim.t
+lib/native_interp/native_interp_decode.ml	wire	val dims_arg : Native_interp_error.error Err.Escape.t -> ?default:int list -> Pytorch_types.Node.t -> string -> Aten_int.Dim.t list
+lib/native_interp/native_interp_decode.ml	wire	val sizes_arg : Native_interp_error.error Err.Escape.t -> ?default:int list -> Pytorch_types.Node.t -> string -> Aten_int.Size.t list
+lib/native_interp/native_interp_decode.ml	wire	val required_int_arg : Native_interp_error.error Err.Escape.t -> Pytorch_types.Node.t -> string -> int
+lib/native_interp/native_interp_decode.ml	wire	val int_opt_arg_opt : Native_interp_error.error Err.Escape.t -> Pytorch_types.Node.t -> string -> int option
+lib/native_interp/native_interp_decode.ml	budget	val output_limit : int
+lib/native_interp/native_interp_decode.ml	budget	val output_allowance : int
+lib/native_interp/native_interp_decode.ml	wire	val split_tensor_sizes : [> `Output_count_over_limit of Shape_error.Output_count.t ] Err.Escape.t -> extent:int -> split_size:int -> int list
+lib/native_interp/native_interp_decode.ml	budget	val take_bounded : [> `Output_count_over_limit of Shape_error.Output_count.t ] Err.Escape.t -> budget:int -> string list -> Pytorch_types.TensorArgument.t list -> string list * int
+lib/native_interp/native_interp_decode.ml	budget	val flatten_output : [> `Output_count_over_limit of Shape_error.Output_count.t ] Err.Escape.t -> on_bad_kind:(unit -> string list * int) -> budget:int -> string list -> Pytorch_types.Argument.t -> string list * int
+lib/native_interp/native_interp_decode.ml	wire	val flatten_outputs : [> `Output_count_over_limit of Shape_error.Output_count.t ] Err.Escape.t -> on_bad_kind:(unit -> string list * int) -> Pytorch_types.Argument.t list -> string list
+lib/native_interp/native_interp_decode.ml	wire	val pos : Native_interp_error.error Err.Escape.t -> op:string -> param:Op_config.Bad.param -> int -> Op_config.Pos.t
+lib/native_interp/native_interp_decode.ml	wire	val nonneg : Native_interp_error.error Err.Escape.t -> op:string -> param:Op_config.Bad.param -> int -> Op_config.Nonneg.t
+lib/native_interp/native_interp_decode.ml	wire	val extent : Native_interp_error.error Err.Escape.t -> op:string -> param:Op_config.Bad.param -> int -> Dim.extent Dim.t
+lib/native_interp/native_interp_decode.ml	wire	val dim_extent : Native_interp_error.error Err.Escape.t -> tensor:string -> int -> Dim.extent Dim.t
+lib/native_interp/native_interp_decode.ml	wire	val pos_hw : Native_interp_error.error Err.Escape.t -> op:string -> param:Op_config.Bad.param -> int * int -> Op_config.Pos.t Op_config.Hw.t
+lib/native_interp/native_interp_decode.ml	wire	val nonneg_hw : Native_interp_error.error Err.Escape.t -> op:string -> param:Op_config.Bad.param -> int * int -> Op_config.Nonneg.t Op_config.Hw.t
+lib/native_interp/native_interp_decode_conv.ml	wire	val conv_in_channels : Native_interp_error.error Err.Escape.t -> tensor:string -> cin:int -> groups:int -> Dim.extent Dim.t
+lib/native_interp/native_interp_decode_conv.ml	wire	val conv_params : ?transposed:bool -> Native_interp_error.error Err.Escape.t -> Pytorch_types.Graph.t -> Pytorch_types.Node.t -> Conv.Convolution.params * int * int * int
+lib/native_interp/native_interp_decode_shape.ml	wire	val require_rank : Native_interp_error.error Err.Escape.t -> Pytorch_types.Graph.t -> ssa:Schema_runtime.String_map.key -> role:Native_interp_error.metadata_role -> expected:int -> unit
+lib/native_interp/native_interp_decode_shape.ml	wire	val static_sizes : Native_interp_error.error Err.Escape.t -> tensor:string -> Pytorch_types.TensorMeta.t -> int list
+lib/native_interp/native_interp_decode_shape.ml	wire	val normalize_dim : Native_interp_error.error Err.Escape.t -> rank:Rank.t -> Aten_int.Dim.t -> int
+lib/native_interp/native_interp_decode_shape.ml	wire	val normalize_insert_dim : Native_interp_error.error Err.Escape.t -> rank:Rank.t -> Aten_int.Dim.t -> int
+lib/native_interp/native_interp_decode_shape.ml	wire	val aten_sizes : rank:Rank.t -> Vec6.shape -> int list
+lib/native_interp/native_interp_decode_shape.ml	wire	val normalized_axes : Native_interp_error.error Err.Escape.t -> tensor:string -> op:Norm.Target.t -> int list -> Aten_int.Size.t list -> Axis.t list
+lib/native_interp/native_interp_decode_shape.ml	wire	val resolve_upsample_size : Native_interp_error.error Err.Escape.t -> op:string -> in_h:int -> in_w:int -> int list -> float list -> int * int
+lib/native_interp/native_interp_error.ml	as-written	module Normalized_rank : sig type t = { op : Norm.Target.t; rank : Rank.t; got : int; } end
+lib/native_interp/native_interp_error.ml	as-written	type unsupported_input = [ `Non_tensor | `Not_exactly_one_user_input of int ]
+lib/native_interp/native_interp_error.ml	as-written	type unsupported_option = [ `Alpha of float | `Approximate of string | `Dilation of int list | `Divisor_override of int | `Dtype | `Indexing of string | `Memory_format of [ `Channels_last | `Channels_last_3d | `Unknown ] | `Momentum of float | `Repeat_interleave_dim | `Rounding_mode of string | `Training of bool | `Vector_norm_ord of float ]
+lib/native_interp/native_interp_error.ml	as-written	module Bad_arity : sig type t = { param : hw_param; got : int; } end
+lib/native_interp/native_interp_error.ml	as-written	module Output_arity : sig type t = { op : string; serialized : int; derived : int; } end
+lib/native_interp/native_interp_error.ml	as-written	type fault = Bad_scale_arity of int | Both | Neither
+lib/native_interp/native_interp_error.ml	as-written	type fault = Length_mismatch of { expected : Rank.t; got : int; } | Multiple_live_entries of int list | No_live_entry | Wrong_dtype of { position : int; dtype : string; } | Wrong_rank of { position : int; rank : Rank.t; }
+lib/native_interp/native_interp_error.ml	as-written	module Rank_mismatch : sig type t = { sizes : int; strides : int; } end
+lib/native_interp/native_interp_error.ml	as-written	module Storage_range : sig type t = { lo : int64; hi : int64; data_bytes : int; } end
+lib/native_interp/native_interp_error.ml	as-written	val pp_error : Format.formatter -> [< `Adaptive_pool_rank of Adaptive_pool_rank.t | `Arena of Arena_run.error & [< Arena_run.error ] | `Axis_out_of_range of Axis_out_of_range.t | `Bad_arity of Bad_arity.t | `Bad_config of Bad_config.t | `Bad_dhw_arity of Bad_arity.t | `Bad_dimension of Bad_dimension.t | `Bad_expand of Bad_expand.t | `Bad_pad_list of Pad.Pad.Bad_pad_list.t | `Bad_repeat of Bad_repeat.t | `Bad_select of Bad_select.t | `Bad_slice of Bad_slice.t | `Bad_tile of Bad_tile.t | `Bad_upsample_size of Bad_upsample_size.t | `Bad_view of Bad_view.t | `Bad_w_arity of Bad_arity.t | `Build of Graph_builder.error & [< Graph_builder.error ] | `Concat_no_tensors of string | `Concat_rank_mismatch of Concat_rank_mismatch.t | `Einsum_unsupported of Einsum_unsupported.t | `Empty_cache of Empty_cache.t | `Eval of Eval_direct.error & [< Eval_direct.error ] | `Index_list of Index_list.t | `Input_binding of Input_binding.t | `Lens of Pt2_native_graph.lens_error & [< Pt2_native_graph.lens_error ] | `Live_layer_norm_stats of Live_layer_norm_stats.t | `Lstm_reject of Lstm.Lstm.Reject.t | `Materialize of Const_ssa_materialize.error & [< Const_ssa_materialize.error ] | `Matmul_unsupported_shape of Matmul_unsupported_shape.t | `Missing_arg of Missing_arg.t | `Missing_metadata of Missing_metadata.t | `Non_tensor_graph_output | `Non_tensor_node_output of string | `Normalized_rank of Normalized_rank.t | `Normalized_shape of Normalized_shape.t | `Output_arity of Output_arity.t | `Output_count_over_limit of Shape_error.Output_count.t | `Output_not_evaluated of Graph_ir.Tensor_id.t | `Provenance of Pt2_native_graph.error & [< Pt2_native_graph.error ] | `Schedule of Arena_schedule_plan.error & [< Arena_schedule_plan.error ] | `Sdpa_reject of Attention.Sdpa.Reject.t | `Tensor_bridge of tensor_bridge & [< tensor_bridge ] | `Transform of Pass.error & [< Pass.error ] | `Undefined_ssa of string | `Unresolved_sym_arg of Unresolved_sym_arg.t | `Unsupported_input of unsupported_input & [< `Non_tensor | `Not_exactly_one_user_input of int ] | `Unsupported_operator of string | `Unsupported_option of Unsupported_option.t | `Unsupported_padding_mode of string | `Verify of Map_verify.error & [< Map_verify.error ] | `Wrong_arg_kind of Wrong_arg_kind.t ] -> unit
+lib/native_interp/native_interp_exec.ml	budget	type transformed = Transformed : { constants : Tensor.packed Native_interp_lower.Tensor_id.Map.t; constant_store : Constant_store.t; derived : (Native_interp_lower.Tensor_id.t * string list) list; graph : Graph_ir.graph; lens : 'b Pt2_native_graph.lens; nodes_before : int; audits : Pass.Audit_log.t; composed : Map_verify.Report.t option; map_export : Map_export.t; } -> transformed
+lib/native_interp/native_interp_exec.ml	tally	type loaded = { from_state : int; from_archive : int; from_plan : int; }
+lib/native_interp/native_interp_exec.ml	budget	val transform_lowered : ?constants:Tensor.packed Native_interp_lower.Tensor_id.Map.t -> ?verify:Map_verify.Policy.t -> ?verify_budget:Map_verify.Budget.t -> ?verify_probe:int -> ?max_verified_steps:int -> ?max_verify_clusters:int -> ?trace:bool -> ?max_trace_entries:int -> ?max_audit_reports:int -> Pt2_native_graph.t -> passes:Pass.t list -> (transformed, [> `Lens of Pt2_native_graph.lens_error | `Transform of Pass.error | `Verify of Map_verify.error ]) Err.t
+lib/native_interp/native_interp_exec.ml	budget	val transform : ?preload:bool -> ?verify:Map_verify.Policy.t -> ?verify_budget:Map_verify.Budget.t -> ?verify_probe:int -> Pt2_archive.t -> passes:Pass.t list -> (transformed, Native_interp_error.error) Err.t
+lib/native_interp/native_interp_lower.ml	todo-domain	type t = { emitted : (int * Node_id.t list) list; bound : (int * (string * Native_interp_decode.Tensor_id.t) list) list; sources : (string * Native_interp_decode.Tensor_id.t) list; } end
+lib/native_interp/native_interp_tensor.ml	wire	val load_dense : Pt2_tensor.t -> element_size:int -> read_cell:(Pt2_storage.t -> int -> 'a) -> materialize:(Vec6.shape -> ('b Dim.t Vec6.t -> 'a) -> 'c) -> ('c, Native_interp_error.error) Err.t
 lib/native_predict/native_predict.mli	as-written	type t = { classes : Dim.extent Dim.t; wanted : int } end
 lib/native_predict/native_predict.mli	as-written	type error = [ `Invalid_k of int | `Non_finite_logit of Non_finite.t | `Not_class_logits of Vec6.shape | `Output_count of int | `Too_few_classes of Too_few_classes.t ]
 lib/native_predict/native_predict.mli	as-written	val top_predictions : Tensor.packed list -> int -> ((Dim.index Dim.t * float) list, error) Err.t
@@ -897,6 +1288,24 @@ lib/ssa_wasm/ssa_wasm_ctx.ml	bits	val cell_log2 : Ssa_ir.Ssa_format.t -> int
 lib/ssa_wasm/ssa_wasm_ctx.ml	todo-domain	val reserve_local : t -> int64 -> int
 lib/ssa_wasm/ssa_wasm_instr.ml	todo-domain	val chunk_count : Ssa_wasm_ctx.t -> Ssa_ir.Ssa_value.t -> int
 lib/ssa_wasm/ssa_wasm_op.ml	todo-domain	val quant_tables : Ssa_wasm_ctx.t -> Ssa_ir.Ssa_buffer.t -> int * int
+lib/walk_core/limits.ml	budget	type t = { max_kernel : int; max_stride : int; max_pad : int; max_dilation : int; max_channels : int; max_extent : int; max_batch : int; max_numel : int; }
+lib/walk_core/pcg.ml	bits	val top24 : int64 -> int
+lib/walk_core/shape.ml	todo-domain	type t = { n : int; t : int; d : int; h : int; w : int; c : int; }
+lib/walk_core/shape.ml	todo-domain	val numel : t -> int
+lib/walk_core/shape.ml	todo-domain	val cap : Walk_core.Limits.t -> [< `C | `H | `N | `W ] -> int
+lib/walk_core/shape.ml	todo-domain	val get : t -> [< `C | `H | `N | `W ] -> int
+lib/walk_core/shape.ml	todo-domain	val set : t -> [< `C | `H | `N | `W ] -> int -> t
+lib/walk_core/shape.ml	todo-domain	val resize : Walk_core.Limits.t -> t -> axis:[< `C | `H | `N | `W ] -> int -> t
+lib/walk_core/walk.ml	todo-domain	val index_of : int64 -> m:int -> int
+lib/walk_core/walk.ml	todo-domain	val int_in : Walk_core.Pcg.t -> lo:int -> hi:int -> int * Walk_core.Pcg.t
+lib/walk_core/walk.ml	todo-domain	val int_axis : string -> lo:int -> hi:int -> ('a -> int -> 'a) -> 'a axis
+lib/walk_core/walk.ml	todo-domain	type hw = { h : int; w : int; }
+lib/walk_core/walk.ml	todo-domain	val hw_axis : string -> lo:int -> hi:int -> ('a -> hw -> 'a) -> 'a axis
+lib/walk_core/walk.ml	budget	val run : (module Op with type subject = 's) -> verify:(Format.formatter -> 's -> bool) -> ppf:Format.formatter -> pcg:Walk_core.Pcg.t -> steps:int -> bool
+lib/walk_core/window_math.ml	todo-domain	val output_dim : in_size:int -> pad:int -> kernel:int -> dilation:int -> stride:int -> int
+lib/walk_core/window_math.ml	todo-domain	val grow_input : in_size:int -> pad:int -> kernel:int -> dilation:int -> int
+lib/walk_core/window_math.ml	todo-domain	val clamp_pad_pool : pad:int -> kernel:int -> int
+lib/walk_core/window_math.ml	todo-domain	val round_up_multiple : n:int -> m:int -> int
 lib/wasm_ir/wasm_census.mli	tally	val count : t -> Role.t -> int
 lib/wasm_ir/wasm_census.mli	tally	val total : t -> int
 lib/wasm_ir/wasm_census.mli	tally	val helpers : t -> (string * int) list

@@ -291,11 +291,31 @@ let inferred_text root dir ml =
     else []
   in
   let all = objs_dirs root "lib" @ vendored in
-  let internal = List.map fst all in
+  (* the external packages of the library and of every internal library it
+     reaches: an interface can name a type from a dependency's dependency *)
   let packages =
-    List.filter (fun l -> not (List.mem l internal)) (field toks "libraries")
+    let seen = Hashtbl.create 16 and ext = ref [] in
+    let rec visit l =
+      if not (Hashtbl.mem seen l) then (
+        Hashtbl.add seen l ();
+        match List.assoc_opt l all with
+        | None -> if not (List.mem l !ext) then ext := l :: !ext
+        | Some path ->
+            let d = Filename.dirname (Filename.dirname path) in
+            let f = Filename.concat d "dune" in
+            if Sys.file_exists f then
+              List.iter visit (field (atoms_of_dune (read_file f)) "libraries"))
+    in
+    List.iter visit (field toks "libraries");
+    List.rev !ext
   in
   let out = Filename.temp_file "int_signatures" ".mli" in
+  (* a library dune preprocesses (cppo, ppx) has its text in [x.pp.ml] next to
+     the build copy; reading the source would meet the directives *)
+  let source =
+    let pp = Filename.remove_extension ml ^ ".pp.ml" in
+    if Sys.file_exists (Filename.concat root pp) then pp else ml
+  in
   let cmd =
     Printf.sprintf "ocamlfind ocamlc %s%s%s -w -a -i %s > %s 2>&1"
       (if packages = [] then ""
@@ -305,7 +325,7 @@ let inferred_text root dir ml =
       (if not wrapped then ""
        else if has_main then "-open " ^ String.capitalize_ascii name ^ "__ "
        else "-open " ^ String.capitalize_ascii name ^ " ")
-      (Filename.quote (Filename.concat root ml))
+      (Filename.quote (Filename.concat root source))
       (Filename.quote out)
   in
   let code = Sys.command cmd in

@@ -5,7 +5,14 @@
      computations run from [initial] deliberately reuse ordinals -- identity is
      meaningful only within one expression, and composing across that boundary
      is what [Rewrite.freshen] is for. *)
-type state = int
+module Ordinal =
+  Core.Tagged_int.Make
+    (struct
+      let prefix = "#"
+    end)
+    ()
+
+type state = Ordinal.Next.t
 type 'a t = state -> 'a * state
 
 exception Supply_exhausted
@@ -14,7 +21,7 @@ exception Supply_exhausted
     and hashing at once, so this is checked rather than assumed -- a
     trusted-capacity boundary, named so it is visible. *)
 
-let initial : state = 0
+let initial : state = Ordinal.Next.first
 let return x s = (x, s)
 
 let bind m f s =
@@ -27,9 +34,18 @@ let map f m s =
 
 let run_from s m = m s
 let run m = fst (m initial)
-let fresh s = if s = Stdlib.max_int then raise Supply_exhausted else (s, s + 1)
-let fresh_reduce = fresh
-let fresh_local = fresh
+
+let next s =
+  if (s : state :> int) = Stdlib.max_int then raise Supply_exhausted
+  else Ordinal.Next.alloc s
+
+let fresh_reduce s =
+  let id, s = next s in
+  (Reduce_var.of_int (Ordinal.to_int id), s)
+
+let fresh_local s =
+  let id, s = next s in
+  (Local_var.of_int (Ordinal.to_int id), s)
 
 module Syntax = struct
   let ( let* ) = bind
