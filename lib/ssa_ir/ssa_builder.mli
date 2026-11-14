@@ -36,8 +36,13 @@ val probe : t -> (t -> 'a) -> unit
     and nothing else. *)
 
 val set_origin : t -> Ssa_origin.t -> unit
+
 (** The origin of every operation built after this call, in this builder and its
     regions. *)
+
+val with_origin : t -> Ssa_origin.t -> (unit -> 'a) -> 'a
+(** [f] with every operation it emits marked as coming from the origin, the
+    previous origin restored after. *)
 
 (** {1 Constants and conversions} *)
 

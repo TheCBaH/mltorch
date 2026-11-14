@@ -364,6 +364,11 @@ let probe b f =
 
 let set_origin b o = b.shared.origin <- o
 
+let with_origin b o f =
+  let before = b.shared.origin in
+  b.shared.origin <- o;
+  Fun.protect ~finally:(fun () -> b.shared.origin <- before) f
+
 let program ?(scan_limits = Expr.Scan_limits.default) ~buffers f =
   let shared =
     {

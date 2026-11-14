@@ -276,26 +276,30 @@ let lower (plan : Fusion_plan.t) =
          in
          List.iter
            (function
-             | Region_group.Run.Solo v when stored v -> (
+             | Region_group.Run.Solo v when stored v ->
                  reads_i64 (Region_group.Ref.sources v.Kernel.Value.computation);
-                 match
-                   Region_group.Ref.pixel_expression v.Kernel.Value.computation
-                 with
-                 | Some pixel -> nest ctx plan v pixel
-                 | None -> (
-                     let limits = k.Kernel.limits in
+                 Ssa_builder.with_origin b
+                   (Ssa_origin.Value (Ssa_lower_ctx.buffer_id v.Kernel.Value.id))
+                   (fun () ->
                      match
-                       Region_group.Ref.project
-                         ~max_size:limits.Kernel.Limits.max_size
-                         ~max_depth:limits.Kernel.Limits.max_depth
+                       Region_group.Ref.pixel_expression
                          v.Kernel.Value.computation
                      with
-                     | Ok program ->
-                         region_unit ~refuse_at v program ~limits;
-                         Ssa_lower_region.lower ctx v program
-                     | Error _ ->
-                         refuse_at v.Kernel.Value.id
-                           Ssa_unsupported.Region_program))
+                     | Some pixel -> nest ctx plan v pixel
+                     | None -> (
+                         let limits = k.Kernel.limits in
+                         match
+                           Region_group.Ref.project
+                             ~max_size:limits.Kernel.Limits.max_size
+                             ~max_depth:limits.Kernel.Limits.max_depth
+                             v.Kernel.Value.computation
+                         with
+                         | Ok program ->
+                             region_unit ~refuse_at v program ~limits;
+                             Ssa_lower_region.lower ctx v program
+                         | Error _ ->
+                             refuse_at v.Kernel.Value.id
+                               Ssa_unsupported.Region_program))
              | Region_group.Run.Solo _ -> ()
              | Region_group.Run.Group (g, members) -> (
                  match List.filter (fun (_, v) -> stored v) members with
@@ -310,8 +314,12 @@ let lower (plan : Fusion_plan.t) =
                           Expr.Source.Set.empty selected);
                      group_unit ~refuse_at first g selected
                        ~limits:k.Kernel.limits;
-                     Ssa_lower_region.lower_group
-                       { ctx with Ssa_lower_ctx.at = first.Kernel.Value.id }
-                       g selected))
+                     Ssa_builder.with_origin b
+                       (Ssa_origin.Value
+                          (Ssa_lower_ctx.buffer_id first.Kernel.Value.id))
+                       (fun () ->
+                         Ssa_lower_region.lower_group
+                           { ctx with Ssa_lower_ctx.at = first.Kernel.Value.id }
+                           g selected)))
            runs;
          List.iter emit_i64 k.Kernel.values_i64))

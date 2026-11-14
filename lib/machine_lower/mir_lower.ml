@@ -787,7 +787,7 @@ let block st (b : Ssa_cfg_block.t) =
           output =
             (match i.Ssa_instr.origin with
             | Ssa_origin.Output o -> Some (Expr.Source.create (o :> int))
-            | Ssa_origin.Unknown -> None);
+            | Ssa_origin.Unknown | Ssa_origin.Value _ -> None);
           role = Mir_origin.Role.Compute;
           clone = 0;
         };

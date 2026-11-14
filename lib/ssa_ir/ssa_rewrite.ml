@@ -88,6 +88,32 @@ and resolve_region t (r : Ssa_region.t) =
 
 type rule = t -> Ssa_region.t Ssa_stmt.t -> Ssa_region.t Ssa_stmt.t list
 
+(* The origin a statement stands for: an instruction's own, or the first
+   known one inside a structured statement. *)
+let rec origin_of : Ssa_region.t Ssa_stmt.t -> Ssa_origin.t = function
+  | Ssa_stmt.Instr i -> i.Ssa_instr.origin
+  | Ssa_stmt.For { body; _ } | Ssa_stmt.Ordered_sum { body; _ } ->
+      origin_in body
+  | Ssa_stmt.If { then_; else_; _ } -> (
+      match origin_in then_ with
+      | Ssa_origin.Unknown -> origin_in else_
+      | o -> o)
+
+and origin_in (r : Ssa_region.t) =
+  List.fold_left
+    (fun acc s -> match acc with Ssa_origin.Unknown -> origin_of s | o -> o)
+    Ssa_origin.Unknown r.Ssa_region.body
+
+(* A rule that makes an instruction without a source gives it the origin of the
+   statement it replaces: what a pass moves or rewrites keeps its origin, and a
+   clone gets it too. An instruction with an origin of its own keeps it. *)
+let inherit_origin origin (s : Ssa_region.t Ssa_stmt.t) =
+  match (origin, s) with
+  | Ssa_origin.Unknown, _ -> s
+  | _, Ssa_stmt.Instr ({ Ssa_instr.origin = Ssa_origin.Unknown; _ } as i) ->
+      Ssa_stmt.Instr { i with Ssa_instr.origin }
+  | _ -> s
+
 let program ?(enter = ignore) ?(leave = ignore) ?(enter_stmt = ignore)
     (rule : rule) (p : Ssa_program.t) =
   let t =
@@ -121,7 +147,8 @@ let program ?(enter = ignore) ?(leave = ignore) ?(enter_stmt = ignore)
       | Ssa_stmt.Ordered_sum f ->
           Ssa_stmt.Ordered_sum { f with body = region f.body }
     in
-    rule t s
+    let origin = origin_of s in
+    List.map (inherit_origin origin) (rule t s)
   in
   let entry = region p.Ssa_program.entry in
   ( {
