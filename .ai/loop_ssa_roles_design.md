@@ -170,5 +170,7 @@ and Loop emission would have caught.
 3. Run `ssa_js_pt2` on `fastvit_sa12`; add the `test/ssa_js` region bundle test;
    type the JS refusal.
 4. Add the failure-parity and SSA-against-Loop bench targets.
-5. A check that the frozen file patterns in §5.1 gain no new files (a ceiling in
-   the style of the other `scripts/` checks).
+5. ~~A check that the frozen file patterns in §5.1 gain no new files~~ Done:
+   `make check.loop-freeze` (part of `make precommit` and CI) fails on a file
+   matching the patterns that is not in `scripts/loop-freeze-files.txt`, and on a
+   listed file that no longer exists, so the list only goes down.

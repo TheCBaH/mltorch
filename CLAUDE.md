@@ -219,7 +219,7 @@ in the commit message and in code comments alike.
 make build      # build
 make runtest    # run all tests
 make format     # format — mandatory before every commit
-make precommit  # build + format + runtest + check.doc-refs + check.exceptions + check.file-size + check.libraries + whitespace check
+make precommit  # build + format + runtest + check.doc-refs + check.exceptions + check.file-size + check.libraries + check.loop-freeze + whitespace check
 
 # Single cram test or promote (no make target)
 dune runtest test/model_cram.t
@@ -227,7 +227,7 @@ dune promote test/model_cram.t
 ```
 
 **Run `make precommit` before every commit.** It chains `build`, `format`, `runtest`,
-`check.doc-refs`, `check.exceptions`, `check.file-size`, `check.libraries` and the whitespace/conflict-marker check (`git diff --check HEAD`) —
+`check.doc-refs`, `check.exceptions`, `check.file-size`, `check.libraries`, `check.loop-freeze` and the whitespace/conflict-marker check (`git diff --check HEAD`) —
 the same gates CI runs, minus the JS backends and the pt2/inference suites, which need
 extra toolchain or downloaded model data (see `make js.runtest` / `make pt2.runtest`).
 Formatting is enforced; unformatted diffs are noise.
