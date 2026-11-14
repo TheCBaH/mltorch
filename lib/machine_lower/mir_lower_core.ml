@@ -76,10 +76,11 @@ type st = {
   esc : Refusal.t Err.Escape.t;
   bld : B.t;
   layout : L.Entry.t list;
-  values : (int, Mir_value.t) Hashtbl.t;  (** SSA value id -> machine value *)
-  constants : (int, Mir_const.t) Hashtbl.t;
+  values : Mir_value.t Ssa_ir.Ssa_id.Value.Tbl.t;
+      (** SSA value id -> machine value *)
+  constants : (Mir_id.Value.t, Mir_const.t) Hashtbl.t;
       (** machine value id -> the constant it was emitted as *)
-  heads : (int, B.block) Hashtbl.t;
+  heads : (Ssa_ir.Ssa_id.Block.t, B.block) Hashtbl.t;
       (** CFG block id -> its first machine block *)
   locals : (int, Local_object.t) Hashtbl.t;
       (** an allocation's SSA result id -> its site's object *)
@@ -109,12 +110,12 @@ let machine_type st (ty : Ssa_type.t) =
 let is_effect (v : Ssa_value.t) = Ssa_type.equal v.Ssa_value.ty Ssa_type.Effect
 
 let value st (v : Ssa_value.t) =
-  match Hashtbl.find_opt st.values (v.Ssa_value.id :> int) with
+  match Ssa_ir.Ssa_id.Value.Tbl.find_opt st.values v.Ssa_value.id with
   | Some m -> m
   | None -> invalid_arg "Mir_lower: a value used before its definition"
 
 let bind st (v : Ssa_value.t) m =
-  Hashtbl.replace st.values (v.Ssa_value.id :> int) m
+  Ssa_ir.Ssa_id.Value.Tbl.replace st.values v.Ssa_value.id m
 
 let with_role st role = st.origin <- { st.origin with Mir_origin.role }
 let emit st op = B.emit ~origin:st.origin st.bld st.cur op
@@ -122,11 +123,11 @@ let emit_unit st op = B.emit_unit ~origin:st.origin st.bld st.cur op
 
 let const st c =
   let v = emit st (Mir_op.Const c) in
-  Hashtbl.replace st.constants (Mir_id.Value.to_int v.Mir_value.id) c;
+  Hashtbl.replace st.constants v.Mir_value.id c;
   v
 
 let is_zero st (v : Mir_value.t) =
-  match Hashtbl.find_opt st.constants (Mir_id.Value.to_int v.Mir_value.id) with
+  match Hashtbl.find_opt st.constants v.Mir_value.id with
   | Some c -> Int64.equal c.Mir_const.bits 0L
   | None -> false
 

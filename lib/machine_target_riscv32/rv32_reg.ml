@@ -90,8 +90,8 @@ let x k =
     bank = Mir_target.Bank.Gpr;
     unit = gpr_unit k;
     span = Mir_target.Span.One;
-    lo = 0;
-    bits = 32;
+    lo = Mir_target.Bits.of_int 0;
+    bits = Mir_target.Bits.of_int 32;
   }
 
 let f k =
@@ -100,8 +100,8 @@ let f k =
     bank = Mir_target.Bank.Fpr;
     unit = fpr_unit k;
     span = Mir_target.Span.One;
-    lo = 0;
-    bits = 32;
+    lo = Mir_target.Bits.of_int 0;
+    bits = Mir_target.Bits.of_int 32;
   }
 
 (* The ABI names of the registers the target refers to by role. *)
@@ -126,8 +126,8 @@ let flags =
     bank = Mir_target.Bank.Flags;
     unit = Mir_id.Unit.of_int 64;
     span = Mir_target.Span.One;
-    lo = 0;
-    bits = 1;
+    lo = Mir_target.Bits.of_int 0;
+    bits = Mir_target.Bits.of_int 1;
   }
 
 (* The vector registers v0-v31 (Zve32f), each one unit of VLEN bits, modelled
@@ -146,8 +146,8 @@ let v k =
     bank = Mir_target.Bank.Vector;
     unit = vector_unit k;
     span = Mir_target.Span.One;
-    lo = 0;
-    bits = 128;
+    lo = Mir_target.Bits.of_int 0;
+    bits = Mir_target.Bits.of_int 128;
   }
 
 (* The register group of [span] based at register [k] (RVV requires the base
@@ -163,8 +163,8 @@ let group span k =
         bank = Mir_target.Bank.Vector;
         unit = vector_unit k;
         span;
-        lo = 0;
-        bits = 128 * Mir_target.Span.count span;
+        lo = Mir_target.Bits.of_int 0;
+        bits = Mir_target.Bits.of_int (128 * Mir_target.Span.count span);
       }
 
 let pp_group_error ppf (`Unaligned_group (span, k)) =

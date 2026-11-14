@@ -17,8 +17,8 @@ let x k =
     bank = Mir_target.Bank.Gpr;
     unit = gpr_unit k;
     span = Mir_target.Span.One;
-    lo = 0;
-    bits = 64;
+    lo = Mir_target.Bits.of_int 0;
+    bits = Mir_target.Bits.of_int 64;
   }
 
 let w k =
@@ -27,8 +27,8 @@ let w k =
     bank = Mir_target.Bank.Gpr;
     unit = gpr_unit k;
     span = Mir_target.Span.One;
-    lo = 0;
-    bits = 32;
+    lo = Mir_target.Bits.of_int 0;
+    bits = Mir_target.Bits.of_int 32;
   }
 
 let q k =
@@ -37,8 +37,8 @@ let q k =
     bank = Mir_target.Bank.Fpr;
     unit = fpr_unit k;
     span = Mir_target.Span.One;
-    lo = 0;
-    bits = 128;
+    lo = Mir_target.Bits.of_int 0;
+    bits = Mir_target.Bits.of_int 128;
   }
 
 let d k =
@@ -47,8 +47,8 @@ let d k =
     bank = Mir_target.Bank.Fpr;
     unit = fpr_unit k;
     span = Mir_target.Span.One;
-    lo = 0;
-    bits = 64;
+    lo = Mir_target.Bits.of_int 0;
+    bits = Mir_target.Bits.of_int 64;
   }
 
 let s k =
@@ -57,8 +57,8 @@ let s k =
     bank = Mir_target.Bank.Fpr;
     unit = fpr_unit k;
     span = Mir_target.Span.One;
-    lo = 0;
-    bits = 32;
+    lo = Mir_target.Bits.of_int 0;
+    bits = Mir_target.Bits.of_int 32;
   }
 
 let nzcv =
@@ -67,8 +67,8 @@ let nzcv =
     bank = Mir_target.Bank.Flags;
     unit = nzcv_unit;
     span = Mir_target.Span.One;
-    lo = 0;
-    bits = 4;
+    lo = Mir_target.Bits.of_int 0;
+    bits = Mir_target.Bits.of_int 4;
   }
 
 let sp =
@@ -77,8 +77,8 @@ let sp =
     bank = Mir_target.Bank.Gpr;
     unit = Mir_id.Unit.of_int 65;
     span = Mir_target.Span.One;
-    lo = 0;
-    bits = 64;
+    lo = Mir_target.Bits.of_int 0;
+    bits = Mir_target.Bits.of_int 64;
   }
 
 (* FPCR: rounding mode, flush-to-zero, default NaN and trap enables. *)
@@ -88,8 +88,8 @@ let fpcr =
     bank = Mir_target.Bank.Control;
     unit = Mir_id.Unit.of_int 66;
     span = Mir_target.Span.One;
-    lo = 0;
-    bits = 64;
+    lo = Mir_target.Bits.of_int 0;
+    bits = Mir_target.Bits.of_int 64;
   }
 
 let range a b = List.init (b - a + 1) (fun i -> a + i)

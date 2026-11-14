@@ -49,14 +49,14 @@ type st = {
   sites : Mir_failure.Site_entry.t array;
   unlisted : Mir_failure.Unlisted.t;
   fallible : Mir_op.Callee.t -> bool;
-  float_loads : (int, Mir_value.t) Hashtbl.t;
+  float_loads : (Mir_id.Value.t, Mir_value.t) Hashtbl.t;
       (** a load read only by one bitcast to a float: the float it defines *)
-  int_slices : (int, int * Mir_value.t) Hashtbl.t;
+  int_slices : (Mir_id.Value.t, int * Mir_value.t) Hashtbl.t;
       (** four lanes of an integer register read only by extensions to int32:
           the first lane and the register *)
-  shift_counts : (int, int64) Hashtbl.t;
+  shift_counts : (Mir_id.Value.t, int64) Hashtbl.t;
       (** an integer splat read only as a lane shift count: the count *)
-  narrowing_halves : (int, Mir_value.t) Hashtbl.t;
+  narrowing_halves : (Mir_id.Value.t, Mir_value.t) Hashtbl.t;
       (** an [i16x4] truncation read only by a join into an [i16x8]: its
           [int32x4] source ({!Mir_vsplit.narrowing_halves}) *)
 }
@@ -65,7 +65,7 @@ type st = {
    load is made a floating-point load defining the bitcast's value, which
    spares the move between register files. *)
 let float_loads (f : (Mir_op.t, Mir_terminator.t) Mir_func.t) =
-  let key (v : Mir_value.t) = Mir_id.Value.to_int v.Mir_value.id in
+  let key (v : Mir_value.t) = v.Mir_value.id in
   let uses = Hashtbl.create 256 and defs = Hashtbl.create 256 in
   let use v =
     Hashtbl.replace uses (key v)
@@ -253,10 +253,7 @@ let offset st base off =
 (* An access address as a base and an immediate: a pointer plus a constant
    the form's offset field takes ([ok]) folds; anything else is its own base. *)
 let displaced st (addr : Mir_value.t) ~ok =
-  match
-    Hashtbl.find_opt st.b.Mir_select.defs
-      (Mir_id.Value.to_int addr.Mir_value.id)
-  with
+  match Hashtbl.find_opt st.b.Mir_select.defs addr.Mir_value.id with
   | Some (Mir_op.Ptr_add (base, k)) -> (
       match Mir_select.const_of st.b k with
       | Some c when ok c -> (base, c)
@@ -269,7 +266,7 @@ let displaced st (addr : Mir_value.t) ~ok =
    the extension, the scale and the addition into the access. *)
 let indexed st (addr : Mir_value.t) ~bytes =
   let def (v : Mir_value.t) =
-    Hashtbl.find_opt st.b.Mir_select.defs (Mir_id.Value.to_int v.Mir_value.id)
+    Hashtbl.find_opt st.b.Mir_select.defs v.Mir_value.id
   in
   let sext_index (e : Mir_value.t) =
     match def e with
@@ -326,16 +323,14 @@ let vector st (i : Mir_op.t Mir_instr.t) =
   in
   match i.Mir_instr.op with
   | Mir_op.Itrunc (Mir_width.W16, _)
-    when Hashtbl.mem st.narrowing_halves
-           (Mir_id.Value.to_int (r ()).Mir_value.id) ->
+    when Hashtbl.mem st.narrowing_halves (r ()).Mir_value.id ->
       (* made by the join that reads it *)
       ()
   | Mir_op.Vconcat [ x; y ]
-    when Hashtbl.mem st.narrowing_halves (Mir_id.Value.to_int x.Mir_value.id)
-         && Hashtbl.mem st.narrowing_halves (Mir_id.Value.to_int y.Mir_value.id)
-    ->
+    when Hashtbl.mem st.narrowing_halves x.Mir_value.id
+         && Hashtbl.mem st.narrowing_halves y.Mir_value.id ->
       let source (h : Mir_value.t) =
-        Hashtbl.find st.narrowing_halves (Mir_id.Value.to_int h.Mir_value.id)
+        Hashtbl.find st.narrowing_halves h.Mir_value.id
       in
       def (Uzp1_h (source x, source y))
   | Mir_op.Copy a
@@ -421,15 +416,13 @@ let vector st (i : Mir_op.t Mir_instr.t) =
             [ r () ]
             (Mir_sel.Op.Machine (Ldr_ivec ((r ()).Mir_value.ty, base, k)))
       | _ -> refuse st (Refusal.Width (r ()).Mir_value.ty))
-  | Mir_op.Vslice (_, _, _)
-    when Hashtbl.mem st.int_slices (Mir_id.Value.to_int (r ()).Mir_value.id) ->
+  | Mir_op.Vslice (_, _, _) when Hashtbl.mem st.int_slices (r ()).Mir_value.id
+    ->
       (* made by the sign extensions that read it *)
       ()
   | Mir_op.Iext (k, Mir_width.W32, s)
-    when Hashtbl.mem st.int_slices (Mir_id.Value.to_int s.Mir_value.id) ->
-      let first, src =
-        Hashtbl.find st.int_slices (Mir_id.Value.to_int s.Mir_value.id)
-      in
+    when Hashtbl.mem st.int_slices s.Mir_value.id ->
+      let first, src = Hashtbl.find st.int_slices s.Mir_value.id in
       def
         (Xtl_w
            {
@@ -438,20 +431,14 @@ let vector st (i : Mir_op.t Mir_instr.t) =
              first;
              src;
            })
-  | Mir_op.Vsplat _
-    when Hashtbl.mem st.shift_counts (Mir_id.Value.to_int (r ()).Mir_value.id)
-    ->
+  | Mir_op.Vsplat _ when Hashtbl.mem st.shift_counts (r ()).Mir_value.id ->
       (* the count of the shifts that read it *)
       ()
   | Mir_op.Iarith (o, a, c)
     when Mir_op.Iarith.is_shift o
          && Mir_type.equal a.Mir_value.ty A64_op.int32x4
-         && Hashtbl.mem st.shift_counts (Mir_id.Value.to_int c.Mir_value.id)
-    -> (
-      let k =
-        Int64.to_int
-          (Hashtbl.find st.shift_counts (Mir_id.Value.to_int c.Mir_value.id))
-      in
+         && Hashtbl.mem st.shift_counts c.Mir_value.id -> (
+      let k = Int64.to_int (Hashtbl.find st.shift_counts c.Mir_value.id) in
       match o with
       | Mir_op.Iarith.Shl -> def (Vshift (Shift.Lsl, k, a))
       | _ when k = 0 -> def (Vcast (A64_op.int32x4, a))
@@ -563,9 +550,7 @@ let instr st (i : Mir_op.t Mir_instr.t) =
     | Mir_op.Addr view ->
         let page = emit st Mir_type.Ptr (Adrp view) in
         def (Add_lo12 (page, view))
-    | Mir_op.Bitcast (_, a)
-      when Hashtbl.mem st.float_loads (Mir_id.Value.to_int a.Mir_value.id) ->
-        ()
+    | Mir_op.Bitcast (_, a) when Hashtbl.mem st.float_loads a.Mir_value.id -> ()
     | Mir_op.Bitcast (t, a) -> (
         match (ty a, t) with
         | Mir_type.Int Mir_width.W32, Mir_type.F32 ->
@@ -710,10 +695,7 @@ let instr st (i : Mir_op.t Mir_instr.t) =
         def (Trunc (w, a))
     | Mir_op.Itrunc _ | Mir_op.Narrow _ -> unsupported ()
     | Mir_op.Load { Mir_op.Access.width; addr; _ } ->
-        let fused =
-          Hashtbl.find_opt st.float_loads
-            (Mir_id.Value.to_int (r ()).Mir_value.id)
-        in
+        let fused = Hashtbl.find_opt st.float_loads (r ()).Mir_value.id in
         let m =
           match (fused, width) with
           | Some _, Mir_width.W32 -> Msz.S
@@ -755,10 +737,7 @@ let instr st (i : Mir_op.t Mir_instr.t) =
         | t -> def (Csel (sz_of st t, Cond.Ne, f, a, b)))
     | Mir_op.Store ({ Mir_op.Access.width; addr; _ }, v) ->
         let v, m =
-          match
-            Hashtbl.find_opt st.b.Mir_select.defs
-              (Mir_id.Value.to_int v.Mir_value.id)
-          with
+          match Hashtbl.find_opt st.b.Mir_select.defs v.Mir_value.id with
           | Some (Mir_op.Bitcast (_, f))
             when (width = Mir_width.W32 && Mir_type.equal (ty f) Mir_type.F32)
                  || (width = Mir_width.W64 && Mir_type.equal (ty f) Mir_type.F64)
@@ -812,9 +791,8 @@ let scalar st vs =
       | Mir_type.Vec (Mir_type.Elem.Int _, _)
         when Option.is_some (A64_op.int_register v.Mir_value.ty)
              || Mir_type.equal v.Mir_value.ty A64_op.int32x4
-             || Hashtbl.mem st.int_slices (Mir_id.Value.to_int v.Mir_value.id)
-             || Hashtbl.mem st.narrowing_halves
-                  (Mir_id.Value.to_int v.Mir_value.id) ->
+             || Hashtbl.mem st.int_slices v.Mir_value.id
+             || Hashtbl.mem st.narrowing_halves v.Mir_value.id ->
           ()
       | Mir_type.Mask _ | Mir_type.Vec _ -> ignore (arr_of st v.Mir_value.ty)
       | _ -> ())

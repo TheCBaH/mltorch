@@ -383,11 +383,11 @@ let constraints = function
 let result_write _ = Mir_target.Write.Zero_upper
 
 let unit_bits = function
-  | Mir_target.Bank.Control -> 64
-  | Mir_target.Bank.Flags -> 4
-  | Mir_target.Bank.Fpr -> 128
-  | Mir_target.Bank.Gpr -> 64
-  | Mir_target.Bank.Vector -> 128
+  | Mir_target.Bank.Control -> Machine_ir.Mir_target.Bits.of_int 64
+  | Mir_target.Bank.Flags -> Machine_ir.Mir_target.Bits.of_int 4
+  | Mir_target.Bank.Fpr -> Machine_ir.Mir_target.Bits.of_int 128
+  | Mir_target.Bank.Gpr -> Machine_ir.Mir_target.Bits.of_int 64
+  | Mir_target.Bank.Vector -> Machine_ir.Mir_target.Bits.of_int 128
 
 (* A call leaves undefined every bit AAPCS64 does not preserve: x0-x18, the
    link register, v0-v7 and v16-v31 whole, the upper 64 bits of v8-v15, and
@@ -400,8 +400,8 @@ let call_clobbers =
         {
           (A64_reg.q k) with
           Mir_target.View.name = Printf.sprintf "v%d.d[1]" k;
-          lo = 64;
-          bits = 64;
+          lo = Machine_ir.Mir_target.Bits.of_int 64;
+          bits = Machine_ir.Mir_target.Bits.of_int 64;
         })
       (A64_reg.range 8 15)
   @ [ A64_reg.nzcv ]

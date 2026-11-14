@@ -64,10 +64,10 @@ module type TARGET = sig
   (** whether one stack-pointer adjustment by this many bytes encodes and keeps
       whatever alignment the target requires between adjustments *)
 
-  val unit_bits : Mir_target.Bank.t -> int
+  val unit_bits : Mir_target.Bank.t -> Mir_target.Bits.t
   (** the width of a register unit of a bank *)
 
-  val shape : Mir_type.t -> (Mir_target.Bank.t * int) option
+  val shape : Mir_type.t -> (Mir_target.Bank.t * Mir_target.Bits.t) option
   (** the bank and width a value of this type occupies, if any register holds it
   *)
 

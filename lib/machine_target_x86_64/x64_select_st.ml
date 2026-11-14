@@ -61,13 +61,13 @@ type st = {
   unlisted : Mir_failure.Unlisted.t;
   fallible : Mir_op.Callee.t -> bool;
   features : Mir_target.Feature.t list;
-  int_slices : (int, int * Mir_value.t) Hashtbl.t;
+  int_slices : (Mir_id.Value.t, int * Mir_value.t) Hashtbl.t;
       (** four lanes of an integer register read only by extensions to int32
           ({!Mir_vsplit.widening_slices}) *)
-  shift_counts : (int, int64) Hashtbl.t;
+  shift_counts : (Mir_id.Value.t, int64) Hashtbl.t;
       (** an integer splat read only as a lane shift count: the count
           ({!Mir_vsplit.shift_counts}) *)
-  narrowing_halves : (int, Mir_value.t) Hashtbl.t;
+  narrowing_halves : (Mir_id.Value.t, Mir_value.t) Hashtbl.t;
       (** an [i16x4] truncation read only by a join into an [i16x8]: its
           [int32x4] source ({!Mir_vsplit.narrowing_halves}) *)
 }

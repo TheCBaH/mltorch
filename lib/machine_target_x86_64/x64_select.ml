@@ -6,9 +6,7 @@ include X64_select_st
    is a pointer plus an index times 1, 2, 4 or 8, then plus a constant that
    fits 32 signed bits; either part may be absent. *)
 let address st (a : Mir_value.t) =
-  let def v =
-    Hashtbl.find_opt st.b.Mir_select.defs (Mir_id.Value.to_int v.Mir_value.id)
-  in
+  let def v = Hashtbl.find_opt st.b.Mir_select.defs v.Mir_value.id in
   let scaled a =
     match def a with
     | Some (Mir_op.Ptr_add (base, off)) -> (
@@ -204,20 +202,16 @@ let vector st (i : Mir_op.t Mir_instr.t) =
   in
   match i.Mir_instr.op with
   | Mir_op.Itrunc (Mir_width.W16, _)
-    when Hashtbl.mem st.narrowing_halves
-           (Mir_id.Value.to_int (r ()).Mir_value.id) ->
+    when Hashtbl.mem st.narrowing_halves (r ()).Mir_value.id ->
       (* made by the join that reads it *)
       ()
   | Mir_op.Vconcat [ a; b ]
-    when Hashtbl.mem st.narrowing_halves (Mir_id.Value.to_int a.Mir_value.id)
-         && Hashtbl.mem st.narrowing_halves (Mir_id.Value.to_int b.Mir_value.id)
-    ->
+    when Hashtbl.mem st.narrowing_halves a.Mir_value.id
+         && Hashtbl.mem st.narrowing_halves b.Mir_value.id ->
       (* each int32 lane's low half sign-extended in place, so the saturating
          pack keeps it exactly *)
       let low (h : Mir_value.t) =
-        let s =
-          Hashtbl.find st.narrowing_halves (Mir_id.Value.to_int h.Mir_value.id)
-        in
+        let s = Hashtbl.find st.narrowing_halves h.Mir_value.id in
         let up = emit st X64_op.int32x4 (Pshift (Shift.Shl, 16, s)) in
         emit st X64_op.int32x4 (Pshift (Shift.Sar, 16, up))
       in
@@ -375,15 +369,13 @@ let vector st (i : Mir_op.t Mir_instr.t) =
             (Mir_sel.Op.Machine
                (Movup_iload ((r ()).Mir_value.ty, address st addr)))
       | _ -> refuse st (Refusal.Width (r ()).Mir_value.ty))
-  | Mir_op.Vslice (_, _, _)
-    when Hashtbl.mem st.int_slices (Mir_id.Value.to_int (r ()).Mir_value.id) ->
+  | Mir_op.Vslice (_, _, _) when Hashtbl.mem st.int_slices (r ()).Mir_value.id
+    ->
       (* made by the sign extensions that read it *)
       ()
   | Mir_op.Iext (k, Mir_width.W32, s)
-    when Hashtbl.mem st.int_slices (Mir_id.Value.to_int s.Mir_value.id) ->
-      let first, src =
-        Hashtbl.find st.int_slices (Mir_id.Value.to_int s.Mir_value.id)
-      in
+    when Hashtbl.mem st.int_slices s.Mir_value.id ->
+      let first, src = Hashtbl.find st.int_slices s.Mir_value.id in
       def
         (Xt_lanes
            {
@@ -392,20 +384,14 @@ let vector st (i : Mir_op.t Mir_instr.t) =
              first;
              src;
            })
-  | Mir_op.Vsplat _
-    when Hashtbl.mem st.shift_counts (Mir_id.Value.to_int (r ()).Mir_value.id)
-    ->
+  | Mir_op.Vsplat _ when Hashtbl.mem st.shift_counts (r ()).Mir_value.id ->
       (* the count of the shifts that read it *)
       ()
   | Mir_op.Iarith (o, a, c)
     when Mir_op.Iarith.is_shift o
          && Mir_type.equal a.Mir_value.ty X64_op.int32x4
-         && Hashtbl.mem st.shift_counts (Mir_id.Value.to_int c.Mir_value.id)
-    -> (
-      let k =
-        Int64.to_int
-          (Hashtbl.find st.shift_counts (Mir_id.Value.to_int c.Mir_value.id))
-      in
+         && Hashtbl.mem st.shift_counts c.Mir_value.id -> (
+      let k = Int64.to_int (Hashtbl.find st.shift_counts c.Mir_value.id) in
       match o with
       | Mir_op.Iarith.Shl -> def (Pshift (Shift.Shl, k, a))
       | _ when k = 0 -> def (Movap_cast (X64_op.int32x4, a))
@@ -782,9 +768,8 @@ let scalar st vs =
       | Mir_type.Vec (Mir_type.Elem.Int _, _)
         when Option.is_some (X64_op.int_register v.Mir_value.ty)
              || Mir_type.equal v.Mir_value.ty X64_op.int32x4
-             || Hashtbl.mem st.int_slices (Mir_id.Value.to_int v.Mir_value.id)
-             || Hashtbl.mem st.narrowing_halves
-                  (Mir_id.Value.to_int v.Mir_value.id) ->
+             || Hashtbl.mem st.int_slices v.Mir_value.id
+             || Hashtbl.mem st.narrowing_halves v.Mir_value.id ->
           (* a register of integer lanes, or four of its lanes a sign
              extension reads in place *)
           ()

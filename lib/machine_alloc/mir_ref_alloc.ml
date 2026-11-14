@@ -12,12 +12,18 @@ module Loc = Mir_phys.Loc
 
 (* What the allocator needs of a target beyond its selected interface. *)
 module type REGISTERS = sig
-  val use_scratch : Mir_target.Bank.t -> bits:int -> int -> Mir_target.View.t
+  val use_scratch :
+    Mir_target.Bank.t -> bits:Mir_target.Bits.t -> int -> Mir_target.View.t
   (** the register for an instruction's [k]-th distinct operand *)
 
-  val result_scratch : Mir_target.Bank.t -> bits:int -> Mir_target.View.t
-  val copy_scratch : Mir_target.Bank.t -> bits:int -> Mir_target.View.t
-  val cycle_scratch : Mir_target.Bank.t -> bits:int -> Mir_target.View.t
+  val result_scratch :
+    Mir_target.Bank.t -> bits:Mir_target.Bits.t -> Mir_target.View.t
+
+  val copy_scratch :
+    Mir_target.Bank.t -> bits:Mir_target.Bits.t -> Mir_target.View.t
+
+  val cycle_scratch :
+    Mir_target.Bank.t -> bits:Mir_target.Bits.t -> Mir_target.View.t
 
   val args : Mir_type.t list -> Mir_target.View.t list
   (** where a function's parameters arrive *)
@@ -59,7 +65,7 @@ module Make (T : Mir_sel.TARGET) (R : REGISTERS) = struct
 
   let slot st (v : Mir_value.t) =
     let _, bits = shape v in
-    let bytes = Int64.of_int (bits / 8) in
+    let bytes = Int64.of_int ((bits :> int) / 8) in
     let id = Mir_id.Slot.of_int (Mir_id.Value.to_int v.Mir_value.id) in
     if
       not
@@ -202,7 +208,9 @@ module Make (T : Mir_sel.TARGET) (R : REGISTERS) = struct
                   | Some Mutation.Slot_reuse, Some p
                     when Mir_type.equal p.Mir_value.ty r.Mir_value.ty ->
                       slot st p
-                  | Some Mutation.Spill_width, _ when snd (shape r) = 64 -> (
+                  | Some Mutation.Spill_width, _
+                    when snd (shape r)
+                         = Machine_ir.Mir_target.Bits.of_int (64 :> int) -> (
                       match slot st r with
                       | Loc.Slot s -> Loc.Slot { s with bytes = 4L }
                       | l -> l)

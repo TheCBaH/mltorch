@@ -85,8 +85,9 @@ let%expect_test "feedback chooses per target; every group bitwise" =
                 Fmt.pr "    %a: @[%a@]@." Node_id.pp node B.Decision.pp d)
             decisions;
           List.iter
-            (fun group ->
-              Fmt.pr "  %s group %d: %s@." (M.Route.name route) group
+            (fun (group : Ssa_ir.Ssa_blocking.Group.t) ->
+              Fmt.pr "  %s group %d: %s@." (M.Route.name route)
+                (group :> int)
                 (fst (run ~route ~blocking:(B.Policy.Group group) g)))
             B.groups)
         routes)
@@ -145,7 +146,7 @@ let%expect_test "the choice: least hot spilling, then the largest group" =
   let module P = Machine_alloc.Mir_pressure in
   let c group spills =
     {
-      B.Candidate.group;
+      B.Candidate.group = Ssa_ir.Ssa_blocking.Group.of_int group;
       pressure =
         (match spills with
         | None -> Error "not lowered"
@@ -165,7 +166,7 @@ let%expect_test "the choice: least hot spilling, then the largest group" =
     }
   in
   List.iter
-    (fun cs -> Fmt.pr "%d@." (B.decide cs).B.Decision.chosen)
+    (fun cs -> Fmt.pr "%d@." ((B.decide cs).B.Decision.chosen :> int))
     [
       [ c 1 (Some 0); c 8 (Some 5); c 4 (Some 0); c 2 (Some 0) ];
       [ c 1 (Some 3); c 8 (Some 9); c 4 (Some 4); c 2 (Some 3) ];

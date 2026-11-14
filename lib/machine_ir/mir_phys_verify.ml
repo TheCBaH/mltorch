@@ -28,7 +28,7 @@ module Make (T : Mir_sel.TARGET) = struct
     | Some (bank, bits), Loc.Reg view ->
         view.Mir_target.View.bank = bank && view.Mir_target.View.bits = bits
     | Some (Mir_target.Bank.Flags, _), (Loc.Slot _ | Loc.Mem _) -> false
-    | Some (_, bits), (Loc.Slot _ | Loc.Mem _) -> in_memory bits l
+    | Some (_, bits), (Loc.Slot _ | Loc.Mem _) -> in_memory (bits :> int) l
     | None, _ -> false
 
   (* Whether running an instruction again recreates its one result: it reads
@@ -152,7 +152,7 @@ module Make (T : Mir_sel.TARGET) = struct
                         if
                           not
                             (Int64.equal (Int64.mul 8L bytes)
-                               (Int64.of_int v.Mir_target.View.bits))
+                               (Int64.of_int (v.Mir_target.View.bits :> int)))
                         then reject ~block "a save narrower than its register"
                     | _ ->
                         reject ~block

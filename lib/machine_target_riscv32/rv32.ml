@@ -23,8 +23,9 @@ let shape (ty : Machine_ir.Mir_type.t) =
   match ty with
   | Machine_ir.Mir_type.Ptr | Machine_ir.Mir_type.Pred
   | Machine_ir.Mir_type.Int Machine_ir.Mir_width.(W8 | W16 | W32) ->
-      Some (Machine_ir.Mir_target.Bank.Gpr, 32)
-  | Machine_ir.Mir_type.F32 -> Some (Machine_ir.Mir_target.Bank.Fpr, 32)
+      Some (Machine_ir.Mir_target.Bank.Gpr, Machine_ir.Mir_target.Bits.of_int 32)
+  | Machine_ir.Mir_type.F32 ->
+      Some (Machine_ir.Mir_target.Bank.Fpr, Machine_ir.Mir_target.Bits.of_int 32)
   | Machine_ir.Mir_type.Flags ->
       Some (Machine_ir.Mir_target.Bank.Flags, Rv32_reg.flags.bits)
   | Machine_ir.Mir_type.Vec
@@ -33,7 +34,9 @@ let shape (ty : Machine_ir.Mir_type.t) =
         n )
   | Machine_ir.Mir_type.Mask n
     when Machine_ir.Mir_type.Lanes.to_int n = 4 ->
-      Some (Machine_ir.Mir_target.Bank.Vector, 128)
+      Some
+        ( Machine_ir.Mir_target.Bank.Vector,
+          Machine_ir.Mir_target.Bits.of_int 128 )
   | Machine_ir.Mir_type.Vec
       ( ( Machine_ir.Mir_type.Elem.F32
         | Machine_ir.Mir_type.Elem.Int Machine_ir.Mir_width.W32 ),
@@ -41,7 +44,9 @@ let shape (ty : Machine_ir.Mir_type.t) =
   | Machine_ir.Mir_type.Mask n
     when Machine_ir.Mir_type.Lanes.to_int n = 16 ->
       (* a group of four registers: [Rv32_regs.Grouped] allocates them *)
-      Some (Machine_ir.Mir_target.Bank.Vector, 512)
+      Some
+        ( Machine_ir.Mir_target.Bank.Vector,
+          Machine_ir.Mir_target.Bits.of_int 512 )
   | Machine_ir.Mir_type.Vec
       ( ( Machine_ir.Mir_type.Elem.F32
         | Machine_ir.Mir_type.Elem.Int Machine_ir.Mir_width.W32 ),
@@ -49,20 +54,28 @@ let shape (ty : Machine_ir.Mir_type.t) =
   | Machine_ir.Mir_type.Mask n
     when Machine_ir.Mir_type.Lanes.to_int n = 32 ->
       (* a group of eight registers: [Rv32_regs.Grouped8] allocates them *)
-      Some (Machine_ir.Mir_target.Bank.Vector, 1024)
+      Some
+        ( Machine_ir.Mir_target.Bank.Vector,
+          Machine_ir.Mir_target.Bits.of_int 1024 )
   | Machine_ir.Mir_type.Vec
       (Machine_ir.Mir_type.Elem.Int Machine_ir.Mir_width.W8, n)
     when Machine_ir.Mir_type.Lanes.to_int n = 16 ->
-      Some (Machine_ir.Mir_target.Bank.Vector, 128)
+      Some
+        ( Machine_ir.Mir_target.Bank.Vector,
+          Machine_ir.Mir_target.Bits.of_int 128 )
   | Machine_ir.Mir_type.Vec
       (Machine_ir.Mir_type.Elem.Int Machine_ir.Mir_width.W16, n)
     when Machine_ir.Mir_type.Lanes.to_int n = 8 ->
-      Some (Machine_ir.Mir_target.Bank.Vector, 128)
+      Some
+        ( Machine_ir.Mir_target.Bank.Vector,
+          Machine_ir.Mir_target.Bits.of_int 128 )
   | Machine_ir.Mir_type.Vec
       (Machine_ir.Mir_type.Elem.Int Machine_ir.Mir_width.W16, n)
     when Machine_ir.Mir_type.Lanes.to_int n = 16 ->
       (* half a group, held in a whole one: loaded and widened at once *)
-      Some (Machine_ir.Mir_target.Bank.Vector, 512)
+      Some
+        ( Machine_ir.Mir_target.Bank.Vector,
+          Machine_ir.Mir_target.Bits.of_int 512 )
   | _ -> None
 
 (* A frame access: offsets up to 2047 encode; up to 4094 the emitter adds 2047

@@ -16,7 +16,7 @@ let show graph =
       Fmt.pr "header bb%d: %a@."
         (Mir_id.Block.to_int l.Mir_loop.header)
         Fmt.(list ~sep:(any " ") int)
-        (Mir_loop.Ids.elements l.Mir_loop.body))
+        (List.map Mir_id.Block.to_int (Mir_loop.Ids.elements l.Mir_loop.body)))
 
 let%expect_test "nested loops, two back edges, an unreachable block" =
   (* bb1 heads bb1-bb4, bb2 heads bb2-bb3; bb4 and bb3 both return to bb1's

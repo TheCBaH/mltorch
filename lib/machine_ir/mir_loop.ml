@@ -4,12 +4,12 @@
    header make one loop. The graph is given as each block's successors, entry
    first; a block unreachable from the entry is in no loop. *)
 
-module Ids = Set.Make (Int)
+module Ids = Mir_id.Block.Set
 
 type t = { header : Mir_id.Block.t; body : Ids.t }
 
-let mem t b = Ids.mem (Mir_id.Block.to_int b) t.body
-let key = Mir_id.Block.to_int
+let mem t b = Ids.mem b t.body
+let key (b : Mir_id.Block.t) = b
 
 (* Each block's dominators, by the iterative dataflow over [blocks]. *)
 let dominators ~entry (graph : (Mir_id.Block.t * Mir_id.Block.t list) list) =

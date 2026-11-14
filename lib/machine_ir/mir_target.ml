@@ -29,6 +29,14 @@ module Feature = struct
     | Zve32f -> "zve32f"
 end
 
+(* A width in bits: a register view's, a value's shape, a unit's. *)
+module Bits =
+  Core.Tagged_int.Make
+    (struct
+      let prefix = "b"
+    end)
+    ()
+
 (* A register bank: storage of one kind. Views of one bank overlap; banks do
    not. *)
 module Bank = struct
@@ -65,8 +73,8 @@ module View = struct
     bank : Bank.t;
     unit : Mir_id.Unit.t;
     span : Span.t;
-    lo : int;
-    bits : int;
+    lo : Bits.t;
+    bits : Bits.t;
   }
 
   let equal (a : t) b = a = b
@@ -85,8 +93,8 @@ module View = struct
     match (a.span, b.span) with
     | Span.One, Span.One ->
         Mir_id.Unit.equal a.unit b.unit
-        && a.lo < b.lo + b.bits
-        && b.lo < a.lo + a.bits
+        && (a.lo :> int) < (b.lo :> int) + (b.bits :> int)
+        && (b.lo :> int) < (a.lo :> int) + (a.bits :> int)
     | _ ->
         let bu = units b in
         List.exists (fun u -> List.exists (Mir_id.Unit.equal u) bu) (units a)
@@ -114,24 +122,25 @@ end
    register, a narrower integer or predicate its 32-bit view, a float its
    precision's view, a vector a register-wide slice or its half, a mask a whole
    register of four binary32 or two binary64 lanes. *)
-let lp64_shape ~flags_bits (ty : Mir_type.t) =
+let lp64_shape ~(flags_bits : Bits.t) (ty : Mir_type.t) =
+  let b = Bits.of_int in
   match ty with
-  | Mir_type.Int Mir_width.W64 | Mir_type.Ptr -> Some (Bank.Gpr, 64)
+  | Mir_type.Int Mir_width.W64 | Mir_type.Ptr -> Some (Bank.Gpr, b 64)
   | Mir_type.Int (Mir_width.W8 | Mir_width.W16 | Mir_width.W32) | Mir_type.Pred
     ->
-      Some (Bank.Gpr, 32)
-  | Mir_type.F64 -> Some (Bank.Fpr, 64)
-  | Mir_type.F32 -> Some (Bank.Fpr, 32)
+      Some (Bank.Gpr, b 32)
+  | Mir_type.F64 -> Some (Bank.Fpr, b 64)
+  | Mir_type.F32 -> Some (Bank.Fpr, b 32)
   | Mir_type.Flags -> Some (Bank.Flags, flags_bits)
   | Mir_type.Vec (e, n) -> (
       match
         Int64.to_int (Mir_type.Elem.bytes e) * 8 * Mir_type.Lanes.to_int n
       with
-      | (64 | 128) as bits -> Some (Bank.Fpr, bits)
+      | (64 | 128) as bits -> Some (Bank.Fpr, b bits)
       | _ -> None)
   | Mir_type.Mask n -> (
       match Mir_type.Lanes.to_int n with
-      | 2 | 4 -> Some (Bank.Fpr, 128)
+      | 2 | 4 -> Some (Bank.Fpr, b 128)
       | _ -> None)
   | Mir_type.Order -> None
 

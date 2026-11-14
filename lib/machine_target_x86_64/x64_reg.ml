@@ -54,8 +54,8 @@ let gpr bits k =
     bank = Mir_target.Bank.Gpr;
     unit = Mir_id.Unit.of_int k;
     span = Mir_target.Span.One;
-    lo = 0;
-    bits;
+    lo = Mir_target.Bits.of_int 0;
+    bits = Mir_target.Bits.of_int bits;
   }
 
 let q = gpr 64
@@ -69,8 +69,8 @@ let xmm_view bits k =
     bank = Mir_target.Bank.Fpr;
     unit = Mir_id.Unit.of_int (16 + k);
     span = Mir_target.Span.One;
-    lo = 0;
-    bits;
+    lo = Mir_target.Bits.of_int 0;
+    bits = Mir_target.Bits.of_int bits;
   }
 
 let xmm = xmm_view 128
@@ -83,8 +83,8 @@ let rflags =
     bank = Mir_target.Bank.Flags;
     unit = Mir_id.Unit.of_int 32;
     span = Mir_target.Span.One;
-    lo = 0;
-    bits = 6;
+    lo = Mir_target.Bits.of_int 0;
+    bits = Mir_target.Bits.of_int 6;
   }
 
 let mxcsr =
@@ -93,8 +93,8 @@ let mxcsr =
     bank = Mir_target.Bank.Control;
     unit = Mir_id.Unit.of_int 33;
     span = Mir_target.Span.One;
-    lo = 0;
-    bits = 32;
+    lo = Mir_target.Bits.of_int 0;
+    bits = Mir_target.Bits.of_int 32;
   }
 
 let rax = 0

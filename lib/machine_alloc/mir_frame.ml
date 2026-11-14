@@ -86,7 +86,7 @@ module Make (T : Mir_sel.TARGET) (F : FRAME with type op = T.op) = struct
       let whole =
         {
           v with
-          Mir_target.View.lo = 0;
+          Mir_target.View.lo = Mir_target.Bits.of_int 0;
           bits = T.unit_bits v.Mir_target.View.bank;
         }
       in
@@ -132,7 +132,7 @@ module Make (T : Mir_sel.TARGET) (F : FRAME with type op = T.op) = struct
           (fun (v : Mir_target.View.t) ->
             {
               key = `Save v;
-              bytes = Int64.of_int (v.Mir_target.View.bits / 8);
+              bytes = Int64.of_int ((v.Mir_target.View.bits :> int) / 8);
               align = 8L;
             })
           saves
@@ -226,12 +226,16 @@ module Make (T : Mir_sel.TARGET) (F : FRAME with type op = T.op) = struct
     let save_word (v : Mir_target.View.t) =
       let pre, mem =
         access
-          ~bytes:(Int64.of_int (v.Mir_target.View.bits / 8))
+          ~bytes:(Int64.of_int ((v.Mir_target.View.bits :> int) / 8))
           (offset (`Save v))
       in
       if mutated Mutation.Narrow_save then
         let half =
-          { v with Mir_target.View.bits = v.Mir_target.View.bits / 2 }
+          {
+            v with
+            Mir_target.View.bits =
+              Mir_target.Bits.of_int ((v.Mir_target.View.bits :> int) / 2);
+          }
         in
         match mem with
         | Loc.Mem m ->

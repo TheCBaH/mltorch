@@ -59,7 +59,7 @@ module Make (T : Mir_sel.TARGET) = struct
   (* Where a holder lives: a register unit or a slot. *)
   (* Where a holder lives: a register unit, a frame slot before layout, or
      realized frame bytes by their offset from the entry stack pointer. *)
-  type key = Frame of int64 | Slot of int | Unit of int
+  type key = Frame of int64 | Slot of Mir_id.Slot.t | Unit of Mir_id.Unit.t
 
   (* What a location holds: a virtual value written at a width (bits) over
      [units] consecutive register units from its key (1 but for a register
@@ -77,41 +77,41 @@ module Make (T : Mir_sel.TARGET) = struct
 
   (* A view's key: its unit, or a group's base unit, where the group's holder
      is kept. *)
-  let unit_of (v : Mir_target.View.t) =
-    Unit (Mir_id.Unit.to_int v.Mir_target.View.unit)
+  let unit_of (v : Mir_target.View.t) = Unit v.Mir_target.View.unit
 
   let span_units (v : Mir_target.View.t) =
     Mir_target.Span.count v.Mir_target.View.span
 
   (* Forgets every register holder that covers unit [u]: its own, and a
      group's based below it. *)
-  let kill_unit st u =
+  let kill_unit st (u : Mir_id.Unit.t) =
+    let u = Mir_id.Unit.to_int u in
     K.filter
       (fun key h ->
         match (key, h) with
-        | Unit j, Value { units; _ } -> not (j <= u && u < j + units)
-        | Unit j, Address _ -> j <> u
+        | Unit j, Value { units; _ } ->
+            let j = Mir_id.Unit.to_int j in
+            not (j <= u && u < j + units)
+        | Unit j, Address _ -> Mir_id.Unit.to_int j <> u
         | _ -> true)
       st
 
   let kill_members st (v : Mir_target.View.t) =
-    List.fold_left
-      (fun st u -> kill_unit st (Mir_id.Unit.to_int u))
-      st (Mir_target.View.units v)
+    List.fold_left kill_unit st (Mir_target.View.units v)
 
   (* A location's key; frame memory resolves through its base register's
      address holder, and is unknown when the base holds no address. *)
   let key_of st (l : Loc.t) =
     match l with
     | Loc.Reg v -> Some (unit_of v)
-    | Loc.Slot { slot; _ } -> Some (Slot (Mir_id.Slot.to_int slot))
+    | Loc.Slot { slot; _ } -> Some (Slot slot)
     | Loc.Mem { base; offset; _ } -> (
         match K.find_opt (unit_of base) st with
         | Some (Address k) -> Some (Frame (Int64.add k offset))
         | Some (Value _) | None -> None)
 
   let width_of = function
-    | Loc.Reg v -> Int64.of_int v.Mir_target.View.bits
+    | Loc.Reg v -> Int64.of_int (v.Mir_target.View.bits :> int)
     | Loc.Slot { bytes; _ } | Loc.Mem { bytes; _ } -> Int64.mul 8L bytes
 
   let holds st l (v : Mir_value.t) =
@@ -148,12 +148,14 @@ module Make (T : Mir_sel.TARGET) = struct
     | Some (Value h)
       when v.Mir_target.View.span = Mir_target.Span.One
            && h.units = 1
-           && Int64.compare (Int64.of_int v.Mir_target.View.lo) h.width >= 0
+           && Int64.compare (Int64.of_int (v.Mir_target.View.lo :> int)) h.width
+              >= 0
            && not
                 (K.exists
                    (fun key h ->
                      match (key, h) with
                      | Unit j, Value { units; _ } ->
+                         let j = Mir_id.Unit.to_int j in
                          let u = Mir_id.Unit.to_int v.Mir_target.View.unit in
                          j < u && u < j + units
                      | _ -> false)

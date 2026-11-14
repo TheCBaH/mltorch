@@ -181,7 +181,7 @@ let source ?contractions ?bf16_pairs ?site ?(constant = fun _ -> false)
   let blocked g =
     Result.map_error
       (fun s -> Reason.Source s)
-      (Ssa_backends.blocked ~group:(Ssa_ir.Ssa_blocking.Group.of_int g) inv)
+      (Ssa_backends.blocked ~group:g inv)
   in
   (* a binary32 attention is the loops of its reference, built on the lowered
      program so the plan narrows them with everything else *)
@@ -281,7 +281,7 @@ let source ?contractions ?bf16_pairs ?site ?(constant = fun _ -> false)
       let* q = blocked g in
       match q with
       | Some q ->
-          let* l = lower ~group:g q in
+          let* l = lower ~group:(g :> int) q in
           Ok (l, None, [])
       | None ->
           let* p = exact () in
@@ -298,7 +298,10 @@ let source ?contractions ?bf16_pairs ?site ?(constant = fun _ -> false)
           Mir_blocking.groups (Ok [])
       in
       let lowered =
-        List.map (fun (g, q) -> (g, lower ~group:g q)) ((1, p) :: others)
+        List.map
+          (fun ((g : Ssa_ir.Ssa_blocking.Group.t), q) ->
+            (g, lower ~group:(g :> int) q))
+          ((Ssa_ir.Ssa_blocking.Group.of_int 1, p) :: others)
       in
       let decision =
         Mir_blocking.decide

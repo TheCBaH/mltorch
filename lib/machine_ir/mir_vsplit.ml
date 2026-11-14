@@ -77,8 +77,10 @@ let program ?mutation ~register_bytes (g : Mir_verify.Generic.t) =
     (* every vector value's slices, made before any use is rewritten *)
     let slices = Hashtbl.create 64 in
     (* a mask's lane width, from the elements it was compared from *)
-    let mask_elem : (int, Mir_type.Elem.t) Hashtbl.t = Hashtbl.create 16 in
-    let key (v : Mir_value.t) = Mir_id.Value.to_int v.Mir_value.id in
+    let mask_elem : (Mir_id.Value.t, Mir_type.Elem.t) Hashtbl.t =
+      Hashtbl.create 16
+    in
+    let key (v : Mir_value.t) = v.Mir_value.id in
     let vec_elem (v : Mir_value.t) =
       match v.Mir_value.ty with Mir_type.Vec (e, _) -> Some e | _ -> None
     in
@@ -218,8 +220,7 @@ let program ?mutation ~register_bytes (g : Mir_verify.Generic.t) =
     let note (v : Mir_value.t) =
       if is_vector v then
         let ty, count, _ = shape_of v in
-        Hashtbl.replace slices
-          (Mir_id.Value.to_int v.Mir_value.id)
+        Hashtbl.replace slices v.Mir_value.id
           (Array.init count (fun _ -> fresh ty))
     in
     List.iter
@@ -229,9 +230,7 @@ let program ?mutation ~register_bytes (g : Mir_verify.Generic.t) =
           (fun (i : Mir_op.t Mir_instr.t) -> List.iter note i.Mir_instr.results)
           b.Mir_block.body)
       f.Mir_func.blocks;
-    let s (v : Mir_value.t) =
-      Hashtbl.find slices (Mir_id.Value.to_int v.Mir_value.id)
-    in
+    let s (v : Mir_value.t) = Hashtbl.find slices v.Mir_value.id in
     let expand vs =
       List.concat_map
         (fun v -> if is_vector v then Array.to_list (s v) else [ v ])
@@ -534,7 +533,7 @@ let int_register (t : Mir_type.t) =
    extension from the whole register and leaves the slice unmade: the key is
    the slice, the value its first lane and the register. *)
 let widening_slices (f : (Mir_op.t, Mir_terminator.t) Mir_func.t) =
-  let key (v : Mir_value.t) = Mir_id.Value.to_int v.Mir_value.id in
+  let key (v : Mir_value.t) = v.Mir_value.id in
   let readers = Hashtbl.create 64 in
   List.iter
     (fun (b : (Mir_op.t, Mir_terminator.t) Mir_block.t) ->
@@ -572,7 +571,7 @@ let widening_slices (f : (Mir_op.t, Mir_terminator.t) Mir_func.t) =
    halves. A selector makes the joined register from the two [i32x4] sources
    and leaves the halves unmade: the key is the half, the value its source. *)
 let narrowing_halves (f : (Mir_op.t, Mir_terminator.t) Mir_func.t) =
-  let key (v : Mir_value.t) = Mir_id.Value.to_int v.Mir_value.id in
+  let key (v : Mir_value.t) = v.Mir_value.id in
   let i32x4 =
     Mir_type.Vec (Mir_type.Elem.Int Mir_width.W32, Mir_type.Lanes.of_int 4)
   in
@@ -614,7 +613,7 @@ let narrowing_halves (f : (Mir_op.t, Mir_terminator.t) Mir_func.t) =
    selector shifts by the constant itself and leaves the splat unmade. The key
    is the splat, the value the count. *)
 let shift_counts (f : (Mir_op.t, Mir_terminator.t) Mir_func.t) =
-  let key (v : Mir_value.t) = Mir_id.Value.to_int v.Mir_value.id in
+  let key (v : Mir_value.t) = v.Mir_value.id in
   let consts = Hashtbl.create 64 and counts = Hashtbl.create 16 in
   let other = Hashtbl.create 64 in
   List.iter

@@ -243,11 +243,11 @@ let constraints = function
 let result_write _ = Mir_target.Write.Zero_upper
 
 let unit_bits = function
-  | Mir_target.Bank.Control -> 32
-  | Mir_target.Bank.Flags -> 1
-  | Mir_target.Bank.Fpr -> 32
-  | Mir_target.Bank.Gpr -> 32
-  | Mir_target.Bank.Vector -> 128
+  | Mir_target.Bank.Control -> Machine_ir.Mir_target.Bits.of_int 32
+  | Mir_target.Bank.Flags -> Machine_ir.Mir_target.Bits.of_int 1
+  | Mir_target.Bank.Fpr -> Machine_ir.Mir_target.Bits.of_int 32
+  | Mir_target.Bank.Gpr -> Machine_ir.Mir_target.Bits.of_int 32
+  | Mir_target.Bank.Vector -> Machine_ir.Mir_target.Bits.of_int 128
 
 (* A call leaves undefined every register the psABI does not preserve: ra,
    t0-t6, a0-a7, ft0-ft11, fa0-fa7 and every vector register. *)

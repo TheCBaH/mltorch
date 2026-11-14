@@ -751,7 +751,7 @@ let rec instr st (i : Ssa_instr.t) =
 let data_values vs = List.filter (fun v -> not (is_effect v)) vs
 
 let edge st (e : Ssa_cfg_edge.t) =
-  let target = Hashtbl.find st.heads (e.Ssa_cfg_edge.target :> int) in
+  let target = Hashtbl.find st.heads e.Ssa_cfg_edge.target in
   let args = List.map (value st) (data_values e.Ssa_cfg_edge.args) in
   let args =
     if not (mutated st Mutation.Sequential_transfer) then args
@@ -773,7 +773,7 @@ let edge st (e : Ssa_cfg_edge.t) =
   (target, args)
 
 let block st (b : Ssa_cfg_block.t) =
-  st.cur <- Hashtbl.find st.heads (b.Ssa_cfg_block.id :> int);
+  st.cur <- Hashtbl.find st.heads b.Ssa_cfg_block.id;
   List.iteri
     (fun k (i : Ssa_instr.t) ->
       st.origin <-
@@ -889,7 +889,7 @@ let program ?mutation ~planning (p : Ssa_program.t) =
       esc;
       bld;
       layout;
-      values = Hashtbl.create 256;
+      values = Ssa_ir.Ssa_id.Value.Tbl.create 256;
       constants = Hashtbl.create 64;
       heads = Hashtbl.create 32;
       locals = Hashtbl.create 8;
@@ -918,7 +918,7 @@ let program ?mutation ~planning (p : Ssa_program.t) =
              params)
       in
       List.iter2 (bind st) params (B.param mb);
-      Hashtbl.replace st.heads (b.Ssa_cfg_block.id :> int) mb)
+      Hashtbl.replace st.heads b.Ssa_cfg_block.id mb)
     rpo;
   (* the invocation's meter starts fresh *)
   let metered =
@@ -935,7 +935,7 @@ let program ?mutation ~planning (p : Ssa_program.t) =
       cfg.Ssa_cfg.blocks
   in
   if metered then meter_reset st;
-  B.jump st.cur (Hashtbl.find st.heads (cfg.Ssa_cfg.entry :> int)) [];
+  B.jump st.cur (Hashtbl.find st.heads cfg.Ssa_cfg.entry) [];
   (* blocks in reverse postorder, so every use follows its definition *)
   List.iter (block st) rpo;
   let fn = Mir_id.Func.of_int 0 in

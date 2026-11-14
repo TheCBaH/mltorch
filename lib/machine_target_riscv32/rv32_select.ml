@@ -16,9 +16,7 @@ let instr st (i : Mir_op.t Mir_instr.t) =
     refuse st (Refusal.Operation (Mir_op.name i.Mir_instr.op))
   in
   let result_key =
-    match i.Mir_instr.results with
-    | [ r ] -> Some (Mir_id.Value.to_int r.Mir_value.id)
-    | _ -> None
+    match i.Mir_instr.results with [ r ] -> Some r.Mir_value.id | _ -> None
   in
   match Option.bind result_key (Hashtbl.find_opt st.reductions) with
   | Some (seed, v) ->

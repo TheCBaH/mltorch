@@ -432,11 +432,11 @@ let result_write = function
   | _ -> Mir_target.Write.Zero_upper
 
 let unit_bits = function
-  | Mir_target.Bank.Control -> 32
-  | Mir_target.Bank.Flags -> 6
-  | Mir_target.Bank.Fpr -> 128
-  | Mir_target.Bank.Gpr -> 64
-  | Mir_target.Bank.Vector -> 128
+  | Mir_target.Bank.Control -> Machine_ir.Mir_target.Bits.of_int 32
+  | Mir_target.Bank.Flags -> Machine_ir.Mir_target.Bits.of_int 6
+  | Mir_target.Bank.Fpr -> Machine_ir.Mir_target.Bits.of_int 128
+  | Mir_target.Bank.Gpr -> Machine_ir.Mir_target.Bits.of_int 64
+  | Mir_target.Bank.Vector -> Machine_ir.Mir_target.Bits.of_int 128
 
 let op_features = function
   | Fmadd231 _ | Pfmadd231 _ -> [ Mir_target.Feature.Fma ]

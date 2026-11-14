@@ -8,8 +8,9 @@
 
 open Machine_ir
 
-let view bank ~bits k =
-  match (bank, bits) with
+let view bank ~(bits : Mir_target.Bits.t) k =
+  let width = (bits :> int) in
+  match (bank, width) with
   | Mir_target.Bank.Gpr, 32 -> Rv32_reg.x k
   | Mir_target.Bank.Fpr, 32 -> Rv32_reg.f k
   | Mir_target.Bank.Vector, 128 -> Rv32_reg.v k
@@ -85,13 +86,15 @@ module Grouped = struct
     Err.or_raise ~pp_error:Rv32_reg.pp_group_error
       (Rv32_reg.group Mir_target.Span.Four k)
 
-  let copy_scratch bank ~bits =
-    match (bank, bits) with
+  let copy_scratch bank ~(bits : Mir_target.Bits.t) =
+    let width = (bits :> int) in
+    match (bank, width) with
     | Mir_target.Bank.Vector, 512 -> group 24
     | _ -> copy_scratch bank ~bits
 
-  let cycle_scratch bank ~bits =
-    match (bank, bits) with
+  let cycle_scratch bank ~(bits : Mir_target.Bits.t) =
+    let width = (bits :> int) in
+    match (bank, width) with
     | Mir_target.Bank.Vector, 512 -> group 28
     | _ -> cycle_scratch bank ~bits
 
@@ -119,13 +122,15 @@ module Grouped8 = struct
     Err.or_raise ~pp_error:Rv32_reg.pp_group_error
       (Rv32_reg.group Mir_target.Span.Eight k)
 
-  let copy_scratch bank ~bits =
-    match (bank, bits) with
+  let copy_scratch bank ~(bits : Mir_target.Bits.t) =
+    let width = (bits :> int) in
+    match (bank, width) with
     | Mir_target.Bank.Vector, 1024 -> group 24
     | _ -> copy_scratch bank ~bits
 
-  let cycle_scratch bank ~bits =
-    match (bank, bits) with
+  let cycle_scratch bank ~(bits : Mir_target.Bits.t) =
+    let width = (bits :> int) in
+    match (bank, width) with
     | Mir_target.Bank.Vector, 1024 -> group 0
     | _ -> cycle_scratch bank ~bits
 

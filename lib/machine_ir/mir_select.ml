@@ -64,12 +64,13 @@ let fallibility (p : Mir_program.generic) =
   callee
 
 type ('op, 'test) t = {
-  defs : (int, Mir_op.t) Hashtbl.t;  (** generic value id -> defining op *)
+  defs : (Mir_id.Value.t, Mir_op.t) Hashtbl.t;
+      (** generic value id -> defining op *)
   mutable next_value : int;
   mutable next_instr : int;
   mutable body : 'op Mir_sel.Op.t Mir_instr.t list;  (** reversed *)
   mutable origin : Mir_origin.t;
-  orders : (int, Mir_value.t) Hashtbl.t;
+  orders : (Mir_id.Value.t, Mir_value.t) Hashtbl.t;
       (** a generic order state replaced by a split block's order parameter *)
   mutable next_block : int;
   mutable cur_id : Mir_id.Block.t;
@@ -90,9 +91,7 @@ let create (f : (Mir_op.t, Mir_terminator.t) Mir_func.t) =
         (fun (ins : Mir_op.t Mir_instr.t) ->
           List.iter
             (fun (r : Mir_value.t) ->
-              Hashtbl.replace defs
-                (Mir_id.Value.to_int r.Mir_value.id)
-                ins.Mir_instr.op)
+              Hashtbl.replace defs r.Mir_value.id ins.Mir_instr.op)
             ins.Mir_instr.results)
         b.Mir_block.body)
     f.Mir_func.blocks;
@@ -118,8 +117,7 @@ let create (f : (Mir_op.t, Mir_terminator.t) Mir_func.t) =
 
 (* The order state a generic one stands for after splits. *)
 let ord b (v : Mir_value.t) =
-  Option.value ~default:v
-    (Hashtbl.find_opt b.orders (Mir_id.Value.to_int v.Mir_value.id))
+  Option.value ~default:v (Hashtbl.find_opt b.orders v.Mir_value.id)
 
 let ord_edge b (e : Mir_edge.t) =
   { e with Mir_edge.order = ord b e.Mir_edge.order }
@@ -147,7 +145,7 @@ let emit b ?result ty op =
   r
 
 let const_of b (v : Mir_value.t) =
-  match Hashtbl.find_opt b.defs (Mir_id.Value.to_int v.Mir_value.id) with
+  match Hashtbl.find_opt b.defs v.Mir_value.id with
   | Some (Mir_op.Const c) -> Some c.Mir_const.bits
   | _ -> None
 
@@ -196,7 +194,7 @@ let split_on_status b ~nonzero ~status ~after =
     }
     :: b.finished;
   let o2 = fresh b Mir_type.Order in
-  Hashtbl.replace b.orders (Mir_id.Value.to_int after.Mir_value.id) o2;
+  Hashtbl.replace b.orders after.Mir_value.id o2;
   start b continue [] o2
 
 (* The record of a failure, stored word by word through [store base offset

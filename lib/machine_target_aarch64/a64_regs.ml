@@ -9,8 +9,9 @@
 
 open Machine_ir
 
-let view bank ~bits k =
-  match (bank, bits) with
+let view bank ~(bits : Mir_target.Bits.t) k =
+  let width = (bits :> int) in
+  match (bank, width) with
   | Mir_target.Bank.Gpr, 64 -> A64_reg.x k
   | Mir_target.Bank.Gpr, 32 -> A64_reg.w k
   | Mir_target.Bank.Fpr, 128 -> A64_reg.q k
@@ -33,10 +34,12 @@ let cycle_scratch bank ~bits =
 
 let shape (t : Mir_type.t) =
   match t with
-  | Mir_type.Int Mir_width.W64 | Mir_type.Ptr -> (Mir_target.Bank.Gpr, 64)
-  | Mir_type.Int _ | Mir_type.Pred -> (Mir_target.Bank.Gpr, 32)
-  | Mir_type.F64 -> (Mir_target.Bank.Fpr, 64)
-  | Mir_type.F32 -> (Mir_target.Bank.Fpr, 32)
+  | Mir_type.Int Mir_width.W64 | Mir_type.Ptr ->
+      (Mir_target.Bank.Gpr, Mir_target.Bits.of_int 64)
+  | Mir_type.Int _ | Mir_type.Pred ->
+      (Mir_target.Bank.Gpr, Mir_target.Bits.of_int 32)
+  | Mir_type.F64 -> (Mir_target.Bank.Fpr, Mir_target.Bits.of_int 64)
+  | Mir_type.F32 -> (Mir_target.Bank.Fpr, Mir_target.Bits.of_int 32)
   | _ -> invalid_arg "A64_regs: a value no register holds"
 
 (* Integers and floats each take the next register of their own sequence. *)

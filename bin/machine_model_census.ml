@@ -453,7 +453,7 @@ let () =
                     ~choices:
                       (List.map
                          (fun (d : Machine_model.Mir_blocking.Decision.t) ->
-                           d.Machine_model.Mir_blocking.Decision.chosen)
+                           (d.Machine_model.Mir_blocking.Decision.chosen :> int))
                          decisions));
               match (!run, !traffic) with
               | None, None -> ()

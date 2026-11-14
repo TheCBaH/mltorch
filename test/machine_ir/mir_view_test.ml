@@ -16,8 +16,8 @@ let v ?(span = Mir_target.Span.One) k =
     bank = Mir_target.Bank.Vector;
     unit = Mir_id.Unit.of_int (65 + k);
     span;
-    lo = 0;
-    bits = 128 * Mir_target.Span.count span;
+    lo = Mir_target.Bits.of_int 0;
+    bits = Mir_target.Bits.of_int (128 * Mir_target.Span.count span);
   }
 
 let m4 = v ~span:Mir_target.Span.Four

@@ -49,23 +49,24 @@ type st = {
   sites : Mir_failure.Site_entry.t array;
   unlisted : Mir_failure.Unlisted.t;
   fallible : Mir_op.Callee.t -> bool;
-  pairs : (int, pair) Hashtbl.t;  (** every generic i64 value's halves *)
-  subst : (int, Mir_value.t) Hashtbl.t;
+  pairs : (Mir_id.Value.t, pair) Hashtbl.t;
+      (** every generic i64 value's halves *)
+  subst : (Mir_id.Value.t, Mir_value.t) Hashtbl.t;
       (** a generic value that is another one's half: its uses read that *)
-  float_loads : (int, Mir_value.t) Hashtbl.t;
+  float_loads : (Mir_id.Value.t, Mir_value.t) Hashtbl.t;
       (** a load read only by one bitcast to binary32: the float it defines *)
-  int_slices : (int, int * Mir_value.t) Hashtbl.t;
+  int_slices : (Mir_id.Value.t, int * Mir_value.t) Hashtbl.t;
       (** four lanes of an integer register read only by extensions to int32:
           the first lane and the register *)
-  shift_counts : (int, int64) Hashtbl.t;
+  shift_counts : (Mir_id.Value.t, int64) Hashtbl.t;
       (** an integer splat read only as a lane shift count: the count *)
-  narrowing_halves : (int, Mir_value.t) Hashtbl.t;
+  narrowing_halves : (Mir_id.Value.t, Mir_value.t) Hashtbl.t;
       (** an [i16x4] truncation read only by a join into an [i16x8]: its
           [int32x4] source ({!Mir_vsplit.narrowing_halves}) *)
-  reductions : (int, Mir_value.t * Mir_value.t) Hashtbl.t;
+  reductions : (Mir_id.Value.t, Mir_value.t * Mir_value.t) Hashtbl.t;
       (** the last add of a chain [acc + lane k] over every lane of one vector
           in lane order: its seed and the vector, one [vfredosum.vs] *)
-  reduced : (int, unit) Hashtbl.t;
+  reduced : (Mir_id.Value.t, unit) Hashtbl.t;
       (** the chains' other adds and their extracts: made by the reduction *)
 }
 
@@ -74,7 +75,7 @@ type st = {
    next step. A chain's last add, keyed by its result, gives the seed and the
    vector; every other step and extract is listed as made by it. *)
 let ordered_chains (f : (Mir_op.t, Mir_terminator.t) Mir_func.t) =
-  let key (v : Mir_value.t) = Mir_id.Value.to_int v.Mir_value.id in
+  let key (v : Mir_value.t) = v.Mir_value.id in
   let readers = Hashtbl.create 64 and defs = Hashtbl.create 64 in
   let read v =
     Hashtbl.replace readers (key v)
@@ -111,7 +112,7 @@ let ordered_chains (f : (Mir_op.t, Mir_terminator.t) Mir_func.t) =
     (fun r _ ->
       let r_value =
         (* the result as a value: its key is all a lookup needs *)
-        { Mir_value.id = Mir_id.Value.of_int r; ty = Mir_type.F32 }
+        { Mir_value.id = r; ty = Mir_type.F32 }
       in
       match step r_value with
       | Some (_, _, k, v) when k = lanes v - 1 && k > 0 -> (
@@ -136,7 +137,7 @@ let ordered_chains (f : (Mir_op.t, Mir_terminator.t) Mir_func.t) =
     defs;
   (finals, made)
 
-let key (v : Mir_value.t) = Mir_id.Value.to_int v.Mir_value.id
+let key (v : Mir_value.t) = v.Mir_value.id
 let refuse st r = Err.Escape.throw st.esc r
 let mutated st m = st.mutation = Some m
 let fresh st ty = Mir_select.fresh st.b ty

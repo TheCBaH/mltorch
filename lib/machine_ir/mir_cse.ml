@@ -11,7 +11,7 @@ module Mutation = struct
     | Ignored_constant  (** constants of one type merged whatever the value *)
 end
 
-let vkey (v : Mir_value.t) = Mir_id.Value.to_int v.Mir_value.id
+let vkey (v : Mir_value.t) = v.Mir_value.id
 
 (* The values read outside the block that defines them: by a terminator, or by
    any other block. *)

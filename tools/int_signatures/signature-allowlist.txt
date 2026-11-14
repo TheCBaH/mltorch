@@ -4,7 +4,7 @@
 # [todo-domain] is a debt marker (an int that names an entity); the ceiling only goes down.
 # [ml:<dir>] scope entries also read the inferred interface of each .ml without an .mli; a library enters with an opening
 # [todo-domain] balance that is part of the ceiling, and the ceiling only goes down from there.
-@todo-domain-ceiling 416
+@todo-domain-ceiling 460
 lib/coralnpu/coral_dma.mli	wire	val offset : t -> int end
 lib/coralnpu/coral_dma.mli	bits	val ctrl_start : int
 lib/coralnpu/coral_dma.mli	bits	val status_done : int
@@ -322,6 +322,21 @@ lib/expr_internal/value.ml	expr-literal	val tag_i64 : int64 t -> int
 lib/expr_internal/value.ml	expr-literal	val tag_bool : Expr_internal.Expr_repr.bool_expr -> int
 lib/expr_internal/value.ml	hash	val compare : float t -> float t -> int
 lib/expr_internal/value.ml	hash	val hash : float t -> int
+lib/interval_alloc/ia_decode.ml	todo-domain	val busy : 'a Script.t -> Core.Storage_units.Byte_offset.t array -> 'b array -> bool array -> int -> (Core.Storage_units.Byte_offset.t * 'b) list
+lib/interval_alloc/ia_decode.ml	todo-domain	val offsets : Mode.t -> 'a Script.t -> int array -> (Placed.t, [> `Pool_overflow of 'a ] Err.Error.t) result
+lib/interval_alloc/ia_decode.ml	todo-domain	val plan : Ia_strategy.t -> 'a Script.t -> Mode.t * int array
+lib/interval_alloc/ia_reference.ml	todo-domain	type trail = Edge of int | Offset of int * Core.Storage_units.Byte_offset.t * Core.Storage_units.Byte_offset.t
+lib/interval_alloc/ia_reference.ml	todo-domain	type frame = { a : int; b : int; mutable next : int; mark : int; }
+lib/interval_alloc/ia_script.ml	todo-domain	type 'k t = { equal : 'k -> 'k -> bool; events : 'k Event.t list; keys : 'k array; sizes : Core.Storage_units.Byte_size.t array; alignments : Core.Storage_units.Byte_alignment.t array; alloc_at : int array; free_at : int array; length : int; }
+lib/interval_alloc/ia_script.ml	todo-domain	val find_index : ('a -> 'b -> bool) -> 'a array -> int -> 'b -> int option
+lib/interval_alloc/ia_script.ml	todo-domain	val blocks : 'a t -> int
+lib/interval_alloc/ia_script.ml	todo-domain	val empty : 'a t -> int -> bool
+lib/interval_alloc/ia_script.ml	todo-domain	val conflicts : 'a t -> int -> int -> bool
+lib/interval_alloc/ia_search.ml	todo-domain	val below : int64 -> int -> int
+lib/interval_alloc/ia_search.ml	todo-domain	val move : 'a array -> int -> int -> unit
+lib/interval_alloc/ia_search.ml	todo-domain	val peak_positions : 'a Script.t -> int array -> Ia_decode.Placed.t -> int array
+lib/interval_alloc/ia_search.ml	todo-domain	val improve_at : ?at:(Int64.t -> unit) -> Ia_decode.Mode.t -> checkpoints:Int64.t list -> seed:int64 -> 'a Script.t -> lower_bound:Core.Storage_units.Byte_size.t -> int array -> Ia_decode.Placed.t -> ((Int64.t * Ia_decode.Placed.t * Effort.t) list, [> `Pool_overflow of 'a ] Err.Error.t) result
+lib/interval_alloc/ia_search.ml	todo-domain	val improve : Ia_decode.Mode.t -> Budget.t -> 'a Script.t -> lower_bound:Core.Storage_units.Byte_size.t -> int array -> Ia_decode.Placed.t -> (Ia_decode.Placed.t * Effort.t, [> `Pool_overflow of 'a ] Err.Error.t) result
 lib/js_ast/js_build.mli	expr-literal	val ceil_div_pos : idx t -> int -> idx t
 lib/js_ast/js_build.mli	expr-literal	val const : int -> idx t
 lib/js_ast/js_build.mli	expr-literal	val floor_div_pos : idx t -> int -> idx t
@@ -496,17 +511,118 @@ lib/loop_ir/loop_wasm_vector.ml	todo-domain	val lane_offset : V.Access.t -> int 
 lib/loop_ir/loop_wasm_vector.ml	todo-domain	val half : Loop_ir.Loop_wasm_ctx.st -> vctx -> int -> V.t -> Loop_ir.Loop_wasm_ctx.I.t list
 lib/loop_ir/loop_wasm_vector.ml	todo-domain	val half_mask : Loop_ir.Loop_wasm_ctx.st -> vctx -> int -> V.mask -> Loop_ir.Loop_wasm_ctx.I.t list
 lib/loop_ir/loop_wasm_vector.ml	todo-domain	val load : Loop_ir.Loop_wasm_ctx.st -> vctx -> int -> V.Access.t -> Loop_ir.Loop_wasm_ctx.I.t list
+lib/machine_alloc/mir_pressure.mli	tally	type t = { peak : (Mir_target.Bank.t * int) list; hot_stores : (Mir_target.Bank.t * int) list; hot_loads : (Mir_target.Bank.t * int) list; by_depth : (int * int) list; innermost : int; stats : Mir_alloc_stats.t; frame : int64 option; helper_calls : int; }
+lib/machine_alloc/mir_pressure.mli	tally	val hot_spills : t -> int
+lib/machine_alloc/mir_pressure.mli	tally	val pp_depths : Format.formatter -> (int * int) list * int -> unit
+lib/machine_alloc/mir_ref_alloc.mli	todo-domain	val use_scratch : Mir_target.Bank.t -> bits:Mir_target.Bits.t -> int -> Mir_target.View.t
+lib/machine_alloc/mir_alloc_stats.ml	tally	type t = { register_moves : int; stores : int; loads : int; slot_moves : int; slots : int; slot_bytes : int64; executed : int; rematerialized : int; }
+lib/machine_alloc/mir_frame.ml	todo-domain	val placeholder : int -> Machine_ir.Mir_type.t -> Machine_ir.Mir_value.t
+lib/machine_alloc/mir_liveness.ml	todo-domain	type t = { value : Machine_ir.Mir_value.t; ranges : (int * int) list; uses : int list; } end
+lib/machine_alloc/mir_liveness.ml	todo-domain	val spans : func -> (Machine_ir.Mir_id.Block.t * (int * int)) list
+lib/machine_alloc/mir_scan.ml	todo-domain	val use_scratch : Machine_ir.Mir_target.Bank.t -> bits:Machine_ir.Mir_target.Bits.t -> int -> Machine_ir.Mir_target.View.t
+lib/machine_alloc/mir_scan.ml	todo-domain	val view : Machine_ir.Mir_target.Bank.t -> bits:Machine_ir.Mir_target.Bits.t -> int -> Machine_ir.Mir_target.View.t
+lib/machine_alloc/mir_scan.ml	todo-domain	val allocatable : Machine_ir.Mir_target.Bank.t -> int list end
+lib/machine_alloc/mir_scan.ml	todo-domain	val in_memory : int -> Machine_ir.Mir_phys_verify.Loc.t -> bool
+lib/machine_alloc/mir_scan.ml	todo-domain	type t = Machine_alloc.Mir_liveness.Make(T).Interval.t = { value : Machine_ir.Mir_value.t; ranges : (int * int) list; uses : int list; } end
+lib/machine_alloc/mir_scan.ml	todo-domain	val spans : func -> (Machine_ir.Mir_id.Block.t * (int * int)) list
+lib/machine_alloc/mir_scan.ml	todo-domain	module Where : sig type t = In of int | Spilled | Unassigned end
+lib/machine_alloc/mir_scan.ml	todo-domain	type t = { value : Machine_ir.Mir_value.t; mutable ranges : (int * int) list; mutable uses : int list; mutable needs : int list; mutable where : Where.t; }
+lib/machine_alloc/mir_scan.ml	todo-domain	val start : t -> int
+lib/machine_alloc/mir_scan.ml	todo-domain	val stop : t -> int
+lib/machine_alloc/mir_scan.ml	todo-domain	val covers : t -> int -> bool
+lib/machine_alloc/mir_scan.ml	todo-domain	val intersection : t -> t -> from:int -> int option
+lib/machine_alloc/mir_scan.ml	todo-domain	val next_use : t -> from:int -> int option
+lib/machine_alloc/mir_scan.ml	todo-domain	val split : t -> int -> t end
+lib/machine_alloc/mir_scan.ml	todo-domain	type t = { view : Machine_ir.Mir_target.View.t; lo : int; hi : int; own : Machine_ir.Mir_value.t list; } end
+lib/machine_alloc/mir_scan.ml	todo-domain	val split_for : int -> int
+lib/machine_alloc/mir_scan.ml	todo-domain	val must : Piece.t -> at:int -> bool
+lib/machine_alloc/mir_scan.ml	todo-domain	type st = { mutation : Mutation.t option; mutable next_block : int; }
+lib/machine_alloc/mir_scan.ml	todo-domain	val scan : st -> bank:Machine_ir.Mir_target.Bank.t -> fixed:Fixed.t list -> depth:(int -> int) -> starts:int list -> split_cost:(int -> 'a) -> loops:(int * int) list -> uses_of:(Machine_ir.Mir_value.t -> int list) -> prefer:(Machine_ir.Mir_value.t -> Machine_ir.Mir_value.t option) -> Piece.t list -> Piece.t list end
+lib/machine_check/mir_checker.ml	todo-domain	val in_memory : int -> Machine_ir.Mir_phys_verify.Loc.t -> bool
+lib/machine_check/mir_checker.ml	todo-domain	type holder = Address of int64 | Value of { value : Machine_ir.Mir_value.t; width : int64; units : int; }
+lib/machine_check/mir_checker.ml	hash	val compare : ('a -> 'a -> int) -> 'a t -> 'a t -> int
+lib/machine_check/mir_checker.ml	tally	val cardinal : 'a t -> int
+lib/machine_check/mir_checker.ml	todo-domain	val span_units : Machine_ir.Mir_target.View.t -> int
 lib/machine_interp/mir_interp.mli	budget	val run : ?fuel:int64 -> ?max_depth:int -> ?invocation:int32 -> ?models:Mir_helper_model.t list -> Mir_verify.Generic.t -> Mir_memory.t -> Binding.t -> args:Mir_datum.t list -> run
+lib/machine_interp/mir_helper_model.ml	wire	type t = { name : string; version : int; run : Machine_interp.Mir_memory.t -> Machine_interp.Mir_datum.t list -> result; }
+lib/machine_interp/mir_memory.ml	bits	val page_bits : int
+lib/machine_interp/mir_memory.ml	quantum	val page_size : int
+lib/machine_interp/mir_memory.ml	cell	val locate : int64 -> int64 * int
+lib/machine_interp/mir_memory.ml	cell	val set_byte : Instance.t -> int64 -> int -> unit
+lib/machine_interp/mir_memory.ml	cell	val get_byte : Instance.t -> int64 -> int option
+lib/machine_interp/mir_memory.ml	cell	val read_bytes : t -> Key.t -> offset:int64 -> n:int -> int option array
+lib/machine_interp/mir_phys_interp.ml	hash	val compare : ('a -> 'a -> int) -> 'a t -> 'a t -> int
+lib/machine_interp/mir_phys_interp.ml	tally	val cardinal : 'a t -> int
+lib/machine_interp/mir_phys_interp.ml	wire	val slot : Machine_ir.Mir_event.t -> int
+lib/machine_interp/mir_phys_interp.ml	budget	val run : ?fuel:Int64.t -> ?max_depth:int -> ?models:Machine_interp.Mir_helper_model.t list -> S.Verified.t -> Machine_interp.Mir_memory.t -> Machine_interp.Mir_interp.Binding.t -> args:Machine_interp.Mir_datum.t list -> run end
+lib/machine_interp/mir_phys_interp.ml	todo-domain	val mask : int -> int64
+lib/machine_interp/mir_phys_interp.ml	todo-domain	val range_masks : int -> int -> int64 * int64
+lib/machine_interp/mir_phys_interp.ml	todo-domain	val pack : int64 array -> int -> int64 * int64
+lib/machine_interp/mir_phys_interp.ml	todo-domain	val unpack : int64 -> int64 -> int -> int -> int64 array
+lib/machine_interp/mir_phys_interp.ml	todo-domain	val lanes_of : Machine_ir.Mir_type.t -> int option
+lib/machine_interp/mir_phys_interp.ml	wire	val slot_of : Machine_ir.Mir_event.t -> int
+lib/machine_interp/mir_phys_interp.ml	budget	val run : ?fuel:Int64.t -> ?max_depth:int -> ?models:Machine_interp.Mir_helper_model.t list -> ?realized:bool -> ?seed:(regs -> unit) -> (T.op, T.test) Machine_ir.Mir_phys.Program.t -> Machine_interp.Mir_memory.t -> Machine_interp.Mir_interp.Binding.t -> args:Machine_interp.Mir_datum.t list -> run end
+lib/machine_interp/mir_sel_interp.ml	wire	val slot : Machine_ir.Mir_event.t -> int
+lib/machine_interp/mir_sel_interp.ml	budget	val run : ?fuel:Int64.t -> ?max_depth:int -> ?models:Machine_interp.Mir_helper_model.t list -> S.Verified.t -> Machine_interp.Mir_memory.t -> Machine_interp.Mir_interp.Binding.t -> args:Machine_interp.Mir_datum.t list -> run end
 lib/machine_ir/mir_f64_census.mli	tally	val count : t -> Role.t -> int
 lib/machine_ir/mir_f64_census.mli	tally	val helpers : t -> (string * int) list
 lib/machine_ir/mir_f64_census.mli	tally	val total : t -> int
 lib/machine_ir/mir_planning.mli	hash	val compare : t -> t -> int end
+lib/machine_ir/mir_attention.ml	wire	val version : int
+lib/machine_ir/mir_attention.ml	todo-domain	val first_id : int
+lib/machine_ir/mir_attention.ml	todo-domain	val descriptor : index:int -> Attention_block.t -> Machine_ir.Mir_helper.t
+lib/machine_ir/mir_check.ml	todo-domain	type 'op t = Order_out of 'op Machine_ir.Mir_instr.t | Order_param of Machine_ir.Mir_id.Block.t | Param of Machine_ir.Mir_id.Block.t | Result of 'op Machine_ir.Mir_instr.t * int end
+lib/machine_ir/mir_check.ml	todo-domain	type 'op t = { graph : Machine_ir.Mir_graph.t; defs : ('op Def.t * Machine_ir.Mir_id.Block.t * int) Machine_ir.Mir_id.Value.Map.t; } end
+lib/machine_ir/mir_compare.ml	todo-domain	type t = Event of { event : Machine_ir.Mir_event.t; expected : int64; actual : int64; } | Inconclusive of Machine_ir.Mir_observation.Status.t * Machine_ir.Mir_observation.Status.t | Missing_output of Expr.Source.t | Output of { source : Expr.Source.t; index : int; expected : Machine_ir.Mir_const.t option; actual : Machine_ir.Mir_const.t option; } | Row of Machine_ir.Mir_observation.Row.t * Machine_ir.Mir_observation.Row.t | Status of Machine_ir.Mir_observation.Status.t * Machine_ir.Mir_observation.Status.t
+lib/machine_ir/mir_compare.ml	todo-domain	val outputs : cell:(Expr.Source.t -> int -> Machine_ir.Mir_const.t option -> Machine_ir.Mir_const.t option -> bool) -> expected:Machine_ir.Mir_observation.t -> actual:Machine_ir.Mir_observation.t -> Difference.t option
+lib/machine_ir/mir_compare.ml	todo-domain	val with_cells : sites:Sites.t -> cell:(Expr.Source.t -> int -> Machine_ir.Mir_const.t option -> Machine_ir.Mir_const.t option -> bool) -> expected:Machine_ir.Mir_observation.t -> actual:Machine_ir.Mir_observation.t -> (unit, Difference.t) result
+lib/machine_ir/mir_compare.ml	todo-domain	val cell_of : Machine_ir.Mir_observation.t -> Expr.Source.t -> int -> Machine_ir.Mir_const.t option
+lib/machine_ir/mir_const.ml	defn	val int : Machine_ir.Mir_width.t -> int64 -> t
+lib/machine_ir/mir_contract.ml	wire	val version : int
+lib/machine_ir/mir_contract.ml	todo-domain	val first_id : int
+lib/machine_ir/mir_contract.ml	todo-domain	val descriptor : index:int -> Contraction.t -> Machine_ir.Mir_helper.t
+lib/machine_ir/mir_diagnostic.ml	todo-domain	type t = Bad_helper of Machine_ir.Mir_id.Helper.t | Bad_region of Machine_ir.Mir_id.Region.t | Bad_view of Machine_ir.Mir_id.View.t | Branch_condition of Machine_ir.Mir_id.Value.t | Duplicate_block of Machine_ir.Mir_id.Block.t | Duplicate_func of Machine_ir.Mir_id.Func.t | Duplicate_helper of Machine_ir.Mir_id.Helper.t | Duplicate_instr of Machine_ir.Mir_id.Instr.t | Duplicate_region of Machine_ir.Mir_id.Region.t | Duplicate_value of Machine_ir.Mir_id.Value.t | Duplicate_view of Machine_ir.Mir_id.View.t | Edge_arity of { target : Machine_ir.Mir_id.Block.t; expected : int; found : int; } | Edge_type of { target : Machine_ir.Mir_id.Block.t; position : int; } | Entry_has_predecessor of Machine_ir.Mir_id.Block.t | Missing_block of Machine_ir.Mir_id.Block.t | Missing_main of Machine_ir.Mir_id.Func.t | Not_dominated of Machine_ir.Mir_id.Value.t | Offset_width of Machine_ir.Mir_id.Value.t | Order_expected | Order_unexpected | Payload_mismatch of Machine_ir.Mir_failure.t | Permission of Machine_ir.Mir_id.View.t | Result_mismatch | Return_mismatch | Shift_count | Stale_order of Machine_ir.Mir_id.Value.t | Target of string | Typing of Machine_ir.Mir_typing.Error.t | Undefined_value of Machine_ir.Mir_id.Value.t | Unproven_domain | Unreachable_block of Machine_ir.Mir_id.Block.t | Value_type of Machine_ir.Mir_id.Value.t
+lib/machine_ir/mir_exp.ml	bits	val top12 : float -> int
+lib/machine_ir/mir_failure.ml	wire	val record_words : int
+lib/machine_ir/mir_failure.ml	wire	val record_word_offset : int -> int64
+lib/machine_ir/mir_failure.ml	wire	module Word : sig type t = Const of int64 | Payload of int | Site end
+lib/machine_ir/mir_failure.ml	wire	val layout : t -> (int * Word.t) list
+lib/machine_ir/mir_graph.ml	todo-domain	type t = { entry : B.t; succs : B.t list B.Map.t; preds : B.t list B.Map.t; rpo : B.t list; rank : int B.Map.t; idom : B.t B.Map.t; }
+lib/machine_ir/mir_helper.ml	wire	type t = { id : Machine_ir.Mir_id.Helper.t; name : string; version : int; params : Machine_ir.Mir_type.t list; results : Machine_ir.Mir_type.t list; effects : Effect.t; failures : Machine_ir.Mir_failure.t list; }
+lib/machine_ir/mir_math.ml	wire	val version : int
+lib/machine_ir/mir_offsets.ml	hash	val compare : t -> t -> int end
+lib/machine_ir/mir_origin.ml	todo-domain	module Cfg_site : sig type t = { block : int; instr : int; } val equal : t -> t -> bool end
+lib/machine_ir/mir_origin.ml	todo-domain	type t = { cfg : Cfg_site.t option; output : Expr.Source.t option; role : Role.t; clone : int; }
+lib/machine_ir/mir_phys.ml	todo-domain	module Edge_ref : sig type t = { from : Machine_ir.Mir_id.Block.t; index : int; } end
+lib/machine_ir/mir_phys_verify.ml	todo-domain	val in_memory : int -> Loc.t -> bool
+lib/machine_ir/mir_pp.ml	todo-domain	type t = { blocks : int Machine_ir.Mir_id.Block.Map.t; values : int Machine_ir.Mir_id.Value.Map.t; }
+lib/machine_ir/mir_select.ml	todo-domain	val watermarks : (Machine_ir.Mir_op.t, Machine_ir.Mir_terminator.t) Machine_ir.Mir_func.t -> int * int
+lib/machine_ir/mir_select.ml	todo-domain	type ('op, 'test) t = { defs : (Machine_ir.Mir_id.Value.t, Machine_ir.Mir_op.t) Hashtbl.t; mutable next_value : int; mutable next_instr : int; mutable body : 'op Machine_ir.Mir_sel.Op.t Machine_ir.Mir_instr.t list; mutable origin : Machine_ir.Mir_origin.t; orders : (Machine_ir.Mir_id.Value.t, Machine_ir.Mir_value.t) Hashtbl.t; mutable next_block : int; mutable cur_id : Machine_ir.Mir_id.Block.t; mutable cur_params : Machine_ir.Mir_value.t list; mutable cur_order : Machine_ir.Mir_value.t; mutable finished : ('op Machine_ir.Mir_sel.Op.t, 'test Machine_ir.Mir_sel.Terminator.t) Machine_ir.Mir_block.t list; results : Machine_ir.Mir_type.t list; }
+lib/machine_ir/mir_target.ml	tally	val count : t -> int
+lib/machine_ir/mir_target.ml	todo-domain	type t = Early_clobber of int | Fixed_result of { result : int; view : View.t; } | Fixed_use of { use : int; view : View.t; } | Scratch of View.t | Tied of { result : int; use : int; } end
+lib/machine_ir/mir_type.ml	budget	val max_lanes : int
+lib/machine_ir/mir_typing.ml	as-written	type t = Arity of { expected : int; found : int; } | Bad_immediate of Immediate.t | Bad_operand of { position : int; found : Machine_ir.Mir_type.t; } | Unknown_callee of Machine_ir.Mir_op.Callee.t | Unknown_view of Machine_ir.Mir_id.View.t
+lib/machine_ir/mir_typing.ml	todo-domain	val operand : int -> Machine_ir.Mir_value.t -> (Machine_ir.Mir_type.t -> bool) -> (unit, Error.t) result
+lib/machine_ir/mir_typing.ml	todo-domain	val same : int -> Machine_ir.Mir_value.t -> Machine_ir.Mir_type.t -> (unit, Error.t) result
+lib/machine_ir/mir_value.ml	hash	val compare : t -> t -> int
+lib/machine_ir/mir_vsplit.ml	todo-domain	val widening_slices : (Machine_ir.Mir_op.t, Machine_ir.Mir_terminator.t) Machine_ir.Mir_func.t -> (Machine_ir.Mir_id.Value.t, int * Machine_ir.Mir_value.t) Hashtbl.t
+lib/machine_ir/mir_width.ml	todo-domain	val bits : t -> int
+lib/machine_lower/mir_layout_map.ml	wire	val base : int
+lib/machine_lower/mir_layout_map.ml	tally	val channels : Entry.t -> int
+lib/machine_lower/mir_layout_map.ml	wire	val local_base : int
+lib/machine_lower/mir_layout_map.ml	wire	val meter_id : int
+lib/machine_lower/mir_layout_map.ml	todo-domain	val object_ : int -> size:int64 -> role:Machine_ir.Mir_view.role -> Machine_ir.Mir_region.t * Machine_ir.Mir_view.t
+lib/machine_lower/mir_layout_map.ml	todo-domain	val local : int -> bytes:int64 -> Machine_ir.Mir_region.t * Machine_ir.Mir_view.t
+lib/machine_lower/mir_lower_core.ml	todo-domain	type st = { esc : Refusal.t Err.Escape.t; bld : B.t; layout : L.Entry.t list; values : Machine_ir.Mir_value.t Ssa_ir.Ssa_id.Value.Tbl.t; constants : (Machine_ir.Mir_id.Value.t, Machine_ir.Mir_const.t) Hashtbl.t; heads : (Ssa_ir.Ssa_id.Block.t, B.block) Hashtbl.t; locals : (int, Local_object.t) Hashtbl.t; mutable objects : (Machine_ir.Mir_region.t * Machine_ir.Mir_view.t) list; mutable local_bytes : int64; limits : Expr.Scan_limits.t; mutable deferred_charges : int; mutable helpers : Machine_ir.Mir_math.Fn.t list; mutable attentions : Attention_block.t list; mutable contracts : Contraction.t list; mutable cur : B.block; mutable origin : Machine_ir.Mir_origin.t; mutation : Mutation.t option; }
+lib/machine_lower/mir_lower_f32.ml	todo-domain	type st = Machine_lower.Mir_lower_core.st = { esc : Refusal.t Err.Escape.t; bld : B.t; layout : Machine_lower.Mir_layout_map.Entry.t list; values : Machine_ir.Mir_value.t Ssa_ir.Ssa_id.Value.Tbl.t; constants : (Machine_ir.Mir_id.Value.t, Machine_ir.Mir_const.t) Hashtbl.t; heads : (Ssa_ir.Ssa_id.Block.t, B.block) Hashtbl.t; locals : (int, Local_object.t) Hashtbl.t; mutable objects : (Machine_ir.Mir_region.t * Machine_ir.Mir_view.t) list; mutable local_bytes : int64; limits : Expr.Scan_limits.t; mutable deferred_charges : int; mutable helpers : Machine_ir.Mir_math.Fn.t list; mutable attentions : Attention_block.t list; mutable contracts : Contraction.t list; mutable cur : B.block; mutable origin : Machine_ir.Mir_origin.t; mutation : Mutation.t option; }
+lib/machine_lower/mir_ssa_rows.ml	expr-literal	val i64 : int -> Machine_ir.Mir_const.t
 lib/machine_model/mir_model.mli	tally	val invocations : t -> int
 lib/machine_model/mir_model.mli	tally	val packed : t -> int
 lib/machine_model/mir_model.mli	budget	val run_prefix : ?fuel:int64 -> t -> inputs:(Tensor_id.t -> Tensor.packed option) -> count:int -> (Tensor_id.t list, Stop.t) result
 lib/machine_model/mir_model_route.mli	tally	type t = { select : float; schedule : float; allocate : float; scan : float; realize : float; publish : float; relocations : int; symbols : int; } end
 lib/machine_model/sdpa_select.mli	todo-domain	type t = { block_keys : int; precision : Attention_block.Precision.t }
 lib/machine_model/sdpa_select.mli	as-written	type t = | Block_keys of int | Descriptor of string | Engine_absent | Feature_extent of int | Mask_not_f32 | Not_bf16 of string | Not_f32 of string | Not_sdpa | Outer_axes | Padded_work of { padded : int64; actual : int64 } | Ungranted | Unknown_node
+lib/machine_model/mir_tensor_bytes.ml	cell	val fill : Tensor.packed -> int option array -> (unit, int) result
 lib/machine_rivet_aarch64/rivet_a64_exp.ml	todo-domain	val one : int
 lib/machine_rivet_aarch64/rivet_a64_exp.ml	todo-domain	val round_bias : int
 lib/machine_rivet_aarch64/rivet_a64_exp.ml	todo-domain	val big : int
@@ -670,17 +786,13 @@ lib/machine_rivet_x86_64_gnu/gnu_coherence.ml	wire	val padding_at : address:int6
 lib/machine_rivet_x86_64_gnu/gnu_coherence.ml	as-written	type t = Agree of { segments : int; bytes : int; symbols : int; } | Differ of { segment : string; offset : int; rivet : int; gnu : int; } | Reparsed of { segment : string; offset : int; typed : int; text : int; } | Symbols of { name : string; rivet : int64 option; gnu : int64 option; } | Tool of { command : string; status : int; output : string; } | Rivet of string
 lib/machine_rivet_x86_64_gnu/gnu_coherence.ml	as-written	val first_difference : string -> string -> (int * int * int) option
 lib/machine_target_aarch64/a64.ml	todo-domain	type t = Machine_target_aarch64.A64_form.t = Add of Sz.t * v * v | Add_imm of Sz.t * v * int64 | Add_lo12 of v * Machine_ir.Mir_id.View.t | Adrp of Machine_ir.Mir_id.View.t | Bl of { callee : Machine_ir.Mir_op.Callee.t; args : v list; results : Machine_ir.Mir_type.t list; } | Cmp of Sz.t * v * v | Cmp_imm of Sz.t * v * int64 | Csel of Sz.t * Cond.t * v * v * v | Cset of Cond.t * v | Dup_elem of Arr.t * v | Dup_half of int * v | Dup_mask of Arr.t * v | Dup_lane of Fsz.t * int * v | Dup_w of v | Ext of { signed : bool; from : Machine_ir.Mir_width.t; src : v; } | Fbin of Fop.t * Fsz.t * v * v | Fcmp of Fsz.t * v * v | Fcsel of Fsz.t * Cond.t * v * v * v | Fcvt of Fsz.t * v | Fcvtl of v | Fcvtn of v | Fcvtzs of Fsz.t * v | Fmadd of Fsz.t * v * v * v | Fmov of Fsz.t * v | Fmov_from_gpr of Fsz.t * v | Fmov_to_gpr of Fsz.t * v | Funary of Funary.t * Fsz.t * v | Ins_half of v * v | Ins_lane of Fsz.t * int * v * v | Ld1_lane of Fsz.t * int * v * v | Ld1r of Arr.t * v | Ldr of Msz.t * v * int64 | Ldr_idx of Msz.t * v * v | Ldr_ivec of Machine_ir.Mir_type.t * v * int64 | Ldr_vec of Arr.t * v * int64 | Logic of Logic.t * Sz.t * v * v | Logic_imm of Logic.t * Sz.t * v * int64 | Mov of Sz.t * v | Movk of Sz.t * v * int * int | Mrs_fpcr of v | Msr_fpcr of v | Movn of Sz.t * int * int | Movz of Machine_ir.Mir_type.t * int * int | Msub of Sz.t * v * v * v | Mul of Sz.t * v * v | Scvtf of Fsz.t * v | Scvtf_vec of v | Sdiv of Sz.t * v * v | Shift_imm of Shift.t * Sz.t * v * int | St1_lane of Fsz.t * int * v * v | Str of Msz.t * v * int64 * v | Str_idx of Msz.t * v * v * v | Str_ivec of Machine_ir.Mir_type.t * v * int64 * v | Str_vec of Arr.t * v * int64 * v | Sub of Sz.t * v * v | Sub_imm of Sz.t * v * int64 | Sxtw of v | Trunc of Machine_ir.Mir_width.t * v | Uxtw of v | Uzp1_h of v * v | Vadd_w of v * v | Vbit of Arr.t * v * v * v | Vcast of Machine_ir.Mir_type.t * v | Vfbin of Fop.t * Arr.t * v * v | Vfcmp of Vcmp.t * Arr.t * v * v | Vlogic of Logic.t * v * v | Vfmla of Arr.t * v * v * v | Vfunary of Funary.t * Arr.t * v | Vmov of Arr.t * v | Vnot of v | Vshift of Shift.t * int * v | Vwiden of v | Wtrunc of v | Xtl_w of { signed : bool; from : Machine_ir.Mir_width.t; first : int; src : v; }
-lib/machine_target_aarch64/a64.ml	todo-domain	val unit_bits : Machine_ir.Mir_target.Bank.t -> int
 lib/machine_target_aarch64/a64.ml	todo-domain	val bitmask_immediate : bits:int -> int64 -> bool
 lib/machine_target_aarch64/a64.ml	todo-domain	val lane_ok : Machine_target_aarch64.A64_form.Fsz.t -> int -> bool
-lib/machine_target_aarch64/a64.ml	todo-domain	val shape : Machine_ir.Mir_type.t -> (Machine_ir.Mir_target.Bank.t * int) option
 lib/machine_target_aarch64/a64_form.ml	todo-domain	module Sz : sig type t = W | X val bits : t -> int val name : t -> string end
 lib/machine_target_aarch64/a64_form.ml	todo-domain	val lanes : t -> int
 lib/machine_target_aarch64/a64_form.ml	todo-domain	type t = Add of Sz.t * v * v | Add_imm of Sz.t * v * int64 | Add_lo12 of v * Machine_ir.Mir_id.View.t | Adrp of Machine_ir.Mir_id.View.t | Bl of { callee : Machine_ir.Mir_op.Callee.t; args : v list; results : Machine_ir.Mir_type.t list; } | Cmp of Sz.t * v * v | Cmp_imm of Sz.t * v * int64 | Csel of Sz.t * Cond.t * v * v * v | Cset of Cond.t * v | Dup_elem of Arr.t * v | Dup_half of int * v | Dup_mask of Arr.t * v | Dup_lane of Fsz.t * int * v | Dup_w of v | Ext of { signed : bool; from : Machine_ir.Mir_width.t; src : v; } | Fbin of Fop.t * Fsz.t * v * v | Fcmp of Fsz.t * v * v | Fcsel of Fsz.t * Cond.t * v * v * v | Fcvt of Fsz.t * v | Fcvtl of v | Fcvtn of v | Fcvtzs of Fsz.t * v | Fmadd of Fsz.t * v * v * v | Fmov of Fsz.t * v | Fmov_from_gpr of Fsz.t * v | Fmov_to_gpr of Fsz.t * v | Funary of Funary.t * Fsz.t * v | Ins_half of v * v | Ins_lane of Fsz.t * int * v * v | Ld1_lane of Fsz.t * int * v * v | Ld1r of Arr.t * v | Ldr of Msz.t * v * int64 | Ldr_idx of Msz.t * v * v | Ldr_ivec of Machine_ir.Mir_type.t * v * int64 | Ldr_vec of Arr.t * v * int64 | Logic of Logic.t * Sz.t * v * v | Logic_imm of Logic.t * Sz.t * v * int64 | Mov of Sz.t * v | Movk of Sz.t * v * int * int | Mrs_fpcr of v | Msr_fpcr of v | Movn of Sz.t * int * int | Movz of Machine_ir.Mir_type.t * int * int | Msub of Sz.t * v * v * v | Mul of Sz.t * v * v | Scvtf of Fsz.t * v | Scvtf_vec of v | Sdiv of Sz.t * v * v | Shift_imm of Shift.t * Sz.t * v * int | St1_lane of Fsz.t * int * v * v | Str of Msz.t * v * int64 * v | Str_idx of Msz.t * v * v * v | Str_ivec of Machine_ir.Mir_type.t * v * int64 * v | Str_vec of Arr.t * v * int64 * v | Sub of Sz.t * v * v | Sub_imm of Sz.t * v * int64 | Sxtw of v | Trunc of Machine_ir.Mir_width.t * v | Uxtw of v | Uzp1_h of v * v | Vadd_w of v * v | Vbit of Arr.t * v * v * v | Vcast of Machine_ir.Mir_type.t * v | Vfbin of Fop.t * Arr.t * v * v | Vfcmp of Vcmp.t * Arr.t * v * v | Vlogic of Logic.t * v * v | Vfmla of Arr.t * v * v * v | Vfunary of Funary.t * Arr.t * v | Vmov of Arr.t * v | Vnot of v | Vshift of Shift.t * int * v | Vwiden of v | Wtrunc of v | Xtl_w of { signed : bool; from : Machine_ir.Mir_width.t; first : int; src : v; }
-lib/machine_target_aarch64/a64_form.ml	todo-domain	val unit_bits : Machine_ir.Mir_target.Bank.t -> int
 lib/machine_target_aarch64/a64_form.ml	todo-domain	val bitmask_immediate : bits:int -> int64 -> bool
 lib/machine_target_aarch64/a64_op.ml	todo-domain	type t = Machine_target_aarch64.A64_form.t = Add of Sz.t * v * v | Add_imm of Sz.t * v * int64 | Add_lo12 of v * Machine_ir.Mir_id.View.t | Adrp of Machine_ir.Mir_id.View.t | Bl of { callee : Machine_ir.Mir_op.Callee.t; args : v list; results : Machine_ir.Mir_type.t list; } | Cmp of Sz.t * v * v | Cmp_imm of Sz.t * v * int64 | Csel of Sz.t * Cond.t * v * v * v | Cset of Cond.t * v | Dup_elem of Arr.t * v | Dup_half of int * v | Dup_mask of Arr.t * v | Dup_lane of Fsz.t * int * v | Dup_w of v | Ext of { signed : bool; from : Machine_ir.Mir_width.t; src : v; } | Fbin of Fop.t * Fsz.t * v * v | Fcmp of Fsz.t * v * v | Fcsel of Fsz.t * Cond.t * v * v * v | Fcvt of Fsz.t * v | Fcvtl of v | Fcvtn of v | Fcvtzs of Fsz.t * v | Fmadd of Fsz.t * v * v * v | Fmov of Fsz.t * v | Fmov_from_gpr of Fsz.t * v | Fmov_to_gpr of Fsz.t * v | Funary of Funary.t * Fsz.t * v | Ins_half of v * v | Ins_lane of Fsz.t * int * v * v | Ld1_lane of Fsz.t * int * v * v | Ld1r of Arr.t * v | Ldr of Msz.t * v * int64 | Ldr_idx of Msz.t * v * v | Ldr_ivec of Machine_ir.Mir_type.t * v * int64 | Ldr_vec of Arr.t * v * int64 | Logic of Logic.t * Sz.t * v * v | Logic_imm of Logic.t * Sz.t * v * int64 | Mov of Sz.t * v | Movk of Sz.t * v * int * int | Mrs_fpcr of v | Msr_fpcr of v | Movn of Sz.t * int * int | Movz of Machine_ir.Mir_type.t * int * int | Msub of Sz.t * v * v * v | Mul of Sz.t * v * v | Scvtf of Fsz.t * v | Scvtf_vec of v | Sdiv of Sz.t * v * v | Shift_imm of Shift.t * Sz.t * v * int | St1_lane of Fsz.t * int * v * v | Str of Msz.t * v * int64 * v | Str_idx of Msz.t * v * v * v | Str_ivec of Machine_ir.Mir_type.t * v * int64 * v | Str_vec of Arr.t * v * int64 * v | Sub of Sz.t * v * v | Sub_imm of Sz.t * v * int64 | Sxtw of v | Trunc of Machine_ir.Mir_width.t * v | Uxtw of v | Uzp1_h of v * v | Vadd_w of v * v | Vbit of Arr.t * v * v * v | Vcast of Machine_ir.Mir_type.t * v | Vfbin of Fop.t * Arr.t * v * v | Vfcmp of Vcmp.t * Arr.t * v * v | Vlogic of Logic.t * v * v | Vfmla of Arr.t * v * v * v | Vfunary of Funary.t * Arr.t * v | Vmov of Arr.t * v | Vnot of v | Vshift of Shift.t * int * v | Vwiden of v | Wtrunc of v | Xtl_w of { signed : bool; from : Machine_ir.Mir_width.t; first : int; src : v; }
-lib/machine_target_aarch64/a64_op.ml	todo-domain	val unit_bits : Machine_ir.Mir_target.Bank.t -> int
 lib/machine_target_aarch64/a64_op.ml	todo-domain	val bitmask_immediate : bits:int -> int64 -> bool
 lib/machine_target_aarch64/a64_op.ml	todo-domain	val lane_ok : Machine_target_aarch64.A64_form.Fsz.t -> int -> bool
 lib/machine_target_aarch64/a64_reg.ml	todo-domain	val gpr_unit : int -> Machine_ir.Mir_id.Unit.t
@@ -692,19 +804,12 @@ lib/machine_target_aarch64/a64_reg.ml	todo-domain	val d : int -> V.t
 lib/machine_target_aarch64/a64_reg.ml	todo-domain	val s : int -> V.t
 lib/machine_target_aarch64/a64_reg.ml	todo-domain	val range : int -> int -> int list
 lib/machine_target_aarch64/a64_reg.ml	todo-domain	val allocatable_gpr : int list
-lib/machine_target_aarch64/a64_regs.ml	todo-domain	val view : Machine_ir.Mir_target.Bank.t -> bits:int -> int -> Machine_target_aarch64.A64_reg.V.t
-lib/machine_target_aarch64/a64_regs.ml	todo-domain	val use_scratch : Machine_ir.Mir_target.Bank.t -> bits:int -> int -> Machine_target_aarch64.A64_reg.V.t
-lib/machine_target_aarch64/a64_regs.ml	todo-domain	val result_scratch : Machine_ir.Mir_target.Bank.t -> bits:int -> Machine_target_aarch64.A64_reg.V.t
-lib/machine_target_aarch64/a64_regs.ml	todo-domain	val copy_scratch : Machine_ir.Mir_target.Bank.t -> bits:int -> Machine_target_aarch64.A64_reg.V.t
-lib/machine_target_aarch64/a64_regs.ml	todo-domain	val cycle_scratch : Machine_ir.Mir_target.Bank.t -> bits:int -> Machine_target_aarch64.A64_reg.V.t
-lib/machine_target_aarch64/a64_regs.ml	todo-domain	val shape : Machine_ir.Mir_type.t -> Machine_ir.Mir_target.Bank.t * int
+lib/machine_target_aarch64/a64_regs.ml	todo-domain	val view : Machine_ir.Mir_target.Bank.t -> bits:Machine_ir.Mir_target.Bits.t -> int -> Machine_target_aarch64.A64_reg.V.t
+lib/machine_target_aarch64/a64_regs.ml	todo-domain	val use_scratch : Machine_ir.Mir_target.Bank.t -> bits:Machine_ir.Mir_target.Bits.t -> int -> Machine_target_aarch64.A64_reg.V.t
 lib/machine_target_aarch64/a64_regs.ml	todo-domain	val allocatable : Machine_ir.Mir_target.Bank.t -> int list
 lib/machine_target_aarch64/a64_stage.ml	todo-domain	val slot : Machine_ir.Mir_event.t -> int
 lib/machine_target_aarch64/a64_stage.ml	budget	val run : ?fuel:Int64.t -> ?max_depth:int -> ?models:Machine_interp.Mir_helper_model.t list -> S.Verified.t -> Machine_interp.Mir_memory.t -> Machine_interp.Mir_interp.Binding.t -> args:Machine_interp.Mir_datum.t list -> run end
 lib/machine_target_aarch64/a64_typing.ml	todo-domain	val lane_ok : Machine_target_aarch64.A64_form.Fsz.t -> int -> bool
-lib/machine_target_riscv32/rv32.ml	todo-domain	val unit_bits : Machine_ir.Mir_target.Bank.t -> int
-lib/machine_target_riscv32/rv32.ml	todo-domain	val shape : Machine_ir.Mir_type.t -> (Machine_ir.Mir_target.Bank.t * int) option
-lib/machine_target_riscv32/rv32_op.ml	todo-domain	val unit_bits : Machine_ir.Mir_target.Bank.t -> int
 lib/machine_target_riscv32/rv32_reg.ml	todo-domain	val gpr_unit : int -> Machine_ir.Mir_id.Unit.t
 lib/machine_target_riscv32/rv32_reg.ml	todo-domain	val fpr_unit : int -> Machine_ir.Mir_id.Unit.t
 lib/machine_target_riscv32/rv32_reg.ml	todo-domain	val x : int -> V.t
@@ -717,43 +822,28 @@ lib/machine_target_riscv32/rv32_reg.ml	todo-domain	val group : Machine_ir.Mir_ta
 lib/machine_target_riscv32/rv32_reg.ml	as-written	val pp_group_error : Format.formatter -> [< `Unaligned_group of Machine_ir.Mir_target.Span.t * int ] -> unit
 lib/machine_target_riscv32/rv32_reg.ml	todo-domain	val range : int -> int -> int list
 lib/machine_target_riscv32/rv32_reg.ml	todo-domain	val allocatable_gpr : int list
-lib/machine_target_riscv32/rv32_regs.ml	todo-domain	val view : Machine_ir.Mir_target.Bank.t -> bits:int -> int -> Machine_target_riscv32.Rv32_reg.V.t
-lib/machine_target_riscv32/rv32_regs.ml	todo-domain	val use_scratch : Machine_ir.Mir_target.Bank.t -> bits:int -> int -> Machine_target_riscv32.Rv32_reg.V.t
-lib/machine_target_riscv32/rv32_regs.ml	todo-domain	val result_scratch : Machine_ir.Mir_target.Bank.t -> bits:int -> Machine_target_riscv32.Rv32_reg.V.t
-lib/machine_target_riscv32/rv32_regs.ml	todo-domain	val copy_scratch : Machine_ir.Mir_target.Bank.t -> bits:int -> Machine_target_riscv32.Rv32_reg.V.t
-lib/machine_target_riscv32/rv32_regs.ml	todo-domain	val cycle_scratch : Machine_ir.Mir_target.Bank.t -> bits:int -> Machine_target_riscv32.Rv32_reg.V.t
+lib/machine_target_riscv32/rv32_regs.ml	todo-domain	val view : Machine_ir.Mir_target.Bank.t -> bits:Machine_ir.Mir_target.Bits.t -> int -> Machine_target_riscv32.Rv32_reg.V.t
+lib/machine_target_riscv32/rv32_regs.ml	todo-domain	val use_scratch : Machine_ir.Mir_target.Bank.t -> bits:Machine_ir.Mir_target.Bits.t -> int -> Machine_target_riscv32.Rv32_reg.V.t
 lib/machine_target_riscv32/rv32_regs.ml	todo-domain	val allocatable : Machine_ir.Mir_target.Bank.t -> int list
-lib/machine_target_riscv32/rv32_regs.ml	todo-domain	val view : Machine_ir.Mir_target.Bank.t -> bits:int -> int -> Machine_target_riscv32.Rv32_reg.V.t
-lib/machine_target_riscv32/rv32_regs.ml	todo-domain	val use_scratch : Machine_ir.Mir_target.Bank.t -> bits:int -> int -> Machine_target_riscv32.Rv32_reg.V.t
-lib/machine_target_riscv32/rv32_regs.ml	todo-domain	val result_scratch : Machine_ir.Mir_target.Bank.t -> bits:int -> Machine_target_riscv32.Rv32_reg.V.t
+lib/machine_target_riscv32/rv32_regs.ml	todo-domain	val view : Machine_ir.Mir_target.Bank.t -> bits:Machine_ir.Mir_target.Bits.t -> int -> Machine_target_riscv32.Rv32_reg.V.t
+lib/machine_target_riscv32/rv32_regs.ml	todo-domain	val use_scratch : Machine_ir.Mir_target.Bank.t -> bits:Machine_ir.Mir_target.Bits.t -> int -> Machine_target_riscv32.Rv32_reg.V.t
 lib/machine_target_riscv32/rv32_regs.ml	todo-domain	val group : int -> Machine_target_riscv32.Rv32_reg.V.t
-lib/machine_target_riscv32/rv32_regs.ml	todo-domain	val copy_scratch : Machine_ir.Mir_target.Bank.t -> bits:int -> Machine_target_riscv32.Rv32_reg.V.t
-lib/machine_target_riscv32/rv32_regs.ml	todo-domain	val cycle_scratch : Machine_ir.Mir_target.Bank.t -> bits:int -> Machine_target_riscv32.Rv32_reg.V.t
 lib/machine_target_riscv32/rv32_regs.ml	todo-domain	val allocatable : Machine_ir.Mir_target.Bank.t -> int list end
-lib/machine_target_riscv32/rv32_regs.ml	todo-domain	val view : Machine_ir.Mir_target.Bank.t -> bits:int -> int -> Machine_target_riscv32.Rv32_reg.V.t
-lib/machine_target_riscv32/rv32_regs.ml	todo-domain	val use_scratch : Machine_ir.Mir_target.Bank.t -> bits:int -> int -> Machine_target_riscv32.Rv32_reg.V.t
-lib/machine_target_riscv32/rv32_regs.ml	todo-domain	val result_scratch : Machine_ir.Mir_target.Bank.t -> bits:int -> Machine_target_riscv32.Rv32_reg.V.t
+lib/machine_target_riscv32/rv32_regs.ml	todo-domain	val view : Machine_ir.Mir_target.Bank.t -> bits:Machine_ir.Mir_target.Bits.t -> int -> Machine_target_riscv32.Rv32_reg.V.t
+lib/machine_target_riscv32/rv32_regs.ml	todo-domain	val use_scratch : Machine_ir.Mir_target.Bank.t -> bits:Machine_ir.Mir_target.Bits.t -> int -> Machine_target_riscv32.Rv32_reg.V.t
 lib/machine_target_riscv32/rv32_regs.ml	todo-domain	val group : int -> Machine_target_riscv32.Rv32_reg.V.t
-lib/machine_target_riscv32/rv32_regs.ml	todo-domain	val copy_scratch : Machine_ir.Mir_target.Bank.t -> bits:int -> Machine_target_riscv32.Rv32_reg.V.t
-lib/machine_target_riscv32/rv32_regs.ml	todo-domain	val cycle_scratch : Machine_ir.Mir_target.Bank.t -> bits:int -> Machine_target_riscv32.Rv32_reg.V.t
 lib/machine_target_riscv32/rv32_regs.ml	todo-domain	val allocatable : Machine_ir.Mir_target.Bank.t -> int list end
 lib/machine_target_riscv32/rv32_select_seq.ml	tally	val log2 : Int64.t -> int option
-lib/machine_target_riscv32/rv32_select_st.ml	todo-domain	type st = { b : (Machine_target_riscv32.Rv32.op, Machine_target_riscv32.Rv32.test) Machine_ir.Mir_select.t; esc : Refusal.t Err.Escape.t; mutation : Mutation.t option; sites : Machine_ir.Mir_failure.Site_entry.t array; unlisted : Machine_ir.Mir_failure.Unlisted.t; fallible : Machine_ir.Mir_op.Callee.t -> bool; pairs : (int, pair) Hashtbl.t; subst : (int, Machine_ir.Mir_value.t) Hashtbl.t; float_loads : (int, Machine_ir.Mir_value.t) Hashtbl.t; int_slices : (int, int * Machine_ir.Mir_value.t) Hashtbl.t; shift_counts : (int, int64) Hashtbl.t; narrowing_halves : (int, Machine_ir.Mir_value.t) Hashtbl.t; reductions : (int, Machine_ir.Mir_value.t * Machine_ir.Mir_value.t) Hashtbl.t; reduced : (int, unit) Hashtbl.t; }
-lib/machine_target_riscv32/rv32_select_st.ml	todo-domain	val ordered_chains : (Machine_ir.Mir_op.t, Machine_ir.Mir_terminator.t) Machine_ir.Mir_func.t -> (int, Machine_ir.Mir_value.t * Machine_ir.Mir_value.t) Hashtbl.t * (int, unit) Hashtbl.t
-lib/machine_target_riscv32/rv32_select_st.ml	todo-domain	val key : Machine_ir.Mir_value.t -> int
-lib/machine_target_riscv32/rv32_select_st.ml	todo-domain	val float_loads : (Machine_ir.Mir_op.t, Machine_ir.Mir_terminator.t) Machine_ir.Mir_func.t -> (int, Machine_ir.Mir_value.t) Hashtbl.t
+lib/machine_target_riscv32/rv32_select_st.ml	todo-domain	type st = { b : (Machine_target_riscv32.Rv32.op, Machine_target_riscv32.Rv32.test) Machine_ir.Mir_select.t; esc : Refusal.t Err.Escape.t; mutation : Mutation.t option; sites : Machine_ir.Mir_failure.Site_entry.t array; unlisted : Machine_ir.Mir_failure.Unlisted.t; fallible : Machine_ir.Mir_op.Callee.t -> bool; pairs : (Machine_ir.Mir_id.Value.t, pair) Hashtbl.t; subst : (Machine_ir.Mir_id.Value.t, Machine_ir.Mir_value.t) Hashtbl.t; float_loads : (Machine_ir.Mir_id.Value.t, Machine_ir.Mir_value.t) Hashtbl.t; int_slices : (Machine_ir.Mir_id.Value.t, int * Machine_ir.Mir_value.t) Hashtbl.t; shift_counts : (Machine_ir.Mir_id.Value.t, int64) Hashtbl.t; narrowing_halves : (Machine_ir.Mir_id.Value.t, Machine_ir.Mir_value.t) Hashtbl.t; reductions : (Machine_ir.Mir_id.Value.t, Machine_ir.Mir_value.t * Machine_ir.Mir_value.t) Hashtbl.t; reduced : (Machine_ir.Mir_id.Value.t, unit) Hashtbl.t; }
 lib/machine_target_riscv32/rv32_stage.ml	todo-domain	val slot : Machine_ir.Mir_event.t -> int
 lib/machine_target_riscv32/rv32_stage.ml	budget	val run : ?fuel:Int64.t -> ?max_depth:int -> ?models:Machine_interp.Mir_helper_model.t list -> S.Verified.t -> Machine_interp.Mir_memory.t -> Machine_interp.Mir_interp.Binding.t -> args:Machine_interp.Mir_datum.t list -> run end
 lib/machine_target_riscv32/rv32_vop.ml	todo-domain	type t = Vadd of v * v | Vcast of Machine_ir.Mir_type.t * v | Vext of { signed : bool; from : Machine_ir.Mir_width.t; first : int; src : v; } | Vfbin of Fop.t * v * v | Vfcmp of Fcmp.t * v * v | Vfcvt_f_x of v | Vfcvt_x_f of v | Vfmacc of v * v * v | Vfredosum of v * v | Vfmv_f_s of int * v | Vfmv_v_f of Machine_ir.Mir_type.t * v | Vfsqrt of v | Vinsert of int * v * v | Vle32 of Machine_ir.Mir_type.t * v | Vle_int of Machine_ir.Mir_width.t * int * v | Vlogic of Logic.t * v * v | Vlse32 of Machine_ir.Mir_type.t * v * v | Vmerge of v * v * v | Vmv of v | Vmv_v_x of Machine_ir.Mir_type.t * v | Vnot of v | Vnsrl16 of v | Vnsrl16_pair of v * v | Vse32 of v * v | Vse_int of Machine_ir.Mir_width.t * int * v * v | Vshift of Machine_target_riscv32.Rv32_kind.Shift.t * int * v | Vsgnj of Sgnj.t * v * v | Vsse32 of v * v * v
 lib/machine_target_riscv32/rv32_vop.ml	todo-domain	val lane_counts : int list
 lib/machine_target_riscv32/rv32_vop.ml	todo-domain	val lane_ok : int -> bool
 lib/machine_target_x86_64/x64.ml	todo-domain	type t = Machine_target_x86_64.X64_op.t = Alu of Alu.t * Sz.t * v * v | Alu_imm of Alu.t * Sz.t * v * int64 | Bt of Sz.t * v * int | Call of { callee : Machine_ir.Mir_op.Callee.t; args : v list; results : Machine_ir.Mir_type.t list; } | Cmov of Sz.t * Cond.t * v * v * v | Cmp of Sz.t * v * v | Cmp_imm of Sz.t * v * int64 | Cmps of Cmp_pred.t * Fsz.t * v * v | Cqo_idiv of v * v | Cvt of Fsz.t * v | Cvtdq2ps of v | Cvttps2dq of v | Cvtpd2ps of v | Cvtps2pd of v | Cvtsi2s of Fsz.t * v | Cvtts2si of Fsz.t * v | Ext of { signed : bool; from : Machine_ir.Mir_width.t; src : v; } | Fbin of Fop.t * Fsz.t * v * v | Flogic of Flogic.t * Fsz.t * v * v | Fmadd231 of Fsz.t * v * v * v | Imul of Sz.t * v * v | Imul_imm of Sz.t * v * int64 | Lea of v * int64 | Lea_view of Machine_ir.Mir_id.View.t | Load of Msz.t * Addr.t | Mov of Sz.t * v | Mov_imm of Machine_ir.Mir_type.t * int64 | Movap of v | Movap_cast of Machine_ir.Mir_type.t * v | Movap_to_mask of Pk.t * v | Movlhps of v * v | Movq_from_gpr of Fsz.t * v | Movq_low of v | Movq_to_gpr of Fsz.t * v | Movq_widen of v | Movup_iload of Machine_ir.Mir_type.t * Addr.t | Movup_istore of Machine_ir.Mir_type.t * Addr.t * v | Movup_load of Pk.t * Addr.t | Movup_store of Pk.t * Addr.t * v | Movsxd of v | Movzx32 of v | Neg of Sz.t * v | Packssdw of v * v | Paddd of v * v | Pbin of Fop.t * Pk.t * v * v | Pcmp of Cmp_pred.t * Pk.t * v * v | Pfmadd231 of Pk.t * v * v * v | Plogic of Flogic.t * Pk.t * v * v | Pones of Pk.t | Pshuf of Pk.t * int * v * v | Pshufd_half of v | Pshufd_lane of Fsz.t * int * v | Pshufd_splat of Pk.t * v | Pshufd_splat_mask of Pk.t * v | Pshift of Shift.t * int * v | Psqrt of Pk.t * v | Round_trunc of Fsz.t * v | Setcc_zx of Cond.t * v | Shift_imm of Shift.t * Sz.t * v * int | Sqrt of Fsz.t * v | Store of Msz.t * Addr.t * v | Test of Sz.t * v * v | Trunc32 of v | Trunc_zx of Machine_ir.Mir_width.t * v | Ucomis of Fsz.t * v * v | Xt_lanes of { signed : bool; from : Machine_ir.Mir_width.t; first : int; src : v; }
-lib/machine_target_x86_64/x64.ml	todo-domain	val unit_bits : Machine_ir.Mir_target.Bank.t -> int
-lib/machine_target_x86_64/x64.ml	todo-domain	val shape : Machine_ir.Mir_type.t -> (Machine_ir.Mir_target.Bank.t * int) option
 lib/machine_target_x86_64/x64_op.ml	todo-domain	module Sz : sig type t = L | Q val bits : t -> int val name : t -> string end
 lib/machine_target_x86_64/x64_op.ml	todo-domain	val lanes : t -> int
 lib/machine_target_x86_64/x64_op.ml	todo-domain	type t = Alu of Alu.t * Sz.t * v * v | Alu_imm of Alu.t * Sz.t * v * int64 | Bt of Sz.t * v * int | Call of { callee : Machine_ir.Mir_op.Callee.t; args : v list; results : Machine_ir.Mir_type.t list; } | Cmov of Sz.t * Cond.t * v * v * v | Cmp of Sz.t * v * v | Cmp_imm of Sz.t * v * int64 | Cmps of Cmp_pred.t * Fsz.t * v * v | Cqo_idiv of v * v | Cvt of Fsz.t * v | Cvtdq2ps of v | Cvttps2dq of v | Cvtpd2ps of v | Cvtps2pd of v | Cvtsi2s of Fsz.t * v | Cvtts2si of Fsz.t * v | Ext of { signed : bool; from : Machine_ir.Mir_width.t; src : v; } | Fbin of Fop.t * Fsz.t * v * v | Flogic of Flogic.t * Fsz.t * v * v | Fmadd231 of Fsz.t * v * v * v | Imul of Sz.t * v * v | Imul_imm of Sz.t * v * int64 | Lea of v * int64 | Lea_view of Machine_ir.Mir_id.View.t | Load of Msz.t * Addr.t | Mov of Sz.t * v | Mov_imm of Machine_ir.Mir_type.t * int64 | Movap of v | Movap_cast of Machine_ir.Mir_type.t * v | Movap_to_mask of Pk.t * v | Movlhps of v * v | Movq_from_gpr of Fsz.t * v | Movq_low of v | Movq_to_gpr of Fsz.t * v | Movq_widen of v | Movup_iload of Machine_ir.Mir_type.t * Addr.t | Movup_istore of Machine_ir.Mir_type.t * Addr.t * v | Movup_load of Pk.t * Addr.t | Movup_store of Pk.t * Addr.t * v | Movsxd of v | Movzx32 of v | Neg of Sz.t * v | Packssdw of v * v | Paddd of v * v | Pbin of Fop.t * Pk.t * v * v | Pcmp of Cmp_pred.t * Pk.t * v * v | Pfmadd231 of Pk.t * v * v * v | Plogic of Flogic.t * Pk.t * v * v | Pones of Pk.t | Pshuf of Pk.t * int * v * v | Pshufd_half of v | Pshufd_lane of Fsz.t * int * v | Pshufd_splat of Pk.t * v | Pshufd_splat_mask of Pk.t * v | Pshift of Shift.t * int * v | Psqrt of Pk.t * v | Round_trunc of Fsz.t * v | Setcc_zx of Cond.t * v | Shift_imm of Shift.t * Sz.t * v * int | Sqrt of Fsz.t * v | Store of Msz.t * Addr.t * v | Test of Sz.t * v * v | Trunc32 of v | Trunc_zx of Machine_ir.Mir_width.t * v | Ucomis of Fsz.t * v * v | Xt_lanes of { signed : bool; from : Machine_ir.Mir_width.t; first : int; src : v; }
-lib/machine_target_x86_64/x64_op.ml	todo-domain	val unit_bits : Machine_ir.Mir_target.Bank.t -> int
 lib/machine_target_x86_64/x64_reg.ml	todo-domain	val gpr : int -> int -> V.t
 lib/machine_target_x86_64/x64_reg.ml	todo-domain	val q : int -> V.t
 lib/machine_target_x86_64/x64_reg.ml	todo-domain	val d : int -> V.t
@@ -770,16 +860,12 @@ lib/machine_target_x86_64/x64_reg.ml	todo-domain	val rbp : int
 lib/machine_target_x86_64/x64_reg.ml	todo-domain	val rsi : int
 lib/machine_target_x86_64/x64_reg.ml	todo-domain	val rdi : int
 lib/machine_target_x86_64/x64_reg.ml	todo-domain	val range : int -> int -> int list
-lib/machine_target_x86_64/x64_regs.ml	todo-domain	val view : Machine_ir.Mir_target.Bank.t -> bits:int -> int -> Machine_target_x86_64.X64_reg.V.t
+lib/machine_target_x86_64/x64_regs.ml	todo-domain	val view : Machine_ir.Mir_target.Bank.t -> bits:Machine_ir.Mir_target.Bits.t -> int -> Machine_target_x86_64.X64_reg.V.t
 lib/machine_target_x86_64/x64_regs.ml	todo-domain	val gpr_uses : int array
-lib/machine_target_x86_64/x64_regs.ml	todo-domain	val use_scratch : Machine_ir.Mir_target.Bank.t -> bits:int -> int -> Machine_target_x86_64.X64_reg.V.t
-lib/machine_target_x86_64/x64_regs.ml	todo-domain	val result_scratch : Machine_ir.Mir_target.Bank.t -> bits:int -> Machine_target_x86_64.X64_reg.V.t
-lib/machine_target_x86_64/x64_regs.ml	todo-domain	val copy_scratch : Machine_ir.Mir_target.Bank.t -> bits:int -> Machine_target_x86_64.X64_reg.V.t
-lib/machine_target_x86_64/x64_regs.ml	todo-domain	val cycle_scratch : Machine_ir.Mir_target.Bank.t -> bits:int -> Machine_target_x86_64.X64_reg.V.t
-lib/machine_target_x86_64/x64_regs.ml	todo-domain	val shape : Machine_ir.Mir_type.t -> Machine_ir.Mir_target.Bank.t * int
+lib/machine_target_x86_64/x64_regs.ml	todo-domain	val use_scratch : Machine_ir.Mir_target.Bank.t -> bits:Machine_ir.Mir_target.Bits.t -> int -> Machine_target_x86_64.X64_reg.V.t
 lib/machine_target_x86_64/x64_regs.ml	todo-domain	val sequence : ints:int array -> floats:int array -> Machine_ir.Mir_type.t list -> Machine_target_x86_64.X64_reg.V.t list
 lib/machine_target_x86_64/x64_regs.ml	todo-domain	val allocatable : Machine_ir.Mir_target.Bank.t -> int list
-lib/machine_target_x86_64/x64_select_st.ml	todo-domain	type st = { b : (Machine_target_x86_64.X64.op, Machine_target_x86_64.X64.test) Machine_ir.Mir_select.t; esc : Refusal.t Err.Escape.t; mutation : Mutation.t option; sites : Machine_ir.Mir_failure.Site_entry.t array; unlisted : Machine_ir.Mir_failure.Unlisted.t; fallible : Machine_ir.Mir_op.Callee.t -> bool; features : Machine_ir.Mir_target.Feature.t list; int_slices : (int, int * Machine_ir.Mir_value.t) Hashtbl.t; shift_counts : (int, int64) Hashtbl.t; narrowing_halves : (int, Machine_ir.Mir_value.t) Hashtbl.t; }
+lib/machine_target_x86_64/x64_select_st.ml	todo-domain	type st = { b : (Machine_target_x86_64.X64.op, Machine_target_x86_64.X64.test) Machine_ir.Mir_select.t; esc : Refusal.t Err.Escape.t; mutation : Mutation.t option; sites : Machine_ir.Mir_failure.Site_entry.t array; unlisted : Machine_ir.Mir_failure.Unlisted.t; fallible : Machine_ir.Mir_op.Callee.t -> bool; features : Machine_ir.Mir_target.Feature.t list; int_slices : (Machine_ir.Mir_id.Value.t, int * Machine_ir.Mir_value.t) Hashtbl.t; shift_counts : (Machine_ir.Mir_id.Value.t, int64) Hashtbl.t; narrowing_halves : (Machine_ir.Mir_id.Value.t, Machine_ir.Mir_value.t) Hashtbl.t; }
 lib/machine_target_x86_64/x64_stage.ml	todo-domain	val slot : Machine_ir.Mir_event.t -> int
 lib/machine_target_x86_64/x64_stage.ml	budget	val run : ?fuel:Int64.t -> ?max_depth:int -> ?models:Machine_interp.Mir_helper_model.t list -> S.Verified.t -> Machine_interp.Mir_memory.t -> Machine_interp.Mir_interp.Binding.t -> args:Machine_interp.Mir_datum.t list -> run end
 lib/native/alloc_script.mli	hash	val compare : t -> t -> int

@@ -716,10 +716,14 @@ let transfer ?mutation ?(save = false) env ~(dst : Loc.t) ~(src : Loc.t) :
   | Loc.Reg d, Loc.Reg s -> (
       match (d.Mir_target.View.bank, s.Mir_target.View.bank) with
       | Mir_target.Bank.Gpr, Mir_target.Bank.Gpr ->
-          let width = min d.Mir_target.View.bits s.Mir_target.View.bits in
+          let width =
+            min (d.Mir_target.View.bits :> int) (s.Mir_target.View.bits :> int)
+          in
           [ ins Op.Mov [ O.Reg (gpr env ~width d); O.Reg (gpr env ~width s) ] ]
       | Mir_target.Bank.Fpr, Mir_target.Bank.Fpr
-        when d.Mir_target.View.bits = 128 && s.Mir_target.View.bits = 128 ->
+        when d.Mir_target.View.bits = Machine_ir.Mir_target.Bits.of_int 128
+             && s.Mir_target.View.bits = Machine_ir.Mir_target.Bits.of_int 128
+        ->
           let num v = (fpr env ~double:true v).Aarch64_encode.Freg.num in
           [
             ins Op.Mov
@@ -729,8 +733,12 @@ let transfer ?mutation ?(save = false) env ~(dst : Loc.t) ~(src : Loc.t) :
               ];
           ]
       | Mir_target.Bank.Fpr, Mir_target.Bank.Fpr
-        when d.Mir_target.View.bits <= 64 && s.Mir_target.View.bits <= 64 ->
-          let double = d.Mir_target.View.bits = 64 in
+        when d.Mir_target.View.bits <= Machine_ir.Mir_target.Bits.of_int 64
+             && s.Mir_target.View.bits <= Machine_ir.Mir_target.Bits.of_int 64
+        ->
+          let double =
+            d.Mir_target.View.bits = Machine_ir.Mir_target.Bits.of_int 64
+          in
           [
             ins Op.Fmov
               [ O.Freg (fpr env ~double d); O.Freg (fpr env ~double s) ];
@@ -738,7 +746,7 @@ let transfer ?mutation ?(save = false) env ~(dst : Loc.t) ~(src : Loc.t) :
       | bank, _ ->
           refuse env
             (R.Frame_access
-               { bytes = Int64.of_int d.Mir_target.View.bits; bank }))
+               { bytes = Int64.of_int (d.Mir_target.View.bits :> int); bank }))
   | Loc.Mem { base; offset; bytes }, Loc.Reg r
   | Loc.Reg r, Loc.Mem { base; offset; bytes } -> (
       let load = match dst with Loc.Reg _ -> true | _ -> false in

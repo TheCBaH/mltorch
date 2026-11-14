@@ -12,28 +12,34 @@ module Policy = struct
     | Feedback
         (** per invocation, the candidate whose hot loops spill least, the
             largest group among equals *)
-    | Group of int  (** this group wherever a loop admits it *)
+    | Group of Ssa_ir.Ssa_blocking.Group.t
+        (** this group wherever a loop admits it *)
     | Unblocked
 end
 
 (* The group sizes the SSA pass considers on its own. *)
-let groups = [ 8; 4; 2 ]
+let groups = List.map Ssa_ir.Ssa_blocking.Group.of_int [ 8; 4; 2 ]
 
 module Candidate = struct
   type t = {
-    group : int;  (** 1: unblocked *)
+    group : Ssa_ir.Ssa_blocking.Group.t;  (** 1: unblocked *)
     pressure : (Machine_alloc.Mir_pressure.t, string) result;
   }
 end
 
 module Decision = struct
-  type t = { candidates : Candidate.t list; chosen : int }
+  type t = {
+    candidates : Candidate.t list;
+    chosen : Ssa_ir.Ssa_blocking.Group.t;
+  }
 
   let pp fmt t =
-    Fmt.pf fmt "@[<v>chosen %d@,%a@]" t.chosen
+    Fmt.pf fmt "@[<v>chosen %d@,%a@]"
+      (t.chosen :> int)
       Fmt.(
         list ~sep:cut (fun fmt (c : Candidate.t) ->
-            Fmt.pf fmt "group %d: %a" c.Candidate.group
+            Fmt.pf fmt "group %d: %a"
+              (c.Candidate.group :> int)
               (Fmt.result ~ok:Machine_alloc.Mir_pressure.pp ~error:Fmt.string)
               c.Candidate.pressure))
       t.candidates
@@ -57,5 +63,8 @@ let decide (candidates : Candidate.t list) =
   in
   {
     Decision.candidates;
-    chosen = (match best with Some (_, c) -> c.Candidate.group | None -> 1);
+    chosen =
+      (match best with
+      | Some (_, c) -> c.Candidate.group
+      | None -> Ssa_ir.Ssa_blocking.Group.of_int 1);
   }

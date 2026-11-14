@@ -213,7 +213,7 @@ let v0 = Rv32_reg.vector_scratch.Mir_target.View.name
 (* the grouped choice's group copy scratch (v24-v27), free between moves *)
 let group_scratch =
   (Machine_target_riscv32.Rv32_regs.Grouped.copy_scratch Mir_target.Bank.Vector
-     ~bits:512)
+     ~bits:(Mir_target.Bits.of_int 512))
     .Mir_target.View.name
 
 let vmove rd s =

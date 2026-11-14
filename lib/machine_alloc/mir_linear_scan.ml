@@ -410,7 +410,7 @@ module Make (T : Mir_sel.TARGET) (R : POOL) = struct
     List.iter
       (fun (k, (p : Piece.t), rs) ->
         let _, bits = shape p.Piece.value in
-        let bytes = spill_bytes bits in
+        let bytes = spill_bytes (bits :> int) in
         let disjoint xs ys =
           List.for_all
             (fun (a, b) -> List.for_all (fun (c, d) -> b <= c || d <= a) ys)
@@ -440,7 +440,7 @@ module Make (T : Mir_sel.TARGET) (R : POOL) = struct
           slot =
             (if Hashtbl.mem remat k then Mir_id.Slot.of_int (marker_base + k)
              else Hashtbl.find slot_of k);
-          bytes = spill_bytes bits;
+          bytes = spill_bytes (bits :> int);
         }
     in
     let rematerialize body =

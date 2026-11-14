@@ -8,7 +8,8 @@ module Loc = Mir_phys.Loc
 module type POOL = sig
   include Mir_ref_alloc.REGISTERS
 
-  val view : Mir_target.Bank.t -> bits:int -> int -> Mir_target.View.t
+  val view :
+    Mir_target.Bank.t -> bits:Mir_target.Bits.t -> int -> Mir_target.View.t
   (** register [k] of a bank at a width *)
 
   val allocatable : Mir_target.Bank.t -> int list
@@ -144,7 +145,7 @@ module Make (T : Mir_sel.TARGET) (R : POOL) = struct
        than a unit (a register group of [c] units), a base that is a
        multiple of [c] whose [c] registers are all allocatable *)
     let candidates (p : Piece.t) =
-      let c = snd (shape p.Piece.value) / T.unit_bits bank in
+      let c = (snd (shape p.Piece.value) :> int) / (T.unit_bits bank :> int) in
       if c <= 1 then bank_pool
       else
         List.filter

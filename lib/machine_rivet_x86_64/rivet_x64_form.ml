@@ -403,8 +403,11 @@ let transfer env ~(dst : Loc.t) ~(src : Loc.t) :
           let bits = min d.Mir_target.View.bits s.Mir_target.View.bits in
           [
             mk
-              (if bits = 64 then "movq" else "movl")
-              [ g env ~bits (Loc.Reg s); g env ~bits (Loc.Reg d) ];
+              (if (bits :> int) = 64 then "movq" else "movl")
+              [
+                g env ~bits:(bits :> int) (Loc.Reg s);
+                g env ~bits:(bits :> int) (Loc.Reg d);
+              ];
           ]
       | Mir_target.Bank.Fpr, Mir_target.Bank.Fpr ->
           [ mk "movaps" [ xmm env (Loc.Reg s); xmm env (Loc.Reg d) ] ]
