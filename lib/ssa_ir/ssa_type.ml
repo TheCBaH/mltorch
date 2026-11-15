@@ -32,7 +32,7 @@ module Lane =
 
 (* The widest vector the IR names. A logical width, not a register: a target
    maps it onto however many registers it takes. *)
-let max_lanes = 64
+let max_lanes = Lanes.of_int 64
 
 (* [Effect] is a compile-time sequencing token with no machine representation. *)
 type t =
