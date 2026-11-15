@@ -12,7 +12,7 @@ module Width = Layout.Width
 let ( @ ) a b = List.rev_append (List.rev a) b
 let map f l = List.rev (List.rev_map f l)
 let function_name = "loop_kernel"
-let error_address = 0
+let error_address = Layout.Address.zero
 
 type error =
   [ `Index_constant_out_of_range of int
@@ -39,32 +39,35 @@ type st = {
       (** the plan was made for relaxed SIMD: a vector multiply-add is
           [f32x4.relaxed_madd] *)
   mutable extra : Wasm_type.t list;  (** locals past the buffer parameters *)
-  n_params : int;
-  vars : (int, int) Hashtbl.t;
-  bounds : (int, int) Hashtbl.t;
-  floats : (int, int) Hashtbl.t;
-  int64s : (int, int) Hashtbl.t;
-  indices : (int, int) Hashtbl.t;
-  buffers : (int, int) Hashtbl.t;  (** tensor id -> parameter position *)
-  tables : (int, Layout.Address.t * Layout.Address.t) Hashtbl.t;
+  mutable next_local : Layout.Local.Next.t;  (** the next free local *)
+  vars : (Loop_var.t, Layout.Local.t) Hashtbl.t;
+  bounds : (Loop_var.t, Layout.Local.t) Hashtbl.t;
+  floats : (Loop_temp.t, Layout.Local.t) Hashtbl.t;
+  int64s : (Loop_temp.t, Layout.Local.t) Hashtbl.t;
+  indices : (Loop_temp.t, Layout.Local.t) Hashtbl.t;
+  buffers : (Tensor_id.t, Layout.Local.t) Hashtbl.t;
+      (** tensor id -> its parameter *)
+  tables : (Tensor_id.t, Layout.Address.t * Layout.Address.t) Hashtbl.t;
       (** per-channel scale and zero tables *)
-  arrays : (int, Layout.Local_offset.t) Hashtbl.t;
+  arrays : (Loop_array.t, Layout.Local_offset.t) Hashtbl.t;
       (** array id -> byte offset from the [local] base pointer *)
   mutable local_top : int64;
   table_alloc : bytes:int64 -> Layout.Address.t;
       (** reserves [bytes] of constant data, returning its absolute address *)
-  mark_base : int option;
+  mark_base : Layout.Address.t option;
       (** where a counting build keeps one [i32] per {!Loop_mark.t} *)
   mutable used : R.Callee.t list;
-  mutable meter : (int * int) option;  (** [scan_remaining], [scan_live] *)
+  mutable meter : (Layout.Local.t * Layout.Local.t) option;
+      (** [scan_remaining], [scan_live] *)
   sites : Loop_failure.t array;
-  mutable next_site : int;
+  mutable next_site : Loop_failure.Site.Next.t;
 }
 
 let n op = I.Numeric op
 let i32 k = I.I32_const (Int32.of_int k)
-let get i = I.Local_get i
-let set i = I.Local_set i
+let get i = I.Local_get (Layout.Local.to_int i)
+let set i = I.Local_set (Layout.Local.to_int i)
+let tee i = I.Local_tee (Layout.Local.to_int i)
 let f64 x = I.F64_const (Int64.bits_of_float x)
 
 (* The working float of a kernel: binary64, or binary32 under an fp32 plan. A
@@ -87,7 +90,8 @@ let call st c =
   R.call c
 
 let fresh st ty =
-  let id = st.n_params + List.length st.extra in
+  let id, next = Layout.Local.Next.alloc st.next_local in
+  st.next_local <- next;
   st.extra <- ty :: st.extra;
   id
 
@@ -99,15 +103,16 @@ let local table st key ty =
       Hashtbl.add table key l;
       l
 
-let var st v = local st.vars st (Loop_var.to_int v) Wasm_type.I32
-let bound st v = local st.bounds st (Loop_var.to_int v) Wasm_type.I32
-let ftemp st t = local st.floats st (Loop_temp.to_int t) (ftype st)
-let itemp st t = local st.int64s st (Loop_temp.to_int t) Wasm_type.I64
-let xtemp st t = local st.indices st (Loop_temp.to_int t) Wasm_type.I32
+let var st v = local st.vars st v Wasm_type.I32
+let bound st v = local st.bounds st v Wasm_type.I32
+let ftemp st t = local st.floats st t (ftype st)
+let itemp st t = local st.int64s st t Wasm_type.I64
+let xtemp st t = local st.indices st t Wasm_type.I32
 
-(* Parameter 0 is the [local] base pointer, so buffer [k] is parameter [k + 1]. *)
+(* Parameter 0 is the [local] base pointer, so buffer [k] is parameter [k + 1];
+   the emitter fills [buffers] in with that. *)
 let buffer_param st (b : Loop_buffer.t) =
-  1 + Hashtbl.find st.buffers (Tensor_id.to_int b.Loop_buffer.id)
+  Hashtbl.find st.buffers b.Loop_buffer.id
 
 let align8 x = Int64.logand (Int64.add x 7L) (Int64.lognot 7L)
 

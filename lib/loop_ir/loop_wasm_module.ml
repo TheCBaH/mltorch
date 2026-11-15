@@ -2,9 +2,9 @@ open Loop_wasm_ctx
 
 type t = {
   module_ : Wasm.Module.t;
-  local_base : int;
-  mark_base : int option;
-  heap_base : int;
+  local_base : Layout.Address.t;
+  mark_base : Layout.Address.t option;
+  heap_base : Layout.Address.t;
   sites : Loop_failure.t array;
   precision : Loop_numerics.Precision.t;
 }
@@ -23,7 +23,7 @@ let align16 x = Int64.logand (Int64.add x 15L) (Int64.lognot 15L)
 
 let lower_with ?(numerics = Loop_numerics.Reference_f64) ?(count_marks = false)
     (produce :
-      mark_base:int option ->
+      mark_base:Layout.Address.t option ->
       table_alloc:(bytes:int64 -> Layout.Address.t) ->
       ('a, 'e) Err.t) =
   (* The module's own bytes: the error record, then constant tables as the
@@ -31,7 +31,7 @@ let lower_with ?(numerics = Loop_numerics.Reference_f64) ?(count_marks = false)
   let top = ref (align16 (Int64.of_int W.record_bytes)) in
   let mark_base =
     if count_marks then (
-      let at = Int64.to_int !top in
+      let at = Layout.Address.of_int64 !top in
       top :=
         align16 (Int64.add !top (Int64.of_int (4 * List.length Loop_mark.all)));
       Some at)
@@ -47,12 +47,16 @@ let lower_with ?(numerics = Loop_numerics.Reference_f64) ?(count_marks = false)
       let imports, funcs, base =
         Loop_wasm_link.link ~callees:k.callees [ k.func ]
       in
-      let local_base = Int64.to_int (align16 !top) in
+      let local_base = Layout.Address.of_int64 (align16 !top) in
       let heap_base =
-        Int64.to_int
-          (align16 (Int64.add (Int64.of_int local_base) k.local_bytes))
+        Layout.Address.of_int64
+          (align16
+             (Int64.add (Layout.Address.to_int64 local_base) k.local_bytes))
       in
-      let pages = max 1 ((heap_base + 65535) / 65536) in
+      let pages =
+        max 1
+          ((Int64.to_int (Layout.Address.to_int64 heap_base) + 65535) / 65536)
+      in
       let m =
         {
           Wasm.Module.imports;
@@ -62,7 +66,10 @@ let lower_with ?(numerics = Loop_numerics.Reference_f64) ?(count_marks = false)
           exports =
             [
               { Wasm.Export.name = "memory"; kind = Wasm.Export.Memory };
-              { Wasm.Export.name = function_name; kind = Wasm.Export.Func base };
+              {
+                Wasm.Export.name = function_name;
+                kind = Wasm.Export.Func (Loop_wasm_runtime.Func.to_int base);
+              };
             ];
           data = k.data;
           customs = [ { Wasm.Custom.name = "abi"; payload = "loop-wasm/1" } ];

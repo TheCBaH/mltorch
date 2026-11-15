@@ -49,6 +49,14 @@ let bind_loop ctx ~lo ~hi =
   in
   (var, Loop_range.Env.add_var var range ctx.ranges)
 
+(* Whether the interval proof puts [i] inside the [extent] slots of a local. *)
+let within : type r. _ -> _ -> extent:r Slot.t -> bool =
+ fun ctx i ~extent ->
+  Loop_range.within
+    ~inner:(Loop_range.of_index ctx.ranges i)
+    ~outer:
+      { Loop_range.lo = 0L; hi = Int64.of_int ((extent : r Slot.t :> int) - 1) }
+
 let rec value ctx : float Expr.Value.t -> float Loop_expr.t = function
   | Expr.Value.Binary (op, a, b) ->
       let a = value ctx a in
@@ -89,22 +97,19 @@ and local_at ctx v i =
         let offset = (range.Slot.Range.offset :> int) in
         ( array,
           (if offset = 0 then None else Some (Loop_index.Const offset)),
-          (range.Slot.Range.count :> int) )
-    | Prev_row { array; base; width } -> (array, Some base, (width :> int))
+          range.Slot.Range.count )
+    | Prev_row { array; base; width } ->
+        (array, Some base, Slot.(count_of_extent (of_dim width)))
   in
   let i = Loop_lower_index.checked ctx i in
-  if not (within ctx i ~extent) then
-    emit ctx
-      (Loop_stmt.Fail_if
-         ( Loop_bool.Out_of_range (i, extent),
-           Loop_failure.Local_out_of_range { local = v; index = i; extent } ));
+  (if not (within ctx i ~extent) then
+     let extent = (extent :> int) in
+     emit ctx
+       (Loop_stmt.Fail_if
+          ( Loop_bool.Out_of_range (i, extent),
+            Loop_failure.Local_out_of_range { local = v; index = i; extent } )));
   let at = match base with None -> i | Some b -> Loop_index.Add (b, i) in
   Loop_expr.Array_get (array, Loop_lower_index.guarded ctx at)
-
-and within ctx i ~extent =
-  Loop_range.within
-    ~inner:(Loop_range.of_index ctx.ranges i)
-    ~outer:{ Loop_range.lo = 0L; hi = Int64.of_int (extent - 1) }
 
 and local_of ctx v =
   match Expr.Local_var.Map.find_opt v ctx.locals with
@@ -114,14 +119,18 @@ and local_of ctx v =
 (* The projection's bounds, row first: a simultaneous failure reports the row.
    Both indices are evaluated (and guarded) before either check, as the
    reference evaluates them. *)
-and guard_projection ctx ~local ~row ~lane ~steps ~width =
-  if not (within ctx row ~extent:(steps + 1)) then
-    emit ctx
-      (Loop_stmt.Fail_if
-         ( Loop_bool.Out_of_range (row, steps + 1),
-           Loop_failure.Scan_row_out_of_range
-             { local; row; lane; extent = steps + 1 } ));
+and guard_projection ctx ~local ~row ~lane ~(steps : Slot.extent Slot.t)
+    ~(width : Slot.extent Slot.t) =
+  let rows = Slot.trace_rows ~steps in
+  (if not (within ctx row ~extent:rows) then
+     let rows = (rows :> int) in
+     emit ctx
+       (Loop_stmt.Fail_if
+          ( Loop_bool.Out_of_range (row, rows),
+            Loop_failure.Scan_row_out_of_range
+              { local; row; lane; extent = rows } )));
   if not (within ctx lane ~extent:width) then
+    let width = (width :> int) in
     emit ctx
       (Loop_stmt.Fail_if
          ( Loop_bool.Out_of_range (lane, width),
@@ -132,10 +141,10 @@ and guard_projection ctx ~local ~row ~lane ~steps ~width =
 and scan_cached ctx v row lane =
   match local_of ctx v with
   | Slots { array; range; shape = Region_local.Shape.Scan { width; steps } } ->
-      let width = (width :> int) and steps = (steps :> int) in
       let row = Loop_lower_index.checked ctx row in
       let lane = Loop_lower_index.checked ctx lane in
       guard_projection ctx ~local:(Some v) ~row ~lane ~steps ~width;
+      let width = (width :> int) in
       let offset = (range.Slot.Range.offset :> int) in
       let at =
         Loop_index.Add
@@ -157,9 +166,10 @@ and scan_inline ctx (s : Expr.Scan.t) row lane =
   let width = s.Expr.Scan.width and steps = s.Expr.Scan.steps in
   let row = Loop_lower_index.checked ctx row in
   let lane = Loop_lower_index.checked ctx lane in
-  guard_projection ctx ~local:None ~row ~lane ~steps ~width;
+  guard_projection ctx ~local:None ~row ~lane ~steps:(Slot.extent steps)
+    ~width:(Slot.extent width);
   ctx.meter := true;
-  emit ctx (Loop_stmt.Reserve_scan_state width);
+  emit ctx (Loop_stmt.Reserve_scan_state (Slot.extent width));
   let prev = fresh_array ctx and cur = fresh_array ctx in
   let size = Slot.(count_of_extent (extent width)) in
   ctx.hoisted :=
@@ -230,7 +240,7 @@ and scan_inline ctx (s : Expr.Scan.t) row lane =
     (Loop_stmt.For
        { var = step; lo = Loop_index.Const 0; hi = row; body = rows });
   let result = assign_float ctx (Loop_expr.Array_get (prev, lane)) in
-  emit ctx (Loop_stmt.Release_scan_state width);
+  emit ctx (Loop_stmt.Release_scan_state (Slot.extent width));
   temp_float result
 
 and pred ctx : Expr.Bool.t -> Loop_expr.pred = function

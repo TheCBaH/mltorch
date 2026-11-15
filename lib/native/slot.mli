@@ -33,6 +33,13 @@ val trace_count : steps:extent t -> width:extent t -> count t
     each: [(steps + 1) * width] slots. [Scan_limits]' hard ceilings bound both
     factors well below the 32-bit range before an [Expr.Scan.t] exists. *)
 
+val trace_rows : steps:extent t -> extent t
+(** A scan trace holds its initial row and one row per step. *)
+
+val scan_state : extent t -> int
+(** The live state of an inline scan of this width: two rolling rows of cells,
+    counted against [Scan_limits.max_state]. *)
+
 val advance : offset t -> count t -> offset t
 (** The offset just past a range that starts at the first. *)
 

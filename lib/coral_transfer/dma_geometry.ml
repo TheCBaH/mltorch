@@ -40,8 +40,8 @@ module Engine = struct
   (* The columns an RVV block computes, one vector's lanes; a Zvt block's are
      any multiple of 32. *)
   let lanes = function
-    | Rvv_bf16 | Rvv_f32 -> Some 32
-    | Rvv_i8 -> Some 64
+    | Rvv_bf16 | Rvv_f32 -> Some (Core.Dim.extent 32)
+    | Rvv_i8 -> Some (Core.Dim.extent 64)
     | Zvt_bf16 | Zvt_f32 | Zvt_i8 -> None
 end
 

@@ -12,6 +12,17 @@ module Output = struct
   }
 end
 
+module Position = struct
+  include
+    Core.Tagged_int.Make
+      (struct
+        let prefix = "invocation"
+      end)
+      ()
+
+  let indexed l = List.mapi (fun i x -> (of_int i, x)) l
+end
+
 type invocation = {
   node : Node_id.t;
   outputs : Output.t list;

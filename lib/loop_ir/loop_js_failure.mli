@@ -67,6 +67,10 @@ module Overflow_op : sig
   type t = Add | Mul
 
   val to_string : t -> string
+
+  val to_wire : t -> int
+  (** The number a failure record holds: [Add] is 0, [Mul] 1. *)
+
   val of_string : string -> t option
 end
 

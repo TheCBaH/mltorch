@@ -21,11 +21,12 @@ open Graph_ir
     host may place them elsewhere inside memory it provides. *)
 module Placement : sig
   type t = {
-    weights : int;
-    inputs : int;
-    workspace : int;
-    outputs : int;
-    total : int;  (** bytes of memory the placement needs *)
+    weights : Loop_wasm_layout.Address.t;
+    inputs : Loop_wasm_layout.Address.t;
+    workspace : Loop_wasm_layout.Address.t;
+    outputs : Loop_wasm_layout.Address.t;
+    total : Loop_wasm_layout.Address.t;
+        (** bytes of memory the placement needs *)
   }
 end
 

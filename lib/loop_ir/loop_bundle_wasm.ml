@@ -11,11 +11,11 @@ let concat l = List.concat_map Fun.id l
 
 module Placement = struct
   type t = {
-    weights : int;
-    inputs : int;
-    workspace : int;
-    outputs : int;
-    total : int;
+    weights : Loop_wasm_layout.Address.t;
+    inputs : Loop_wasm_layout.Address.t;
+    workspace : Loop_wasm_layout.Address.t;
+    outputs : Loop_wasm_layout.Address.t;
+    total : Loop_wasm_layout.Address.t;
   }
 end
 
@@ -93,19 +93,24 @@ end)
    arguments. *)
 module Kernels = struct
   type t = {
-    table : int Func_tbl.t;
+    table : Loop_wasm_link.Kernel.t Func_tbl.t;
     mutable order : Loop_wasm.kernel list;
-    mutable next : int;
+    mutable next : Loop_wasm_link.Kernel.Next.t;
   }
 
-  let create () = { table = Func_tbl.create 64; order = []; next = 0 }
+  let create () =
+    {
+      table = Func_tbl.create 64;
+      order = [];
+      next = Loop_wasm_link.Kernel.Next.first;
+    }
 
   let intern t (k : Loop_wasm.kernel) =
     match Func_tbl.find_opt t.table k.Loop_wasm.func with
     | Some i -> i
     | None ->
-        let i = t.next in
-        t.next <- t.next + 1;
+        let i, next = Loop_wasm_link.Kernel.Next.alloc t.next in
+        t.next <- next;
         Func_tbl.add t.table k.Loop_wasm.func i;
         t.order <- k :: t.order;
         i
@@ -148,7 +153,9 @@ let invocation ws ~position ~kernel (inv : Loop_bundle.invocation)
     Err.List.fold_left
       (fun (args, inits) (i, ((buf : Loop_buffer.t), edge)) ->
         match
-          List.find_opt (fun c -> c.W.Scratch.position = i) sc.W.Scratch.carves
+          List.find_opt
+            (fun c -> W.Scratch.Position.equal c.W.Scratch.position i)
+            sc.W.Scratch.carves
         with
         | Some c ->
             let* p = at ~param:2 (Int64.add scratch_at c.W.Scratch.offset) in
@@ -193,9 +200,7 @@ let invocation ws ~position ~kernel (inv : Loop_bundle.invocation)
                     Err.fail (`Output_outside_workspace edge))
             | Loop_buffer.Scratch -> Err.fail (`Edge_unplaced edge)))
       ([], [])
-      (List.mapi
-         (fun i x -> (i, x))
-         (List.combine buffers inv.Loop_bundle.edges))
+      (W.Scratch.Position.indexed (List.combine buffers inv.Loop_bundle.edges))
   in
   Err.return
     (concat (List.rev inits)
@@ -207,7 +212,8 @@ let invocation ws ~position ~kernel (inv : Loop_bundle.invocation)
           ( None,
             [
               I.I32_const 0l;
-              I.I32_const (Int32.of_int position);
+              I.I32_const
+                (Int32.of_int (position : Loop_bundle.Position.t :> int));
               I.Store
                 ( Wasm.Store.I32_store,
                   {
@@ -283,7 +289,7 @@ let build ?vector ?(numerics = Loop_numerics.Reference_f64) ?kernel
     Err.List.map
       (fun (position, (inv, kernel, sc, _)) ->
         invocation ws ~position ~kernel inv sc)
-      (List.mapi (fun i x -> (i, x)) compiled)
+      (Loop_bundle.Position.indexed compiled)
   in
   let* copies =
     Err.List.map
@@ -342,7 +348,8 @@ let build ?vector ?(numerics = Loop_numerics.Reference_f64) ?kernel
           { Wasm.Export.name = "memory"; kind = Wasm.Export.Memory };
           {
             Wasm.Export.name = "model_run";
-            kind = Wasm.Export.Func (base + List.length all_kernels);
+            kind =
+              Wasm.Export.Func (R.Func.to_int base + List.length all_kernels);
           };
         ];
       data = List.concat_map (fun k -> k.Loop_wasm.data) all_kernels;
@@ -383,11 +390,11 @@ let build ?vector ?(numerics = Loop_numerics.Reference_f64) ?kernel
       workspace = ws;
       placement =
         {
-          Placement.weights = Int64.to_int w_at;
-          inputs = Int64.to_int i_at;
-          workspace = Int64.to_int ws_at;
-          outputs = Int64.to_int o_at;
-          total = Int64.to_int total;
+          Placement.weights = Loop_wasm_layout.Address.of_int64 w_at;
+          inputs = Loop_wasm_layout.Address.of_int64 i_at;
+          workspace = Loop_wasm_layout.Address.of_int64 ws_at;
+          outputs = Loop_wasm_layout.Address.of_int64 o_at;
+          total = Loop_wasm_layout.Address.of_int64 total;
         };
       stats =
         {

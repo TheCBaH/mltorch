@@ -116,7 +116,10 @@ let edge b (js : Loop_bundle_js.t) role id =
           match index_of js.Loop_bundle_js.pools arena kind with
           | None -> Err.fail (`Unbound_arena id)
           | Some pool ->
-              Err.return (Some { buffer; loc = Pooled { pool; off; numel } })))
+              Err.return
+                (Some
+                   { buffer; loc = Pooled { pool; off :> int; numel :> int } }))
+      )
 
 let check (e : edge) tensor =
   match
@@ -153,6 +156,7 @@ let prepare ?(max_outstanding = 1) ?kernel (b : Loop_bundle.t) ~constants :
     Err.List.map
       (fun (arena, kind) ->
         let+ n = Loop_bundle_js.pool_numel b arena kind in
+        let n = (n :> int) in
         (arena, kind, n))
       js.Loop_bundle_js.pools
   in

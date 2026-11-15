@@ -206,12 +206,10 @@ let variants ?(a_row_major = false) ~(budget : G.B.t) ~engine
   let m = (m :> int) and width = (width :> int) and depth = (depth :> int) in
   let packed_geometries =
     match G.Engine.lanes engine with
-    | Some n ->
+    | Some panel ->
+        let n = (panel :> int) in
         (if width = n then [ G.Geometry.Resident_b ] else [])
-        @
-        if width mod n = 0 then
-          [ G.Geometry.Resident_a { panel = Core.Dim.extent n } ]
-        else []
+        @ if width mod n = 0 then [ G.Geometry.Resident_a { panel } ] else []
     | None ->
         G.Geometry.Resident_b
         :: List.filter_map
@@ -248,7 +246,7 @@ let variants ?(a_row_major = false) ~(budget : G.B.t) ~engine
       (function
         | G.Geometry.Split_k _ -> (
             match G.Engine.lanes engine with
-            | Some n -> n = width
+            | Some n -> (n :> int) = width
             | None -> true)
         | Resident_a _ | Resident_b | Row_major_a -> true)
       geometries

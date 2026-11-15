@@ -231,7 +231,7 @@ let kernel ?buffers ?sites ~relaxed_madd ~table_alloc (p : Ssa_program.t) =
     {
       esc;
       extra = [];
-      n_params = 1 + List.length buffers;
+      next_local = Local.Next.of_int (1 + List.length buffers);
       values = Ssa_ir.Ssa_id.Value.Tbl.create 64;
       mask_shapes = Ssa_ir.Ssa_id.Value.Tbl.create 8;
       buffers;
@@ -241,7 +241,7 @@ let kernel ?buffers ?sites ~relaxed_madd ~table_alloc (p : Ssa_program.t) =
       table_alloc;
       used = [];
       sites = [];
-      site_count = 0;
+      site_next = Ssa_ir.Ssa_emit_id.Site.Next.first;
       meter = None;
       f32 = false;
       relaxed_madd;

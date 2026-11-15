@@ -52,3 +52,24 @@ let same_site a b =
       | Scan_row_out_of_range _ ),
       _ ) ->
       false
+
+(* The position of a [Fail_if] in the walk [Loop_js_failure.sites] makes: a
+   record carries it, and a decoder indexes that array with it. *)
+module Site =
+  Core.Tagged_int.Make
+    (struct
+      let prefix = "site"
+    end)
+    ()
+
+(* The emitters number their [Fail_if]s in the order of that walk and check
+   each against the array by physical equality: the next site, and the counter
+   past it. *)
+let claim_site ~who sites next f =
+  let k = (next : Site.Next.t :> int) in
+  if k >= Array.length sites || sites.(k) != f then
+    invalid_arg (who ^ ": a failure site drifted from Loop_js_failure.sites");
+  Site.Next.alloc next
+
+(* Every site of the array was written. *)
+let all_claimed sites next = (next : Site.Next.t :> int) = Array.length sites

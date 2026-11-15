@@ -16,7 +16,14 @@ let reached used =
   let set = close [] used in
   List.filter (fun c -> List.mem c set) R.Callee.all
 
-let kernel_call k = I.Call (List.length R.Callee.all + k)
+module Kernel =
+  Core.Tagged_int.Make
+    (struct
+      let prefix = "kernel"
+    end)
+    ()
+
+let kernel_call k = I.Call (List.length R.Callee.all + Kernel.to_int k)
 
 let link ~callees kernels =
   let callees = reached callees in
@@ -39,7 +46,7 @@ let link ~callees kernels =
   let final pseudo =
     if pseudo >= n_all then n_imports + helpers + (pseudo - n_all)
     else
-      let c = R.Callee.of_index pseudo in
+      let c = R.Callee.of_index (R.Func.of_int pseudo) in
       if Option.is_some (R.Callee.import c) then position c imports
       else n_imports + position c defined
   in
@@ -60,7 +67,7 @@ let link ~callees kernels =
         })
       imports
   in
-  (imports, funcs, n_imports + helpers)
+  (imports, funcs, R.Func.of_int (n_imports + helpers))
 
 (* The numeric policy a module implements. A binary64 module under the reference
    policy keeps the text it has always had, byte for byte; any other says which

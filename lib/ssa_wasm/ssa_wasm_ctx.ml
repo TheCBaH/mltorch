@@ -16,12 +16,7 @@ let map f l = List.rev (List.rev_map f l)
 
 (* A WebAssembly local of the function being built: parameters first, then
    the locals it declares. *)
-module Local =
-  Core.Tagged_int.Make
-    (struct
-      let prefix = "local"
-    end)
-    ()
+module Local = Layout.Local
 
 type error =
   [ `Local_arrays_too_large of int64
@@ -55,7 +50,7 @@ type mask_shape =
 type t = {
   esc : error Err.Escape.t;
   mutable extra : Wasm_type.t list;  (** locals past the parameters, reversed *)
-  n_params : int;
+  mutable next_local : Local.Next.t;  (** the next free local *)
   values : Local.t array Ssa_ir.Ssa_id.Value.Tbl.t;
       (** a value's locals, one per register *)
   mask_shapes : mask_shape Ssa_ir.Ssa_id.Value.Tbl.t;
@@ -68,7 +63,7 @@ type t = {
   table_alloc : bytes:int64 -> Layout.Address.t;
   mutable used : R.Callee.t list;
   mutable sites : LF.t list;
-  mutable site_count : int;
+  mutable site_next : Ssa_ir.Ssa_emit_id.Site.Next.t;
   mutable meter : (Local.t * Local.t) option;
       (** [scan_remaining], [scan_live] *)
   mutable f32 : bool;
@@ -95,17 +90,18 @@ let call st c =
   R.call c
 
 let fresh st ty =
-  let id = st.n_params + List.length st.extra in
+  let id, next = Local.Next.alloc st.next_local in
+  st.next_local <- next;
   st.extra <- ty :: st.extra;
-  Local.of_int id
+  id
 
 let site st f =
   match st.site_table with
   | None ->
-      let k = st.site_count in
+      let k, next = Ssa_ir.Ssa_emit_id.Site.Next.alloc st.site_next in
       st.sites <- f :: st.sites;
-      st.site_count <- k + 1;
-      Ssa_ir.Ssa_emit_id.Site.of_int k
+      st.site_next <- next;
+      k
   | Some table ->
       (* a check the table has no entry for is one its own lowering proved can
          never fire: its index is one past the table, a defect to a decoder *)
@@ -192,7 +188,7 @@ let fail st kind (fields : (W.Slot.t * I.t list) list) =
   [ i32 (W.kind_index kind); call st R.Callee.Fail_set ]
   @ List.concat_map
       (fun (slot, value) ->
-        [ i32 Loop_ir.Loop_wasm_ctx.error_address ]
+        [ Layout.Address.const Loop_ir.Loop_wasm_ctx.error_address ]
         @ value
         @ [ I.Store (Wasm.Store.I64_store, W.slot_arg slot) ])
       fields

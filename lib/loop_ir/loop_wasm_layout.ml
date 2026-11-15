@@ -20,6 +20,7 @@ module type S = sig
 
   val zero : t
   val of_int64 : int64 -> t
+  val pp : Format.formatter -> t -> unit
   val to_int64 : t -> int64
   val const : t -> Wasm.Instr.t
 end
@@ -40,6 +41,7 @@ end = struct
 
   let const k = Wasm.Instr.I32_const (Int32.of_int k)
   let to_int k = k
+  let pp = Format.pp_print_int
   let to_int64 = Int64.of_int
 end
 
@@ -47,6 +49,18 @@ module Address = struct
   include Make ()
 
   let data a bytes = { Wasm.Data.offset = to_int a; bytes }
+  let advance a ~bytes = of_int64 (Int64.add (to_int64 a) bytes)
 end
 
 module Local_offset = Make ()
+
+module Local = struct
+  include
+    Core.Tagged_int.Make
+      (struct
+        let prefix = "local"
+      end)
+      ()
+
+  let base = of_int 0
+end

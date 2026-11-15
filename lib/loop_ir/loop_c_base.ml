@@ -26,19 +26,27 @@ type t = Loop_c_kernel.t = {
   buffer_types : string list;
 }
 
+(* The number in a name: the order of first appearance within one kind. *)
+module Ordinal =
+  Core.Tagged_int.Make
+    (struct
+      let prefix = "name"
+    end)
+    ()
+
 (* Names by first appearance, per emission, as [Loop_js] does. Every operand is
    an expression string built left to right, so a name never depends on the
    order OCaml happens to evaluate arguments in. *)
 type names = {
-  vars : (int, int) Hashtbl.t;
-  temps : (int, int) Hashtbl.t;
-  index_temps : (int, int) Hashtbl.t;
-  arrays : (int, int) Hashtbl.t;
-  buffers : (int, int) Hashtbl.t;
+  vars : (Loop_var.t, Ordinal.t) Hashtbl.t;
+  temps : (Loop_temp.t, Ordinal.t) Hashtbl.t;
+  index_temps : (Loop_temp.t, Ordinal.t) Hashtbl.t;
+  arrays : (Loop_array.t, Ordinal.t) Hashtbl.t;
+  buffers : (Tensor_id.t, Ordinal.t) Hashtbl.t;
   dialect : Loop_c_dialect.t;
   f32 : bool;  (** the kernel's working precision is binary32 *)
   sites : Loop_failure.t array;
-  mutable next_site : int;
+  mutable next_site : Loop_failure.Site.Next.t;
   mutable used : R.Name.t list;
   mutable local_doubles : int64;
 }
@@ -47,9 +55,12 @@ let ordinal table key =
   match Hashtbl.find_opt table key with
   | Some n -> n
   | None ->
-      let n = Hashtbl.length table in
+      let n = Ordinal.of_int (Hashtbl.length table) in
       Hashtbl.add table key n;
       n
+
+let spelled prefix table key =
+  prefix ^ string_of_int (ordinal table key : Ordinal.t :> int)
 
 let use nm h = if not (List.mem h nm.used) then nm.used <- h :: nm.used
 
@@ -57,17 +68,12 @@ let call nm h args =
   use nm h;
   R.Name.to_string h ^ "(" ^ String.concat ", " args ^ ")"
 
-let var nm v = "i" ^ string_of_int (ordinal nm.vars (Loop_var.to_int v))
-let bound nm v = "n" ^ string_of_int (ordinal nm.vars (Loop_var.to_int v))
-let temp nm t = "x" ^ string_of_int (ordinal nm.temps (Loop_temp.to_int t))
-
-let index_temp nm t =
-  "o" ^ string_of_int (ordinal nm.index_temps (Loop_temp.to_int t))
-
-let array nm a = "a" ^ string_of_int (ordinal nm.arrays (Loop_array.to_int a))
-
-let buffer nm (b : Loop_buffer.t) =
-  "b" ^ string_of_int (ordinal nm.buffers (Tensor_id.to_int b.Loop_buffer.id))
+let var nm v = spelled "i" nm.vars v
+let bound nm v = spelled "n" nm.vars v
+let temp nm t = spelled "x" nm.temps t
+let index_temp nm t = spelled "o" nm.index_temps t
+let array nm a = spelled "a" nm.arrays a
+let buffer nm (b : Loop_buffer.t) = spelled "b" nm.buffers b.Loop_buffer.id
 
 let fmt_of (b : Loop_buffer.t) =
   let (Payload.Fmt f) = b.Loop_buffer.sg.Tensor_sig.fmt in
@@ -170,7 +176,12 @@ let offset nm (b : Loop_buffer.t) (c : Loop_index.coord) =
     None Expr.Axis.all
   |> Option.get |> index nm
 
-type overflow_node = { op : int; value : string; lhs : string; rhs : string }
+type overflow_node = {
+  op : F.Overflow_op.t;
+  value : string;
+  lhs : string;
+  rhs : string;
+}
 
 (* One node per checked operation, post-order: the first to leave the int32
    domain is the one the interpreter reports, with its operands. *)
@@ -181,11 +192,12 @@ let overflow_nodes nm i =
         let acc = go (go acc a) b in
         let lhs = index nm a in
         let rhs = index nm b in
-        { op = 0; value = index nm i; lhs; rhs } :: acc
+        { op = F.Overflow_op.Add; value = index nm i; lhs; rhs } :: acc
     | Loop_index.Scale (k, a) ->
         let acc = go acc a in
         let rhs = index nm a in
-        { op = 1; value = index nm i; lhs = int_lit k; rhs } :: acc
+        { op = F.Overflow_op.Mul; value = index nm i; lhs = int_lit k; rhs }
+        :: acc
     | Loop_index.Ceil_div_pos (a, _)
     | Loop_index.Clamp_low a
     | Loop_index.Floor_div_pos (a, _) ->
@@ -404,7 +416,7 @@ let scan_failure nm which ~site ~local ~row ~lane ~extent =
       row;
       lane;
       string_of_int extent;
-      string_of_int site;
+      string_of_int (site : Loop_failure.Site.t :> int);
     ]
 
 let failure nm ~site : Loop_failure.t -> string = function
@@ -445,7 +457,8 @@ let failure nm ~site : Loop_failure.t -> string = function
   | Loop_failure.Index_overflow _ ->
       invalid_arg "Loop_c.failure: an index overflow is written per node"
   | Loop_failure.Local_out_of_range _ ->
-      fail_record F.Kind.Unbound_local [ string_of_int site ]
+      fail_record F.Kind.Unbound_local
+        [ string_of_int (site : Loop_failure.Site.t :> int) ]
   | Loop_failure.Scan_lane_out_of_range { local; row; lane; extent } ->
       scan_failure nm F.Projection.Lane ~site ~local ~row ~lane ~extent
   | Loop_failure.Scan_row_out_of_range { local; row; lane; extent } ->
@@ -454,10 +467,8 @@ let failure nm ~site : Loop_failure.t -> string = function
 (* The [Fail_if] sites are numbered in the walk [Loop_js_failure.sites] makes,
    and each is checked against that array by physical equality. *)
 let next_site nm f =
-  let k = nm.next_site in
-  if k >= Array.length nm.sites || nm.sites.(k) != f then
-    invalid_arg "Loop_c: a failure site drifted from Loop_js_failure.sites";
-  nm.next_site <- k + 1;
+  let k, next = Loop_failure.claim_site ~who:"Loop_c" nm.sites nm.next_site f in
+  nm.next_site <- next;
   k
 
 let meter_failure which limit =

@@ -8,7 +8,7 @@ let fail st kind (fields : (W.Slot.t * I.t list) list) =
   [ i32 (W.kind_index kind); call st R.Callee.Fail_set ]
   @ List.concat_map
       (fun (slot, value) ->
-        [ i32 error_address ]
+        [ Layout.Address.const error_address ]
         @ value
         @ [ I.Store (Wasm.Store.I64_store, W.slot_arg slot) ])
       fields
@@ -28,7 +28,7 @@ let scan_failure st which ~site ~local ~row ~lane ~extent =
       (W.Slot.of_int 2, row);
       (W.Slot.of_int 3, lane);
       (W.Slot.of_int 4, i64_of_int extent);
-      (W.Slot.of_int 5, i64_of_int site);
+      (W.Slot.of_int 5, i64_of_int (site : Loop_failure.Site.t :> int));
     ]
 
 (* The first axis, in [Expr.Axis.all] order, whose component is outside the
@@ -57,10 +57,10 @@ let coord_failure st (b : Loop_buffer.t) (c : Loop_index.coord) =
           I.If
             ( None,
               [
-                i32 error_address;
+                Layout.Address.const error_address;
                 I.I64_const (Int64.of_int k);
                 I.Store (Wasm.Store.I64_store, W.slot_arg (W.Slot.of_int 1));
-                i32 error_address;
+                Layout.Address.const error_address;
               ]
               @ wide l
               @ [ I.Store (Wasm.Store.I64_store, W.slot_arg (W.Slot.of_int 2)) ],
@@ -70,14 +70,14 @@ let coord_failure st (b : Loop_buffer.t) (c : Loop_index.coord) =
   eval
   @ [ i32 (W.kind_index F.Kind.Coord_out_of_range); call st R.Callee.Fail_set ]
   @ [
-      i32 error_address;
+      Layout.Address.const error_address;
       I.I64_const (Int64.of_int (Tensor_id.to_int b.Loop_buffer.id));
       I.Store (Wasm.Store.I64_store, W.slot_arg (W.Slot.of_int 0));
     ]
   @ List.concat
       (List.mapi
          (fun k (_, l, _) ->
-           [ i32 error_address ]
+           [ Layout.Address.const error_address ]
            @ wide l
            @ [
                I.Store (Wasm.Store.I64_store, W.slot_arg (W.Slot.of_int (3 + k)));
@@ -128,7 +128,8 @@ let failure st ~site : Loop_failure.t -> I.t list = function
   | Loop_failure.Index_overflow _ ->
       invalid_arg "Loop_wasm.failure: an index overflow is written per node"
   | Loop_failure.Local_out_of_range _ ->
-      fail st F.Kind.Unbound_local [ (W.Slot.of_int 0, i64_of_int site) ]
+      fail st F.Kind.Unbound_local
+        [ (W.Slot.of_int 0, i64_of_int (site : Loop_failure.Site.t :> int)) ]
   | Loop_failure.Scan_lane_out_of_range { local; row; lane; extent } ->
       scan_failure st F.Projection.Lane ~site ~local ~row ~lane ~extent
   | Loop_failure.Scan_row_out_of_range { local; row; lane; extent } ->

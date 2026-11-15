@@ -46,6 +46,7 @@ let global = Js.Unsafe.global
 let get = Js.Unsafe.get
 let inject = Js.Unsafe.inject
 let num n = inject (float_of_int n)
+let address a = Int64.to_int (Loop_wasm_layout.Address.to_int64 a)
 let ( let* ) = Result.bind
 
 let webassembly () =
@@ -133,7 +134,7 @@ let finish w bundle ~constants instance =
     checked w.B.weights ~lookup:constants ~missing:(fun id ->
         `Missing_constant id)
   in
-  place live ~at:pl.B.Placement.weights w.B.weights tensors;
+  place live ~at:(address pl.B.Placement.weights) w.B.weights tensors;
   Ok
     {
       w;
@@ -252,15 +253,15 @@ let run_r t ~bind =
       let* tensors =
         checked w.B.inputs ~lookup:bind ~missing:(fun id -> `Missing_input id)
       in
-      place live ~at:pl.B.Placement.inputs w.B.inputs tensors;
+      place live ~at:(address pl.B.Placement.inputs) w.B.inputs tensors;
       let rc =
         match
           Js.Unsafe.meth_call live.exports "model_run"
             [|
-              num pl.B.Placement.weights;
-              num pl.B.Placement.inputs;
-              num pl.B.Placement.workspace;
-              num pl.B.Placement.outputs;
+              num (address pl.B.Placement.weights);
+              num (address pl.B.Placement.inputs);
+              num (address pl.B.Placement.workspace);
+              num (address pl.B.Placement.outputs);
             |]
         with
         | (r : int) -> Ok r
@@ -284,10 +285,10 @@ let run_r t ~bind =
                        Js.Unsafe.meth_call mem "subarray"
                          [|
                            num
-                             (pl.B.Placement.outputs
+                             (address pl.B.Placement.outputs
                              + Int64.to_int e.P.Entry.offset);
                            num
-                             (pl.B.Placement.outputs
+                             (address pl.B.Placement.outputs
                              + Int64.to_int e.P.Entry.offset
                              + n);
                          |]

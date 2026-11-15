@@ -75,9 +75,9 @@ let%expect_test "the default build emits nothing for a mark" =
     String.length (Result.get_ok (Err.payload (Loop_wasm.encode l)))
   in
   Fmt.pr "mark base: %a / %a@."
-    Fmt.(option ~none:(any "none") int)
+    Fmt.(option ~none:(any "none") Loop_wasm_layout.Address.pp)
     plain.Loop_wasm.mark_base
-    Fmt.(option ~none:(any "none") int)
+    Fmt.(option ~none:(any "none") Loop_wasm_layout.Address.pp)
     counting.Loop_wasm.mark_base;
   Fmt.pr "counting build is larger: %b@." (size counting > size plain);
   [%expect {|

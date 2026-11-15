@@ -30,7 +30,19 @@ val pp_error : Format.formatter -> [< error ] -> unit
 module Scratch : sig
   type fill = Zero | Value of float
 
-  type carve = { position : int; offset : int64; bytes : int64; fill : fill }
+  module Position : sig
+    include Core.Tagged_int.S
+
+    val indexed : 'a list -> (t * 'a) list
+    (** [xs] paired with their positions, in order. *)
+  end
+
+  type carve = {
+    position : Position.t;
+    offset : int64;
+    bytes : int64;
+    fill : fill;
+  }
   (** [position] indexes the program's buffers; [offset] is from the start of
       the scratch region. *)
 

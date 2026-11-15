@@ -35,3 +35,5 @@ let trace_at (offset : offset t) ~(steps : extent t) ~(width : extent t) ~row
 
 let equal (a : 'role t) (b : 'role t) = Int.equal a b
 let pp ppf (x : 'role t) = Format.pp_print_int ppf x
+let scan_state (w : extent t) = 2 * (w :> int)
+let trace_rows ~(steps : extent t) : extent t = steps + 1

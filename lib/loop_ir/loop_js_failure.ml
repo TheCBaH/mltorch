@@ -117,6 +117,7 @@ module Overflow_op = struct
 
   let table = [ (Add, "add"); (Mul, "mul") ]
   let to_string v = List.assoc v table
+  let to_wire = function Add -> 0 | Mul -> 1
   let of_string = of_table table
 end
 

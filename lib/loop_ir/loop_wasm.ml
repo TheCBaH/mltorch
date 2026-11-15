@@ -10,9 +10,9 @@ let error_address = Loop_wasm_ctx.error_address
 
 type t = Loop_wasm_module.t = {
   module_ : Wasm.Module.t;
-  local_base : int;
-  mark_base : int option;
-  heap_base : int;
+  local_base : Layout.Address.t;
+  mark_base : Layout.Address.t option;
+  heap_base : Layout.Address.t;
   sites : Loop_failure.t array;
   precision : Loop_numerics.Precision.t;
 }
@@ -29,11 +29,11 @@ type kernel = Loop_wasm_module.kernel = {
 
 (* The [Fail_if] sites are numbered in the walk [Loop_js_failure.sites] makes,
    and each is checked against that array by physical equality. *)
-let next_site st f =
-  let k = st.next_site in
-  if k >= Array.length st.sites || st.sites.(k) != f then
-    invalid_arg "Loop_wasm: a failure site drifted from Loop_js_failure.sites";
-  st.next_site <- k + 1;
+let next_site (st : Loop_wasm_ctx.st) f =
+  let k, next =
+    Loop_failure.claim_site ~who:"Loop_wasm" st.sites st.next_site f
+  in
+  st.next_site <- next;
   k
 
 let meter st =
@@ -64,7 +64,7 @@ let rec stmt st ~limits (s : Loop_stmt.t) : I.t list =
         reserve_local st
           (Int64.mul (Width.bytes (array_width st)) (Int64.of_int len))
       in
-      Hashtbl.replace st.arrays (Loop_array.to_int a) off;
+      Hashtbl.replace st.arrays a off;
       if len = 0 then []
       else
         let c = fresh st Wasm_type.I32 in
@@ -81,7 +81,7 @@ let rec stmt st ~limits (s : Loop_stmt.t) : I.t list =
                       int_const st len;
                       n Wasm_op.I32_ge_s;
                       I.Br_if 1;
-                      get 0;
+                      get Layout.Local.base;
                       Layout.Local_offset.const off;
                       n Wasm_op.I32_add;
                       get c;
@@ -128,7 +128,8 @@ let rec stmt st ~limits (s : Loop_stmt.t) : I.t list =
                     ( None,
                       fail st F.Kind.Index_overflow
                         [
-                          (W.Slot.of_int 0, i64_of_int node.op);
+                          ( W.Slot.of_int 0,
+                            i64_of_int (F.Overflow_op.to_wire node.op) );
                           (W.Slot.of_int 1, node.lhs);
                           (W.Slot.of_int 2, node.rhs);
                         ],
@@ -171,10 +172,13 @@ let rec stmt st ~limits (s : Loop_stmt.t) : I.t list =
       match st.mark_base with
       | None -> []
       | Some base ->
-          let at = base + (4 * Loop_mark.index m) in
+          let at =
+            Layout.Address.advance base
+              ~bytes:(Int64.of_int (4 * Loop_mark.index m))
+          in
           [
-            i32 at;
-            i32 at;
+            Layout.Address.const at;
+            Layout.Address.const at;
             I.Load (Wasm.Load.I32_load, arg Width.W4);
             i32 1;
             n Wasm_op.I32_add;
@@ -184,13 +188,13 @@ let rec stmt st ~limits (s : Loop_stmt.t) : I.t list =
       let _, live = meter st in
       [
         get live;
-        I.I64_const (Int64.of_int (2 * width));
+        I.I64_const (Int64.of_int (Slot.scan_state width));
         n Wasm_op.I64_sub;
         set live;
       ]
   | Loop_stmt.Reserve_scan_state width ->
       let _, live = meter st in
-      let amount = 2 * width in
+      let amount = Slot.scan_state width in
       let max_state = Expr.Scan_limits.max_state limits in
       [
         get live;
@@ -378,7 +382,8 @@ let kernel_exact ~vector ~numerics ~precision ~mark_base ~table_alloc
           let buffers = Hashtbl.create 8 in
           List.iteri
             (fun k (b : Loop_buffer.t) ->
-              Hashtbl.replace buffers (Tensor_id.to_int b.Loop_buffer.id) k)
+              Hashtbl.replace buffers b.Loop_buffer.id
+                (Layout.Local.of_int (k + 1)))
             p.Loop_program.buffers;
           let st =
             {
@@ -389,7 +394,8 @@ let kernel_exact ~vector ~numerics ~precision ~mark_base ~table_alloc
                 | Some t -> (Loop_target.f32 t).Loop_target.relaxed_madd
                 | None -> false);
               extra = [];
-              n_params = 1 + List.length p.Loop_program.buffers;
+              next_local =
+                Layout.Local.Next.of_int (1 + List.length p.Loop_program.buffers);
               vars = Hashtbl.create 8;
               bounds = Hashtbl.create 8;
               floats = Hashtbl.create 8;
@@ -404,7 +410,7 @@ let kernel_exact ~vector ~numerics ~precision ~mark_base ~table_alloc
               used = [];
               meter = None;
               sites = F.sites p;
-              next_site = 0;
+              next_site = Loop_failure.Site.Next.first;
             }
           in
           (* Per-channel parameters, once, as constant arrays of the kernel's
@@ -423,9 +429,7 @@ let kernel_exact ~vector ~numerics ~precision ~mark_base ~table_alloc
                     in
                     let scales = table_alloc ~bytes in
                     let zeros = table_alloc ~bytes in
-                    Hashtbl.replace st.tables
-                      (Tensor_id.to_int b.Loop_buffer.id)
-                      (scales, zeros);
+                    Hashtbl.replace st.tables b.Loop_buffer.id (scales, zeros);
                     [
                       Layout.Address.data scales
                         (table_bytes (List.map fst params));
@@ -452,7 +456,7 @@ let kernel_exact ~vector ~numerics ~precision ~mark_base ~table_alloc
                 nodes st ~limits vp.Loop_vector.body
             | None -> block st ~limits p.Loop_program.body
           in
-          if st.next_site <> Array.length st.sites then
+          if not (Loop_failure.all_claimed st.sites st.next_site) then
             invalid_arg "Loop_wasm: a failure site was not written";
           let prologue =
             match st.meter with
@@ -507,7 +511,7 @@ let lower ?vector ?(numerics = Loop_numerics.Reference_f64) ?precision
 let page_bytes = 65536L
 
 let with_heap t ~bytes =
-  let total = Int64.add (Int64.of_int t.heap_base) bytes in
+  let total = Int64.add (Layout.Address.to_int64 t.heap_base) bytes in
   if Int64.compare bytes 0L < 0 || Int64.compare total 0x8000_0000L > 0 then
     invalid_arg "Loop_wasm.with_heap: the heap is outside [0, 2 GiB]";
   let pages =

@@ -5,14 +5,17 @@
 val reached : Loop_wasm_runtime.Callee.t list -> Loop_wasm_runtime.Callee.t list
 (** The callees closed under the helpers' own calls, in [Callee.all] order. *)
 
-val kernel_call : int -> Wasm.Instr.t
-(** A call to the [k]th function given to {!link}, symbolic like a callee, so
-    functions that call each other are renumbered together. *)
+module Kernel : Core.Tagged_int.S
+(** The position of a function among those given to {!link}. *)
+
+val kernel_call : Kernel.t -> Wasm.Instr.t
+(** A call to the function at position [k] given to {!link}, symbolic like a
+    callee, so functions that call each other are renumbered together. *)
 
 val link :
   callees:Loop_wasm_runtime.Callee.t list ->
   Wasm.Func.t list ->
-  Wasm.Import.t list * Wasm.Func.t list * int
+  Wasm.Import.t list * Wasm.Func.t list * Loop_wasm_runtime.Func.t
 (** [link ~callees fs] is the imports, every function in index order (helpers,
     then [fs] renumbered), and the index of the first of [fs]. [callees] must
     cover everything [fs] call. *)

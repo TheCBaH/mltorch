@@ -40,9 +40,9 @@ type t =
           [Reduction] mark per iteration. Only the planner and {!Loop_sum} read
           it; every other consumer is handed {!Loop_sum.expand}'s program, which
           is the loop it stands for. *)
-  | Release_scan_state of int
+  | Release_scan_state of Slot.extent Slot.t
       (** Gives back the [2 * width] live state a [Reserve_scan_state] took. *)
-  | Reserve_scan_state of int
+  | Reserve_scan_state of Slot.extent Slot.t
       (** [width] lanes of an inline scan's two rolling rows, against the
           nesting peak of live state ([max_state]). *)
   | Reset_meter

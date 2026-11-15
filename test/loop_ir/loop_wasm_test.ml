@@ -21,7 +21,8 @@ let summary p =
 
 let%expect_test "a kernel is one exported function over linear memory" =
   Fmt.pr "%a@." Wasm_wat.pp (lowered Loop_programs.doubling).Loop_wasm.module_;
-  Fmt.pr "heap_base %d@." (lowered Loop_programs.doubling).Loop_wasm.heap_base;
+  Fmt.pr "heap_base %a@." Loop_wasm_layout.Address.pp
+    (lowered Loop_programs.doubling).Loop_wasm.heap_base;
   [%expect
     {|
       (module
@@ -198,7 +199,9 @@ let model_summary g =
     st.Loop_bundle_wasm.invocations st.Loop_bundle_wasm.distinct_kernels
     st.Loop_bundle_wasm.module_bytes
     (Digest.to_hex w.Loop_bundle_wasm.identity)
-    w.Loop_bundle_wasm.placement.Loop_bundle_wasm.Placement.total
+    (Int64.to_int
+       (Loop_wasm_layout.Address.to_int64
+          w.Loop_bundle_wasm.placement.Loop_bundle_wasm.Placement.total))
 
 let%expect_test "whole-model modules are identical natively and under jsoo" =
   List.iter
@@ -336,7 +339,8 @@ let%expect_test "a model whose memory exceeds the 2 GiB policy is refused" =
       match Err.payload (Loop_bundle_wasm.build b) with
       | Error e -> Fmt.pr "refused: %a@." Loop_bundle_wasm.pp_error e
       | Ok w ->
-          Fmt.pr "accepted with %d bytes of memory@."
+          Fmt.pr "accepted with %a bytes of memory@."
+            Loop_wasm_layout.Address.pp
             w.Loop_bundle_wasm.placement.Loop_bundle_wasm.Placement.total));
   [%expect {| refused: 2400000000 bytes exceed the 2 GiB memory policy |}]
 
@@ -373,7 +377,7 @@ let build_padded pad =
         match Err.payload (Loop_bundle_wasm.build ~kernel b) with
         | Error e -> Fmt.str "refused: %a" Loop_bundle_wasm.pp_error e
         | Ok w ->
-            Fmt.str "accepted: total %d"
+            Fmt.str "accepted: total %a" Loop_wasm_layout.Address.pp
               w.Loop_bundle_wasm.placement.Loop_bundle_wasm.Placement.total)
   in
   Fmt.pr "pad %d: second table at %d; %s@." pad !second outcome

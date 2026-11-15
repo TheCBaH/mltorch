@@ -1,5 +1,14 @@
 module I = Wasm.Instr
 
+(** A function index of the module being built: symbolic while a kernel body
+    calls a [Callee], final once linked. *)
+module Func =
+  Core.Tagged_int.Make
+    (struct
+      let prefix = "func"
+    end)
+    ()
+
 module Callee = struct
   type t =
     | Ceil_div
@@ -58,9 +67,9 @@ module Callee = struct
       | [] -> invalid_arg "Loop_wasm_runtime.Callee.index"
       | c' :: rest -> if c = c' then i else go (i + 1) rest
     in
-    go 0 all
+    Func.of_int (go 0 all)
 
-  let of_index i = List.nth all i
+  let of_index i = List.nth all (Func.to_int i)
 
   let name = function
     | Ceil_div -> "ceil_div"
@@ -109,7 +118,7 @@ module Callee = struct
 end
 
 let import_module = "math"
-let call c = I.Call (Callee.index c)
+let call c = I.Call (Func.to_int (Callee.index c))
 let f64 x = I.F64_const (Int64.bits_of_float x)
 let i32 n = I.I32_const (Int32.of_int n)
 let n op = I.Numeric op

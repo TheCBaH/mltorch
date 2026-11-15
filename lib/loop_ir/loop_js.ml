@@ -477,9 +477,12 @@ let rec stmt nm ~limits (s : Loop_stmt.t) : Js_ast.stmt list =
         "Loop_js: a structured sum is expanded at the entry point \
          (Loop_sum.program)"
   | Loop_stmt.Release_scan_state width ->
-      [ B.Stmt.decr_num scan_live (B.Num.const (float_of_int (2 * width))) ]
+      [
+        B.Stmt.decr_num scan_live
+          (B.Num.const (float_of_int (Slot.scan_state width)));
+      ]
   | Loop_stmt.Reserve_scan_state width ->
-      let live = float_of_int (2 * width) in
+      let live = float_of_int (Slot.scan_state width) in
       let max_state = Expr.Scan_limits.max_state limits in
       [
         B.Stmt.if_

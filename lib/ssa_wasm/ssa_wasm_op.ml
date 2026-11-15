@@ -107,10 +107,10 @@ let coord_failure st (b : Ssa_buffer.t) (comps : Ssa_wasm_ctx.Local.t list) =
           I.If
             ( None,
               [
-                i32 Loop_ir.Loop_wasm_ctx.error_address;
+                Layout.Address.const Loop_ir.Loop_wasm_ctx.error_address;
                 I.I64_const (Int64.of_int k);
                 I.Store (Wasm.Store.I64_store, W.slot_arg (Slot.of_int 1));
-                i32 Loop_ir.Loop_wasm_ctx.error_address;
+                Layout.Address.const Loop_ir.Loop_wasm_ctx.error_address;
               ]
               @ wide [ get l ]
               @ [ I.Store (Wasm.Store.I64_store, W.slot_arg (Slot.of_int 2)) ],
@@ -119,14 +119,14 @@ let coord_failure st (b : Ssa_buffer.t) (comps : Ssa_wasm_ctx.Local.t list) =
   in
   [ i32 (W.kind_index F.Kind.Coord_out_of_range); call st R.Callee.Fail_set ]
   @ [
-      i32 Loop_ir.Loop_wasm_ctx.error_address;
+      Layout.Address.const Loop_ir.Loop_wasm_ctx.error_address;
       I.I64_const (Int64.of_int (b.Ssa_buffer.id :> int));
       I.Store (Wasm.Store.I64_store, W.slot_arg (Slot.of_int 0));
     ]
   @ List.concat
       (List.mapi
          (fun k l ->
-           [ i32 Loop_ir.Loop_wasm_ctx.error_address ]
+           [ Layout.Address.const Loop_ir.Loop_wasm_ctx.error_address ]
            @ wide [ get l ]
            @ [
                I.Store (Wasm.Store.I64_store, W.slot_arg (Slot.of_int (3 + k)));

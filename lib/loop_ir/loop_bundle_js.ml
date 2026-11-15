@@ -26,6 +26,20 @@ let pp_error ppf : [< error ] -> unit = function
 (* [lib/loop_ir] is JS-reachable and js_of_ocaml's [int] is 32 bits: an
    element offset/count is bounded below any real model's pool size today,
    but is still checked here rather than assumed, per repo convention. *)
+module Pool_offset =
+  Core.Tagged_int.Make
+    (struct
+      let prefix = "offset"
+    end)
+    ()
+
+module Pool_numel =
+  Core.Tagged_int.Make
+    (struct
+      let prefix = "numel"
+    end)
+    ()
+
 let to_pool_index id (v : int64) =
   if Int64.abs v <= 2147483647L then Err.return (Int64.to_int v)
   else Err.fail (`Pool_index_overflow (id, v))
@@ -57,10 +71,11 @@ let resolve (plan : Storage_plan.t) arena_id id =
     |> Err.map_error (fun e -> `Storage_units e)
   in
   let* off = to_pool_index id (U.Element_offset.to_int64 elem_off) in
+  let off = Pool_offset.of_int off in
   let+ numel =
     to_pool_index id (U.Element_count.to_int64 slot.Arena_plan.Slot.numel)
   in
-  (kind, off, numel)
+  (kind, off, Pool_numel.of_int numel)
 
 let typed_array_name : Alloc_script.Kind.t -> string = function
   | Alloc_script.Kind.Float32 -> "Float32Array"
@@ -107,7 +122,11 @@ let bind st id =
             call
               (Js_ast.Var (pool_ident arena_id kind))
               "subarray"
-              [ num off; num (off + numel) ] )
+              [
+                Js_ast.Number (float_of_int (off :> int));
+                Js_ast.Number
+                  (float_of_int (off :> int) +. float_of_int (numel :> int));
+              ] )
       in
       (name, [ stmt ])
 
@@ -161,6 +180,7 @@ let local_array ~name ~id ~(buf : Loop_buffer.t) ~fill =
       [ Js_ast.Stmt.Expr (call (Js_ast.Var name) "fill" [ Js_ast.Number v ]) ])
 
 let invocation_stmts st ~kernel_name ~position (inv : Loop_bundle.invocation) =
+  let position = (position : Loop_bundle.Position.t :> int) in
   let open Err.Syntax in
   let synthetic id =
     List.find_opt
@@ -240,7 +260,10 @@ let pool_numel (b : Loop_bundle.t) arena kind =
   with
   | None -> Err.fail (`Unbound_arena id)
   | Some p ->
-      to_pool_index id (U.Element_count.to_int64 p.Arena_plan.Pool.numel)
+      let+ n =
+        to_pool_index id (U.Element_count.to_int64 p.Arena_plan.Pool.numel)
+      in
+      Pool_numel.of_int n
 
 type t = {
   program : Js_ast.Program.t;
@@ -339,7 +362,8 @@ let build ?kernel (b : Loop_bundle.t) : (t, error) Err.t =
   in
   let+ body_stmts, _ =
     Err.List.fold_left
-      (fun (stmts, position) (inv : Loop_bundle.invocation) ->
+      (fun (stmts, next) (inv : Loop_bundle.invocation) ->
+        let position, next = Loop_bundle.Position.Next.alloc next in
         let* ast =
           match kernel with
           | None -> Err.return (Loop_js.to_ast inv.Loop_bundle.program)
@@ -352,8 +376,9 @@ let build ?kernel (b : Loop_bundle.t) : (t, error) Err.t =
         let+ inv_stmts =
           invocation_stmts st ~kernel_name:(kernel_name idx) ~position inv
         in
-        (stmts @ inv_stmts, position + 1))
-      ([], 0) b.Loop_bundle.invocations
+        (stmts @ inv_stmts, next))
+      ([], Loop_bundle.Position.Next.first)
+      b.Loop_bundle.invocations
   in
   let distinct = List.rev !kernel_order in
   let kernel_decls =

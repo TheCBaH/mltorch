@@ -103,6 +103,22 @@ them does with the number. The audit of the exempt entries, by family:
   its own counters, not a field it reads from an external format; the Loop and SSA
   emitters now carry the same label (`todo-domain`) for each. The scan meter's pair
   of locals (`budget`) is two of them.
+  Typed since: `Loop_wasm_layout.Local` is the one local-index type of both
+  emitters (with its `Next` counter, so the next free local is not a count plus an
+  offset); the per-kind tables are keyed by the id's own type (`Loop_var.t`,
+  `Loop_temp.t`, `Tensor_id.t`), not its number; a failure site is
+  `Loop_failure.Site` (claimed in walk order by `Loop_failure.claim_site`, so the
+  Loop C and Wasm emitters cannot drift); a linked function index is
+  `Loop_wasm_runtime.Func`, a kernel's place among linked functions
+  `Loop_wasm_link.Kernel`; the module's `local_base`, `mark_base`, `heap_base`
+  and the bundle `Placement` are `Address.t`; the C emitter's name ordinals are
+  `Loop_c_base.Ordinal`. An invocation's place in the schedule is
+  `Loop_bundle.Position` and a scratch carve's buffer is
+  `C_workspace_plan.Scratch.Position`. The Wasm instruction set's own immediates
+  (`Local_get of int`, lane-index bounds, export kinds) are the binary format
+  and stay `wire`. Scan live state is `Slot.scan_state` of a typed `Slot.extent`.
+  What stays `todo-domain` is the frozen vectorizer and its targets (lanes,
+  parts, row blocks), which leave with the Loop retirement.
 - **Linear-memory addresses and placements** (9 entries, was `wire`): an address and
   a byte count are both `int` in `table_alloc:(bytes:int -> int)`, and the
   placement record holds five same-typed fields (`weights`, `inputs`,

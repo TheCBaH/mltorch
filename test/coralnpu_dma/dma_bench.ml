@@ -461,8 +461,8 @@ let () =
         (* An RVV block's lanes are a panel of a wider W. *)
         let geometry =
           match G.Engine.lanes engine with
-          | Some panel when panel < width ->
-              G.Geometry.Resident_a { panel = Core.Dim.extent panel }
+          | Some panel when (panel :> int) < width ->
+              G.Geometry.Resident_a { panel }
           | Some _ | None -> Resident_b
         in
         direct ~peak:(mode = "peak") dir p

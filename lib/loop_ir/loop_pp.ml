@@ -164,8 +164,10 @@ let rec pp_stmt nm fmt : Loop_stmt.t -> unit = function
   | Loop_stmt.Assign_index_of_i64 (t, e) ->
       Fmt.pf fmt "%a = index_of_i64(%a)" (pp_index_temp nm) t (pp_expr nm) e
   | Loop_stmt.Charge_scan_update -> Fmt.string fmt "charge_scan_update"
-  | Loop_stmt.Release_scan_state w -> Fmt.pf fmt "release_scan_state %d" w
-  | Loop_stmt.Reserve_scan_state w -> Fmt.pf fmt "reserve_scan_state %d" w
+  | Loop_stmt.Release_scan_state w ->
+      Fmt.pf fmt "release_scan_state %a" Slot.pp w
+  | Loop_stmt.Reserve_scan_state w ->
+      Fmt.pf fmt "reserve_scan_state %a" Slot.pp w
   | Loop_stmt.Reset_meter -> Fmt.string fmt "reset_meter"
   | Loop_stmt.Fail_if (p, f) ->
       Fmt.pf fmt "fail_if %a -> %a" (pp_pred nm) p (pp_failure nm) f

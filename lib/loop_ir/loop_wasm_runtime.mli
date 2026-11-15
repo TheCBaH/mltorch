@@ -3,6 +3,10 @@
     C or JavaScript counterpart ([Loop_c_runtime], [Loop_js_runtime]); they are
     emitted only when a kernel reaches them. *)
 
+module Func : Core.Tagged_int.S
+(** A function index of the module being built: symbolic while a kernel body
+    calls a {!Callee}, final once linked. *)
+
 module Callee : sig
   (** Closed and alphabetical: the order helpers are emitted in. *)
   type t =
@@ -37,11 +41,11 @@ module Callee : sig
 
   val all : t list
 
-  val index : t -> int
+  val index : t -> Func.t
   (** The position in [all]: the symbolic function index a kernel body calls
       before linking renumbers it. *)
 
-  val of_index : int -> t
+  val of_index : Func.t -> t
 
   val name : t -> string
   (** The helper's or import's name, as a manifest prints it. *)

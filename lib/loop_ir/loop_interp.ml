@@ -463,17 +463,18 @@ let rec exec st : Loop_stmt.t -> unit = function
             : error)
       else st.meter.updates_remaining <- Int64.sub st.meter.updates_remaining 1L
   | Loop_stmt.Release_scan_state width ->
-      st.meter.live_state <- st.meter.live_state - (2 * width)
+      st.meter.live_state <- st.meter.live_state - Slot.scan_state width
   | Loop_stmt.Reserve_scan_state width ->
       if
-        st.meter.live_state + (2 * width) > Expr.Scan_limits.max_state st.limits
+        st.meter.live_state + Slot.scan_state width
+        > Expr.Scan_limits.max_state st.limits
       then
         Err.Escape.throw st.esc
           (`Scan_meter
              (Expr.Scan_meter.State_over_limit
                 { limit = Expr.Scan_limits.max_state st.limits })
             : error)
-      else st.meter.live_state <- st.meter.live_state + (2 * width)
+      else st.meter.live_state <- st.meter.live_state + Slot.scan_state width
   | Loop_stmt.Reset_meter -> st.meter <- fresh_meter st.limits
   | Loop_stmt.Fail_if (p, f) -> if pred st p then raise_failure st f
   | Loop_stmt.For { var; lo; hi; body } ->
