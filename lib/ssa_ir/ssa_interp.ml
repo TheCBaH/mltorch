@@ -199,8 +199,8 @@ let checked_index st op lhs rhs r =
 let channel_of st = function
   | Ssa_op.Load { at = Ssa_access.Coord c; _ }
   | Ssa_op.Load_in_bounds { at = Ssa_access.Coord c; _ } ->
-      Int64.to_int (int_of st c.Expr.Coord.c)
-  | _ -> 0
+      Ssa_format.Channel.of_int (Int64.to_int (int_of st c.Expr.Coord.c))
+  | _ -> Ssa_format.Channel.of_int 0
 
 (* One cell decoded to the working value it stands for. [channel] is the C
    coordinate a per-channel dequantization reads. *)
@@ -225,12 +225,18 @@ let read_cell st id (b : Ssa_buffer.t) decode ~at ~channel =
   | Ssa_memory.Ints a, (Ssa_op.Decode.I16_dequant | Ssa_op.Decode.I8_dequant)
     -> (
       match Ssa_format.quant b.Ssa_buffer.format with
-      | Some q -> F (Ssa_format.dequantize q ~channel ~cell:a.(at))
+      | Some q ->
+          F
+            (Ssa_format.dequantize q ~channel
+               ~cell:(Ssa_format.Cell.of_int a.(at)))
       | None -> invalid_arg "Ssa_interp: dequantizing an unquantized buffer")
   | Ssa_memory.Ints a, (Ssa_op.Decode.I16_dequant32 | Ssa_op.Decode.I8_dequant32)
     -> (
       match Ssa_format.quant b.Ssa_buffer.format with
-      | Some q -> F (Ssa_format.dequantize32 q ~channel ~cell:a.(at))
+      | Some q ->
+          F
+            (Ssa_format.dequantize32 q ~channel
+               ~cell:(Ssa_format.Cell.of_int a.(at)))
       | None -> invalid_arg "Ssa_interp: dequantizing an unquantized buffer")
   | (Ssa_memory.Floats _ | Ssa_memory.Int64s _ | Ssa_memory.Ints _), _ ->
       invalid_arg "Ssa_interp: decode does not match the cells"
@@ -504,7 +510,8 @@ let exec_op st (i : Ssa_instr.t) =
                 st.counters.Counters.loads <- st.counters.Counters.loads + 1;
                 match
                   read_cell st id b decode ~at
-                    ~channel:(Int64.to_int c.Expr.Coord.c)
+                    ~channel:
+                      (Ssa_format.Channel.of_int (Int64.to_int c.Expr.Coord.c))
                 with
                 | F x -> x
                 | E | I _ | L _ | M _ | P _ | V _ ->
@@ -537,7 +544,7 @@ let exec_op st (i : Ssa_instr.t) =
           let read decode id off =
             match
               read_cell st id (buffer st id) decode ~at:(Int64.to_int off)
-                ~channel:0
+                ~channel:(Ssa_format.Channel.of_int 0)
             with
             | F x -> x
             | E | I _ | L _ | M _ | P _ | V _ ->
@@ -573,7 +580,7 @@ let exec_op st (i : Ssa_instr.t) =
           let read id off =
             match
               read_cell st id (buffer st id) (decode id) ~at:(Int64.to_int off)
-                ~channel:0
+                ~channel:(Ssa_format.Channel.of_int 0)
             with
             | F x -> x
             | E | I _ | L _ | M _ | P _ | V _ ->

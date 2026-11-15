@@ -22,40 +22,69 @@ let lanewise st (inner : Ssa_op.t) (res : Ssa_value.t) =
   let chunks_of v f = List.init (chunk_count st v) f in
   match inner with
   | Ssa_op.Convert (Ssa_op.Convert.F32_to_f64, a) ->
-      let count = (lanes_of a :> int) / 2 in
+      let per_in = lanes_per_register Ssa_type.F32
+      and per_out = lanes_per_register Ssa_type.F64 in
       let lane k =
-        [ src a (k / 4); I.Simd_lane (Wasm.Simd_lane.F32x4_extract, k mod 4) ]
+        [
+          src a (Ssa_type.Lane.chunk k ~per:per_in :> int);
+          I.Simd_lane
+            ( Wasm.Simd_lane.F32x4_extract,
+              (Ssa_type.Lane.slot k ~per:per_in :> int) );
+        ]
       in
       set_chunks st res
-        (List.init count (fun i ->
-             if 2 * i mod 4 = 0 then
-               [ src a (2 * i / 4); vn Wasm_op.F64x2_promote_low_f32x4 ]
+        (List.map
+           (fun i ->
+             let first = Ssa_type.Lane.first i ~per:per_out in
+             if
+               Ssa_type.Lane.equal
+                 (Ssa_type.Lane.slot first ~per:per_in)
+                 Ssa_type.Lane.zero
+             then
+               [
+                 src a (Ssa_type.Lane.chunk first ~per:per_in :> int);
+                 vn Wasm_op.F64x2_promote_low_f32x4;
+               ]
              else
-               lane (2 * i)
+               lane first
                @ [ n Wasm_op.F64_promote_f32; vn Wasm_op.F64x2_splat ]
-               @ lane ((2 * i) + 1)
+               @ lane (Ssa_type.Lane.add first ~by:(Ssa_type.Lane.of_int 1))
                @ [
                    n Wasm_op.F64_promote_f32;
                    I.Simd_lane (Wasm.Simd_lane.F64x2_replace, 1);
-                 ]))
+                 ])
+           (Ssa_type.Chunk.all (lanes_of a) ~per:per_out))
   | Ssa_op.Convert (Ssa_op.Convert.F64_to_f32, a) ->
-      let count = (lanes_of a :> int) / 4 in
+      let per_in = lanes_per_register Ssa_type.F64
+      and per_out = lanes_per_register Ssa_type.F32 in
       let lane k =
-        [ src a (k / 2); I.Simd_lane (Wasm.Simd_lane.F64x2_extract, k mod 2) ]
+        [
+          src a (Ssa_type.Lane.chunk k ~per:per_in :> int);
+          I.Simd_lane
+            ( Wasm.Simd_lane.F64x2_extract,
+              (Ssa_type.Lane.slot k ~per:per_in :> int) );
+        ]
       in
+      let past first n = Ssa_type.Lane.add first ~by:(Ssa_type.Lane.of_int n) in
       set_chunks st res
-        (List.init count (fun j ->
-             [ src a (2 * j); vn Wasm_op.F32x4_demote_f64x2_zero ]
-             @ lane ((4 * j) + 2)
+        (List.map
+           (fun j ->
+             let first = Ssa_type.Lane.first j ~per:per_out in
+             [
+               src a (Ssa_type.Lane.chunk first ~per:per_in :> int);
+               vn Wasm_op.F32x4_demote_f64x2_zero;
+             ]
+             @ lane (past first 2)
              @ [
                  n Wasm_op.F32_demote_f64;
                  I.Simd_lane (Wasm.Simd_lane.F32x4_replace, 2);
                ]
-             @ lane ((4 * j) + 3)
+             @ lane (past first 3)
              @ [
                  n Wasm_op.F32_demote_f64;
                  I.Simd_lane (Wasm.Simd_lane.F32x4_replace, 3);
-               ]))
+               ])
+           (Ssa_type.Chunk.all (lanes_of a) ~per:per_out))
   | Ssa_op.Float_binary (o, a, b) ->
       let e = elem_of a in
       set_chunks st res
@@ -122,15 +151,15 @@ let lanewise st (inner : Ssa_op.t) (res : Ssa_value.t) =
           let per = per_register a in
           let lane k =
             [
-              src a (k / (per :> int));
+              src a (Ssa_type.Lane.chunk k ~per :> int);
               I.Simd_lane
                 ( (if f32 then Wasm.Simd_lane.F32x4_extract
                    else Wasm.Simd_lane.F64x2_extract),
-                  k mod (per :> int) );
+                  (Ssa_type.Lane.slot k ~per :> int) );
             ]
             @ unary st ~f32 op
           in
-          let lanes = List.init (lanes_of a :> int) lane in
+          let lanes = List.map lane (Ssa_type.Lane.all (lanes_of a)) in
           set_chunks st res (gather (elem_of a) lanes))
   | Ssa_op.Pool_better (best, value) ->
       let e = elem_of value in
@@ -698,8 +727,8 @@ let instr st ~limits (i : Ssa_instr.t) : I.t list =
           let per = lanes_per_register e in
           one
             [
-              get (regs st vector).(k / (per :> int));
-              I.Simd_lane (extract_lane e, k mod (per :> int));
+              get (regs st vector).((Ssa_type.Lane.chunk lane ~per :> int));
+              I.Simd_lane (extract_lane e, (Ssa_type.Lane.slot lane ~per :> int));
             ])
   | Ssa_op.Vec_insert { lane; vector; element } ->
       let k = Ssa_type.Lane.to_int lane in
@@ -739,11 +768,12 @@ let instr st ~limits (i : Ssa_instr.t) : I.t list =
         | _ ->
             let e = elem_of res in
             let per = lanes_per_register e in
-            [ get dst.(k / (per :> int)) ]
+            [ get dst.((Ssa_type.Lane.chunk lane ~per :> int)) ]
             @ r element
             @ [
-                I.Simd_lane (replace_lane e, k mod (per :> int));
-                set dst.(k / (per :> int));
+                I.Simd_lane
+                  (replace_lane e, (Ssa_type.Lane.slot lane ~per :> int));
+                set dst.((Ssa_type.Lane.chunk lane ~per :> int));
               ]
       in
       copy @ patch
@@ -795,12 +825,11 @@ let instr st ~limits (i : Ssa_instr.t) : I.t list =
       let res = first_result i in
       let delta = lane_delta b steps in
       let o = fresh st Wasm_type.I32 in
-      let count = Ssa_type.Lanes.to_int lanes in
       let start = coord_offset st b at @ [ set o ] in
       let element k =
         [
           get o;
-          index_const (Int64.mul (Int64.of_int k) delta);
+          index_const (Ssa_type.Lane.offset k ~stride:delta);
           n Wasm_op.I32_add;
         ]
       in
@@ -814,20 +843,28 @@ let instr st ~limits (i : Ssa_instr.t) : I.t list =
       let chunks =
         match elem_of res with
         | Ssa_type.F64 ->
-            List.init (count / 2) (fun i ->
+            let per = lanes_per_register Ssa_type.F64 in
+            Ssa_type.Chunk.map lanes ~per (fun i ->
+                let first = Ssa_type.Lane.first i ~per in
                 match (d, Int64.equal delta 1L) with
                 | Ssa_op.Decode.F32_to_f64, true ->
-                    cell_address st b (element (2 * i))
+                    cell_address st b (element first)
                     @ [
                         I.Simd_load (Wasm.Simd_load.Load64_zero, arg 2 0);
                         vn Wasm_op.F64x2_promote_low_f32x4;
                       ]
                 | Ssa_op.Decode.F64_to_f64, true ->
-                    cell_address st b (element (2 * i))
+                    cell_address st b (element first)
                     @ [ I.Simd_load (Wasm.Simd_load.Load, arg 3 0) ]
                 | _ ->
                     List.hd
-                      (gather Ssa_type.F64 [ lane (2 * i); lane ((2 * i) + 1) ]))
+                      (gather Ssa_type.F64
+                         [
+                           lane first;
+                           lane
+                             (Ssa_type.Lane.add first
+                                ~by:(Ssa_type.Lane.of_int 1));
+                         ]))
         | Ssa_type.F32 ->
             let per = lanes_per_register Ssa_type.F32 in
             let splat_i32 k = [ i32 k; vn Wasm_op.I32x4_splat ] in
@@ -838,9 +875,7 @@ let instr st ~limits (i : Ssa_instr.t) : I.t list =
               @ [ I.Simd_load (load, arg 0 0) ]
               @ List.map vn extend
             in
-            List.init
-              (count / (per :> int))
-              (fun i ->
+            Ssa_type.Chunk.map lanes ~per (fun i ->
                 match (d, delta, Ssa_format.quant b.Ssa_buffer.format) with
                 | ( (Ssa_op.Decode.I8_dequant32 | Ssa_op.Decode.I16_dequant32),
                     1L,
@@ -854,11 +889,11 @@ let instr st ~limits (i : Ssa_instr.t) : I.t list =
                               Wasm_op.I16x8_extend_low_i8x16_s;
                               Wasm_op.I32x4_extend_low_i16x8_s;
                             ]
-                            ((per :> int) * i)
+                            (Ssa_type.Lane.first i ~per)
                       | _ ->
                           narrow Wasm.Simd_load.Load64_zero
                             [ Wasm_op.I32x4_extend_low_i16x8_s ]
-                            ((per :> int) * i))
+                            (Ssa_type.Lane.first i ~per))
                     @ [ vn Wasm_op.F32x4_convert_i32x4_s ]
                     @ splat_f32 zero_point
                     @ [ vn Wasm_op.F32x4_sub ]
@@ -868,7 +903,7 @@ let instr st ~limits (i : Ssa_instr.t) : I.t list =
                     (* the high half of each binary32 *)
                     narrow Wasm.Simd_load.Load64_zero
                       [ Wasm_op.I32x4_extend_low_i16x8_u ]
-                      ((per :> int) * i)
+                      (Ssa_type.Lane.first i ~per)
                     @ [ i32 16; vn Wasm_op.I32x4_shl ]
                 | Ssa_op.Decode.F16_to_f32, 1L, _ ->
                     (* binary16 by integer lanes: a normal value rebiased, an
@@ -880,7 +915,7 @@ let instr st ~limits (i : Ssa_instr.t) : I.t list =
                     and sign = fresh st Wasm_type.V128 in
                     narrow Wasm.Simd_load.Load64_zero
                       [ Wasm_op.I32x4_extend_low_i16x8_u ]
-                      ((per :> int) * i)
+                      (Ssa_type.Lane.first i ~per)
                     @ [ set h ]
                     @ [ get h; i32 15; vn Wasm_op.I32x4_shr_u; i32 31 ]
                     @ [ vn Wasm_op.I32x4_shl; set sign ]
@@ -916,17 +951,21 @@ let instr st ~limits (i : Ssa_instr.t) : I.t list =
                     @ splat_i32 0
                     @ [ vn Wasm_op.I32x4_eq; vn Wasm_op.V128_bitselect ]
                 | Ssa_op.Decode.F32_exact, 1L, _ ->
-                    cell_address st b (element ((per :> int) * i))
+                    cell_address st b (element (Ssa_type.Lane.first i ~per))
                     @ [ I.Simd_load (Wasm.Simd_load.Load, arg 2 0) ]
                 | Ssa_op.Decode.F32_exact, 0L, _ ->
-                    cell_address st b (element 0)
+                    cell_address st b (element Ssa_type.Lane.zero)
                     @ [ I.Simd_load (Wasm.Simd_load.Load32_splat, arg 2 0) ]
                 | _ ->
                     List.hd
                       (gather Ssa_type.F32
-                         (List.init
-                            (per :> int)
-                            (fun j -> lane (((per :> int) * i) + j)))))
+                         (List.map
+                            (fun j ->
+                              lane
+                                (Ssa_type.Lane.add
+                                   (Ssa_type.Lane.first i ~per)
+                                   ~by:j))
+                            (Ssa_type.Lane.all per))))
         | Ssa_type.I64 | Ssa_type.Index | Ssa_type.Pred ->
             refuse st (`Unsupported_operation "a vector load of a non-float")
       in
@@ -935,12 +974,11 @@ let instr st ~limits (i : Ssa_instr.t) : I.t list =
       let b = find_buffer st buffer in
       let delta = lane_delta b steps in
       let o = fresh st Wasm_type.I32 in
-      let count = Ssa_type.Lanes.to_int lanes in
       let regs = regs st value in
       let element k =
         [
           get o;
-          index_const (Int64.mul (Int64.of_int k) delta);
+          index_const (Ssa_type.Lane.offset k ~stride:delta);
           n Wasm_op.I32_add;
         ]
       in
@@ -950,20 +988,23 @@ let instr st ~limits (i : Ssa_instr.t) : I.t list =
       match (encode, Int64.equal delta 1L, elem_of value) with
       | Ssa_op.Encode.F32_exact, true, Ssa_type.F32 ->
           List.concat
-            (List.init
-               (count / (per_register value :> int))
-               (fun i ->
-                 cell_address st b (element ((per_register value :> int) * i))
+            (Ssa_type.Chunk.map lanes ~per:(per_register value) (fun i ->
+                 cell_address st b
+                   (element (Ssa_type.Lane.first i ~per:(per_register value)))
                  @ [
-                     get regs.(i);
+                     get regs.((i :> int));
                      I.Simd_store (Wasm.Simd_store.Store, arg 2 0, 0);
                    ]))
       | Ssa_op.Encode.F32_round, true, Ssa_type.F64 ->
           List.concat
-            (List.init (count / 2) (fun i ->
-                 cell_address st b (element (2 * i))
+            (Ssa_type.Chunk.map lanes ~per:(lanes_per_register Ssa_type.F64)
+               (fun i ->
+                 cell_address st b
+                   (element
+                      (Ssa_type.Lane.first i
+                         ~per:(lanes_per_register Ssa_type.F64)))
                  @ [
-                     get regs.(i);
+                     get regs.((i :> int));
                      vn Wasm_op.F32x4_demote_f64x2_zero;
                      I.Simd_store (Wasm.Simd_store.Store64_lane, arg 2 0, 0);
                    ]))
@@ -971,10 +1012,13 @@ let instr st ~limits (i : Ssa_instr.t) : I.t list =
           let per = per_register value in
           let e = elem_of value in
           List.concat
-            (List.init count (fun k ->
+            (List.map
+               (fun k ->
                  cell_address st b (element k)
                  @ [
-                     get regs.(k / (per :> int));
-                     I.Simd_lane (extract_lane e, k mod (per :> int));
+                     get regs.((Ssa_type.Lane.chunk k ~per :> int));
+                     I.Simd_lane
+                       (extract_lane e, (Ssa_type.Lane.slot k ~per :> int));
                    ]
-                 @ encode_store st encode)))
+                 @ encode_store st encode)
+               (Ssa_type.Lane.all lanes)))

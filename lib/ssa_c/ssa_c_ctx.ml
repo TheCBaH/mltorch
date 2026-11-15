@@ -19,11 +19,11 @@ type t = {
   esc : error Err.Escape.t;
   names : string Ssa_ir.Ssa_id.Value.Tbl.t;
   mutable decls : (string * string * string) list;  (** name, type, init *)
-  mutable next_name : int;
-  mutable next_temp : int;
+  mutable next_name : Ssa_ir.Ssa_emit_id.Name.Next.t;
+  mutable next_temp : Ssa_ir.Ssa_emit_id.Name.Next.t;
   mutable used : R.Name.t list;
   mutable sites : Loop_ir.Loop_failure.t list;
-  mutable site_count : int;
+  mutable site_count : Ssa_ir.Ssa_emit_id.Site.Next.t;
   mutable local_doubles : int64;
   mutable vector_types : (string * string) list;  (** typedef name, text *)
   mutable vector_helpers : (string * string) list;  (** function name, text *)
@@ -40,11 +40,11 @@ let create ?site_table ~esc buffers =
     esc;
     names = Ssa_ir.Ssa_id.Value.Tbl.create 64;
     decls = [];
-    next_name = 0;
-    next_temp = 0;
+    next_name = Ssa_ir.Ssa_emit_id.Name.Next.first;
+    next_temp = Ssa_ir.Ssa_emit_id.Name.Next.first;
     used = [];
     sites = [];
-    site_count = 0;
+    site_count = Ssa_ir.Ssa_emit_id.Site.Next.first;
     local_doubles = 0L;
     vector_types = [];
     vector_helpers = [];
@@ -78,7 +78,7 @@ let check_lanes cx lanes =
   lanes
 
 let vector_type cx ~elem lanes =
-  let n = (check_lanes cx lanes :> int) in
+  let n = Ssa_type.Lanes.to_int (check_lanes cx lanes) in
   let name, text =
     match elem with
     | `F32 ->
@@ -131,8 +131,9 @@ let define cx (v : Ssa_value.t) =
   match c_type cx v.Ssa_value.ty with
   | None -> ""
   | Some (ty, init) ->
-      let name = Printf.sprintf "v%d" cx.next_name in
-      cx.next_name <- cx.next_name + 1;
+      let ordinal, next = Ssa_ir.Ssa_emit_id.Name.Next.alloc cx.next_name in
+      cx.next_name <- next;
+      let name = Printf.sprintf "v%d" (ordinal :> int) in
       Ssa_ir.Ssa_id.Value.Tbl.replace cx.names v.Ssa_value.id name;
       cx.decls <- (name, ty, init) :: cx.decls;
       name
@@ -143,18 +144,19 @@ let name cx (v : Ssa_value.t) =
   | None -> invalid_arg "Ssa_c: a value used before it is defined"
 
 let temp cx =
-  let n = Printf.sprintf "t%d" cx.next_temp in
-  cx.next_temp <- cx.next_temp + 1;
+  let ordinal, next = Ssa_ir.Ssa_emit_id.Name.Next.alloc cx.next_temp in
+  cx.next_temp <- next;
+  let n = Printf.sprintf "t%d" (ordinal :> int) in
   n
 
 (* A failure site: where a record's static part (which local) is looked up. *)
 let site cx (f : Loop_ir.Loop_failure.t) =
   match cx.site_table with
   | None ->
-      let k = cx.site_count in
+      let k, next = Ssa_ir.Ssa_emit_id.Site.Next.alloc cx.site_count in
       cx.sites <- f :: cx.sites;
-      cx.site_count <- k + 1;
-      Ssa_ir.Ssa_emit_id.Site.of_int k
+      cx.site_count <- next;
+      k
   | Some table ->
       (* the first entry of the caller's table that names the same failure; a
          check the table has no entry for is one its own lowering proved can

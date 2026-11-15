@@ -107,7 +107,7 @@ let schedule ~(target : Ssa_target.t) info t (s : Ssa_region.t Ssa_stmt.t) =
       let kinds = Ssa_id.Value.Tbl.create 32 in
       let cx =
         make_ctx ~esc:(body_escape esc) ~t ~program:info.program ~kinds
-          ~consts:info.consts ~lanes ~trips:(fun _ -> 16)
+          ~consts:info.consts ~lanes ~trips:(fun _ -> 16L)
       in
       let idx_ty = Ssa_type.Scalar Ssa_type.Index in
       let const_stmt ty c =
@@ -348,7 +348,7 @@ let ordered ~(target : Ssa_target.t) info t (s : Ssa_region.t Ssa_stmt.t) =
       let kinds = Ssa_id.Value.Tbl.create 32 in
       let cx =
         make_ctx ~esc:(body_escape esc) ~t ~program:info.program ~kinds
-          ~consts:info.consts ~lanes ~trips:(fun _ -> 16)
+          ~consts:info.consts ~lanes ~trips:(fun _ -> 16L)
       in
       let idx_ty = Ssa_type.Scalar Ssa_type.Index in
       let elt = f.seed.Ssa_value.ty in

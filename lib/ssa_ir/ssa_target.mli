@@ -145,7 +145,7 @@ val f32 : t -> t
 
 val all : t list
 
-val profitable : t -> (Op.t * int) list -> bool
+val profitable : t -> (Op.t * int64) list -> bool
 (** [profitable target body] is true when the vector cost of the multiset of
     operations [body] (each with how many times it occurs per iteration) is
     below [target.lanes] scalar iterations of them. *)

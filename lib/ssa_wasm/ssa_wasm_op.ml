@@ -320,8 +320,7 @@ let gather elem (lanes : I.t list list) =
   let rec registers = function
     | [] -> []
     | l ->
-        let reg = List.filteri (fun i _ -> i < (per :> int)) l in
-        let rest = List.filteri (fun i _ -> i >= (per :> int)) l in
+        let reg, rest = Ssa_type.Lanes.split per l in
         reg :: registers rest
   in
   List.map
@@ -358,22 +357,22 @@ let reshape_mask st (m : Ssa_value.t) ~(target : mask_shape) =
   else
     let lanes = lanes_of m in
     let lane_value k =
+      let per =
+        Ssa_type.Lanes.of_int (match have with Wide -> 2 | Narrow -> 4)
+      in
+      let reg = get src.((Ssa_type.Lane.chunk k ~per :> int))
+      and slot = (Ssa_type.Lane.slot k ~per :> int) in
       match have with
-      | Wide ->
-          [
-            get src.(k / 2); I.Simd_lane (Wasm.Simd_lane.I64x2_extract, k mod 2);
-          ]
-      | Narrow ->
-          [
-            get src.(k / 4); I.Simd_lane (Wasm.Simd_lane.I32x4_extract, k mod 4);
-          ]
+      | Wide -> [ reg; I.Simd_lane (Wasm.Simd_lane.I64x2_extract, slot) ]
+      | Narrow -> [ reg; I.Simd_lane (Wasm.Simd_lane.I32x4_extract, slot) ]
     in
+    let at first k = Ssa_type.Lane.add first ~by:(Ssa_type.Lane.of_int k) in
     match target with
     | Narrow ->
-        List.init
-          ((lanes :> int) / 4)
-          (fun j ->
-            let l k = lane_value ((4 * j) + k) @ [ n Wasm_op.I32_wrap_i64 ] in
+        let per = Ssa_type.Lanes.of_int 4 in
+        Ssa_type.Chunk.map lanes ~per (fun j ->
+            let first = Ssa_type.Lane.first j ~per in
+            let l k = lane_value (at first k) @ [ n Wasm_op.I32_wrap_i64 ] in
             l 0
             @ [ vn Wasm_op.I32x4_splat ]
             @ List.concat
@@ -381,11 +380,11 @@ let reshape_mask st (m : Ssa_value.t) ~(target : mask_shape) =
                      l (k + 1)
                      @ [ I.Simd_lane (Wasm.Simd_lane.I32x4_replace, k + 1) ])))
     | Wide ->
-        List.init
-          ((lanes :> int) / 2)
-          (fun j ->
+        let per = Ssa_type.Lanes.of_int 2 in
+        Ssa_type.Chunk.map lanes ~per (fun j ->
+            let first = Ssa_type.Lane.first j ~per in
             let l k =
-              lane_value ((2 * j) + k) @ [ n Wasm_op.I64_extend_i32_s ]
+              lane_value (at first k) @ [ n Wasm_op.I64_extend_i32_s ]
             in
             l 0
             @ [ vn Wasm_op.I64x2_splat ]

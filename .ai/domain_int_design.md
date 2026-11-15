@@ -86,6 +86,12 @@ them does with the number. The audit of the exempt entries, by family:
   `Mir_type.Lanes.t` already exist and are unwrapped (`lanes_of`, `lane_ok`,
   `lanes_per_register`, `registers_of_lanes`). The Loop vector record that holds
   `lanes` and `parts` beside its literal bounds is `todo-domain` as a whole.
+  The SSA side no longer unwraps: `Ssa_type` carries `Chunk` (a register's
+  position among a vector's) and the operations that move between the domains
+  (`Lane.chunk`, `Lane.slot`, `Lane.first`, `Lane.add`, `Lane.offset`,
+  `Lane.all`, `Chunk.map`), and the SSA emitters' name and failure-site counters
+  are `Ssa_emit_id.Name.Next` and `Site.Next`. Its module has an `.mli` so the
+  `Core.Tagged_int.S` includes stay opaque to the gate.
 - **Block rows, unroll factor, parts, block keys** (7 entries, was `tally` or
   `budget`): a row count is a domain, not a limit. The same `rows` was `budget` in
   `Ssa_opt_rows.program` and `tally` in `analyze` two declarations later; a

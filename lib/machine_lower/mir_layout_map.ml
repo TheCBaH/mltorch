@@ -97,7 +97,9 @@ module Params = struct
 
   let channels (e : Entry.t) =
     Option.value ~default:0
-      (Ssa_format.channels e.Entry.buffer.Ssa_buffer.format)
+      (Option.map
+         (fun (n : Ssa_format.Channels.t) -> (n :> int))
+         (Ssa_format.channels e.Entry.buffer.Ssa_buffer.format))
 
   (* the byte offset of channel parameters: scales first, zero points after *)
   let zero_point_offset e = Int64.mul 4L (Int64.of_int (channels e))

@@ -201,11 +201,9 @@ let lane_helper cx ~prefix ~ty ~arity ~body =
   in
   vector_helper cx fname
     (Printf.sprintf
-       "static inline %s %s(%s) { %s r; for (int k = 0; k < %d; k++) r[k] = \
+       "static inline %s %s(%s) { %s r; for (int k = 0; k < %s; k++) r[k] = \
         %s; return r; }"
-       t fname params t
-       (n :> int)
-       args);
+       t fname params t (Ssa_type.Lanes.decimal n) args);
   fname
 
 let splat_helper cx ty =
@@ -215,10 +213,9 @@ let splat_helper cx ty =
   let elem = match fst (vec_parts ty) with `F32 -> "float" | _ -> "double" in
   vector_helper cx fname
     (Printf.sprintf
-       "static inline %s %s(%s x) { %s r; for (int k = 0; k < %d; k++) r[k] = \
+       "static inline %s %s(%s x) { %s r; for (int k = 0; k < %s; k++) r[k] = \
         x; return r; }"
-       t fname elem t
-       (n :> int));
+       t fname elem t (Ssa_type.Lanes.decimal n));
   fname
 
 let mask_splat_helper cx ty =
@@ -227,10 +224,9 @@ let mask_splat_helper cx ty =
   let fname = "ssa_msplat_" ^ t in
   vector_helper cx fname
     (Printf.sprintf
-       "static inline %s %s(int p) { %s r; for (int k = 0; k < %d; k++) r[k] = \
+       "static inline %s %s(int p) { %s r; for (int k = 0; k < %s; k++) r[k] = \
         p ? -1 : 0; return r; }"
-       t fname t
-       (n :> int));
+       t fname t (Ssa_type.Lanes.decimal n));
   fname
 
 (* A mask as the lanes of the vector type it selects between. *)
@@ -247,9 +243,7 @@ let select_helper cx ~mask_ty ~ty =
            t fname mt t t t mt mt)
   | `F32 ->
       let n = lanes_of ty in
-      let narrow =
-        vector_type cx ~elem:`Mask32 (Ssa_type.Lanes.of_int (n :> int))
-      in
+      let narrow = vector_type cx ~elem:`Mask32 n in
       vector_helper cx fname
         (Printf.sprintf
            "static inline %s %s(%s m, %s a, %s b) { %s w = \
@@ -336,10 +330,10 @@ let lanewise cx (inner : Ssa_op.t) ~(result : Ssa_value.t) =
       vector_helper cx fname
         (Printf.sprintf
            "static inline %s %s(%s best, %s value) { %s r; for (int k = 0; k < \
-            %d; k++) r[k] = (value[k] > best[k] || value[k] != value[k]) ? -1 \
+            %s; k++) r[k] = (value[k] > best[k] || value[k] != value[k]) ? -1 \
             : 0; return r; }"
            mt fname (vtype cx vt) (vtype cx vt) mt
-           (count :> int));
+           (Ssa_type.Lanes.decimal count));
       Printf.sprintf "%s(%s, %s)" fname (n best) (n value)
   | Ssa_op.Pred_not a -> Printf.sprintf "(~%s)" (n a)
   | Ssa_op.Pred_or (a, b) -> Printf.sprintf "(%s | %s)" (n a) (n b)

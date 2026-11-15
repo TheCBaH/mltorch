@@ -295,16 +295,16 @@ type ctx = {
   vmap : Ssa_value.t Ssa_id.Value.Tbl.t;
   mutable splats : Ssa_value.t Ssa_id.Value.Tbl.t list;
   mutable out : Ssa_region.t Ssa_stmt.t list;
-  mutable ops : (Ssa_target.Op.t * int) list;
-  mutable weight : int;
-  trips : Ssa_id.Region.t -> int;
+  mutable ops : (Ssa_target.Op.t * int64) list;
+  mutable weight : int64;
+  trips : Ssa_id.Region.t -> int64;
       (** a loop body's iteration count, the cost model's weight *)
 }
 
 let count cx op =
   cx.ops <-
     (match List.assoc_opt op cx.ops with
-    | Some n -> (op, n + cx.weight) :: List.remove_assoc op cx.ops
+    | Some n -> (op, Int64.add n cx.weight) :: List.remove_assoc op cx.ops
     | None -> (op, cx.weight) :: cx.ops)
 
 let push cx s = cx.out <- s :: cx.out
@@ -541,7 +541,7 @@ let rec emit_stmt cx : Ssa_region.t Ssa_stmt.t -> unit = function
           carried f.results
       in
       let saved = cx.weight in
-      cx.weight <- cx.weight * cx.trips f.body.Ssa_region.id;
+      cx.weight <- Int64.mul cx.weight (cx.trips f.body.Ssa_region.id);
       let body, yields =
         in_region cx (fun () ->
             List.iter (emit_stmt cx) f.body.Ssa_region.body;
@@ -570,7 +570,7 @@ let rec emit_stmt cx : Ssa_region.t Ssa_stmt.t -> unit = function
       let vector = kind_of cx.kinds sum = Vec in
       let seed = if vector then vec_of cx f.seed else f.seed in
       let saved = cx.weight in
-      cx.weight <- cx.weight * cx.trips f.body.Ssa_region.id;
+      cx.weight <- Int64.mul cx.weight (cx.trips f.body.Ssa_region.id);
       let body, yields =
         in_region cx (fun () ->
             List.iter (emit_stmt cx) f.body.Ssa_region.body;
@@ -654,7 +654,8 @@ type info = {
   program : Ssa_program.t;
   ranges : Ssa_range.t;
   consts : unit Ssa_id.Value.Tbl.t;
-  loop_trips : int Ssa_id.Region.Tbl.t;  (** body region id -> constant trips *)
+  loop_trips : int64 Ssa_id.Region.Tbl.t;
+      (** body region id -> constant trips *)
   executions : int64 Ssa_id.Region.Tbl.t;
       (** body region id -> enclosing product *)
 }
@@ -681,9 +682,7 @@ let survey (p : Ssa_program.t) =
         in
         Ssa_id.Region.Tbl.replace executions body.Ssa_region.id enclosing;
         (match n with
-        | Some n ->
-            Ssa_id.Region.Tbl.replace loop_trips body.Ssa_region.id
-              (Int64.to_int n)
+        | Some n -> Ssa_id.Region.Tbl.replace loop_trips body.Ssa_region.id n
         | None -> ());
         region
           ~enclosing:(Int64.mul enclosing (Option.value n ~default:1L))
@@ -696,9 +695,7 @@ let survey (p : Ssa_program.t) =
         in
         Ssa_id.Region.Tbl.replace executions body.Ssa_region.id enclosing;
         (match n with
-        | Some n ->
-            Ssa_id.Region.Tbl.replace loop_trips body.Ssa_region.id
-              (Int64.to_int n)
+        | Some n -> Ssa_id.Region.Tbl.replace loop_trips body.Ssa_region.id n
         | None -> ());
         region
           ~enclosing:(Int64.mul enclosing (Option.value n ~default:1L))
@@ -713,9 +710,8 @@ let survey (p : Ssa_program.t) =
 (* The innermost-loop iterations one execution of a loop covers. *)
 let rec work info (s : Ssa_region.t Ssa_stmt.t) =
   let trips (body : Ssa_region.t) =
-    Int64.of_int
-      (Option.value ~default:1
-         (Ssa_id.Region.Tbl.find_opt info.loop_trips body.Ssa_region.id))
+    Option.value ~default:1L
+      (Ssa_id.Region.Tbl.find_opt info.loop_trips body.Ssa_region.id)
   in
   let inner (body : Ssa_region.t) =
     let sum =
@@ -746,6 +742,6 @@ let make_ctx ~esc ~t ~program ~kinds ~consts ~lanes ~trips =
     splats = [ Ssa_id.Value.Tbl.create 8 ];
     out = [];
     ops = [];
-    weight = 1;
+    weight = 1L;
     trips;
   }

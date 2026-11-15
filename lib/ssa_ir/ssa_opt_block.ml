@@ -29,6 +29,15 @@
 
 module Id_set = Set.Make (Int)
 
+(* How many reads of a reduction repeat for every output: a count of loads, not
+   a group size or a register count. *)
+module Shared_reads =
+  Core.Tagged_int.Make
+    (struct
+      let prefix = "shared"
+    end)
+    ()
+
 type refusal =
   | Carries_values
   | Domain_end
@@ -59,7 +68,7 @@ let refusal_name = function
 type candidate = {
   region : Ssa_id.Region.t;
   trips : int64;
-  shared_reads : int;
+  shared_reads : Shared_reads.t;
       (** reads of the reduction that do not depend on the output *)
   decision : (Ssa_blocking.Group.t, refusal) result;
       (** the group size, or why not *)
@@ -78,7 +87,7 @@ type shape = {
   sum_results : Ssa_value.t list;
   sum_body : Ssa_region.t;
   post : Ssa_region.t Ssa_stmt.t list;
-  shared_reads : int;
+  shared_reads : Shared_reads.t;
 }
 
 let rec defs_of_stmts acc stmts =
@@ -258,21 +267,22 @@ let recognize ~policy ranges (s : Ssa_region.t Ssa_stmt.t) :
                                        output: loads whose operands do not
                                        depend on the output *)
                                     let shared =
-                                      List.length
-                                        (List.filter
-                                           (function
-                                             | Ssa_stmt.Instr
-                                                 {
-                                                   Ssa_instr.op =
-                                                     ( Ssa_op.Load_in_bounds _
-                                                     | Ssa_op.Load _ ) as op;
-                                                   _;
-                                                 } ->
-                                                 not
-                                                   (List.exists depends
-                                                      (Ssa_op.operands op))
-                                             | _ -> false)
-                                           sum.body.Ssa_region.body)
+                                      Shared_reads.of_int
+                                      @@ List.length
+                                           (List.filter
+                                              (function
+                                                | Ssa_stmt.Instr
+                                                    {
+                                                      Ssa_instr.op =
+                                                        ( Ssa_op.Load_in_bounds _
+                                                        | Ssa_op.Load _ ) as op;
+                                                      _;
+                                                    } ->
+                                                    not
+                                                      (List.exists depends
+                                                         (Ssa_op.operands op))
+                                                | _ -> false)
+                                              sum.body.Ssa_region.body)
                                     in
                                     Ok
                                       {
@@ -296,14 +306,16 @@ let recognize ~policy ranges (s : Ssa_region.t Ssa_stmt.t) :
       | _ -> Error Carries_values)
   | Ssa_stmt.Instr _ | Ssa_stmt.If _ | Ssa_stmt.Ordered_sum _ -> Error Shape
 
+let is_none n = Shared_reads.equal n (Shared_reads.of_int 0)
+
 (* The group size for a candidate: the largest of 2, 4 and 8 that the trip count
    allows and the register estimate (G accumulators, G varying reads, the shared
    ones) keeps within sixteen values, if it saves any read at all. Four is one
    candidate, not the answer. *)
 let choose (shape : shape) =
-  if shape.shared_reads = 0 then Error Unprofitable
+  if is_none shape.shared_reads then Error Unprofitable
   else
-    let pressure g = (2 * g) + shape.shared_reads in
+    let pressure g = (2 * g) + (shape.shared_reads :> int) in
     let sizes = [ 8; 4; 2 ] in
     match
       List.find_opt
@@ -322,7 +334,7 @@ let decide ~group shape =
   | Fixed g ->
       let g = (g :> int) in
       if Int64.compare shape.trips (Int64.of_int g) < 0 then Error Too_few_trips
-      else if shape.shared_reads = 0 then Error Unprofitable
+      else if is_none shape.shared_reads then Error Unprofitable
       else Ok (Ssa_blocking.Group.of_int g)
 
 (* Every loop of the program and what the pass would do with it. *)
@@ -349,7 +361,7 @@ let analyze ~policy ~group (p : Ssa_program.t) =
               {
                 region = body.Ssa_region.id;
                 trips = 0L;
-                shared_reads = 0;
+                shared_reads = Shared_reads.of_int 0;
                 decision = Error r;
               }
               :: !out)
