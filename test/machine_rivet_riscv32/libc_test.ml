@@ -85,8 +85,8 @@ let machine inputs =
   let slots =
     H.
       [
-        { size; align = 8; placement = Placement.In };
-        { size; align = 8; placement = Placement.Out };
+        Harness_slot.make ~size ~align:8 Placement.In;
+        Harness_slot.make ~size ~align:8 Placement.Out;
       ]
   in
   let bytes = Bytes.create size in

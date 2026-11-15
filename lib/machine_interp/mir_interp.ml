@@ -455,11 +455,8 @@ and exec st ~depth frame (i : Mir_op.t Mir_instr.t) =
         | _ -> width_of st frame x
       in
       let arith a c =
-        if
-          Mir_op.Iarith.is_shift o
-          && (Int64.compare c 0L < 0
-             || Int64.compare c (Int64.of_int (Mir_width.bits w)) >= 0)
-        then defect st frame D.Domain;
+        if Mir_op.Iarith.is_shift o && not (Mir_width.shift_count_ok w c) then
+          defect st frame D.Domain;
         Mir_numeric.int_binary o w a c
       in
       lanewise [ x; y ] (two arith)

@@ -403,7 +403,8 @@ let instructions env (op : A.t) ~(uses : Loc.t list) ~(defs : Loc.t list) :
         bitfield ~signed
           ~rd:(g env A.Sz.W (d 0))
           ~rn:(g env A.Sz.W (u 0))
-          ~lsb:0 ~width:(Mir_width.bits from);
+          ~lsb:0
+          ~width:(Mir_width.bits from :> int);
       ]
   | A.Fbin (o, fsz, _, _) -> (
       let fr l = f env fsz l in
@@ -538,7 +539,8 @@ let instructions env (op : A.t) ~(uses : Loc.t list) ~(defs : Loc.t list) :
         bitfield ~signed:false
           ~rd:(g env A.Sz.W (d 0))
           ~rn:(g env A.Sz.W (u 0))
-          ~lsb:0 ~width:(Mir_width.bits w);
+          ~lsb:0
+          ~width:(Mir_width.bits w :> int);
       ]
   | A.Uxtw _ | A.Wtrunc _ ->
       [ ins Op.Mov [ g env A.Sz.W (d 0); g env A.Sz.W (u 0) ] ]

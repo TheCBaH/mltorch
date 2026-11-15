@@ -1,7 +1,8 @@
 ; What the native routes share whatever the ISA: the table of caller-supplied
 ; region addresses an image is bound through, and the runtime mode that says
-; what an image may depend on. No Rivet and no target: only artifacts.
+; what an image may depend on, and the caller's byte storage under them
+; ([Rivet_storage]). No Rivet and no target: only artifacts and tensors.
 
 (library
  (name machine_rivet_common)
- (libraries err_trace fmt machine_ir machine_model))
+ (libraries core err_trace fmt machine_ir machine_model native))

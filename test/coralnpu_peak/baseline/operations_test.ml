@@ -13,7 +13,7 @@ let%expect_test "every operation and what its accumulator holds" =
       List.iter
         (fun (sew : K.Vtype.Sew.t) ->
           match K.Vv_op.accumulator op ~sew with
-          | Some e -> Fmt.pr " e%d->%s" (K.Vtype.Sew.bits sew) (K.Elem.name e)
+          | Some e -> Fmt.pr " e%a->%s" K.Vtype.Sew.pp_bits sew (K.Elem.name e)
           | None -> ())
         K.Vtype.Sew.[ E8; E16; E32 ];
       Fmt.pr "@.")

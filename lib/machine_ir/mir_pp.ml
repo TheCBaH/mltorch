@@ -196,7 +196,8 @@ let pp_view fmt (v : Mir_view.t) =
 
 let pp_helper fmt (h : Mir_helper.t) =
   Fmt.pf fmt "%a: %s v%d (%a) -> (%a) %s" Mir_id.Helper.pp h.Mir_helper.id
-    h.Mir_helper.name h.Mir_helper.version
+    h.Mir_helper.name
+    (h.Mir_helper.version :> int)
     Fmt.(list ~sep:(any ", ") Mir_type.pp)
     h.Mir_helper.params
     Fmt.(list ~sep:(any ", ") Mir_type.pp)

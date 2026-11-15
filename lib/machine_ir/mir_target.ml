@@ -30,12 +30,7 @@ module Feature = struct
 end
 
 (* A width in bits: a register view's, a value's shape, a unit's. *)
-module Bits =
-  Core.Tagged_int.Make
-    (struct
-      let prefix = "b"
-    end)
-    ()
+module Bits = Mir_width.Bits
 
 (* A register's number within its bank: x5, f5 and v5 are each number 5. The
    allocation contract names a pool, a view and a position in a sequence by

@@ -27,7 +27,7 @@ module Fn = struct
       (match fn with Cos -> 0 | Exp -> 1 | Log -> 2 | Sin -> 3)
 end
 
-let version = 1
+let version = Mir_helper.Version.of_int 1
 
 (* The C library symbol a native realization binds. *)
 let libm_symbol = Fn.name

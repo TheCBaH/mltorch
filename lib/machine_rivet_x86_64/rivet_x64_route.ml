@@ -165,8 +165,7 @@ let exec_of ~allocation ~runtime ~sites (g : Mir_verify.Generic.t) =
         Some
           (String.init n (fun i ->
                match
-                 (Mir_memory.read_bytes memory key ~offset:(Int64.of_int i) ~n:1).(
-                 0)
+                 Mir_memory.read_byte memory key ~offset:(Int64.of_int i)
                with
                | Some b -> Char.chr b
                | None -> '\000'))

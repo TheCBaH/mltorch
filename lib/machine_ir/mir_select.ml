@@ -235,27 +235,33 @@ let store_record b (f : Mir_fail.t) ?unlisted ~sites ~base ~const ~float_bits
         (const Mir_type.i32 (-1L));
       let layout = Mir_failure.layout failure in
       let payload = Array.of_list f.Mir_fail.payload in
-      for k = 0 to Mir_failure.record_words - 1 do
-        let word =
-          match List.assoc_opt k layout with
-          | None -> const Mir_type.i64 0L
-          | Some (Mir_failure.Word.Const c) -> const Mir_type.i64 c
-          | Some Mir_failure.Word.Site ->
-              const Mir_type.i64
-                (Int64.of_int (Mir_id.Site.to_int (Option.get site)))
-          | Some (Mir_failure.Word.Payload p) -> (
-              let v = payload.(p) in
-              match v.Mir_value.ty with Mir_type.F64 -> float_bits v | _ -> v)
-        in
-        let skipped =
-          match skip with
-          | Some `Last -> (
-              match List.rev layout with (j, _) :: _ -> j = k | [] -> k = 0)
-          | None -> false
-        in
-        if not skipped then
-          put ~wide:true (Mir_failure.record_word_offset k) word
-      done;
+      List.iter
+        (fun k ->
+          let word =
+            match List.assoc_opt k layout with
+            | None -> const Mir_type.i64 0L
+            | Some (Mir_failure.Word.Const c) -> const Mir_type.i64 c
+            | Some Mir_failure.Word.Site ->
+                const Mir_type.i64
+                  (Int64.of_int (Mir_id.Site.to_int (Option.get site)))
+            | Some (Mir_failure.Word.Payload p) -> (
+                let v = payload.((p :> int)) in
+                match v.Mir_value.ty with
+                | Mir_type.F64 -> float_bits v
+                | _ -> v)
+          in
+          let skipped =
+            match skip with
+            | Some `Last -> (
+                match List.rev layout with
+                | (j, _) :: _ -> Mir_failure.Word_slot.equal j k
+                | [] ->
+                    Mir_failure.Word_slot.equal k
+                      (Mir_failure.Word_slot.of_int 0))
+            | None -> false
+          in
+          if not skipped then put ~wide:true (Mir_failure.word_offset k) word)
+        Mir_failure.word_slots;
       let status = one () in
       Some
         (Mir_sel.Terminator.Return

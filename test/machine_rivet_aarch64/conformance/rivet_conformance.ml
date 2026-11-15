@@ -257,7 +257,7 @@ let lane_width = function
   | VF.V a -> ( match a with Arr.S2 | Arr.S4 -> 32 | Arr.D2 -> 64)
   | VF.M a -> ( match a with Arr.D2 -> 64 | _ -> 32)
   | VF.Sc _ | VF.Gp _ -> 64
-  | VF.I (w, _) -> Mir_width.bits w
+  | VF.I (w, _) -> (Mir_width.bits w :> int)
 
 let lane_count = function
   | VF.V a | VF.M a -> Mir_type.Lanes.to_int (Arr.lanes a)
@@ -540,8 +540,8 @@ let run_vector_forms map_mutation =
                             let pmem =
                               Array.init 64 (fun i ->
                                   Option.value ~default:0
-                                    (Mir_memory.read_bytes memory key ~offset:0L
-                                       ~n:64).(i))
+                                    (Mir_memory.read_byte memory key
+                                       ~offset:(Int64.of_int i)))
                             in
                             let result_ok =
                               match f.VF.result with

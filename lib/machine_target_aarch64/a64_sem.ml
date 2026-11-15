@@ -182,12 +182,8 @@ let exec env op =
   | Dup_lane (_, k, x) -> [ b (lanes env x).(Mir_type.Lane.to_int k) ]
   | Dup_w x -> [ vec (Array.make 4 (norm Sz.W (bits env x))) ]
   | Ext { signed; from; src } ->
-      let k = Mir_width.bits from in
       let x = Int64.logand (bits env src) (Mir_width.mask from) in
-      let x =
-        if signed then Int64.shift_right (Int64.shift_left x (64 - k)) (64 - k)
-        else x
-      in
+      let x = if signed then Mir_width.signed from x else x in
       [ b (norm Sz.W x) ]
   | Cset (c, f) ->
       [

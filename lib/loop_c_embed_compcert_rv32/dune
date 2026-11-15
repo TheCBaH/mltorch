@@ -9,6 +9,8 @@
 (library
  (name loop_c_embed_compcert_rv32)
  (libraries
+  core
+  err_trace
   fmt
   loop_c_embed
   loop_ir

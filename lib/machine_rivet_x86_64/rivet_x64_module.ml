@@ -72,16 +72,14 @@ let relocation_index artifact =
   List.iter
     (fun (r : Art.Relocation.t) ->
       Hashtbl.add t
-        ( Mir_id.Func.to_int r.Art.Relocation.func,
-          Mir_id.Block.to_int r.Art.Relocation.block,
-          Option.map Mir_id.Instr.to_int r.Art.Relocation.instr )
+        (r.Art.Relocation.func, r.Art.Relocation.block, r.Art.Relocation.instr)
         r)
     (Art.relocations artifact);
   t
 
 let instrs_of_func ~table_slot esc relocations
     (f : (X64_op.t, X64_op.test) Mir_phys.Func.t) =
-  let fid = Mir_id.Func.to_int f.Mir_phys.Func.id in
+  let fid = f.Mir_phys.Func.id in
   let blocks = f.Mir_phys.Func.blocks in
   let next =
     let rec go = function
@@ -91,6 +89,7 @@ let instrs_of_func ~table_slot esc relocations
     in
     go blocks
   in
+  (* [None]: the function's own entry jump, which no relocation names. *)
   let env_at bid instr =
     {
       F.mutation = None;
@@ -103,7 +102,9 @@ let instrs_of_func ~table_slot esc relocations
               if r.Art.Relocation.reference = reference then
                 Some (r.Art.Relocation.symbol, r.Art.Relocation.addend)
               else None)
-            (Hashtbl.find_all relocations (fid, bid, instr)));
+            (match bid with
+            | None -> []
+            | Some bid -> Hashtbl.find_all relocations (fid, bid, instr)));
     }
   in
   let cfi = Rivet_cfi.create ~entry_cfa:8L in
@@ -111,14 +112,13 @@ let instrs_of_func ~table_slot esc relocations
     match blocks with
     | b :: _
       when not (Mir_id.Block.equal b.Mir_phys.Block.id f.Mir_phys.Func.entry) ->
-        [ insn (F.jump (env_at (-1) None) (label_of f f.Mir_phys.Func.entry)) ]
+        [ insn (F.jump (env_at None None) (label_of f f.Mir_phys.Func.entry)) ]
     | _ -> []
   in
   entry_jump
   @ List.concat_map
       (fun ((b : (_, _) Mir_phys.Block.t), following) ->
-        let bid = Mir_id.Block.to_int b.Mir_phys.Block.id in
-        let env = env_at bid in
+        let env = env_at (Some b.Mir_phys.Block.id) in
         let reg (v : Mir_target.View.t) = "%" ^ v.Mir_target.View.name in
         let items_of (i : X64_op.t Mir_phys.Instr.t) =
           List.map insn
@@ -127,7 +127,7 @@ let instrs_of_func ~table_slot esc relocations
                 match instr.Mir_instr.op with
                 | Mir_sel.Op.Machine op ->
                     F.instructions
-                      (env (Some (Mir_id.Instr.to_int instr.Mir_instr.id)))
+                      (env (Some instr.Mir_instr.id))
                       op ~uses ~defs
                 | Mir_sel.Op.Event _ -> []
                 | Mir_sel.Op.Undef _ -> [])
@@ -137,7 +137,7 @@ let instrs_of_func ~table_slot esc relocations
                 match instr.Mir_instr.op with
                 | Mir_sel.Op.Machine op ->
                     F.instructions
-                      (env (Some (Mir_id.Instr.to_int instr.Mir_instr.id)))
+                      (env (Some instr.Mir_instr.id))
                       op ~uses:[] ~defs
                 | Mir_sel.Op.Event _ | Mir_sel.Op.Undef _ -> [])
             | Mir_phys.Instr.Move { dst; src; _ } ->
@@ -292,10 +292,7 @@ let of_artifact ?entry_mutation ?(binding = Image_resident) artifact =
   let table_slot =
     match binding with
     | Image_resident -> fun _ -> None
-    | Table ->
-        fun symbol ->
-          Option.map Core.Table_slot.to_int
-            (Rivet_table.slot_of_symbol slots symbol)
+    | Table -> fun symbol -> Rivet_table.slot_of_symbol slots symbol
   in
   let text =
     List.concat_map

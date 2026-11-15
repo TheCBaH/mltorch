@@ -91,9 +91,13 @@ let run ?mutation ~vlen d =
     H.prepare ~profile:Machine_rivet_riscv32.Rv32_profile.Rv32imf_zve32f_ilp32f
       ~entry ~kernel:[ call; helper ]
       [
-        { H.size = m * k; align = 16; placement = H.Placement.In };
-        { H.size = n * k; align = 16; placement = H.Placement.In };
-        { H.size = 4 * m * n; align = 16; placement = H.Placement.Out };
+        Machine_rivet_riscv32_test.Harness_slot.make ~size:(m * k) ~align:16
+          H.Placement.In;
+        Machine_rivet_riscv32_test.Harness_slot.make ~size:(n * k) ~align:16
+          H.Placement.In;
+        Machine_rivet_riscv32_test.Harness_slot.make
+          ~size:(4 * m * n)
+          ~align:16 H.Placement.Out;
       ]
   in
   let* o =

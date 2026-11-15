@@ -150,6 +150,24 @@ them does with the number. The audit of the exempt entries, by family:
   `buffer_param` and `reserve_local` agree, and so do `site`, `buffer_index` and
   `error_address`.
 
+- **Machine IR and the native routes** (was `todo-domain`, or `wire` for what an
+  emitter chooses). Typed since: a width in bits is `Mir_width.Bits` (what
+  `Mir_width.bits` returns; `Mir_target.Bits` is the same type, now defined below
+  `Mir_width`); a helper descriptor's revision is `Mir_helper.Version`; a word of the
+  failure record is `Mir_failure.Word_slot` (its byte offset `word_offset`) and a position
+  in a failure's payload `Payload_index`, since the record layout is the emitter's choice,
+  not a field of an external format. The RV32 harness and the x86-64 process lay out
+  regions with `Core.Storage_units` (`Byte_size`, `Byte_alignment`, `Byte_offset`); a
+  tensor's bytes and a table region's bytes are `Byte_size` (`Rivet_storage`); a table
+  slot is `Core.Table_slot` in every route (x86-64 now matches AArch64 and RV32); a
+  kernel's place in the schedule is `Loop_bundle.Position`. `Mir_memory.read_bytes` takes
+  a `Byte_size`, and the one-byte and whole-region reads have their own functions.
+  Labels corrected: a process exit status is `wire`; a register number handed straight to
+  Rivet's operand constructors is `wire`; a count reported in a verdict is `tally`; a
+  limit on invocations run (`run_prefix ~count`) is `budget`, as `Mir_model`'s is; a
+  literal factor on a size (`scale`) is `expr-literal`, as `Dim.scale` is. A name suffix
+  is built by the caller, so an ordinal need not appear in a signature.
+
 ## 2. Taxonomy
 
 Two mechanisms, chosen by whether the domains share arithmetic.

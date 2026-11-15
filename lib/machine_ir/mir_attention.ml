@@ -5,7 +5,7 @@
    ({!Attention_block.name}), so a model, a realization and an artifact all
    recover it from the declaration alone. *)
 
-let version = 1
+let version = Mir_helper.Version.of_int 1
 
 (* Helper ids from 1024 up, past the contractions'. *)
 let first_id = Mir_id.Helper.of_int 1024
@@ -35,6 +35,6 @@ let descriptor ~index (d : Attention_block.t) =
 
 (* The descriptor a helper declaration stands for, if it is an attention. *)
 let of_helper (h : Mir_helper.t) =
-  if h.Mir_helper.version = version then
+  if Mir_helper.Version.equal h.Mir_helper.version version then
     Attention_block.of_name h.Mir_helper.name
   else None

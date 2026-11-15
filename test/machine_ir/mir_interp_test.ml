@@ -207,7 +207,12 @@ let stored_bits ?(truncate = false) ?(event = true) x =
   let key =
     Option.get (Mir_interp.Binding.instance binding (Mir_id.Region.of_int 0))
   in
-  let bytes = Mir_memory.read_bytes memory key ~offset:0L ~n:4 in
+  let bytes =
+    Mir_memory.read_bytes memory key ~offset:0L
+      ~n:
+        (Err.or_raise ~pp_error:Core.Storage_units.pp_error
+           (Core.Storage_units.Byte_size.of_int64 4L))
+  in
   ( show_outcome r,
     Array.fold_right
       (fun b acc ->

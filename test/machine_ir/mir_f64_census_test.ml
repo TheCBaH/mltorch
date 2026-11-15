@@ -15,7 +15,7 @@ let exp_helper ty =
   {
     Mir_helper.id = helper_id;
     name = "exp";
-    version = 1;
+    version = Mir_helper.Version.of_int 1;
     params = [ ty ];
     results = [ ty ];
     effects = Mir_helper.Effect.Pure;

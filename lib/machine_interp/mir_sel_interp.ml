@@ -63,7 +63,7 @@ module Make (T : SEMANTICS) = struct
     Array.iteri
       (fun k w ->
         Mir_sel_env.store env
-          (at (Mir_failure.record_word_offset k))
+          (at (Mir_failure.word_offset (Mir_failure.Word_slot.of_int k)))
           ~bytes:8L ~align:8L w)
       words
 

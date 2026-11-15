@@ -483,7 +483,7 @@ let run_once ?(on_run = fun _ -> ()) ?(on_elf = fun _ -> ()) ?route_mutation
         | Art.Section.Bound ->
             let* _, bytes =
               Q.region_bytes memory binding s.Table.region
-                (Int64.to_int s.Table.size)
+                (Machine_rivet_common.Rivet_storage.region_bytes s)
             in
             Ok (Some bytes :: acc)
         | _ -> Ok (None :: acc))

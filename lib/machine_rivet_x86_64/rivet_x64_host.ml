@@ -13,13 +13,14 @@ module Mm = Machine_model.Mir_model
 module Art = Machine_model.Mir_artifact
 module Rt = Rivet_x64_route
 module I = Rivet_x64_image
+module Byte_size = Core.Storage_units.Byte_size
 
 let ( let* ) = Result.bind
 
 type kernel = {
   view : Mm.Kernel_view.t;
   slots : Machine_rivet_common.Rivet_table.slot list;
-  record_slot : int;
+  record_slot : Core.Table_slot.t;
   sites : Mir_failure.Site_entry.t array;
   loaded : I.t;
   manifest : Rivet_x64_manifest.t;
@@ -36,7 +37,7 @@ let slot_index slots region =
     | [] -> None
     | (s : Machine_rivet_common.Rivet_table.slot) :: rest ->
         if Mir_id.Region.equal s.Machine_rivet_common.Rivet_table.region region
-        then Some k
+        then Some (Core.Table_slot.of_int k)
         else go (k + 1) rest
   in
   go 0 slots
@@ -111,10 +112,7 @@ let prepare ?check ?cpuinfo ?features ?attention ?layer
 
 (* The address of a tensor's cells and their bytes. *)
 let tensor_address (Tensor.Tensor t) = I.address t.Tensor.payload.Payload.data
-
-let tensor_bytes (Tensor.Tensor t) =
-  let p = t.Tensor.payload in
-  Bigarray.Array1.dim p.Payload.data * Payload.cell_bytes p.Payload.fmt
+let tensor_bytes = Machine_rivet_common.Rivet_storage.tensor_bytes
 
 (* [src]'s cells into [dst], of the same signature. *)
 let copy_cells (Tensor.Tensor s) (Tensor.Tensor d) =
@@ -158,7 +156,7 @@ module Context = struct
     table :
       (char, Bigarray.int8_unsigned_elt, Bigarray.c_layout) Bigarray.Array1.t;
     scratch :
-      (int
+      (Core.Table_slot.t
       * (char, Bigarray.int8_unsigned_elt, Bigarray.c_layout) Bigarray.Array1.t)
       list;
         (** table slot, storage: the regions no tensor binds *)
@@ -170,18 +168,8 @@ module Context = struct
     bound : bound list;
   }
 
-  let set_word table k v =
-    for b = 0 to 7 do
-      table.{(8 * k) + b} <-
-        Char.chr
-          (Int64.to_int
-             (Int64.logand (Int64.shift_right_logical v (8 * b)) 0xFFL))
-    done
-
-  let bytes n =
-    let b = Bigarray.Array1.create Bigarray.char Bigarray.c_layout (max n 1) in
-    Bigarray.Array1.fill b '\000';
-    b
+  let set_word = Machine_rivet_common.Rivet_storage.set_word
+  let bytes = Machine_rivet_common.Rivet_storage.bytes
 
   let tensor cx id =
     match (Hashtbl.find_opt cx.tensors id, Mm.tensor_sig cx.host.model id) with
@@ -207,7 +195,7 @@ module Context = struct
 
   let write cx id src =
     let* dst = storage cx id in
-    if tensor_bytes src <> tensor_bytes dst then
+    if not (Byte_size.equal (tensor_bytes src) (tensor_bytes dst)) then
       Error (Mm.Stop.Bind (Fmt.str "%a changed size" Tensor_id.pp id))
     else if copy_cells src dst then Ok ()
     else Error (Mm.Stop.Bind (Fmt.str "%a changed format" Tensor_id.pp id))
@@ -270,27 +258,25 @@ module Context = struct
                 with
                 | Some id ->
                     let* t = storage cx0 id in
-                    if
-                      Int64.of_int (tensor_bytes t)
-                      <> s.Machine_rivet_common.Rivet_table.size
-                    then
+                    let size =
+                      Machine_rivet_common.Rivet_storage.region_bytes s
+                    in
+                    if not (Byte_size.equal (tensor_bytes t) size) then
                       Error
                         (Mm.Stop.Bind
-                           (Fmt.str "%a is %d bytes, its region %Ld"
-                              Tensor_id.pp id (tensor_bytes t)
-                              s.Machine_rivet_common.Rivet_table.size))
+                           (Fmt.str "%a is %a bytes, its region %a" Tensor_id.pp
+                              id Byte_size.pp (tensor_bytes t) Byte_size.pp size))
                     else (
                       set_word table i (tensor_address t);
                       Ok scratch)
                 | None ->
                     let store =
-                      bytes
-                        (Int64.to_int s.Machine_rivet_common.Rivet_table.size)
+                      bytes (Machine_rivet_common.Rivet_storage.region_bytes s)
                     in
                     set_word table i (I.address store);
                     Ok ((i, store) :: scratch))
               (Ok [])
-              (List.mapi (fun i s -> (i, s)) k.slots)
+              (List.mapi (fun i s -> (Core.Table_slot.of_int i, s)) k.slots)
           in
           Ok ({ kernel = k; table; scratch } :: bound))
         (Ok []) host.kernels
@@ -331,7 +317,14 @@ module Context = struct
                   (String.init n (fun i -> store.{i}));
                 Mir_record.status memory key ~sites:b.kernel.sites)
       in
-      Error (Mm.Stop.At { invocation = Int32.of_int k; node; status })
+      Error
+        (Mm.Stop.At
+           {
+             invocation =
+               Int32.of_int (k : Loop_ir.Loop_bundle.Position.t :> int);
+             node;
+             status;
+           })
 
   let run_prefix ?poison cx ~inputs ~count =
     let bundle = Mm.bundle cx.host.model in
@@ -343,7 +336,7 @@ module Context = struct
           let* () = acc in
           invoke ?poison k b)
         (Ok ())
-        (List.mapi (fun k b -> (k, b)) ran)
+        (Loop_ir.Loop_bundle.Position.indexed ran)
     in
     Ok
       (List.concat_map

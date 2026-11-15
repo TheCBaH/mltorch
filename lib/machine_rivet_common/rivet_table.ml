@@ -47,5 +47,16 @@ let slot_of_symbol slots name : Core.Table_slot.t option =
 (* The entry every table-bound image exports. *)
 let entry = "mir_entry"
 
+module Byte_size = Core.Storage_units.Byte_size
+
+(* A slot holds one 64-bit address. *)
+let word =
+  Err.or_raise ~pp_error:Core.Storage_units.pp_error (Byte_size.of_int64 8L)
+
 (* Bytes of the table a caller supplies. *)
-let bytes slots = 8 * List.length slots
+let bytes slots =
+  List.fold_left
+    (fun acc _ ->
+      Err.or_raise ~pp_error:Core.Storage_units.pp_error
+        (Byte_size.add acc word))
+    Byte_size.zero slots

@@ -19,7 +19,7 @@ let scale =
   {
     Mir_helper.id = Mir_id.Helper.of_int 0;
     name = "scale";
-    version = 1;
+    version = Mir_helper.Version.of_int 1;
     params = [ f64 ];
     results = [ f64 ];
     effects = Mir_helper.Effect.Pure;
@@ -30,7 +30,7 @@ let guard =
   {
     Mir_helper.id = Mir_id.Helper.of_int 1;
     name = "guard";
-    version = 1;
+    version = Mir_helper.Version.of_int 1;
     params = [ i64 ];
     results = [];
     effects = Mir_helper.Effect.Pure;
@@ -41,7 +41,7 @@ let models =
   [
     {
       Mir_helper_model.name = "scale";
-      version = 1;
+      version = Mir_helper.Version.of_int 1;
       run =
         (fun _ -> function
           | [ Mir_datum.Bits b ] ->
@@ -54,7 +54,7 @@ let models =
     };
     {
       Mir_helper_model.name = "guard";
-      version = 1;
+      version = Mir_helper.Version.of_int 1;
       run =
         (fun _ -> function
           | [ Mir_datum.Bits n ] ->

@@ -12,6 +12,11 @@
    [_start] holds the file bases in [s4]/[s5], which the entry preserves. *)
 
 open Rv32_asm
+module U = Core.Storage_units
+
+let ( let* ) = Result.bind
+let sure r = Err.or_raise ~pp_error:U.pp_error r
+let checked r = Result.map_error (Fmt.str "%a" U.pp_error) (Err.payload r)
 
 module Placement = struct
   type t = Bss | In | Out
@@ -23,16 +28,24 @@ module Abi = struct
   type t = Slot0 | Table
 end
 
-type slot = { size : int; align : int; placement : Placement.t }
-
-type layout = {
-  slots : (slot * int) list;  (** with its offset in the file or block *)
-  in_size : int;
-  out_size : int;
-  bss_size : int;
+type slot = {
+  size : U.Byte_size.t;
+  align : U.Byte_alignment.t;
+  placement : Placement.t;
 }
 
-let status_bytes = 16
+type layout = {
+  slots : (slot * U.Byte_offset.t) list;
+      (** with its offset in the file or block *)
+  in_size : U.Byte_size.t;
+  out_size : U.Byte_size.t;
+  bss_size : U.Byte_size.t;
+}
+
+let status_bytes = sure (U.Byte_size.of_int64 16L)
+
+(* Every region starts on at least a 16-byte boundary. *)
+let line = sure (U.Byte_alignment.of_int64 16L)
 
 (* Failure exits of [_start], distinct from any status a test kernel returns by
    being above it. Under the vector profile, 105 is a core whose vector
@@ -47,25 +60,33 @@ module Exit = struct
 end
 
 let layout slots =
-  let align_up n a = (n + a - 1) / a * a in
   let at = Hashtbl.create 3 in
-  Hashtbl.replace at Placement.Out status_bytes;
-  let placed =
-    List.map
-      (fun s ->
-        let cur = Option.value (Hashtbl.find_opt at s.placement) ~default:0 in
-        let off = align_up cur (max 16 s.align) in
-        Hashtbl.replace at s.placement (off + s.size);
-        (s, off))
-      slots
+  Hashtbl.replace at Placement.Out (U.Byte_offset.of_size status_bytes);
+  let cursor p =
+    Option.value (Hashtbl.find_opt at p) ~default:U.Byte_offset.zero
   in
-  let size p = align_up (Option.value (Hashtbl.find_opt at p) ~default:0) 16 in
-  {
-    slots = placed;
-    in_size = size Placement.In;
-    out_size = size Placement.Out;
-    bss_size = size Placement.Bss;
-  }
+  let* placed =
+    List.fold_left
+      (fun acc s ->
+        let* placed = acc in
+        let* off =
+          checked
+            (U.Byte_offset.align_up (cursor s.placement)
+               (U.Byte_alignment.max line s.align))
+        in
+        let* next = checked (U.Byte_offset.advance off s.size) in
+        Hashtbl.replace at s.placement next;
+        Ok ((s, off) :: placed))
+      (Ok []) slots
+  in
+  let size p =
+    let* e = checked (U.Byte_offset.align_up (cursor p) line) in
+    Ok (U.Byte_offset.to_size e)
+  in
+  let* in_size = size Placement.In in
+  let* out_size = size Placement.Out in
+  let* bss_size = size Placement.Bss in
+  Ok { slots = List.rev placed; in_size; out_size; bss_size }
 
 let table = "harness_table"
 let bss_block = "harness_bss"
@@ -73,7 +94,8 @@ let syscall n = [ insn "li" [ reg "a7"; imm n ]; insn "ecall" [] ]
 
 (* Opens the path in [path] and maps [len] bytes of it, leaving the base in
    [into]. Any failure exits with its own code. *)
-let map ~path ~len ~flags ~prot ~into ~open_code ~map_code ~name =
+let map ~path ~(len : U.Byte_size.t) ~flags ~prot ~into ~open_code ~map_code
+    ~name =
   let bad = name ^ "_open_failed" and bad_map = name ^ "_map_failed" in
   let ok = name ^ "_ok" in
   [
@@ -88,7 +110,7 @@ let map ~path ~len ~flags ~prot ~into ~open_code ~map_code ~name =
       insn "mv" [ reg "a4"; reg "a0" ];
       insn "li" [ reg "a0"; imm 0 ];
     ]
-  @ load_imm "a1" len
+  @ load_imm "a1" (Int64.to_int (U.Byte_size.to_int64 len))
   @ [
       insn "li" [ reg "a2"; imm prot ];
       insn "li" [ reg "a3"; imm flags ];
@@ -111,10 +133,11 @@ let map ~path ~len ~flags ~prot ~into ~open_code ~map_code ~name =
     ]
 
 (* [t1 = base + off], for any [off]: an [addi] immediate is 12 bits. *)
-let at base off =
-  load_imm "t1" off @ [ insn "add" [ reg "t1"; reg base; reg "t1" ] ]
+let at base (off : U.Byte_offset.t) =
+  load_imm "t1" (Int64.to_int (U.Byte_offset.to_int64 off))
+  @ [ insn "add" [ reg "t1"; reg base; reg "t1" ] ]
 
-let harness ?(abi = Abi.Table) ?(min_vlenb = 0) ~entry lay =
+let harness ?(abi = Abi.Table) ?(min_vlenb = U.Byte_size.zero) ~entry lay =
   let has p = List.exists (fun (s, _) -> s.placement = p) lay.slots in
   let items () =
     let start =
@@ -131,13 +154,14 @@ let harness ?(abi = Abi.Table) ?(min_vlenb = 0) ~entry lay =
         insn "lw" [ reg "s2"; mem "sp" 8 ];
         insn "lw" [ reg "s3"; mem "sp" 12 ];
       ]
-      @ (if min_vlenb = 0 then []
+      @ (if U.Byte_size.equal min_vlenb U.Byte_size.zero then []
          else
            (* the vector registers' bytes, vlenb (CSR 0xc22): code that
               assumes VLEN 128 must not run on a smaller one *)
            [
              insn "csrr" [ reg "t0"; imm 0xc22 ];
-             insn "li" [ reg "t1"; imm min_vlenb ];
+             insn "li"
+               [ reg "t1"; imm (Int64.to_int (U.Byte_size.to_int64 min_vlenb)) ];
              insn "li" [ reg "a0"; imm Exit.vlen ];
              insn "bltu" [ reg "t0"; reg "t1"; sym "harness_exit" ];
            ])
@@ -155,7 +179,15 @@ let harness ?(abi = Abi.Table) ?(min_vlenb = 0) ~entry lay =
                  match s.placement with
                  | Placement.In -> at "s4" off
                  | Out -> at "s5" off
-                 | Bss -> [ insn "la" [ reg "t1"; sym_at bss_block off ] ]
+                 | Bss ->
+                     [
+                       insn "la"
+                         [
+                           reg "t1";
+                           sym_at bss_block
+                             (Int64.to_int (U.Byte_offset.to_int64 off));
+                         ];
+                     ]
                in
                base @ [ insn "sw" [ reg "t1"; mem "t0" (4 * k) ] ])
              lay.slots)
@@ -179,14 +211,23 @@ let harness ?(abi = Abi.Table) ?(min_vlenb = 0) ~entry lay =
         zero (max 4 (4 * List.length lay.slots));
       ]
       @
-      if lay.bss_size = 0 then []
+      if U.Byte_size.equal lay.bss_size U.Byte_size.zero then []
       else
-        [ bss; align 16; global bss_block; label bss_block; zero lay.bss_size ]
+        [
+          bss;
+          align 16;
+          global bss_block;
+          label bss_block;
+          zero (Int64.to_int (U.Byte_size.to_int64 lay.bss_size));
+        ]
     in
     start @ tables
   in
   module_ "harness" items
 
+(* The bytes of a 128-bit vector register: what the vector profile's code
+   assumes of the core. *)
+let vlenb_128 = sure (U.Byte_size.of_int64 16L)
 let base = 0x10000L
 
 let elf_of ?profile ~entry modules =
@@ -203,8 +244,10 @@ let elf_of ?profile ~entry modules =
 type prepared = { elf : string; lay : layout; profile : Rv32_profile.t }
 
 let prepare ?(profile = Rv32_profile.default) ?abi ~entry ~kernel slots =
-  let lay = layout slots in
-  let min_vlenb = if Rv32_profile.vector profile then 16 else 0 in
+  let* lay = layout slots in
+  let min_vlenb =
+    if Rv32_profile.vector profile then vlenb_128 else U.Byte_size.zero
+  in
   match harness ?abi ~min_vlenb ~entry lay with
   | Error what -> Error (Fmt.str "the harness has no form for %s" what)
   | Ok h -> (
@@ -218,7 +261,6 @@ type outcome = { status : int32; outputs : (Core.Table_slot.t * string) list }
    [Out] slot's bytes by index. [cpu] replaces the profile's qemu CPU (another
    VLEN, another tail policy). *)
 let run ?timeout ?cpu (p : prepared) ~bound =
-  let ( let* ) = Result.bind in
   let tmp suffix = Filename.temp_file "mltorch_rv32_" suffix in
   let in_path = tmp ".in" and out_path = tmp ".out" in
   Fun.protect
@@ -228,14 +270,16 @@ let run ?timeout ?cpu (p : prepared) ~bound =
         [ in_path; out_path ])
     (fun () ->
       let fill size slots_of =
-        let b = Bytes.make size '\000' in
+        let b = Bytes.make (Int64.to_int (U.Byte_size.to_int64 size)) '\000' in
         List.iteri
           (fun k ((s : slot), off) ->
             if slots_of s then
               Option.iter
                 (fun bytes ->
-                  Bytes.blit_string bytes 0 b off
-                    (min (String.length bytes) s.size))
+                  Bytes.blit_string bytes 0 b
+                    (Int64.to_int (U.Byte_offset.to_int64 off))
+                    (min (String.length bytes)
+                       (Int64.to_int (U.Byte_size.to_int64 s.size))))
                 (bound (Core.Table_slot.of_int k)))
           p.lay.slots;
         Bytes.unsafe_to_string b
@@ -257,10 +301,11 @@ let run ?timeout ?cpu (p : prepared) ~bound =
         else Error (Fmt.str "the process exited %d" r.Rv32_process.exit_code)
       in
       let out = In_channel.with_open_bin out_path In_channel.input_all in
-      if String.length out <> p.lay.out_size then
+      if Int64.of_int (String.length out) <> U.Byte_size.to_int64 p.lay.out_size
+      then
         Error
-          (Fmt.str "the output file is %d bytes, expected %d"
-             (String.length out) p.lay.out_size)
+          (Fmt.str "the output file is %d bytes, expected %a"
+             (String.length out) U.Byte_size.pp p.lay.out_size)
       else
         Ok
           {
@@ -270,7 +315,12 @@ let run ?timeout ?cpu (p : prepared) ~bound =
                 (List.mapi
                    (fun k ((s : slot), off) ->
                      if s.placement = Out then
-                       [ (Core.Table_slot.of_int k, String.sub out off s.size) ]
+                       [
+                         ( Core.Table_slot.of_int k,
+                           String.sub out
+                             (Int64.to_int (U.Byte_offset.to_int64 off))
+                             (Int64.to_int (U.Byte_size.to_int64 s.size)) );
+                       ]
                      else [])
                    p.lay.slots);
           })

@@ -4,20 +4,25 @@
 module Sew = struct
   type t = E8 | E16 | E32
 
-  let bits = function E8 -> 8 | E16 -> 16 | E32 -> 32
-
   let of_bits = function
     | 8 -> Some E8
     | 16 -> Some E16
     | 32 -> Some E32
     | _ -> None
 
-  let pp ppf s = Fmt.pf ppf "e%d" (bits s)
+  (* The width alone, as in [vle16.v]; [pp] is the [e16] of a [vtype]. *)
+  let pp_bits ppf = function
+    | E8 -> Fmt.string ppf "8"
+    | E16 -> Fmt.string ppf "16"
+    | E32 -> Fmt.string ppf "32"
+
+  let pp ppf s = Fmt.pf ppf "e%a" pp_bits s
 end
 
 module Lmul = struct
   type t = M1 | M2 | M4 | M8
 
+  (* Registers in a group; the Coral kernels step register numbers by it. *)
   let factor = function M1 -> 1 | M2 -> 2 | M4 -> 4 | M8 -> 8
 
   let of_factor = function
@@ -27,7 +32,11 @@ module Lmul = struct
     | 8 -> Some M8
     | _ -> None
 
-  let pp ppf l = Fmt.pf ppf "m%d" (factor l)
+  let pp ppf = function
+    | M1 -> Fmt.string ppf "m1"
+    | M2 -> Fmt.string ppf "m2"
+    | M4 -> Fmt.string ppf "m4"
+    | M8 -> Fmt.string ppf "m8"
 end
 
 module Policy = struct

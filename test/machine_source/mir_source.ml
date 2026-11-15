@@ -144,7 +144,11 @@ let mir_outputs memory binding (layout : Mir_layout_map.Entry.t list) =
           let n = Int64.to_int e.Mir_layout_map.Entry.elements in
           let size = Int64.to_int e.Mir_layout_map.Entry.elem_bytes in
           let bytes =
-            Mir_memory.read_bytes memory key ~offset:0L ~n:(size * n)
+            Mir_memory.read_bytes memory key ~offset:0L
+              ~n:
+                (Err.or_raise ~pp_error:Core.Storage_units.pp_error
+                   (Core.Storage_units.Byte_size.of_int64
+                      (Int64.of_int (size * n))))
           in
           let ty =
             match b.Ssa_buffer.format with

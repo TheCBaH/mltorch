@@ -24,7 +24,7 @@ type env = {
   mutation : Mutation.t option;
   esc : R.t Err.Escape.t;
   reference : Mir_target.Reference.t -> (string * int64) option;
-  table_slot : string -> int option;
+  table_slot : string -> Core.Table_slot.t option;
 }
 
 let refuse env r = Err.Escape.throw env.esc r
@@ -226,7 +226,7 @@ let instructions env (op : X.t) ~(uses : Loc.t list) ~(defs : Loc.t list) :
               let load =
                 mk "movq"
                   [
-                    mem_op ~base:rbp ~disp:(Int64.of_int (8 * slot)) ();
+                    mem_op ~base:rbp ~disp:(Int64.of_int (8 * (slot :> int))) ();
                     gq (d 0);
                   ]
               in

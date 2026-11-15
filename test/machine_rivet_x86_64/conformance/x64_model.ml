@@ -107,7 +107,7 @@ let pick l k = List.nth l (k mod List.length l)
 (* Integer lanes of width [w] packed into a register image, lane [j] at
    [j * bits]. *)
 let pack_int w (l : int64 array) =
-  let bits = Mir_width.bits w in
+  let bits = (Mir_width.bits w :> int) in
   let lo = ref 0L and hi = ref 0L in
   Array.iteri
     (fun j x ->
@@ -474,7 +474,7 @@ let predict mutation (f : X64_forms.t) (v : vector) : prediction =
   let buffer =
     Array.init buf_bytes (fun i ->
         Option.value ~default:0
-          (Mir_memory.read_bytes memory key ~offset:0L ~n:buf_bytes).(i))
+          (Mir_memory.read_byte memory key ~offset:(Int64.of_int i)))
   in
   { results; buffer }
 

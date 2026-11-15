@@ -382,8 +382,9 @@ let pp pv fmt op =
       Fmt.pf fmt "vinsert %a[%d], %a" pv a (Mir_type.Lane.to_int k) pv x
   | Vle32 (t, base) -> Fmt.pf fmt "vle32.v.%a (%a)" Mir_type.pp t pv base
   | Vle_int (w, n, base) ->
-      Fmt.pf fmt "vle%d.v x%d (%a)" (Mir_width.bits w) (Mir_type.Lanes.to_int n)
-        pv base
+      Fmt.pf fmt "vle%d.v x%d (%a)"
+        (Mir_width.bits w :> int)
+        (Mir_type.Lanes.to_int n) pv base
   | Vlogic (o, a, b) -> Fmt.pf fmt "%s %a" (Logic.name o) vs [ a; b ]
   | Vlse32 (t, base, s) ->
       Fmt.pf fmt "vlse32.v.%a (%a), %a" Mir_type.pp t pv base pv s
@@ -395,7 +396,8 @@ let pp pv fmt op =
   | Vnsrl16_pair (a, b) -> Fmt.pf fmt "vnsrl.wi.e16.pair %a" vs [ a; b ]
   | Vse32 (base, x) -> Fmt.pf fmt "vse32.v %a, (%a)" pv x pv base
   | Vse_int (w, n, base, x) ->
-      Fmt.pf fmt "vse%d.v x%d %a, (%a)" (Mir_width.bits w)
+      Fmt.pf fmt "vse%d.v x%d %a, (%a)"
+        (Mir_width.bits w :> int)
         (Mir_type.Lanes.to_int n) pv x pv base
   | Vshift (o, k, a) -> Fmt.pf fmt "%s %a, %d" (Rv32_kind.Shift.name o) pv a k
   | Vsgnj (o, a, b) -> Fmt.pf fmt "%s %a" (Sgnj.vname o) vs [ a; b ]

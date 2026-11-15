@@ -20,6 +20,7 @@
   machine_model_test
   machine_target_riscv32
   machine_rivet_riscv32
+  machine_rivet_riscv32_test
   machine_rivet_riscv32_mir
   machine_source_test
   native

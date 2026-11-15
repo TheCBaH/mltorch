@@ -182,12 +182,19 @@ end
 let vsetivli ?(config = Vconfig.M1) ?vl ?(tail = "ta") () =
   let vl, lmul =
     match config with
-    | Vconfig.M1 -> (Option.value vl ~default:4, "m1")
-    | Vconfig.M4 -> (Option.value vl ~default:16, "m4")
-    | Vconfig.M8 -> (Option.value vl ~default:32, "m8")
+    | Vconfig.M1 -> (Option.value vl ~default:(Mir_type.Lanes.of_int 4), "m1")
+    | Vconfig.M4 -> (Option.value vl ~default:(Mir_type.Lanes.of_int 16), "m4")
+    | Vconfig.M8 -> (Option.value vl ~default:(Mir_type.Lanes.of_int 32), "m8")
   in
   i "vsetivli"
-    [ A.reg "zero"; A.imm vl; A.sym "e32"; A.sym lmul; A.sym tail; A.sym "ma" ]
+    [
+      A.reg "zero";
+      A.imm (Mir_type.Lanes.to_int vl);
+      A.sym "e32";
+      A.sym lmul;
+      A.sym tail;
+      A.sym "ma";
+    ]
 
 (* A configuration's items: [vsetivli], or for vl 32 the count in the
    reserved scratch and [vsetvli]. *)
@@ -280,16 +287,16 @@ let vitems env (op : Rv32_vop.t) ~(uses : Loc.t list) ~(defs : Loc.t list) :
       let ext =
         Printf.sprintf "v%cext.vf%d"
           (if signed then 's' else 'z')
-          (32 / Mir_width.bits from)
+          (32 / (Mir_width.bits from :> int))
       in
-      let sew = Printf.sprintf "e%d" (Mir_width.bits from) in
+      let sew = Printf.sprintf "e%d" (Mir_width.bits from :> int) in
       if first = 0 then [ i ext [ rd 0; ru 0 ] ]
       else
         [
           i "vsetivli"
             [
               A.reg "zero";
-              A.imm (128 / Mir_width.bits from);
+              A.imm (128 / (Mir_width.bits from :> int));
               A.sym sew;
               A.sym "m1";
               A.sym "ta";
@@ -302,7 +309,7 @@ let vitems env (op : Rv32_vop.t) ~(uses : Loc.t list) ~(defs : Loc.t list) :
   | V.Vle_int (w, n, _) ->
       let n = Mir_type.Lanes.to_int n in
       (* a register, or half a group at LMUL 2 *)
-      let b = Mir_width.bits w in
+      let b = (Mir_width.bits w :> int) in
       [
         i "vsetivli"
           [
@@ -362,7 +369,7 @@ let vitems env (op : Rv32_vop.t) ~(uses : Loc.t list) ~(defs : Loc.t list) :
       vmove (d 0) (u 0)
       @ [
           i "vfmv.s.f" [ A.reg v0; ru 1 ];
-          vsetivli ~vl:(k + 1) ~tail:"tu" ();
+          vsetivli ~vl:(Mir_type.Lanes.of_int (k + 1)) ~tail:"tu" ();
           i "vslideup.vi" [ rd 0; A.reg v0; A.imm k ];
           vsetivli ();
         ]
@@ -401,7 +408,7 @@ let vitems env (op : Rv32_vop.t) ~(uses : Loc.t list) ~(defs : Loc.t list) :
   | V.Vse_int (w, n, _, _) ->
       let n = Mir_type.Lanes.to_int n in
       (* a register, or half a group at LMUL 2 *)
-      let b = Mir_width.bits w in
+      let b = (Mir_width.bits w :> int) in
       [
         narrow ~vl:n ~sew:b ~lmul:(if n * b > 128 then "m2" else "m1") ();
         i (Printf.sprintf "vse%d.v" b) [ ru 1; A.mem (u 0) 0 ];
@@ -474,7 +481,7 @@ let items env (op : O.t) ~(uses : Loc.t list) ~(defs : Loc.t list) : Item.t list
   | O.Mv _ | O.Zext _ -> gmove (d 0) (u 0)
   | O.Sel _ -> select env ~move:gmove ~rd:(d 0) ~p:(u 0) ~a:(u 1) ~b:(u 2)
   | O.Sext (w, _) ->
-      let k = Int64.of_int (32 - Mir_width.bits w) in
+      let k = Int64.of_int (32 - (Mir_width.bits w :> int)) in
       [ i "slli" [ rd 0; ru 0; imm k ]; i "srai" [ rd 0; rd 0; imm k ] ]
   | O.Store (m, _, k, _) ->
       [ i (O.Msz.store m) [ ru 1; A.mem (u 0) (Int64.to_int k) ] ]

@@ -5,7 +5,7 @@
    artifact all recover it from the declaration alone. Each descriptor a
    program calls is its own helper. *)
 
-let version = 1
+let version = Mir_helper.Version.of_int 1
 
 (* Helper ids from 16 up, past the math helpers'. *)
 let first_id = Mir_id.Helper.of_int 16
@@ -32,5 +32,6 @@ let descriptor ~index (d : Contraction.t) =
 
 (* The descriptor a helper declaration stands for, if it is a contraction. *)
 let of_helper (h : Mir_helper.t) =
-  if h.Mir_helper.version = version then Contraction.of_name h.Mir_helper.name
+  if Mir_helper.Version.equal h.Mir_helper.version version then
+    Contraction.of_name h.Mir_helper.name
   else None

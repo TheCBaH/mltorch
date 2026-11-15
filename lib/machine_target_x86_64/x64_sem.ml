@@ -197,12 +197,8 @@ let exec env op =
   | Cvtsi2s (Fsz.S, x) -> [ b (N.s64_to_f32 (bits env x)) ]
   | Cvtts2si (fsz, x) -> [ b (cvtts2si (fval fsz (bits env x))) ]
   | Ext { signed; from; src } ->
-      let k = Mir_width.bits from in
       let x = Int64.logand (bits env src) (Mir_width.mask from) in
-      let x =
-        if signed then Int64.shift_right (Int64.shift_left x (64 - k)) (64 - k)
-        else x
-      in
+      let x = if signed then Mir_width.signed from x else x in
       [ b (norm Sz.L x) ]
   | Fbin (o, fsz, x, y) ->
       let a = fval fsz (bits env x) and c = fval fsz (bits env y) in

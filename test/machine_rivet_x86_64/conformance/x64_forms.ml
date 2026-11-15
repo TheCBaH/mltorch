@@ -357,7 +357,7 @@ let all : t list =
             let t =
               Mir_type.Vec
                 ( Mir_type.Elem.Int w,
-                  Mir_type.Lanes.of_int (128 / Mir_width.bits w) )
+                  Mir_type.Lanes.of_int (128 / (Mir_width.bits w :> int)) )
             in
             List.map
               (fun (an, roles, addr) ->
@@ -383,7 +383,9 @@ let all : t list =
                               first = Machine_ir.Mir_type.Lane.of_int first;
                               src = nth vs 0;
                             }))
-                    (List.init (32 / Mir_width.bits w) (fun k -> 4 * k)))
+                    (List.init
+                       (32 / (Mir_width.bits w :> int))
+                       (fun k -> 4 * k)))
                 [ true; false ])
           Mir_width.[ W8; W16 ]
         (* lane shifts, bitwise forms and casts on int32 lanes *)

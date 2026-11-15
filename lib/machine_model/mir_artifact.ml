@@ -114,7 +114,8 @@ let binding (h : Mir_helper.t) =
           let d = Mir_math.descriptor fn in
           if
             String.equal d.Mir_helper.name h.Mir_helper.name
-            && d.Mir_helper.version = h.Mir_helper.version
+            && Mir_helper.Version.equal d.Mir_helper.version
+                 h.Mir_helper.version
           then
             let s = Mir_math.libm_symbol fn in
             Some (s, Symbol.External_function s)
@@ -162,7 +163,8 @@ module Make (T : Mir_sel.TARGET) = struct
           | None ->
               Error
                 (Fmt.str "helper %s (version %d) has no native binding"
-                   h.Mir_helper.name h.Mir_helper.version))
+                   h.Mir_helper.name
+                   (h.Mir_helper.version :> int)))
         p.Mir_phys.Program.helpers (Ok [])
     in
     let data =
