@@ -326,7 +326,11 @@ module Make (T : Mir_sel.TARGET) (R : REGISTERS) = struct
                       :: !splits;
                     sid
                 in
-                let then_b = via 0 then_ else_ and else_b = via 1 else_ then_ in
+                let then_b =
+                  via (Mir_phys.Edge_ref.Position.of_int 0) then_ else_
+                and else_b =
+                  via (Mir_phys.Edge_ref.Position.of_int 1) else_ then_
+                in
                 ( List.concat_map snd located,
                   Mir_phys.Term.Branch
                     {

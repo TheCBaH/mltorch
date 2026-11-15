@@ -242,11 +242,12 @@ module Make (T : Mir_sel.TARGET) = struct
           | _ -> fail ~block (Problem.Rematerialized i.Mir_instr.id)
         in
         (* the selected edge a physical edge carries, and its target *)
-        let selected_edge (from : Mir_id.Block.t) index =
+        let selected_edge (from : Mir_id.Block.t)
+            (index : Mir_phys.Edge_ref.Position.t) =
           let edges =
             Mir_sel.Terminator.edges (selected from).Mir_block.terminator
           in
-          match List.nth_opt edges index with
+          match List.nth_opt edges (index :> int) with
           | Some e -> e
           | None -> fail ~block:from Problem.Successor
         in
@@ -323,9 +324,10 @@ module Make (T : Mir_sel.TARGET) = struct
                 | ( Mir_sel.Terminator.Branch { test; _ },
                     Mir_phys.Term.Branch { test = t; then_; else_; _ } ) ->
                     if test <> t then fail ~block Problem.Successor;
-                    reach 0 then_;
-                    reach 1 else_
-                | Mir_sel.Terminator.Jump _, Mir_phys.Term.Jump t -> reach 0 t
+                    reach (Mir_phys.Edge_ref.Position.of_int 0) then_;
+                    reach (Mir_phys.Edge_ref.Position.of_int 1) else_
+                | Mir_sel.Terminator.Jump _, Mir_phys.Term.Jump t ->
+                    reach (Mir_phys.Edge_ref.Position.of_int 0) t
                 | Mir_sel.Terminator.Return _, Mir_phys.Term.Return _ -> ()
                 | _ -> fail ~block Problem.Successor))
           pf.Mir_phys.Func.blocks;
@@ -472,7 +474,8 @@ module Make (T : Mir_sel.TARGET) = struct
                       let tb = physical t in
                       let incoming =
                         enter ~checking:false ~from:b.Mir_phys.Block.id
-                          (edge_of b index) tb out
+                          (edge_of b (Mir_phys.Edge_ref.Position.of_int index))
+                          tb out
                       in
                       let next =
                         if Mir_id.Block.equal t pf.Mir_phys.Func.entry then None
@@ -502,7 +505,8 @@ module Make (T : Mir_sel.TARGET) = struct
                 List.iteri
                   (fun index t ->
                     ignore
-                      (enter ~checking:true ~from:block (edge_of b index)
+                      (enter ~checking:true ~from:block
+                         (edge_of b (Mir_phys.Edge_ref.Position.of_int index))
                          (physical t) out))
                   (Mir_phys.Term.successors b.Mir_phys.Block.terminator);
                 match b.Mir_phys.Block.terminator with

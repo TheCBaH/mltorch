@@ -97,7 +97,15 @@ end
 (* A selected edge: the block it leaves and its position among that block's
    successors ([then] 0, [else] 1, a jump 0). *)
 module Edge_ref = struct
-  type t = { from : Mir_id.Block.t; index : int }
+  (* Which of the block's successors: [then] 0, [else] 1, a jump 0. *)
+  module Position =
+    Core.Tagged_int.Make
+      (struct
+        let prefix = "succ"
+      end)
+      ()
+
+  type t = { from : Mir_id.Block.t; index : Position.t }
 end
 
 module Origin = struct

@@ -163,14 +163,6 @@ module Make (T : Mir_sel_interp.SEMANTICS) = struct
   let peek regs (v : Mir_target.View.t) =
     Hashtbl.find_opt regs.units (unit_key v)
 
-  let slot_of = function
-    | Mir_event.Emitter -> 0
-    | Mir_event.Key -> 1
-    | Mir_event.Local -> 2
-    | Mir_event.Reduction -> 3
-    | Mir_event.Scan -> 4
-    | Mir_event.Scan_update -> 5
-
   let stack_bytes = 0x10_0000L
 
   (* Each executed instruction by its origin role and mnemonic, from how often
@@ -221,7 +213,7 @@ module Make (T : Mir_sel_interp.SEMANTICS) = struct
       Mir_layout.Data_model.pointer_bytes p.Mir_phys.Program.data_model
     in
     let pointer_bits = Int64.to_int pointer_bytes * 8 in
-    let events = Array.make 6 0L in
+    let events = Mir_event.Counter.create () in
     let steps = ref 0L and fuel = ref fuel in
     let traffic = ref Traffic.zero in
     let count f = traffic := f !traffic in
@@ -876,9 +868,7 @@ module Make (T : Mir_sel_interp.SEMANTICS) = struct
                         Traffic.instructions = Int64.succ t.Traffic.instructions;
                       });
                   match instr.Mir_instr.op with
-                  | Mir_sel.Op.Event (e, n) ->
-                      let k = slot_of e in
-                      events.(k) <- Int64.add events.(k) n
+                  | Mir_sel.Op.Event (e, n) -> Mir_event.Counter.add events e n
                   | Mir_sel.Op.Machine op -> exec op uses defs
                   | Mir_sel.Op.Undef v -> (
                       match view v with
@@ -938,7 +928,7 @@ module Make (T : Mir_sel_interp.SEMANTICS) = struct
     in
     {
       outcome;
-      events = List.map (fun e -> (e, events.(slot_of e))) Mir_event.all;
+      events = Mir_event.Counter.totals events;
       steps = !steps;
       traffic = { !traffic with Traffic.ops = profile runs };
     }

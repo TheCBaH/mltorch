@@ -82,7 +82,7 @@ type st = {
       (** machine value id -> the constant it was emitted as *)
   heads : (Ssa_ir.Ssa_id.Block.t, B.block) Hashtbl.t;
       (** CFG block id -> its first machine block *)
-  locals : (int, Local_object.t) Hashtbl.t;
+  locals : Local_object.t Ssa_id.Value.Tbl.t;
       (** an allocation's SSA result id -> its site's object *)
   mutable objects : (Mir_region.t * Mir_view.t) list;
       (** local sites' storage, latest first *)

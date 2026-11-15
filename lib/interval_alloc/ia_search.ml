@@ -48,6 +48,30 @@ let move order src dst =
   else Array.blit order (src + 1) order src (dst' - src);
   slot_set order dst b
 
+(* Draws from the generator state [s], each typed by what it picks. The bound
+   of a draw is the length of what it picks from, so it never leaves here. *)
+module Draw : sig
+  val before : int64 -> Slot.t -> Slot.t
+  (** A slot below a slot other than the first. *)
+
+  val element : int64 -> 'a array -> 'a
+  (** One of a non-empty array. *)
+
+  val one_in_four : int64 -> bool
+
+  val slot : int64 -> 'a array -> Slot.t
+  (** A slot of an order, which is non-empty. *)
+end = struct
+  let below s bound =
+    Int64.to_int
+      (Int64.rem (Int64.shift_right_logical s 33) (Int64.of_int bound))
+
+  let before s (slot : Slot.t) = Slot.of_int (below s (slot :> int))
+  let element s a = a.(below s (Array.length a))
+  let one_in_four s = below s 4 = 0
+  let slot s order = Slot.of_int (below s (Array.length order))
+end
+
 (* Blocks whose top edge sets the pool. *)
 let peak_positions script order (placed : Ia_decode.Placed.t) =
   let acc = ref [] in
@@ -75,11 +99,6 @@ let improve_at ?(at = ignore) mode ~checkpoints ~seed script ~lower_bound order
   in
   let last = List.fold_left Int64.max 0L checkpoints in
   let n = Array.length (Script.indices script) in
-  (* A draw below [bound], from the walk's own generator state. *)
-  let below s bound =
-    Int64.to_int
-      (Int64.rem (Int64.shift_right_logical s 33) (Int64.of_int bound))
-  in
   let best = ref (Array.copy order, start) in
   let rng = ref seed and used = ref 0L in
   let pending = ref checkpoints and recorded = ref [] in
@@ -116,19 +135,19 @@ let improve_at ?(at = ignore) mode ~checkpoints ~seed script ~lower_bound order
       rng := next !rng;
       let peaks = peak_positions script cur cur_placed in
       let src =
-        if Array.length peaks = 0 then Slot.of_int (below !rng n)
-        else peaks.(below !rng (Array.length peaks))
+        if Array.length peaks = 0 then Draw.slot !rng cand
+        else Draw.element !rng peaks
       in
       rng := next !rng;
       (* A peak block moves earlier, so it is placed before what boxed it in. *)
       let dst =
-        if (src :> int) = 0 then src else Slot.of_int (below !rng (src :> int))
+        if Slot.equal src (Slot.of_int 0) then src else Draw.before !rng src
       in
       rng := next !rng;
-      if below !rng 4 = 0 then begin
-        let a = Slot.of_int (below !rng n) in
+      if Draw.one_in_four !rng then begin
+        let a = Draw.slot !rng cand in
         rng := next !rng;
-        let b = Slot.of_int (below !rng n) in
+        let b = Draw.slot !rng cand in
         swap cand a b
       end
       else move cand src dst;

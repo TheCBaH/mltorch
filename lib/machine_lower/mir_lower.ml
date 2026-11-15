@@ -70,7 +70,7 @@ let within st x extent =
     (icmp st Mir_op.Icmp.Slt x (i64k st extent))
 
 let local_object st (l : Ssa_value.t) =
-  match Hashtbl.find_opt st.locals (l.Ssa_value.id :> int) with
+  match Ssa_id.Value.Tbl.find_opt st.locals l.Ssa_value.id with
   | Some o -> o
   | None -> refuse st (Refusal.Local_object l.Ssa_value.id)
 
@@ -599,9 +599,13 @@ let rec instr st (i : Ssa_instr.t) =
       | Some total when Int64.compare total L.Scratch.local_limit <= 0 ->
           st.local_bytes <- total
       | _ -> refuse st (Refusal.Local_storage id));
-      let region, view = L.Scratch.local (Hashtbl.length st.locals) ~bytes in
+      let region, view =
+        L.Scratch.local
+          (L.Scratch.Site.of_int (Ssa_id.Value.Tbl.length st.locals))
+          ~bytes
+      in
       st.objects <- (region, view) :: st.objects;
-      Hashtbl.replace st.locals (id :> int) { Local_object.slots; var };
+      Ssa_id.Value.Tbl.replace st.locals id { Local_object.slots; var };
       (* every run of the site begins a fresh object *)
       if not (mutated st Mutation.Stale_local) then
         emit_unit st (Mir_op.Undef view.Mir_view.id);
@@ -894,7 +898,7 @@ let program ?mutation ~planning (p : Ssa_program.t) =
       values = Ssa_ir.Ssa_id.Value.Tbl.create 256;
       constants = Hashtbl.create 64;
       heads = Hashtbl.create 32;
-      locals = Hashtbl.create 8;
+      locals = Ssa_id.Value.Tbl.create 8;
       objects = [];
       local_bytes = 0L;
       limits = p.Ssa_program.scan_limits;
