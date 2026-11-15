@@ -6,8 +6,11 @@ val error_words : int
 val kind_offset : int
 val invocation_offset : int
 
-val slot_offset : int -> int
-(** The byte offset of slot [k]. *)
+module Slot : Core.Tagged_int.S
+(** The ordinal of an [i64] slot of the record. *)
+
+val slot_arg : Slot.t -> Wasm.Mem_arg.t
+(** The [i64] store or load of a slot, at its byte offset in the record. *)
 
 val record_bytes : int
 

@@ -37,7 +37,9 @@ type kernel = {
 val lower_with :
   ?numerics:Loop_numerics.t ->
   ?count_marks:bool ->
-  (mark_base:int option -> table_alloc:(bytes:int -> int) -> (kernel, 'e) Err.t) ->
+  (mark_base:int option ->
+  table_alloc:(bytes:int64 -> Loop_wasm_layout.Address.t) ->
+  (kernel, 'e) Err.t) ->
   (t, 'e) Err.t
 (** {!lower} for a kernel some other emitter makes: [produce] gets the mark base
     and the constant-table allocator the module's layout fixes, and its kernel

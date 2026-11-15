@@ -23,8 +23,9 @@ let align16 x = Int64.logand (Int64.add x 15L) (Int64.lognot 15L)
 
 let lower_with ?(numerics = Loop_numerics.Reference_f64) ?(count_marks = false)
     (produce :
-      mark_base:int option -> table_alloc:(bytes:int -> int) -> ('a, 'e) Err.t)
-    =
+      mark_base:int option ->
+      table_alloc:(bytes:int64 -> Layout.Address.t) ->
+      ('a, 'e) Err.t) =
   (* The module's own bytes: the error record, then constant tables as the
      kernel asks for them, then the local region, then the host's buffers. *)
   let top = ref (align16 (Int64.of_int W.record_bytes)) in
@@ -38,8 +39,8 @@ let lower_with ?(numerics = Loop_numerics.Reference_f64) ?(count_marks = false)
   in
   let table_alloc ~bytes =
     let off = align8 !top in
-    top := Int64.add off (Int64.of_int bytes);
-    Int64.to_int off
+    top := Int64.add off bytes;
+    Layout.Address.of_int64 off
   in
   Err.map
     (fun (k : kernel) ->

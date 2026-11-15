@@ -69,6 +69,7 @@ module Loop_wasm_module = Loop_wasm_module
 module Loop_wasm_ctx = Loop_wasm_ctx
 module Loop_wasm_fail = Loop_wasm_fail
 module Loop_wasm_failure = Loop_wasm_failure
+module Loop_wasm_layout = Loop_wasm_layout
 module Loop_wasm_link = Loop_wasm_link
 module Loop_wasm_runtime = Loop_wasm_runtime
 module Loop_wasm_value = Loop_wasm_value

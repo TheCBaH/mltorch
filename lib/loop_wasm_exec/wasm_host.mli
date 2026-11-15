@@ -38,7 +38,7 @@ val prepare :
   ?vector:Loop_target.t ->
   ?numerics:Loop_numerics.t ->
   ?kernel:
-    (table_alloc:(bytes:int -> int) ->
+    (table_alloc:(bytes:int64 -> Loop_wasm_layout.Address.t) ->
     Loop_bundle.invocation ->
     (Loop_wasm.kernel, string) result) ->
   dir:string ->

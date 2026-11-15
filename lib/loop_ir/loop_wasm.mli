@@ -85,13 +85,14 @@ val kernel :
   ?numerics:Loop_numerics.t ->
   ?precision:Loop_numerics.Precision.t ->
   ?mark_base:int ->
-  table_alloc:(bytes:int -> int) ->
+  table_alloc:(bytes:int64 -> Loop_wasm_layout.Address.t) ->
   Loop_program.t ->
   (kernel, [> error ]) Err.t
 
-val with_pages : t -> pages:int -> Wasm.Module.t
-(** The module with [pages] initial memory pages; [Invalid_argument] below the
-    static region's need. *)
+val with_heap : t -> bytes:int64 -> Wasm.Module.t
+(** The module with initial memory for its static region and [bytes] of host
+    buffers after [heap_base], whole pages and at least one. [Invalid_argument]
+    when the total is beyond 2 GiB. *)
 
 val encode : t -> (string, Wasm_check.error) Err.t
 (** [Wasm_encode.module_] of [module_]. *)

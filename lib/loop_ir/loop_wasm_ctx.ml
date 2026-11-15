@@ -2,6 +2,8 @@ module I = Wasm.Instr
 module R = Loop_wasm_runtime
 module F = Loop_js_failure
 module W = Loop_wasm_failure
+module Layout = Loop_wasm_layout
+module Width = Layout.Width
 
 (* A kernel's instruction lists run to thousands of elements, and the stock
    [@] and [List.map] recurse once per element: fine natively, a stack
@@ -44,11 +46,12 @@ type st = {
   int64s : (int, int) Hashtbl.t;
   indices : (int, int) Hashtbl.t;
   buffers : (int, int) Hashtbl.t;  (** tensor id -> parameter position *)
-  tables : (int, int * int) Hashtbl.t;  (** per-channel scale and zero tables *)
-  arrays : (int, int) Hashtbl.t;
+  tables : (int, Layout.Address.t * Layout.Address.t) Hashtbl.t;
+      (** per-channel scale and zero tables *)
+  arrays : (int, Layout.Local_offset.t) Hashtbl.t;
       (** array id -> byte offset from the [local] base pointer *)
   mutable local_top : int64;
-  table_alloc : bytes:int -> int;
+  table_alloc : bytes:int64 -> Layout.Address.t;
       (** reserves [bytes] of constant data, returning its absolute address *)
   mark_base : int option;
       (** where a counting build keeps one [i32] per {!Loop_mark.t} *)
@@ -69,10 +72,9 @@ let f64 x = I.F64_const (Int64.bits_of_float x)
 let ftype st = if st.f32 then Wasm_type.F32 else Wasm_type.F64
 let fconst st x = if st.f32 then I.F32_const (Int32.bits_of_float x) else f64 x
 
-(* log2 of a local array cell: eight bytes in binary64, four in binary32. *)
-let array_log2 st = if st.f32 then 2 else 3
-let array_cell_bytes st = if st.f32 then 4 else 8
-let arg align offset = { Wasm.Mem_arg.align; offset }
+(* The width of a local array cell: eight bytes in binary64, four in binary32. *)
+let array_width st = if st.f32 then Width.W4 else Width.W8
+let arg = Width.arg
 let fits32 k = Int32.to_int (Int32.of_int k) = k
 let refuse st e = Err.Escape.throw st.esc e
 
@@ -118,7 +120,7 @@ let reserve_local st bytes =
   if Int64.compare top static_cap > 0 then
     refuse st (`Local_arrays_too_large top);
   st.local_top <- top;
-  Int64.to_int off
+  Layout.Local_offset.of_int64 off
 
 let offset_index = Loop_flat.offset
 
@@ -126,11 +128,11 @@ let fmt_of (b : Loop_buffer.t) =
   let (Payload.Fmt f) = b.Loop_buffer.sg.Tensor_sig.fmt in
   Payload.fmt_name f
 
-(* log2 of the cell width in bytes. *)
-let cell_log2 b =
+(* The cell width in bytes. *)
+let cell_width b =
   match fmt_of b with
-  | "bool" | "i8" -> 0
-  | "bf16" | "f16" | "i16" -> 1
-  | "f32" | "i32" -> 2
-  | "f64" | "i64" -> 3
+  | "bool" | "i8" -> Width.W1
+  | "bf16" | "f16" | "i16" -> Width.W2
+  | "f32" | "i32" -> Width.W4
+  | "f64" | "i64" -> Width.W8
   | f -> invalid_arg ("Loop_wasm: no cell width for format " ^ f)

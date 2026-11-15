@@ -484,12 +484,13 @@ let execute_wasm (b : Bench.t) (c : Config.t) =
   in
   let offsets, total = Loop_c_exec.layout p in
   let heap_base = lowered.Loop_wasm.heap_base in
-  let pages = max 1 ((heap_base + total + 65535) / 65536) in
   let* wasm =
     Result.map_error
       (fun (`Wasm_invalid i) ->
         Fmt.str "%a" Wasm_check.pp_error (`Wasm_invalid i))
-      (Err.payload (Wasm_encode.module_ (Loop_wasm.with_pages lowered ~pages)))
+      (Err.payload
+         (Wasm_encode.module_
+            (Loop_wasm.with_heap lowered ~bytes:(Int64.of_int total))))
   in
   let features = Wasm_features.of_module lowered.Loop_wasm.module_ in
   let dir = Loop_c_exec.Proc.temp_dir "loop_fp32_bench_wasm" in

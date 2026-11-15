@@ -25,7 +25,7 @@ val kernel :
   ?buffers:Ssa_ir.Ssa_buffer.t list ->
   ?sites:Loop_ir.Loop_failure.t array ->
   relaxed_madd:bool ->
-  table_alloc:(bytes:int -> int) ->
+  table_alloc:(bytes:int64 -> Loop_ir.Loop_wasm_layout.Address.t) ->
   Ssa_ir.Ssa_program.t ->
   (Loop_ir.Loop_wasm_module.kernel, error) result
 (** A kernel for composition into a module. [buffers] (default {!arguments}) are

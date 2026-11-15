@@ -110,6 +110,14 @@ them does with the number. The audit of the exempt entries, by family:
   offset inside the failure record and the Wasm module's own `Data.offset` and
   memory limits stay `wire`: those are the layout the host or the binary format
   fixes, not a number the emitter chooses.
+  Typed since: `Loop_wasm_layout` (shared by the Loop and SSA Wasm emitters)
+  holds `Width` (a cell width or access alignment, replacing log2 `int`s and
+  `arg align offset`), `Address` (an absolute address) and `Local_offset` (a
+  byte offset in the local region), each bounded below 2^31 at construction;
+  `table_alloc` is `bytes:int64 -> Address.t`; `Loop_wasm_failure.Slot` is the
+  failure-record slot ordinal; `Loop_wasm.with_heap` replaces a page count with
+  the byte count it was computed from. The wasm local-index counters
+  (`get`, `set`, `fresh`, `buffer_param`) and the placement record stay open.
 - **Output and invocation ordinals, positional index pairs, register number** (10
   entries, was `wire`, `budget`, `tally` or `cell`): the output ordinal of a run
   is `todo-domain` in `coral_run` and was `wire` in `Rv32_harness.outcome.outputs`

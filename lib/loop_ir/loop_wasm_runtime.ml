@@ -121,7 +121,6 @@ let wt_f64 = Wasm_type.F64
 let wt_f32 = Wasm_type.F32
 let wt_i32 = Wasm_type.I32
 let wt_i64 = Wasm_type.I64
-let arg3 offset = { Wasm.Mem_arg.align = 3; offset }
 let arg2 offset = { Wasm.Mem_arg.align = 2; offset }
 
 (* [fail_set kind]: the record's [kind], [invocation = -1] and every [v] slot
@@ -144,10 +143,9 @@ let fail_set =
             [
               i32 0;
               I.I64_const 0L;
-              I.Store
-                (Wasm.Store.I64_store, arg3 (Loop_wasm_failure.slot_offset k));
+              I.Store (Wasm.Store.I64_store, Loop_wasm_failure.slot_arg k);
             ])
-          (List.init Loop_wasm_failure.error_words Fun.id);
+          (List.init Loop_wasm_failure.error_words Loop_wasm_failure.Slot.of_int);
   }
 
 (* Division by a positive constant, rounding toward negative infinity

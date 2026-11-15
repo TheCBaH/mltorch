@@ -88,7 +88,8 @@ let from_float_failure st x =
               ( None,
                 only F.Kind.I64_from_float_infinite,
                 fail st F.Kind.I64_from_float_out_of_range
-                  [ (0, [ get x; n Wasm_op.I64_reinterpret_f64 ]) ] );
+                  [ (Slot.of_int 0, [ get x; n Wasm_op.I64_reinterpret_f64 ]) ]
+              );
           ] );
     ]
 
@@ -108,11 +109,11 @@ let coord_failure st (b : Ssa_buffer.t) (comps : Ssa_wasm_ctx.Local.t list) =
               [
                 i32 Loop_ir.Loop_wasm_ctx.error_address;
                 I.I64_const (Int64.of_int k);
-                I.Store (Wasm.Store.I64_store, arg 3 (W.slot_offset 1));
+                I.Store (Wasm.Store.I64_store, W.slot_arg (Slot.of_int 1));
                 i32 Loop_ir.Loop_wasm_ctx.error_address;
               ]
               @ wide [ get l ]
-              @ [ I.Store (Wasm.Store.I64_store, arg 3 (W.slot_offset 2)) ],
+              @ [ I.Store (Wasm.Store.I64_store, W.slot_arg (Slot.of_int 2)) ],
               chain (k + 1) rest );
         ]
   in
@@ -120,14 +121,16 @@ let coord_failure st (b : Ssa_buffer.t) (comps : Ssa_wasm_ctx.Local.t list) =
   @ [
       i32 Loop_ir.Loop_wasm_ctx.error_address;
       I.I64_const (Int64.of_int (b.Ssa_buffer.id :> int));
-      I.Store (Wasm.Store.I64_store, arg 3 (W.slot_offset 0));
+      I.Store (Wasm.Store.I64_store, W.slot_arg (Slot.of_int 0));
     ]
   @ List.concat
       (List.mapi
          (fun k l ->
            [ i32 Loop_ir.Loop_wasm_ctx.error_address ]
            @ wide [ get l ]
-           @ [ I.Store (Wasm.Store.I64_store, arg 3 (W.slot_offset (3 + k))) ])
+           @ [
+               I.Store (Wasm.Store.I64_store, W.slot_arg (Slot.of_int (3 + k)));
+             ])
          comps)
   @ chain 0 (List.combine comps exts)
   @ [ i32 1; I.Return ]
@@ -155,7 +158,7 @@ let quant_tables st (b : Ssa_buffer.t) =
    decode. *)
 let decode st (b : Ssa_buffer.t) (d : Ssa_op.Decode.t) ~address
     ~(access : Ssa_access.t) =
-  let load l = address @ [ I.Load (l, arg (Wasm.Load.natural_align l) 0) ] in
+  let load l = address @ [ I.Load (l, Width.of_load l) ] in
   match d with
   | Ssa_op.Decode.Bf16_to_f32 ->
       load Wasm.Load.I32_load16_u
@@ -229,14 +232,13 @@ let decode st (b : Ssa_buffer.t) (d : Ssa_op.Decode.t) ~address
           in
           let scales, zeros = quant_tables st b in
           let table base =
-            [ i32 base ]
+            [ Layout.Address.const base ]
             @ read st c
+            @ Width.scale (if narrow then Width.W4 else Width.W8)
             @ [
-                i32 (if narrow then 2 else 3);
-                n Wasm_op.I32_shl;
                 n Wasm_op.I32_add;
-                (if narrow then I.Load (Wasm.Load.F32_load, arg 2 0)
-                 else I.Load (Wasm.Load.F64_load, arg 3 0));
+                (if narrow then I.Load (Wasm.Load.F32_load, arg Width.W4)
+                 else I.Load (Wasm.Load.F64_load, arg Width.W8));
               ]
           in
           load l @ [ convert ] @ table zeros @ [ sub ] @ table scales @ [ mul ])
@@ -269,14 +271,16 @@ let encode_store st (e : Ssa_op.Encode.t) =
         k 0x7F80_0000l;
         n Wasm_op.I32_gt_u;
         I.Select;
-        I.Store (Wasm.Store.I32_store16, arg 1 0);
+        I.Store (Wasm.Store.I32_store16, arg Width.W2);
       ]
   | Ssa_op.Encode.Bool_nonzero ->
-      [ f64 0.; n Wasm_op.F64_ne; I.Store (Wasm.Store.I32_store8, arg 0 0) ]
-  | Ssa_op.Encode.F32_exact -> [ I.Store (Wasm.Store.F32_store, arg 2 0) ]
+      [
+        f64 0.; n Wasm_op.F64_ne; I.Store (Wasm.Store.I32_store8, arg Width.W1);
+      ]
+  | Ssa_op.Encode.F32_exact -> [ I.Store (Wasm.Store.F32_store, arg Width.W4) ]
   | Ssa_op.Encode.F32_round ->
-      [ n Wasm_op.F32_demote_f64; I.Store (Wasm.Store.F32_store, arg 2 0) ]
-  | Ssa_op.Encode.I64 -> [ I.Store (Wasm.Store.I64_store, arg 3 0) ]
+      [ n Wasm_op.F32_demote_f64; I.Store (Wasm.Store.F32_store, arg Width.W4) ]
+  | Ssa_op.Encode.I64 -> [ I.Store (Wasm.Store.I64_store, arg Width.W8) ]
 
 let local_address st local at =
   [ get (reg st local) ]

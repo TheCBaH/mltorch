@@ -246,8 +246,10 @@ let build ?vector ?(numerics = Loop_numerics.Reference_f64) ?kernel
      below refuses the module, [top] having grown past the cap. *)
   let table_alloc ~bytes =
     let off = align !top 8L in
-    top := Int64.add off (Int64.of_int bytes);
-    if Int64.compare off memory_cap < 0 then Int64.to_int off else 0
+    top := Int64.add off bytes;
+    if Int64.compare off memory_cap < 0 then
+      Loop_wasm_layout.Address.of_int64 off
+    else Loop_wasm_layout.Address.zero
   in
   let kernels = Kernels.create () in
   let* compiled =

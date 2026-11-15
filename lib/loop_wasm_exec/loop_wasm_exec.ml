@@ -76,10 +76,7 @@ let exec_lowered ~(lowered : Loop_wasm.t) ~count_marks
     if Int64.compare bytes max_bytes > 0 then
       Error (`Wasm_host "the buffers exceed the 2 GiB memory policy")
     else
-      let pages =
-        max 1 (Int64.to_int (Int64.div (Int64.add bytes 65535L) 65536L))
-      in
-      let m = Loop_wasm.with_pages lowered ~pages in
+      let m = Loop_wasm.with_heap lowered ~bytes:(Int64.of_int total) in
       let* wasm =
         Result.map_error
           (fun (`Wasm_invalid i) -> `Wasm_invalid i)

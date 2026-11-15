@@ -260,21 +260,19 @@ let kernel ?buffers ?sites ~relaxed_madd ~table_alloc (p : Ssa_program.t) =
           | Ssa_format.I8 (Ssa_format.Per_channel { scale; zero_point })
           | Ssa_format.I16 (Ssa_format.Per_channel { scale; zero_point }) ->
               let narrow = Ssa_id.Buffer.Set.mem b.Ssa_buffer.id wide32 in
-              let bytes = (if narrow then 4 else 8) * Array.length scale in
+              let bytes =
+                Int64.mul
+                  (Width.bytes (if narrow then Width.W4 else Width.W8))
+                  (Int64.of_int (Array.length scale))
+              in
               let table = if narrow then f32_bytes else f64_bytes in
               let scales = table_alloc ~bytes in
               let zeros = table_alloc ~bytes in
               Ssa_ir.Ssa_id.Buffer.Tbl.replace st.tables b.Ssa_buffer.id
                 (scales, zeros);
               [
-                {
-                  Wasm.Data.offset = scales;
-                  bytes = table (Array.to_list scale);
-                };
-                {
-                  Wasm.Data.offset = zeros;
-                  bytes = table (Array.to_list zero_point);
-                };
+                Layout.Address.data scales (table (Array.to_list scale));
+                Layout.Address.data zeros (table (Array.to_list zero_point));
               ]
           | _ -> [])
         buffers

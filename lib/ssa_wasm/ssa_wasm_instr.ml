@@ -13,13 +13,12 @@ let set_chunks ?(shape = Wide) st (res : Ssa_value.t) chunks =
   List.concat (List.mapi (fun i c -> c @ [ set regs.(i) ]) chunks)
 
 let per_register (v : Ssa_value.t) = lanes_per_register (elem_of v)
-let chunk_count st (v : Ssa_value.t) = Array.length (regs st v)
 
 (* ---- lane-wise operations ------------------------------------------------------- *)
 
 let lanewise st (inner : Ssa_op.t) (res : Ssa_value.t) =
   let src v i = get (regs st v).(i) in
-  let chunks_of v f = List.init (chunk_count st v) f in
+  let chunks_of v f = Array.to_list (Array.mapi (fun i _ -> f i) (regs st v)) in
   match inner with
   | Ssa_op.Convert (Ssa_op.Convert.F32_to_f64, a) ->
       let per_in = lanes_per_register Ssa_type.F32
@@ -329,7 +328,7 @@ let contract st (d : Contraction.t) ~a ~b ~c =
       ]
   in
   let load buffer at =
-    cell_address st buffer at @ [ I.Load (Wasm.Load.F32_load, arg 2 0) ]
+    cell_address st buffer at @ [ I.Load (Wasm.Load.F32_load, arg Width.W4) ]
   in
   (* [for counter in 0 .. extent) body] *)
   let loop counter extent body =
@@ -370,7 +369,7 @@ let contract st (d : Contraction.t) ~a ~b ~c =
                   @ load ba a_at @ load bb b_at
                   @ [ n Wasm_op.F32_mul; n Wasm_op.F32_add; set acc ])
           @ cell_address st bc c_at
-          @ [ get acc; I.Store (Wasm.Store.F32_store, arg 2 0) ])))
+          @ [ get acc; I.Store (Wasm.Store.F32_store, arg Width.W4) ])))
 
 let instr st ~limits (i : Ssa_instr.t) : I.t list =
   let op = i.Ssa_instr.op in
@@ -397,7 +396,9 @@ let instr st ~limits (i : Ssa_instr.t) : I.t list =
           I.If
             ( None,
               fail st F.Kind.Gather_index_out_of_range
-                [ (0, r raw); (1, [ I.I64_const extent ]) ],
+                [
+                  (Slot.of_int 0, r raw); (Slot.of_int 1, [ I.I64_const extent ]);
+                ],
               [] );
         ]
   | Ssa_op.Check_local { var = lv; at; extent } ->
@@ -416,19 +417,21 @@ let instr st ~limits (i : Ssa_instr.t) : I.t list =
           n Wasm_op.I32_ge_u;
           I.If
             ( None,
-              fail st F.Kind.Unbound_local [ (0, i64_of_int (s :> int)) ],
+              fail st F.Kind.Unbound_local
+                [ (Slot.of_int 0, i64_of_int (s :> int)) ],
               [] );
         ]
   | Ssa_op.Check_scan { var = lv; row; lane; row_extent; lane_extent } ->
       let record which s extent =
         fail st F.Kind.Scan_projection
           [
-            (0, i64_of_int (match which with `Lane -> 0 | `Row -> 1));
-            (1, i64_of_int (if Option.is_some lv then 1 else 0));
-            (2, wide (r row));
-            (3, wide (r lane));
-            (4, [ I.I64_const extent ]);
-            (5, i64_of_int s);
+            ( Slot.of_int 0,
+              i64_of_int (match which with `Lane -> 0 | `Row -> 1) );
+            (Slot.of_int 1, i64_of_int (if Option.is_some lv then 1 else 0));
+            (Slot.of_int 2, wide (r row));
+            (Slot.of_int 3, wide (r lane));
+            (Slot.of_int 4, [ I.I64_const extent ]);
+            (Slot.of_int 5, i64_of_int s);
           ]
       in
       let row_site =
@@ -558,7 +561,11 @@ let instr st ~limits (i : Ssa_instr.t) : I.t list =
           I.If
             ( None,
               fail st F.Kind.Index_overflow
-                [ (0, i64_of_int 0); (1, lhs); (2, rhs) ],
+                [
+                  (Slot.of_int 0, i64_of_int 0);
+                  (Slot.of_int 1, lhs);
+                  (Slot.of_int 2, rhs);
+                ],
               [] );
         ]
       @ one (r a @ r b @ [ n Wasm_op.I32_add ])
@@ -581,7 +588,11 @@ let instr st ~limits (i : Ssa_instr.t) : I.t list =
           I.If
             ( None,
               fail st F.Kind.Index_overflow
-                [ (0, i64_of_int 1); (1, lhs); (2, rhs) ],
+                [
+                  (Slot.of_int 0, i64_of_int 1);
+                  (Slot.of_int 1, lhs);
+                  (Slot.of_int 2, rhs);
+                ],
               [] );
         ]
       @ one ([ index_const k ] @ r a @ [ n Wasm_op.I32_mul ])
@@ -604,7 +615,8 @@ let instr st ~limits (i : Ssa_instr.t) : I.t list =
       let a = (define st res).(0) in
       Ssa_ir.Ssa_id.Value.Tbl.replace st.locals res.Ssa_value.id (slots, lv);
       let count = Int64.to_int slots in
-      let init = [ get (Local.of_int 0); i32 off; n Wasm_op.I32_add; set a ] in
+      let base = Layout.Local_offset.const off in
+      let init = [ get (Local.of_int 0); base; n Wasm_op.I32_add; set a ] in
       if count = 0 then init
       else
         let c = fresh st Wasm_type.I32 in
@@ -630,7 +642,7 @@ let instr st ~limits (i : Ssa_instr.t) : I.t list =
                         (* zero bytes, written as an integer: a cell is f32 or
                            f64 only once something writes it *)
                         I.I64_const 0L;
-                        I.Store (Wasm.Store.I64_store, arg 3 0);
+                        I.Store (Wasm.Store.I64_store, arg Width.W8);
                         get c;
                         i32 1;
                         n Wasm_op.I32_add;
@@ -658,7 +670,8 @@ let instr st ~limits (i : Ssa_instr.t) : I.t list =
                 n Wasm_op.I32_ge_u;
                 I.If
                   ( None,
-                    fail st F.Kind.Unbound_local [ (0, i64_of_int (s :> int)) ],
+                    fail st F.Kind.Unbound_local
+                      [ (Slot.of_int 0, i64_of_int (s :> int)) ],
                     [] );
               ]
         | Some (_, None) | None -> []
@@ -668,13 +681,13 @@ let instr st ~limits (i : Ssa_instr.t) : I.t list =
           (local_address st local at
           @
           match cell with
-          | Ssa_op.Cell.F64 -> [ I.Load (Wasm.Load.F64_load, arg 3 0) ]
-          | Ssa_op.Cell.F32 -> [ I.Load (Wasm.Load.F32_load, arg 2 0) ])
+          | Ssa_op.Cell.F64 -> [ I.Load (Wasm.Load.F64_load, arg Width.W8) ]
+          | Ssa_op.Cell.F32 -> [ I.Load (Wasm.Load.F32_load, arg Width.W4) ])
   | Ssa_op.Local_write { local; at; value } ->
       local_address st local at @ r value
       @ [
-          (if is_f32 value then I.Store (Wasm.Store.F32_store, arg 2 0)
-           else I.Store (Wasm.Store.F64_store, arg 3 0));
+          (if is_f32 value then I.Store (Wasm.Store.F32_store, arg Width.W4)
+           else I.Store (Wasm.Store.F64_store, arg Width.W8));
         ]
   | Ssa_op.Meter_charge | Ssa_op.Meter_release _ | Ssa_op.Meter_reserve _
   | Ssa_op.Meter_reset ->
@@ -850,12 +863,12 @@ let instr st ~limits (i : Ssa_instr.t) : I.t list =
                 | Ssa_op.Decode.F32_to_f64, true ->
                     cell_address st b (element first)
                     @ [
-                        I.Simd_load (Wasm.Simd_load.Load64_zero, arg 2 0);
+                        I.Simd_load (Wasm.Simd_load.Load64_zero, arg Width.W4);
                         vn Wasm_op.F64x2_promote_low_f32x4;
                       ]
                 | Ssa_op.Decode.F64_to_f64, true ->
                     cell_address st b (element first)
-                    @ [ I.Simd_load (Wasm.Simd_load.Load, arg 3 0) ]
+                    @ [ I.Simd_load (Wasm.Simd_load.Load, arg Width.W8) ]
                 | _ ->
                     List.hd
                       (gather Ssa_type.F64
@@ -872,7 +885,7 @@ let instr st ~limits (i : Ssa_instr.t) : I.t list =
             (* four narrow cells widened to i32 lanes *)
             let narrow load extend first =
               cell_address st b (element first)
-              @ [ I.Simd_load (load, arg 0 0) ]
+              @ [ I.Simd_load (load, arg Width.W1) ]
               @ List.map vn extend
             in
             Ssa_type.Chunk.map lanes ~per (fun i ->
@@ -952,10 +965,12 @@ let instr st ~limits (i : Ssa_instr.t) : I.t list =
                     @ [ vn Wasm_op.I32x4_eq; vn Wasm_op.V128_bitselect ]
                 | Ssa_op.Decode.F32_exact, 1L, _ ->
                     cell_address st b (element (Ssa_type.Lane.first i ~per))
-                    @ [ I.Simd_load (Wasm.Simd_load.Load, arg 2 0) ]
+                    @ [ I.Simd_load (Wasm.Simd_load.Load, arg Width.W4) ]
                 | Ssa_op.Decode.F32_exact, 0L, _ ->
                     cell_address st b (element Ssa_type.Lane.zero)
-                    @ [ I.Simd_load (Wasm.Simd_load.Load32_splat, arg 2 0) ]
+                    @ [
+                        I.Simd_load (Wasm.Simd_load.Load32_splat, arg Width.W4);
+                      ]
                 | _ ->
                     List.hd
                       (gather Ssa_type.F32
@@ -993,7 +1008,7 @@ let instr st ~limits (i : Ssa_instr.t) : I.t list =
                    (element (Ssa_type.Lane.first i ~per:(per_register value)))
                  @ [
                      get regs.((i :> int));
-                     I.Simd_store (Wasm.Simd_store.Store, arg 2 0, 0);
+                     I.Simd_store (Wasm.Simd_store.Store, arg Width.W4, 0);
                    ]))
       | Ssa_op.Encode.F32_round, true, Ssa_type.F64 ->
           List.concat
@@ -1006,7 +1021,7 @@ let instr st ~limits (i : Ssa_instr.t) : I.t list =
                  @ [
                      get regs.((i :> int));
                      vn Wasm_op.F32x4_demote_f64x2_zero;
-                     I.Simd_store (Wasm.Simd_store.Store64_lane, arg 2 0, 0);
+                     I.Simd_store (Wasm.Simd_store.Store64_lane, arg Width.W4, 0);
                    ]))
       | _ ->
           let per = per_register value in

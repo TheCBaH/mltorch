@@ -4,13 +4,13 @@ open Loop_wasm_value
 (* A failure is a returned status, never a trap: the record is written, then
    the kernel returns nonzero. Each field is an [i64] expression evaluated only
    here, once the check has fired. *)
-let fail st kind (fields : (int * I.t list) list) =
+let fail st kind (fields : (W.Slot.t * I.t list) list) =
   [ i32 (W.kind_index kind); call st R.Callee.Fail_set ]
   @ List.concat_map
       (fun (slot, value) ->
         [ i32 error_address ]
         @ value
-        @ [ I.Store (Wasm.Store.I64_store, arg 3 (W.slot_offset slot)) ])
+        @ [ I.Store (Wasm.Store.I64_store, W.slot_arg slot) ])
       fields
   @ [ i32 1; I.Return ]
 
@@ -21,14 +21,14 @@ let scan_failure st which ~site ~local ~row ~lane ~extent =
   let lane = wide_index st lane in
   fail st F.Kind.Scan_projection
     [
-      ( 0,
+      ( W.Slot.of_int 0,
         i64_of_int
           (match which with F.Projection.Lane -> 0 | F.Projection.Row -> 1) );
-      (1, i64_of_int (if Option.is_some local then 1 else 0));
-      (2, row);
-      (3, lane);
-      (4, i64_of_int extent);
-      (5, i64_of_int site);
+      (W.Slot.of_int 1, i64_of_int (if Option.is_some local then 1 else 0));
+      (W.Slot.of_int 2, row);
+      (W.Slot.of_int 3, lane);
+      (W.Slot.of_int 4, i64_of_int extent);
+      (W.Slot.of_int 5, i64_of_int site);
     ]
 
 (* The first axis, in [Expr.Axis.all] order, whose component is outside the
@@ -59,11 +59,11 @@ let coord_failure st (b : Loop_buffer.t) (c : Loop_index.coord) =
               [
                 i32 error_address;
                 I.I64_const (Int64.of_int k);
-                I.Store (Wasm.Store.I64_store, arg 3 (W.slot_offset 1));
+                I.Store (Wasm.Store.I64_store, W.slot_arg (W.Slot.of_int 1));
                 i32 error_address;
               ]
               @ wide l
-              @ [ I.Store (Wasm.Store.I64_store, arg 3 (W.slot_offset 2)) ],
+              @ [ I.Store (Wasm.Store.I64_store, W.slot_arg (W.Slot.of_int 2)) ],
               chain (k + 1) rest );
         ]
   in
@@ -72,14 +72,16 @@ let coord_failure st (b : Loop_buffer.t) (c : Loop_index.coord) =
   @ [
       i32 error_address;
       I.I64_const (Int64.of_int (Tensor_id.to_int b.Loop_buffer.id));
-      I.Store (Wasm.Store.I64_store, arg 3 (W.slot_offset 0));
+      I.Store (Wasm.Store.I64_store, W.slot_arg (W.Slot.of_int 0));
     ]
   @ List.concat
       (List.mapi
          (fun k (_, l, _) ->
            [ i32 error_address ]
            @ wide l
-           @ [ I.Store (Wasm.Store.I64_store, arg 3 (W.slot_offset (3 + k))) ])
+           @ [
+               I.Store (Wasm.Store.I64_store, W.slot_arg (W.Slot.of_int (3 + k)));
+             ])
          comps)
   @ chain 0 comps
   @ [ i32 1; I.Return ]
@@ -107,7 +109,9 @@ let from_float_failure st value =
               ( None,
                 only F.Kind.I64_from_float_infinite,
                 fail st F.Kind.I64_from_float_out_of_range
-                  [ (0, [ get x; n Wasm_op.I64_reinterpret_f64 ]) ] );
+                  [
+                    (W.Slot.of_int 0, [ get x; n Wasm_op.I64_reinterpret_f64 ]);
+                  ] );
           ] );
     ]
 
@@ -116,7 +120,7 @@ let failure st ~site : Loop_failure.t -> I.t list = function
       coord_failure st b c
   | Loop_failure.Gather_out_of_range { raw; extent } ->
       fail st F.Kind.Gather_index_out_of_range
-        [ (0, big st raw); (1, i64_of_int extent) ]
+        [ (W.Slot.of_int 0, big st raw); (W.Slot.of_int 1, i64_of_int extent) ]
   | Loop_failure.I64_division_by_zero -> fail st F.Kind.I64_division_by_zero []
   | Loop_failure.I64_division_overflow ->
       fail st F.Kind.I64_division_overflow []
@@ -124,7 +128,7 @@ let failure st ~site : Loop_failure.t -> I.t list = function
   | Loop_failure.Index_overflow _ ->
       invalid_arg "Loop_wasm.failure: an index overflow is written per node"
   | Loop_failure.Local_out_of_range _ ->
-      fail st F.Kind.Unbound_local [ (0, i64_of_int site) ]
+      fail st F.Kind.Unbound_local [ (W.Slot.of_int 0, i64_of_int site) ]
   | Loop_failure.Scan_lane_out_of_range { local; row; lane; extent } ->
       scan_failure st F.Projection.Lane ~site ~local ~row ~lane ~extent
   | Loop_failure.Scan_row_out_of_range { local; row; lane; extent } ->

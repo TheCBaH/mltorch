@@ -357,8 +357,9 @@ let build_padded pad =
     |> Err.or_raise ~pp_error:Graph_builder.pp_error
   in
   let kernel ~table_alloc (inv : Loop_bundle.invocation) =
-    let _ = table_alloc ~bytes:pad in
-    second := table_alloc ~bytes:8;
+    let _ = table_alloc ~bytes:(Int64.of_int pad) in
+    second :=
+      Int64.to_int (Loop_wasm_layout.Address.to_int64 (table_alloc ~bytes:8L));
     Result.map_error
       (Fmt.str "%a" Loop_wasm.pp_error)
       (Err.payload (Loop_wasm.kernel ~table_alloc inv.Loop_bundle.program))

@@ -4,7 +4,7 @@
 # [todo-domain] is a debt marker (an int that names an entity); the ceiling only goes down.
 # [ml:<dir>] scope entries also read the inferred interface of each .ml without an .mli; a library enters with an opening
 # [todo-domain] balance that is part of the ceiling, and the ceiling only goes down from there.
-@todo-domain-ceiling 441
+@todo-domain-ceiling 423
 lib/band_schedule/band_schedule.mli	defn	type t = private int
 lib/band_schedule/band_schedule.mli	defn	val of_int : int -> t
 lib/band_schedule/band_schedule.mli	defn	val to_int : t -> int
@@ -369,7 +369,6 @@ lib/loop_ir/loop_bundle_js.mli	todo-domain	val pool_numel : Loop_bundle.t -> Sto
 lib/loop_ir/loop_bundle_oracle.mli	todo-domain	type error = [ `Failed of int * Loop_interp.error | `Missing of Tensor_id.t ]
 lib/loop_ir/loop_bundle_wasm.mli	todo-domain	type t = { weights : int; inputs : int; workspace : int; outputs : int; total : int; } end
 lib/loop_ir/loop_bundle_wasm.mli	tally	type stats = { invocations : int; distinct_kernels : int; module_bytes : int; numerics : Loop_numerics.t; f32_invocations : int; f32_kernels : int; fp32_refusals : (Loop_numerics.Refusal.t * int) list; }
-lib/loop_ir/loop_bundle_wasm.mli	todo-domain	val build : ?vector:Loop_target.t -> ?numerics:Loop_numerics.t -> ?kernel: (table_alloc:(bytes:int -> int) -> Loop_bundle.invocation -> (Loop_wasm.kernel, string) result) -> Loop_bundle.t -> (t, error) Err.t
 lib/loop_ir/loop_c_failure.mli	wire	val decode : sites:Loop_failure.t array -> kind:int -> v:int64 array -> (Loop_interp.error, string) result
 lib/loop_ir/loop_c_runtime.mli	todo-domain	val f32_lanes : int
 lib/loop_ir/loop_c_runtime.mli	wire	val error_words : int
@@ -407,18 +406,16 @@ lib/loop_ir/loop_vectorize.mli	tally	val tally : report -> (string * (int * int6
 lib/loop_ir/loop_wasm.mli	as-written	type error = [ `Index_constant_out_of_range of int | `Local_arrays_too_large of int64 | `Unsupported_precision of Loop_numerics.Refusal.t ]
 lib/loop_ir/loop_wasm.mli	todo-domain	type t = Loop_wasm_module.t = { module_ : Wasm.Module.t; local_base : int; mark_base : int option; heap_base : int; sites : Loop_failure.t array; precision : Loop_numerics.Precision.t; }
 lib/loop_ir/loop_wasm.mli	todo-domain	val error_address : int
-lib/loop_ir/loop_wasm.mli	todo-domain	val kernel : ?vector:Loop_target.t -> ?numerics:Loop_numerics.t -> ?precision:Loop_numerics.Precision.t -> ?mark_base:int -> table_alloc:(bytes:int -> int) -> Loop_program.t -> (kernel, [> error ]) Err.t
-lib/loop_ir/loop_wasm.mli	todo-domain	val with_pages : t -> pages:int -> Wasm.Module.t
+lib/loop_ir/loop_wasm.mli	todo-domain	val kernel : ?vector:Loop_target.t -> ?numerics:Loop_numerics.t -> ?precision:Loop_numerics.Precision.t -> ?mark_base:int -> table_alloc:(bytes:int64 -> Loop_wasm_layout.Address.t) -> Loop_program.t -> (kernel, [> error ]) Err.t
 lib/loop_ir/loop_wasm_failure.mli	wire	val error_words : int
 lib/loop_ir/loop_wasm_failure.mli	wire	val kind_offset : int
 lib/loop_ir/loop_wasm_failure.mli	wire	val invocation_offset : int
-lib/loop_ir/loop_wasm_failure.mli	todo-domain	val slot_offset : int -> int
 lib/loop_ir/loop_wasm_failure.mli	wire	val record_bytes : int
 lib/loop_ir/loop_wasm_failure.mli	wire	val kind_index : Loop_js_failure.Kind.t -> int
 lib/loop_ir/loop_wasm_link.mli	todo-domain	val kernel_call : int -> Wasm.Instr.t
 lib/loop_ir/loop_wasm_link.mli	todo-domain	val link : callees:Loop_wasm_runtime.Callee.t list -> Wasm.Func.t list -> Wasm.Import.t list * Wasm.Func.t list * int
 lib/loop_ir/loop_wasm_module.mli	todo-domain	type t = { module_ : Wasm.Module.t; local_base : int; mark_base : int option; heap_base : int; sites : Loop_failure.t array; precision : Loop_numerics.Precision.t; }
-lib/loop_ir/loop_wasm_module.mli	todo-domain	val lower_with : ?numerics:Loop_numerics.t -> ?count_marks:bool -> (mark_base:int option -> table_alloc:(bytes:int -> int) -> (kernel, 'e) Err.t) -> (t, 'e) Err.t
+lib/loop_ir/loop_wasm_module.mli	todo-domain	val lower_with : ?numerics:Loop_numerics.t -> ?count_marks:bool -> (mark_base:int option -> table_alloc:(bytes:int64 -> Loop_wasm_layout.Address.t) -> (kernel, 'e) Err.t) -> (t, 'e) Err.t
 lib/loop_ir/loop_wasm_runtime.mli	todo-domain	val index : t -> int
 lib/loop_ir/loop_wasm_runtime.mli	todo-domain	val of_index : int -> t
 lib/loop_ir/loop_array.ml	defn	type t = private int
@@ -485,13 +482,10 @@ lib/loop_ir/loop_var.ml	tally	val alloc_n : t -> int -> id list * t
 lib/loop_ir/loop_var.ml	hash	val compare : t -> t -> int
 lib/loop_ir/loop_wasm_ctx.ml	todo-domain	val error_address : int
 lib/loop_ir/loop_wasm_ctx.ml	as-written	type error = [ `Index_constant_out_of_range of int | `Local_arrays_too_large of int64 | `Unsupported_precision of Loop_ir.Loop_numerics.Refusal.t ]
-lib/loop_ir/loop_wasm_ctx.ml	todo-domain	type st = { esc : error Err.Escape.t; f32 : bool; relaxed_madd : bool; mutable extra : Wasm_type.t list; n_params : int; vars : (int, int) Hashtbl.t; bounds : (int, int) Hashtbl.t; floats : (int, int) Hashtbl.t; int64s : (int, int) Hashtbl.t; indices : (int, int) Hashtbl.t; buffers : (int, int) Hashtbl.t; tables : (int, int * int) Hashtbl.t; arrays : (int, int) Hashtbl.t; mutable local_top : int64; table_alloc : bytes:int -> int; mark_base : int option; mutable used : R.Callee.t list; mutable meter : (int * int) option; sites : Loop_ir.Loop_failure.t array; mutable next_site : int; }
+lib/loop_ir/loop_wasm_ctx.ml	todo-domain	type st = { esc : error Err.Escape.t; f32 : bool; relaxed_madd : bool; mutable extra : Wasm_type.t list; n_params : int; vars : (int, int) Hashtbl.t; bounds : (int, int) Hashtbl.t; floats : (int, int) Hashtbl.t; int64s : (int, int) Hashtbl.t; indices : (int, int) Hashtbl.t; buffers : (int, int) Hashtbl.t; tables : (int, Layout.Address.t * Layout.Address.t) Hashtbl.t; arrays : (int, Layout.Local_offset.t) Hashtbl.t; mutable local_top : int64; table_alloc : bytes:int64 -> Layout.Address.t; mark_base : int option; mutable used : R.Callee.t list; mutable meter : (int * int) option; sites : Loop_ir.Loop_failure.t array; mutable next_site : int; }
 lib/loop_ir/loop_wasm_ctx.ml	as-written	val i32 : int -> I.t
 lib/loop_ir/loop_wasm_ctx.ml	todo-domain	val get : int -> I.t
 lib/loop_ir/loop_wasm_ctx.ml	todo-domain	val set : int -> I.t
-lib/loop_ir/loop_wasm_ctx.ml	todo-domain	val array_log2 : st -> int
-lib/loop_ir/loop_wasm_ctx.ml	todo-domain	val array_cell_bytes : st -> int
-lib/loop_ir/loop_wasm_ctx.ml	todo-domain	val arg : int -> int -> Wasm.Mem_arg.t
 lib/loop_ir/loop_wasm_ctx.ml	expr-literal	val fits32 : int -> bool
 lib/loop_ir/loop_wasm_ctx.ml	expr-literal	val int_const : st -> int -> I.t
 lib/loop_ir/loop_wasm_ctx.ml	todo-domain	val fresh : st -> Wasm_type.t -> int
@@ -502,9 +496,6 @@ lib/loop_ir/loop_wasm_ctx.ml	todo-domain	val ftemp : st -> Loop_ir.Loop_temp.t -
 lib/loop_ir/loop_wasm_ctx.ml	todo-domain	val itemp : st -> Loop_ir.Loop_temp.t -> int
 lib/loop_ir/loop_wasm_ctx.ml	todo-domain	val xtemp : st -> Loop_ir.Loop_temp.t -> int
 lib/loop_ir/loop_wasm_ctx.ml	todo-domain	val buffer_param : st -> Loop_ir.Loop_buffer.t -> int
-lib/loop_ir/loop_wasm_ctx.ml	todo-domain	val reserve_local : st -> int64 -> int
-lib/loop_ir/loop_wasm_ctx.ml	todo-domain	val cell_log2 : Loop_ir.Loop_buffer.t -> int
-lib/loop_ir/loop_wasm_fail.ml	todo-domain	val fail : Loop_ir.Loop_wasm_ctx.st -> Loop_ir.Loop_js_failure.Kind.t -> (int * Loop_ir.Loop_wasm_ctx.I.t list) list -> Loop_ir.Loop_wasm_ctx.I.t list
 lib/loop_ir/loop_wasm_fail.ml	as-written	val i64_of_int : int -> Loop_ir.Loop_wasm_ctx.I.t list
 lib/loop_ir/loop_wasm_fail.ml	todo-domain	val scan_failure : Loop_ir.Loop_wasm_ctx.st -> Loop_ir.Loop_wasm_ctx.F.Projection.t -> site:int -> local:'a option -> row:Loop_ir.Loop_index.t -> lane:Loop_ir.Loop_index.t -> extent:int -> Loop_ir.Loop_wasm_ctx.I.t list
 lib/loop_ir/loop_wasm_fail.ml	todo-domain	val failure : Loop_ir.Loop_wasm_ctx.st -> site:int -> Loop_ir.Loop_failure.t -> Loop_ir.Loop_wasm_ctx.I.t list
@@ -1302,7 +1293,6 @@ lib/pt2/pt2_zip.ml	wire	val eocd_min_size : int
 lib/pt2/pt2_zip.ml	wire	val eocd_max_comment : int
 lib/pt2/pt2_zip.ml	wire	val raw_eocd_entry_count : string -> int option
 lib/pt2/pt2_zip.ml	as-written	val of_string : ?limits:Limits.t -> string -> (t, [> `Zip_bad_path of Path_rejection.t | `Zip_duplicate_paths of int | `Zip_encrypted_entry of Zipc.Fpath.t | `Zip_entry_too_large of Entry_bound.t | `Zip_no_eocd | `Zip_parse_failed of string | `Zip_too_many_entries of int | `Zip_total_too_large of int64 | `Zip_unsupported_method of Zipc.Fpath.t ]) Err.t
-lib/ssa_backends/ssa_backends.mli	todo-domain	val wasm : pipeline:Pipeline.t -> table_alloc:(bytes:int -> int) -> Loop_ir.Loop_bundle.invocation -> (Loop_ir.Loop_wasm_module.kernel, string) result
 lib/ssa_backends/ssa_backends.mli	tally	type tally = (string * (int * int64)) list
 lib/ssa_backends/ssa_backends.mli	tally	val bundle : column list -> Loop_ir.Loop_bundle.t -> (column * tally * int) list
 lib/ssa_bridge/ssa_check.mli	tally	type t = { ssa_f32 : bool; loop_f32 : bool; ssa_loops : int; loop_loops : int; ssa_blocked : int; loop_blocked : int; } end
@@ -1352,19 +1342,11 @@ lib/ssa_js/ssa_js_ctx.ml	as-written	val lit : int -> A.expr
 lib/ssa_lower/ssa_lower_index.ml	expr-literal	val literal : Ssa_lower.Ssa_lower_ctx.t -> int -> int64
 lib/ssa_lower/ssa_lower_index.ml	expr-literal	val divisor : Ssa_lower.Ssa_lower_ctx.t -> int -> int64
 lib/ssa_lower/ssa_lower_index.ml	expr-literal	val gather : Ssa_lower.Ssa_lower_ctx.t -> Expr.Source.t -> 'role Expr.Index.t Expr.Coord.t -> extent:int -> Ssa_ir.Ssa_type.index Ssa_ir.Ssa_builder.value
-lib/ssa_wasm/ssa_wasm.mli	todo-domain	val kernel : ?buffers:Ssa_ir.Ssa_buffer.t list -> ?sites:Loop_ir.Loop_failure.t array -> relaxed_madd:bool -> table_alloc:(bytes:int -> int) -> Ssa_ir.Ssa_program.t -> (Loop_ir.Loop_wasm_module.kernel, error) result
 lib/ssa_wasm/ssa_wasm_ctx.ml	as-written	type error = [ `Local_arrays_too_large of int64 | `Loop_leaves_domain | `Unsupported_format of Ssa_ir.Ssa_id.Buffer.t * string | `Unsupported_lanes of int | `Unsupported_operation of string ]
-lib/ssa_wasm/ssa_wasm_ctx.ml	todo-domain	type t = { esc : error Err.Escape.t; mutable extra : Wasm_type.t list; n_params : int; values : Local.t array Ssa_ir.Ssa_id.Value.Tbl.t; mask_shapes : mask_shape Ssa_ir.Ssa_id.Value.Tbl.t; buffers : Ssa_ir.Ssa_buffer.t list; tables : (int * int) Ssa_ir.Ssa_id.Buffer.Tbl.t; locals : (int64 * Expr.Local_var.t option) Ssa_ir.Ssa_id.Value.Tbl.t; mutable local_top : int64; table_alloc : bytes:int -> int; mutable used : R.Callee.t list; mutable sites : LF.t list; mutable site_count : int; mutable meter : (Local.t * Local.t) option; mutable f32 : bool; relaxed_madd : bool; ranges : Ssa_ir.Ssa_range.t; site_table : LF.t array option; }
+lib/ssa_wasm/ssa_wasm_ctx.ml	todo-domain	type t = { esc : error Err.Escape.t; mutable extra : Wasm_type.t list; n_params : int; values : Local.t array Ssa_ir.Ssa_id.Value.Tbl.t; mask_shapes : mask_shape Ssa_ir.Ssa_id.Value.Tbl.t; buffers : Ssa_ir.Ssa_buffer.t list; tables : (Layout.Address.t * Layout.Address.t) Ssa_ir.Ssa_id.Buffer.Tbl.t; locals : (int64 * Expr.Local_var.t option) Ssa_ir.Ssa_id.Value.Tbl.t; mutable local_top : int64; table_alloc : bytes:int64 -> Layout.Address.t; mutable used : R.Callee.t list; mutable sites : LF.t list; mutable site_count : int; mutable meter : (Local.t * Local.t) option; mutable f32 : bool; relaxed_madd : bool; ranges : Ssa_ir.Ssa_range.t; site_table : LF.t array option; }
 lib/ssa_wasm/ssa_wasm_ctx.ml	as-written	val i32 : int -> I.t
-lib/ssa_wasm/ssa_wasm_ctx.ml	todo-domain	val arg : int -> int -> Wasm.Mem_arg.t
 lib/ssa_wasm/ssa_wasm_ctx.ml	expr-literal	val fits32 : int -> bool
-lib/ssa_wasm/ssa_wasm_ctx.ml	todo-domain	val registers_of_lanes : t -> Ssa_ir.Ssa_type.Lanes.t -> int -> int
-lib/ssa_wasm/ssa_wasm_ctx.ml	todo-domain	val fail : t -> Loop_ir.Loop_js_failure.Kind.t -> (int * I.t list) list -> I.t list
 lib/ssa_wasm/ssa_wasm_ctx.ml	as-written	val i64_of_int : int -> I.t list
-lib/ssa_wasm/ssa_wasm_ctx.ml	todo-domain	val cell_log2 : Ssa_ir.Ssa_format.t -> int
-lib/ssa_wasm/ssa_wasm_ctx.ml	todo-domain	val reserve_local : t -> int64 -> int
-lib/ssa_wasm/ssa_wasm_instr.ml	todo-domain	val chunk_count : Ssa_wasm_ctx.t -> Ssa_ir.Ssa_value.t -> int
-lib/ssa_wasm/ssa_wasm_op.ml	todo-domain	val quant_tables : Ssa_wasm_ctx.t -> Ssa_ir.Ssa_buffer.t -> int * int
 lib/walk_core/limits.ml	budget	type t = { max_kernel : int; max_stride : int; max_pad : int; max_dilation : int; max_channels : int; max_extent : int; max_batch : int; max_numel : int; }
 lib/walk_core/pcg.ml	bits	val top24 : int64 -> int
 lib/walk_core/shape.ml	todo-domain	type t = { n : int; t : int; d : int; h : int; w : int; c : int; }

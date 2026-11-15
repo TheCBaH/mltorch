@@ -48,19 +48,22 @@ let meter st =
 let meter_failure st which limit =
   fail st F.Kind.Scan_meter
     [
-      ( 0,
+      ( W.Slot.of_int 0,
         i64_of_int
           (match which with
           | F.Meter.State_over_limit -> 0
           | F.Meter.Updates_exhausted -> 1) );
-      (1, [ I.I64_const limit ]);
+      (W.Slot.of_int 1, [ I.I64_const limit ]);
     ]
 
 let rec stmt st ~limits (s : Loop_stmt.t) : I.t list =
   match s with
   | Loop_stmt.Alloc (a, count) ->
       let len = (count :> int) in
-      let off = reserve_local st (Int64.of_int (array_cell_bytes st * len)) in
+      let off =
+        reserve_local st
+          (Int64.mul (Width.bytes (array_width st)) (Int64.of_int len))
+      in
       Hashtbl.replace st.arrays (Loop_array.to_int a) off;
       if len = 0 then []
       else
@@ -79,20 +82,21 @@ let rec stmt st ~limits (s : Loop_stmt.t) : I.t list =
                       n Wasm_op.I32_ge_s;
                       I.Br_if 1;
                       get 0;
-                      i32 off;
+                      Layout.Local_offset.const off;
                       n Wasm_op.I32_add;
                       get c;
-                      i32 (array_log2 st);
-                      n Wasm_op.I32_shl;
-                      n Wasm_op.I32_add;
-                      fconst st 0.;
-                      array_store st;
-                      get c;
-                      i32 1;
-                      n Wasm_op.I32_add;
-                      set c;
-                      I.Br 0;
-                    ] );
+                    ]
+                    @ Width.scale (array_width st)
+                    @ [
+                        n Wasm_op.I32_add;
+                        fconst st 0.;
+                        array_store st;
+                        get c;
+                        i32 1;
+                        n Wasm_op.I32_add;
+                        set c;
+                        I.Br 0;
+                      ] );
               ] );
         ]
   | Loop_stmt.Array_set (a, i, e) ->
@@ -124,7 +128,9 @@ let rec stmt st ~limits (s : Loop_stmt.t) : I.t list =
                     ( None,
                       fail st F.Kind.Index_overflow
                         [
-                          (0, i64_of_int node.op); (1, node.lhs); (2, node.rhs);
+                          (W.Slot.of_int 0, i64_of_int node.op);
+                          (W.Slot.of_int 1, node.lhs);
+                          (W.Slot.of_int 2, node.rhs);
                         ],
                       [] );
                 ])
@@ -169,10 +175,10 @@ let rec stmt st ~limits (s : Loop_stmt.t) : I.t list =
           [
             i32 at;
             i32 at;
-            I.Load (Wasm.Load.I32_load, arg 2 0);
+            I.Load (Wasm.Load.I32_load, arg Width.W4);
             i32 1;
             n Wasm_op.I32_add;
-            I.Store (Wasm.Store.I32_store, arg 2 0);
+            I.Store (Wasm.Store.I32_store, arg Width.W4);
           ])
   | Loop_stmt.Release_scan_state width ->
       let _, live = meter st in
@@ -293,7 +299,7 @@ and store st b addr value =
           k 0x7F80_0000l;
           n Wasm_op.I32_gt_u;
           I.Select;
-          I.Store (Wasm.Store.I32_store16, arg 1 0);
+          I.Store (Wasm.Store.I32_store16, arg Width.W2);
         ]
   | Loop_stored.Bool e ->
       let e = num st e in
@@ -301,7 +307,7 @@ and store st b addr value =
       @ [
           fconst st 0.;
           n (if st.f32 then Wasm_op.F32_ne else Wasm_op.F64_ne);
-          I.Store (Wasm.Store.I32_store8, arg 0 0);
+          I.Store (Wasm.Store.I32_store8, arg Width.W1);
         ]
   | Loop_stored.F32 (Loop_expr.Round_f32 e) | Loop_stored.F32 e ->
       (* The store narrows to binary32 itself, so an outermost [Round_f32] is
@@ -309,10 +315,10 @@ and store st b addr value =
       let e = num st e in
       at @ e
       @ (if st.f32 then [] else [ n Wasm_op.F32_demote_f64 ])
-      @ [ I.Store (Wasm.Store.F32_store, arg 2 0) ]
+      @ [ I.Store (Wasm.Store.F32_store, arg Width.W4) ]
   | Loop_stored.I64 e ->
       let e = big st e in
-      at @ e @ [ I.Store (Wasm.Store.I64_store, arg 3 0) ]
+      at @ e @ [ I.Store (Wasm.Store.I64_store, arg Width.W8) ]
 
 and block st ~limits body = List.concat_map (stmt st ~limits) body
 
@@ -411,7 +417,9 @@ let kernel_exact ~vector ~numerics ~precision ~mark_base ~table_alloc
                 | None -> []
                 | Some params ->
                     let bytes =
-                      (if st.f32 then 4 else 8) * List.length params
+                      Int64.mul
+                        (Width.bytes (array_width st))
+                        (Int64.of_int (List.length params))
                     in
                     let scales = table_alloc ~bytes in
                     let zeros = table_alloc ~bytes in
@@ -419,14 +427,10 @@ let kernel_exact ~vector ~numerics ~precision ~mark_base ~table_alloc
                       (Tensor_id.to_int b.Loop_buffer.id)
                       (scales, zeros);
                     [
-                      {
-                        Wasm.Data.offset = scales;
-                        bytes = table_bytes (List.map fst params);
-                      };
-                      {
-                        Wasm.Data.offset = zeros;
-                        bytes = table_bytes (List.map snd params);
-                      };
+                      Layout.Address.data scales
+                        (table_bytes (List.map fst params));
+                      Layout.Address.data zeros
+                        (table_bytes (List.map snd params));
                     ])
               p.Loop_program.buffers
           in
@@ -500,14 +504,23 @@ let lower ?vector ?(numerics = Loop_numerics.Reference_f64) ?precision
     (fun ~mark_base ~table_alloc ->
       kernel_exact ~vector ~numerics ~precision ~mark_base ~table_alloc p)
 
-let with_pages t ~pages =
+let page_bytes = 65536L
+
+let with_heap t ~bytes =
+  let total = Int64.add (Int64.of_int t.heap_base) bytes in
+  if Int64.compare bytes 0L < 0 || Int64.compare total 0x8000_0000L > 0 then
+    invalid_arg "Loop_wasm.with_heap: the heap is outside [0, 2 GiB]";
+  let pages =
+    Int64.to_int
+      (Int64.div (Int64.add total (Int64.pred page_bytes)) page_bytes)
+  in
   match t.module_.Wasm.Module.memory with
-  | Some { Wasm.Memory.min_pages; _ } when pages >= min_pages ->
+  | Some { Wasm.Memory.min_pages; _ } ->
       {
         t.module_ with
         Wasm.Module.memory =
-          Some { Wasm.Memory.min_pages = pages; max_pages = None };
+          Some { Wasm.Memory.min_pages = max min_pages pages; max_pages = None };
       }
-  | _ -> invalid_arg "Loop_wasm.with_pages: fewer pages than the static region"
+  | None -> invalid_arg "Loop_wasm.with_heap: the module has no memory"
 
 let encode t = Wasm_encode.module_ t.module_
