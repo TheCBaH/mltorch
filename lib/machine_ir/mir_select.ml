@@ -8,22 +8,27 @@
 
 (* The largest value and instruction ids a generic function uses, plus one. *)
 let watermarks (f : (Mir_op.t, Mir_terminator.t) Mir_func.t) =
-  let v = ref 0 and i = ref 0 in
-  let see (x : Mir_value.t) =
-    v := max !v (Mir_id.Value.to_int x.Mir_value.id)
+  (* Value id 0 stands for the entry order state, so it is never handed out. *)
+  let v =
+    ref
+      (Mir_id.Value.Next.after (Mir_id.Value.of_int 0) Mir_id.Value.Next.first)
+  and i =
+    ref
+      (Mir_id.Instr.Next.after (Mir_id.Instr.of_int 0) Mir_id.Instr.Next.first)
   in
+  let see (x : Mir_value.t) = v := Mir_id.Value.Next.after x.Mir_value.id !v in
   List.iter
     (fun (b : (Mir_op.t, Mir_terminator.t) Mir_block.t) ->
       List.iter see b.Mir_block.params;
       see b.Mir_block.order;
       List.iter
         (fun (ins : Mir_op.t Mir_instr.t) ->
-          i := max !i (Mir_id.Instr.to_int ins.Mir_instr.id);
+          i := Mir_id.Instr.Next.after ins.Mir_instr.id !i;
           List.iter see ins.Mir_instr.results;
           Option.iter (fun o -> see o.Mir_order.output) ins.Mir_instr.order)
         b.Mir_block.body)
     f.Mir_func.blocks;
-  (!v + 1, !i + 1)
+  (!v, !i)
 
 (* Whether a call can fail: a helper that declares failures, or a function
    that can reach a [fail] or a fallible call (a cycle of calls is taken to
@@ -66,13 +71,13 @@ let fallibility (p : Mir_program.generic) =
 type ('op, 'test) t = {
   defs : (Mir_id.Value.t, Mir_op.t) Hashtbl.t;
       (** generic value id -> defining op *)
-  mutable next_value : int;
-  mutable next_instr : int;
+  mutable next_value : Mir_id.Value.Next.t;
+  mutable next_instr : Mir_id.Instr.Next.t;
   mutable body : 'op Mir_sel.Op.t Mir_instr.t list;  (** reversed *)
   mutable origin : Mir_origin.t;
   orders : (Mir_id.Value.t, Mir_value.t) Hashtbl.t;
       (** a generic order state replaced by a split block's order parameter *)
-  mutable next_block : int;
+  mutable next_block : Mir_id.Block.Next.t;
   mutable cur_id : Mir_id.Block.t;
   mutable cur_params : Mir_value.t list;
   mutable cur_order : Mir_value.t;
@@ -103,11 +108,11 @@ let create (f : (Mir_op.t, Mir_terminator.t) Mir_func.t) =
     origin = Mir_origin.unknown;
     orders = Hashtbl.create 8;
     next_block =
-      1
-      + List.fold_left
-          (fun m (b : (_, _) Mir_block.t) ->
-            max m (Mir_id.Block.to_int b.Mir_block.id))
-          0 f.Mir_func.blocks;
+      List.fold_left
+        (fun next (b : (_, _) Mir_block.t) ->
+          Mir_id.Block.Next.after b.Mir_block.id next)
+        (Mir_id.Block.Next.after (Mir_id.Block.of_int 0) Mir_id.Block.Next.first)
+        f.Mir_func.blocks;
     cur_id = f.Mir_func.entry;
     cur_params = [];
     cur_order = { Mir_value.id = Mir_id.Value.of_int 0; ty = Mir_type.Order };
@@ -123,8 +128,8 @@ let ord_edge b (e : Mir_edge.t) =
   { e with Mir_edge.order = ord b e.Mir_edge.order }
 
 let fresh b ty =
-  let id = Mir_id.Value.of_int b.next_value in
-  b.next_value <- b.next_value + 1;
+  let id, next = Mir_id.Value.Next.alloc b.next_value in
+  b.next_value <- next;
   { Mir_value.id; ty }
 
 let push b ?order results op =
@@ -133,8 +138,8 @@ let push b ?order results op =
       (fun o -> { o with Mir_order.input = ord b o.Mir_order.input })
       order
   in
-  let id = Mir_id.Instr.of_int b.next_instr in
-  b.next_instr <- b.next_instr + 1;
+  let id, next = Mir_id.Instr.Next.alloc b.next_instr in
+  b.next_instr <- next;
   b.body <- { Mir_instr.id; results; op; order; origin = b.origin } :: b.body
 
 (* One machine instruction defining [result] (a fresh temporary of [ty] when
@@ -168,8 +173,8 @@ let start b id params order =
   b.body <- []
 
 let fresh_block b =
-  let id = Mir_id.Block.of_int b.next_block in
-  b.next_block <- b.next_block + 1;
+  let id, next = Mir_id.Block.Next.alloc b.next_block in
+  b.next_block <- next;
   id
 
 (* After a call that may fail, whose order state is [after]: a branch on the

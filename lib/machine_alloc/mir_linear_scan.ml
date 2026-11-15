@@ -110,12 +110,18 @@ module Make (T : Mir_sel.TARGET) (R : POOL) = struct
            order)
     in
     let block_depth id = List.length (Mir_loop.around nests id) in
-    let ends = List.fold_left (fun m (_, (_, b)) -> max m b) 0 spans in
-    let depths = Array.make (ends + 1) 0 in
+    let ends =
+      List.fold_left
+        (fun m (_, (_, b)) -> Mir_point.max m b)
+        Mir_point.zero spans
+    in
+    let depths = Mir_point.Table.make ~upto:ends 0 in
     List.iter
-      (fun (id, (a, b)) -> Array.fill depths a (b - a) (block_depth id))
+      (fun (id, (a, b)) ->
+        Mir_point.Table.fill depths ~from:a ~to_:b (block_depth id))
       spans;
-    let depth x = if x >= 0 && x <= ends then depths.(x) else 0 in
+    let depth = Mir_point.Table.get depths in
+    let weight u = 10. ** float_of_int (depth u) in
     (* what a split at [x] costs, as the loop depth its moves run at: a value
        in a register before [x] and in its slot after needs a move on every
        edge the position separates, run as often as the shallower of its
@@ -128,7 +134,9 @@ module Make (T : Mir_sel.TARGET) (R : POOL) = struct
           List.map
             (fun (e : Mir_edge.t) ->
               let t, _ = span_of e.Mir_edge.target in
-              (b - 1, t, min (block_depth id) (block_depth e.Mir_edge.target)))
+              ( Mir_point.pred b,
+                t,
+                min (block_depth id) (block_depth e.Mir_edge.target) ))
             (Mir_sel.Terminator.edges (block id).Mir_block.terminator))
         order
     in
@@ -146,14 +154,23 @@ module Make (T : Mir_sel.TARGET) (R : POOL) = struct
           | [] -> None
           | _ ->
               Some
-                ( List.fold_left (fun m (a, _) -> min m a) max_int ss,
-                  List.fold_left (fun m (_, b) -> max m b) 0 ss ))
+                ( List.fold_left
+                    (fun m (a, _) -> Mir_point.min m a)
+                    Mir_point.never ss,
+                  List.fold_left
+                    (fun m (_, b) -> Mir_point.max m b)
+                    Mir_point.zero ss ))
         nests
-      |> List.sort (fun (a, b) (c, d) -> compare (b - a) (d - c))
+      |> List.sort (fun (a, b) (c, d) ->
+          Float.compare
+            (Mir_point.distance ~from:a ~to_:b)
+            (Mir_point.distance ~from:c ~to_:d))
     in
     let split_cost x =
+      let open Mir_point.Infix in
       List.fold_left
-        (fun c (a, t, d) -> if a < x <> (t < x) then max c d else c)
+        (fun c (a, t, d) ->
+          if not (Bool.equal (a < x) (t < x)) then max c d else c)
         (if List.mem x starts then -1 else depth x)
         crossing
     in
@@ -162,10 +179,9 @@ module Make (T : Mir_sel.TARGET) (R : POOL) = struct
     List.iter
       (fun bid ->
         let from, _ = span_of bid in
-        List.iteri
-          (fun j (i : S.Stage.op Mir_instr.t) ->
-            Hashtbl.replace at (from + 2 + (2 * j)) i)
-          (block bid).Mir_block.body)
+        List.iter
+          (fun (p, (i : S.Stage.op Mir_instr.t)) -> Hashtbl.replace at p i)
+          (Mir_point.reads from (block bid).Mir_block.body))
       order;
     let fixed = ref [] in
     let opens = Hashtbl.create 16 in
@@ -181,18 +197,20 @@ module Make (T : Mir_sel.TARGET) (R : POOL) = struct
               (function
                 | Mir_target.Constraint.Fixed_use { view; _ } ->
                     fixed :=
-                      { Fixed.view; lo = p; hi = p + 1; own = [] } :: !fixed
+                      { Fixed.view; lo = p; hi = Mir_point.succ p; own = [] }
+                      :: !fixed
                 | Mir_target.Constraint.Scratch view ->
                     (* neither a use (at [p]) nor a result (at [p + 1]) *)
                     fixed :=
-                      { Fixed.view; lo = p; hi = p + 2; own = [] } :: !fixed
+                      { Fixed.view; lo = p; hi = Mir_point.next p; own = [] }
+                      :: !fixed
                 | Mir_target.Constraint.Fixed_result { result; view } ->
                     (* only its own result is written there *)
                     fixed :=
                       {
                         Fixed.view;
-                        lo = p + 1;
-                        hi = p + 2;
+                        lo = Mir_point.succ p;
+                        hi = Mir_point.next p;
                         own = [ List.nth own result ];
                       }
                       :: !fixed
@@ -204,7 +222,14 @@ module Make (T : Mir_sel.TARGET) (R : POOL) = struct
               cs;
             List.iter
               (fun view ->
-                fixed := { Fixed.view; lo = p + 1; hi = p + 2; own } :: !fixed)
+                fixed :=
+                  {
+                    Fixed.view;
+                    lo = Mir_point.succ p;
+                    hi = Mir_point.next p;
+                    own;
+                  }
+                  :: !fixed)
               (T.clobbers op))
       at;
     (* the instructions a second run recreates *)
@@ -257,7 +282,7 @@ module Make (T : Mir_sel.TARGET) (R : POOL) = struct
                              result = k
                          | _ -> false)
                        cs)
-                then need r (p + 1))
+                then need r (Mir_point.succ p))
               i.Mir_instr.results)
       at;
     List.iter
@@ -265,7 +290,7 @@ module Make (T : Mir_sel.TARGET) (R : POOL) = struct
         let _, to_ = span_of bid in
         match (block bid).Mir_block.terminator with
         | Mir_sel.Terminator.Branch { test; _ } ->
-            List.iter (fun v -> need v (to_ - 1)) (T.test_uses test)
+            List.iter (fun v -> need v (Mir_point.pred to_)) (T.test_uses test)
         | Mir_sel.Terminator.Jump _ | Mir_sel.Terminator.Return _ -> ())
       order;
     let intervals = Lv.intervals f in
@@ -291,7 +316,9 @@ module Make (T : Mir_sel.TARGET) (R : POOL) = struct
       (fun (iv : Lv.Interval.t) ->
         Hashtbl.replace ends
           (Mir_id.Value.to_int iv.Lv.Interval.value.Mir_value.id)
-          (List.fold_left (fun m (_, b) -> max m b) 0 iv.Lv.Interval.ranges))
+          (List.fold_left
+             (fun m (_, b) -> Mir_point.max m b)
+             Mir_point.zero iv.Lv.Interval.ranges))
       intervals;
     Hashtbl.iter
       (fun p (i : S.Stage.op Mir_instr.t) ->
@@ -308,7 +335,7 @@ module Make (T : Mir_sel.TARGET) (R : POOL) = struct
                       (not (is_flags v))
                       && List.length (List.filter (Mir_value.equal v) operands)
                          = 1
-                      && (Hashtbl.find_opt ends key = Some (p + 1)
+                      && (Hashtbl.find_opt ends key = Some (Mir_point.succ p)
                          || mutated st Mutation.Live_tie)
                     then (
                       Hashtbl.replace trimmed key p;
@@ -354,7 +381,7 @@ module Make (T : Mir_sel.TARGET) (R : POOL) = struct
                   ranges;
                   uses = iv.Lv.Interval.uses;
                   needs =
-                    List.sort_uniq compare
+                    List.sort_uniq Mir_point.compare
                       (Option.value ~default:[]
                          (Hashtbl.find_opt needs
                             (Mir_id.Value.to_int v.Mir_value.id)));
@@ -366,7 +393,8 @@ module Make (T : Mir_sel.TARGET) (R : POOL) = struct
     let allocated =
       List.concat_map
         (fun bank ->
-          scan st ~bank ~fixed:!fixed ~depth ~starts ~split_cost ~loops ~uses_of
+          scan st ~bank ~fixed:!fixed ~weight ~starts ~split_cost ~loops
+            ~uses_of
             ~prefer:(fun (v : Mir_value.t) ->
               Hashtbl.find_opt prefer (Mir_id.Value.to_int v.Mir_value.id))
             (List.filter (fun p -> bank_of p = bank) pieces))
@@ -504,13 +532,13 @@ module Make (T : Mir_sel.TARGET) (R : POOL) = struct
           | Some y when y >= x -> ()
           | _ -> Hashtbl.replace last_use k x
         in
-        List.iteri
-          (fun j (i : S.Stage.op Mir_instr.t) ->
-            List.iter
-              (note (from + 2 + (2 * j)))
-              (S.Stage.operands i.Mir_instr.op))
-          b.Mir_block.body;
-        List.iter (note (to_ - 1)) (S.Stage.term_values b.Mir_block.terminator))
+        List.iter
+          (fun (p, (i : S.Stage.op Mir_instr.t)) ->
+            List.iter (note p) (S.Stage.operands i.Mir_instr.op))
+          (Mir_point.reads from b.Mir_block.body);
+        List.iter
+          (note (Mir_point.pred to_))
+          (S.Stage.term_values b.Mir_block.terminator))
       order;
     let block_at x =
       List.find (fun (_, (a, b)) -> a <= x && x < b) spans |> fst
@@ -553,7 +581,9 @@ module Make (T : Mir_sel.TARGET) (R : POOL) = struct
                 ps
             with
             | Some q -> (
-                match List.find_opt (fun p -> Piece.covers p (x - 1)) ps with
+                match
+                  List.find_opt (fun p -> Piece.covers p (Mir_point.pred x)) ps
+                with
                 | Some p when p != q ->
                     {
                       Mir_parallel_copy.dst = loc_of_piece q;
@@ -606,7 +636,7 @@ module Make (T : Mir_sel.TARGET) (R : POOL) = struct
                 else
                   match fixed_result k with
                   | Some view -> Loc.Reg view
-                  | None -> loc r (p + 1))
+                  | None -> loc r (Mir_point.succ p))
               i.Mir_instr.results
           in
           let uses =
@@ -633,7 +663,7 @@ module Make (T : Mir_sel.TARGET) (R : POOL) = struct
                            [
                              {
                                Mir_parallel_copy.dst = Loc.Reg view;
-                               src = loc v (p - 1);
+                               src = loc v (Mir_point.pred p);
                                value = v;
                              };
                            ]
@@ -641,7 +671,7 @@ module Make (T : Mir_sel.TARGET) (R : POOL) = struct
                            [
                              {
                                Mir_parallel_copy.dst = List.nth defs r;
-                               src = loc v (p - 1);
+                               src = loc v (Mir_point.pred p);
                                value = v;
                              };
                            ]
@@ -662,7 +692,7 @@ module Make (T : Mir_sel.TARGET) (R : POOL) = struct
                              (Mir_id.Value.to_int r.Mir_value.id))
                    then None
                    else
-                     let want = loc r (p + 1) in
+                     let want = loc r (Mir_point.succ p) in
                      if Loc.equal want d then None
                      else
                        Some { Mir_parallel_copy.dst = want; src = d; value = r })
@@ -672,8 +702,8 @@ module Make (T : Mir_sel.TARGET) (R : POOL) = struct
     in
     let splits = ref [] in
     let fresh_block () =
-      let id = Mir_id.Block.of_int st.next_block in
-      st.next_block <- st.next_block + 1;
+      let id, next = Mir_id.Block.Next.alloc st.next_block in
+      st.next_block <- next;
       id
     in
     (* an edge's moves: every value live into the target, from where the
@@ -690,7 +720,7 @@ module Make (T : Mir_sel.TARGET) (R : POOL) = struct
               Some
                 {
                   Mir_parallel_copy.dst = loc pv tf;
-                  src = loc a (bt - 1);
+                  src = loc a (Mir_point.pred bt);
                   value = a;
                 })
           (List.combine t.Mir_block.params e.Mir_edge.args)
@@ -704,7 +734,7 @@ module Make (T : Mir_sel.TARGET) (R : POOL) = struct
                 Some
                   {
                     Mir_parallel_copy.dst = loc v tf;
-                    src = loc v (bt - 1);
+                    src = loc v (Mir_point.pred bt);
                     value = v;
                   }
             | _ -> None)
@@ -743,11 +773,9 @@ module Make (T : Mir_sel.TARGET) (R : POOL) = struct
           in
           let body =
             List.concat
-              (List.mapi
-                 (fun j i ->
-                   let p = from + 2 + (2 * j) in
-                   instr p i)
-                 b.Mir_block.body)
+              (List.map
+                 (fun (p, i) -> instr p i)
+                 (Mir_point.reads from b.Mir_block.body))
           in
           let tail, terminator =
             match b.Mir_block.terminator with
@@ -755,7 +783,9 @@ module Make (T : Mir_sel.TARGET) (R : POOL) = struct
                 (edge_moves id e, Mir_phys.Term.Jump e.Mir_edge.target)
             | Mir_sel.Terminator.Branch { test; then_; else_ } ->
                 let located =
-                  List.map (fun v -> loc v (to_ - 1)) (T.test_uses test)
+                  List.map
+                    (fun v -> loc v (Mir_point.pred to_))
+                    (T.test_uses test)
                 in
                 let via index (e : Mir_edge.t) =
                   let moves = edge_moves id e in
@@ -785,7 +815,7 @@ module Make (T : Mir_sel.TARGET) (R : POOL) = struct
                        (fun (v : Mir_value.t) r ->
                          {
                            Mir_parallel_copy.dst = Loc.Reg r;
-                           src = loc v (to_ - 1);
+                           src = loc v (Mir_point.pred to_);
                            value = v;
                          })
                        values result_regs),
@@ -823,16 +853,7 @@ module Make (T : Mir_sel.TARGET) (R : POOL) = struct
   let allocate ?mutation (sel : S.Verified.t) =
     let s = S.Verified.selected sel in
     let p = s.S.program in
-    let max_block =
-      List.fold_left
-        (fun m (f : (_, _) Mir_func.t) ->
-          List.fold_left
-            (fun m (b : (_, _) Mir_block.t) ->
-              max m (Mir_id.Block.to_int b.Mir_block.id))
-            m f.Mir_func.blocks)
-        0 p.Mir_program.funcs
-    in
-    let st = { mutation; next_block = max_block + 1 } in
+    let st = { mutation; next_block = Mir_program.next_block p } in
     {
       Mir_phys.Program.data_model = p.Mir_program.data_model;
       regions = p.Mir_program.regions;

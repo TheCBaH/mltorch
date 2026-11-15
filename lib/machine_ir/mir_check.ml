@@ -33,20 +33,38 @@ module type STAGE = sig
     context -> results:Mir_type.t list -> term -> (unit, P.t) result
 end
 
+(* An instruction's place in its block's body: parameters come before the
+   first, the terminator after the last. *)
+module Place =
+  Core.Tagged_int.Make
+    (struct
+      let prefix = "@"
+    end)
+    ()
+
+(* Which of an instruction's results. *)
+module Result_index =
+  Core.Tagged_int.Make
+    (struct
+      let prefix = "r"
+    end)
+    ()
+
 (* Where a value is defined. *)
 module Def = struct
   type 'op t =
     | Order_out of 'op Mir_instr.t
     | Order_param of Mir_id.Block.t
     | Param of Mir_id.Block.t
-    | Result of 'op Mir_instr.t * int  (** the instruction and its position *)
+    | Result of 'op Mir_instr.t * Result_index.t
+        (** the instruction and which of its results *)
 end
 
 module Analysis = struct
   type 'op t = {
     graph : Mir_graph.t;
-    defs : ('op Def.t * Mir_id.Block.t * int) Mir_id.Value.Map.t;
-        (** definition, block and position (-1 for parameters) *)
+    defs : ('op Def.t * Mir_id.Block.t * Place.t) Mir_id.Value.Map.t;
+        (** definition, block and place (before the body for parameters) *)
   }
 end
 
@@ -169,6 +187,7 @@ module Make (S : STAGE) = struct
           reject (P.Unreachable_block b.Mir_block.id))
       f.Mir_func.blocks;
     (* definitions: each value once *)
+    let before_body = Place.of_int (-1) in
     let defs = ref Mir_id.Value.Map.empty in
     let define ?instr block pos (v : Mir_value.t) d =
       if Mir_id.Value.Map.mem v.Mir_value.id !defs then
@@ -185,19 +204,22 @@ module Make (S : STAGE) = struct
               (not (Mir_type.has_storage p.Mir_value.ty))
               || Mir_type.equal p.Mir_value.ty Mir_type.Flags
             then reject ~block:bid (P.Value_type p.Mir_value.id);
-            define bid (-1) p (Def.Param bid))
+            define bid before_body p (Def.Param bid))
           b.Mir_block.params;
         if not (Mir_type.equal b.Mir_block.order.Mir_value.ty Mir_type.Order)
         then reject ~block:bid (P.Value_type b.Mir_block.order.Mir_value.id);
-        define bid (-1) b.Mir_block.order (Def.Order_param bid);
+        define bid before_body b.Mir_block.order (Def.Order_param bid);
         List.iteri
-          (fun pos (i : S.op Mir_instr.t) ->
+          (fun index (i : S.op Mir_instr.t) ->
+            let pos = Place.of_int index in
             let iid = i.Mir_instr.id in
             if Mir_id.Instr.Set.mem iid !seen_instrs then
               reject ~block:bid ~instr:iid (P.Duplicate_instr iid);
             seen_instrs := Mir_id.Instr.Set.add iid !seen_instrs;
             List.iteri
-              (fun k r -> define ~instr:iid bid pos r (Def.Result (i, k)))
+              (fun k r ->
+                define ~instr:iid bid pos r
+                  (Def.Result (i, Result_index.of_int k)))
               i.Mir_instr.results;
             match i.Mir_instr.order with
             | Some { Mir_order.output; _ } ->
@@ -230,7 +252,7 @@ module Make (S : STAGE) = struct
       | Some (Def.Result (i, k), _, _) ->
           Option.map
             (fun (r : Mir_value.t) -> r.Mir_value.ty)
-            (List.nth_opt i.Mir_instr.results k)
+            (List.nth_opt i.Mir_instr.results (k :> int))
       | Some ((Def.Order_param _ | Def.Order_out _), _, _) ->
           Some Mir_type.Order
       | None -> None
@@ -247,7 +269,8 @@ module Make (S : STAGE) = struct
         let bid = b.Mir_block.id in
         let current = ref b.Mir_block.order in
         List.iteri
-          (fun pos (i : S.op Mir_instr.t) ->
+          (fun index (i : S.op Mir_instr.t) ->
+            let pos = Place.of_int index in
             let instr = i.Mir_instr.id in
             let reject p = reject ~block:bid ~instr p in
             List.iter
@@ -280,7 +303,7 @@ module Make (S : STAGE) = struct
             | false, Some _ -> reject P.Order_unexpected
             | false, None -> ())
           b.Mir_block.body;
-        let pos = List.length b.Mir_block.body in
+        let pos = Place.of_int (List.length b.Mir_block.body) in
         let term = b.Mir_block.terminator in
         let reject p = reject ~block:bid p in
         List.iter

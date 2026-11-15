@@ -22,11 +22,14 @@ end
    (offset, end) sorted by offset. *)
 let busy script offsets ends placed b =
   let acc = ref [] in
-  for a = 0 to Script.blocks script - 1 do
-    if
-      placed.(a) && (not (Script.empty script a)) && Script.conflicts script a b
-    then acc := (offsets.(a), ends.(a)) :: !acc
-  done;
+  Array.iter
+    (fun a ->
+      if
+        Script.get placed a
+        && (not (Script.empty script a))
+        && Script.conflicts script a b
+      then acc := (Script.get offsets a, Script.get ends a) :: !acc)
+    (Script.indices script);
   List.sort (fun (a, _) (b, _) -> Byte_offset.compare a b) !acc
 
 (* The lowest (first fit) or tightest (best fit) aligned start that holds
@@ -57,39 +60,39 @@ let place mode size alignment ranges =
 (* [order] must be a permutation of the block indices. *)
 let offsets mode script order =
   let ( let* ) = Result.bind in
-  let n = Script.blocks script in
-  let offsets = Array.make n Byte_offset.zero
-  and ends = Array.make n Byte_offset.zero
-  and placed = Array.make n false in
+  let offsets = Script.table script Byte_offset.zero
+  and ends = Script.table script Byte_offset.zero
+  and placed = Script.table script false in
   let rec go i pool =
-    if i >= n then Ok { Placed.offsets; ends; pool }
+    if i >= Array.length order then Ok { Placed.offsets; ends; pool }
     else
       let b = order.(i) in
-      let size = script.Script.sizes.(b) in
+      let size = Script.size script b in
       let* offset, stop =
         (if Script.empty script b then Ok (Byte_offset.zero, Byte_offset.zero)
          else
            let* offset =
              place mode size
-               script.Script.alignments.(b)
+               (Script.alignment script b)
                (busy script offsets ends placed b)
            in
            let* stop = Byte_offset.advance offset size in
            Ok (offset, stop))
         |> Err.map_error ~pos:__POS__ (fun (`Quantity_overflow _) ->
-            `Pool_overflow script.Script.keys.(b))
+            `Pool_overflow (Script.key script b))
       in
-      offsets.(b) <- offset;
-      ends.(b) <- stop;
-      placed.(b) <- true;
+      Script.set offsets b offset;
+      Script.set ends b stop;
+      Script.set placed b true;
       go (i + 1) (Byte_size.max pool (Byte_offset.to_size stop))
   in
   go 0 Byte_size.zero
 
 let solution script { Placed.offsets; pool; _ } =
   Ia_solution.Unsafe.make ~pool
-    (List.init (Script.blocks script) (fun i ->
-         (script.Script.keys.(i), offsets.(i))))
+    (List.map
+       (fun i -> (Script.key script i, Script.get offsets i))
+       (Array.to_list (Script.indices script)))
 
 (* [size * lifetime], saturating: only the ordering matters. *)
 let area size life =
@@ -102,10 +105,8 @@ let area size life =
    allocation order. A key is a heuristic score, not a quantity, so a size
    leaves its type here to be scored. *)
 let plan strategy script =
-  let size i = Byte_size.to_int64 script.Script.sizes.(i) in
-  let life i =
-    Int64.of_int (script.Script.free_at.(i) - script.Script.alloc_at.(i))
-  in
+  let size i = Byte_size.to_int64 (Script.size script i) in
+  let life = Script.lifetime script in
   let key =
     match strategy with
     | Ia_strategy.Greedy_by_area -> fun i -> area (size i) (life i)
@@ -113,7 +114,7 @@ let plan strategy script =
     | Greedy_by_size | Greedy_by_size_best_fit -> size
   in
   let order =
-    List.init (Script.blocks script) Fun.id
+    Array.to_list (Script.indices script)
     |> List.stable_sort (fun a b -> Int64.compare (key b) (key a))
     |> Array.of_list
   in

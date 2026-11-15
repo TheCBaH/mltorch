@@ -1,6 +1,11 @@
 open Machine_ir
 open Machine_target_aarch64
 module L = Machine_alloc.Mir_liveness.Make (A64)
+
+(* A program point as the number it stands for in the goldens. *)
+let point =
+  Fmt.using (fun (p : Machine_alloc.Mir_point.t) -> (p :> int)) Fmt.int
+
 module S = A64_stage.Sel
 
 (* Liveness sets against an independent brute-force definition — a value is
@@ -123,9 +128,9 @@ let%expect_test "intervals of a loop, with holes" =
           then
             Fmt.pr "%a:%a %a uses %a@." Mir_value.pp iv.L.Interval.value
               Mir_type.pp iv.L.Interval.value.Mir_value.ty
-              Fmt.(list ~sep:(any " ") (pair ~sep:(any ",") int int))
+              Fmt.(list ~sep:(any " ") (pair ~sep:(any ",") point point))
               iv.L.Interval.ranges
-              Fmt.(list ~sep:(any ",") int)
+              Fmt.(list ~sep:(any ",") point)
               iv.L.Interval.uses)
         (L.intervals f);
       [%expect

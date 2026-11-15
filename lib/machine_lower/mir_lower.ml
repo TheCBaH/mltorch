@@ -781,15 +781,17 @@ let block st (b : Ssa_cfg_block.t) =
           Mir_origin.cfg =
             Some
               {
-                Mir_origin.Cfg_site.block = (b.Ssa_cfg_block.id :> int);
-                instr = k;
+                Mir_origin.Cfg_site.block =
+                  Mir_origin.Cfg_site.Block.of_int (b.Ssa_cfg_block.id :> int);
+                position =
+                  Mir_origin.Cfg_site.Instr (Mir_origin.Cfg_site.Instr.of_int k);
               };
           output =
             (match i.Ssa_instr.origin with
             | Ssa_origin.Output o -> Some (Expr.Source.create (o :> int))
             | Ssa_origin.Unknown | Ssa_origin.Value _ -> None);
           role = Mir_origin.Role.Compute;
-          clone = 0;
+          clone = Mir_origin.Clone.of_int 0;
         };
       instr st i)
     b.Ssa_cfg_block.body;

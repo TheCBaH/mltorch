@@ -65,13 +65,13 @@ let program ?mutation ~register_bytes (g : Mir_verify.Generic.t) =
     let next_value, next_instr = Mir_select.watermarks f in
     let next_value = ref next_value and next_instr = ref next_instr in
     let fresh ty =
-      let id = Mir_id.Value.of_int !next_value in
-      incr next_value;
+      let id, next = Mir_id.Value.Next.alloc !next_value in
+      next_value := next;
       { Mir_value.id; ty }
     in
     let instr_id () =
-      let id = Mir_id.Instr.of_int !next_instr in
-      incr next_instr;
+      let id, next = Mir_id.Instr.Next.alloc !next_instr in
+      next_instr := next;
       id
     in
     (* every vector value's slices, made before any use is rewritten *)

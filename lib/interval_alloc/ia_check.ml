@@ -22,81 +22,80 @@ module Overlap = struct
 end
 
 let check (script : _ Ia_script.t) solution =
-  let n = Ia_script.blocks script in
-  let keys = script.Ia_script.keys and sizes = script.Ia_script.sizes in
-  let offsets = Array.make n None in
+  let get = Ia_script.get and set = Ia_script.set in
+  let indices = Array.to_list (Ia_script.indices script) in
+  let key = Ia_script.key script and size = Ia_script.size script in
+  let offsets = Ia_script.table script None in
   let ( let* ) = Result.bind in
   let* () =
     Err.List.iter
       (fun (k, offset) ->
-        match Ia_script.find_index script.Ia_script.equal keys n k with
+        match Ia_script.find script k with
         | None -> Err.fail ~pos:__POS__ (`Unknown_key k)
         | Some i -> (
-            match offsets.(i) with
+            match get offsets i with
             | Some _ -> Err.fail ~pos:__POS__ (`Duplicate_placement k)
             | None ->
-                offsets.(i) <- Some offset;
+                set offsets i (Some offset);
                 Ok ()))
       (Ia_solution.placements solution)
   in
   let pool = Ia_solution.pool solution in
   let offset_of i =
-    match offsets.(i) with Some o -> o | None -> assert false
+    match get offsets i with Some o -> o | None -> assert false
   in
-  let block i =
-    { Block.key = keys.(i); offset = offset_of i; size = sizes.(i) }
-  in
+  let block i = { Block.key = key i; offset = offset_of i; size = size i } in
   let* () =
-    let rec unplaced i =
-      if i >= n then Ok ()
-      else if offsets.(i) = None then Err.fail ~pos:__POS__ (`Unplaced keys.(i))
-      else unplaced (i + 1)
-    in
-    unplaced 0
+    Err.List.iter
+      (fun i ->
+        if get offsets i = None then Err.fail ~pos:__POS__ (`Unplaced (key i))
+        else Ok ())
+      indices
   in
   (* Every block's end, once it is known to fit. *)
-  let ends = Array.make n Byte_offset.zero in
+  let ends = Ia_script.table script Byte_offset.zero in
   let* () =
-    let rec bounds i =
-      if i >= n then Ok ()
-      else
-        let offset = offset_of i
-        and alignment = script.Ia_script.alignments.(i) in
+    Err.List.iter
+      (fun i ->
+        let offset = offset_of i and alignment = Ia_script.alignment script i in
         if not (Byte_offset.is_aligned offset alignment) then
           Err.fail ~pos:__POS__
             (`Misaligned { Misaligned.block = block i; alignment })
         else
           let* hi =
-            Byte_offset.advance offset sizes.(i)
+            Byte_offset.advance offset (size i)
             |> Err.map_error ~pos:__POS__ (fun (`Quantity_overflow _) ->
-                `Offset_overflow keys.(i))
+                `Offset_overflow (key i))
           in
           if Byte_size.compare (Byte_offset.to_size hi) pool > 0 then
             Err.fail ~pos:__POS__
               (`Out_of_pool { Out_of_pool.block = block i; pool })
           else begin
-            ends.(i) <- hi;
-            bounds (i + 1)
-          end
-    in
-    bounds 0
+            set ends i hi;
+            Ok ()
+          end)
+      indices
   in
   let disjoint a b =
-    Byte_offset.compare ends.(a) (offset_of b) <= 0
-    || Byte_offset.compare ends.(b) (offset_of a) <= 0
+    Byte_offset.compare (get ends a) (offset_of b) <= 0
+    || Byte_offset.compare (get ends b) (offset_of a) <= 0
   in
-  let rec overlaps a b =
-    if a >= n then Ok ()
-    else if b >= n then overlaps (a + 1) (a + 2)
-    else if
-      (not (Ia_script.empty script a))
-      && (not (Ia_script.empty script b))
-      && Ia_script.conflicts script a b
-      && not (disjoint a b)
-    then
-      Err.fail ~pos:__POS__
-        (`Overlap { Overlap.first = block a; second = block b })
-    else overlaps a (b + 1)
+  let* () =
+    Err.List.iter
+      (fun a ->
+        Err.List.iter
+          (fun b ->
+            if
+              Ia_script.Index.compare a b < 0
+              && (not (Ia_script.empty script a))
+              && (not (Ia_script.empty script b))
+              && Ia_script.conflicts script a b
+              && not (disjoint a b)
+            then
+              Err.fail ~pos:__POS__
+                (`Overlap { Overlap.first = block a; second = block b })
+            else Ok ())
+          indices)
+      indices
   in
-  let* () = overlaps 0 1 in
   Ok solution

@@ -11,24 +11,22 @@
 
 let func (f : (Mir_op.t, Mir_terminator.t) Mir_func.t) =
   let next_value, next_instr = Mir_select.watermarks f in
-  let next_value = ref next_value and next_instr = ref next_instr in
+  (* Ids start one past the watermark. *)
+  let next_value = ref (snd (Mir_id.Value.Next.alloc next_value))
+  and next_instr = ref (snd (Mir_id.Instr.Next.alloc next_instr)) in
   let emit out (origin : Mir_origin.t) ?result ty op =
     let r =
       match result with
       | Some r -> r
       | None ->
-          incr next_value;
-          { Mir_value.id = Mir_id.Value.of_int !next_value; ty }
+          let id, next = Mir_id.Value.Next.alloc !next_value in
+          next_value := next;
+          { Mir_value.id; ty }
     in
-    incr next_instr;
+    let instr_id, next = Mir_id.Instr.Next.alloc !next_instr in
+    next_instr := next;
     out :=
-      {
-        Mir_instr.id = Mir_id.Instr.of_int !next_instr;
-        results = [ r ];
-        op;
-        order = None;
-        origin;
-      }
+      { Mir_instr.id = instr_id; results = [ r ]; op; order = None; origin }
       :: !out;
     r
   in

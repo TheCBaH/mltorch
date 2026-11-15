@@ -55,7 +55,7 @@ module Make (T : Mir_sel.TARGET) (R : REGISTERS) = struct
 
   type st = {
     mutation : Mutation.t option;
-    mutable next_block : int;
+    mutable next_block : Mir_id.Block.Next.t;
     mutable slots : Mir_phys.Slot.t list;
     mutable previous : Mir_value.t option;  (** the last value spilled *)
   }
@@ -223,8 +223,8 @@ module Make (T : Mir_sel.TARGET) (R : REGISTERS) = struct
         reloads @ [ Mir_phys.Instr.Exec { instr = i; uses; defs } ] @ spills
 
   let fresh_block st =
-    let id = Mir_id.Block.of_int st.next_block in
-    st.next_block <- st.next_block + 1;
+    let id, next = Mir_id.Block.Next.alloc st.next_block in
+    st.next_block <- next;
     id
 
   let func st (f : (S.Stage.op, S.Stage.term) Mir_func.t) =
@@ -368,17 +368,13 @@ module Make (T : Mir_sel.TARGET) (R : REGISTERS) = struct
   let allocate ?mutation (sel : S.Verified.t) =
     let s = S.Verified.selected sel in
     let p = s.S.program in
-    let max_block =
-      List.fold_left
-        (fun m (f : (_, _) Mir_func.t) ->
-          List.fold_left
-            (fun m (b : (_, _) Mir_block.t) ->
-              max m (Mir_id.Block.to_int b.Mir_block.id))
-            m f.Mir_func.blocks)
-        0 p.Mir_program.funcs
-    in
     let st =
-      { mutation; next_block = max_block + 1; slots = []; previous = None }
+      {
+        mutation;
+        next_block = Mir_program.next_block p;
+        slots = [];
+        previous = None;
+      }
     in
     {
       Mir_phys.Program.data_model = p.Mir_program.data_model;
