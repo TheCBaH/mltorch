@@ -24,7 +24,12 @@ type t =
   | Vcast of Mir_type.t * v
       (** [vmv.v.v]: the lanes' bits at another lane type (binary32 and int32)
       *)
-  | Vext of { signed : bool; from : Mir_width.t; first : int; src : v }
+  | Vext of {
+      signed : bool;
+      from : Mir_width.t;
+      first : Mir_type.Lane.t;
+      src : v;
+    }
       (** sequence: lanes [first .. first + 3] of an [i8x16] or [i16x8] register
           ([vslidedown.vi] at their width into v0 when [first] is not 0), sign-
           or zero-extended to four int32 lanes ([vsext.vf4] ... [vzext.vf2]);
@@ -41,16 +46,16 @@ type t =
       (** sequence: [vfmv.s.f] of the seed into v0, [vfredosum.vs] of the vector
           into it, [vfmv.f.s]: the seed plus every lane in lane order, each
           addition rounded *)
-  | Vfmv_f_s of int * v
+  | Vfmv_f_s of Mir_type.Lane.t * v
       (** sequence: [vslidedown.vi] into v0 then [vfmv.f.s]: a lane *)
   | Vfmv_v_f of Mir_type.t * v
       (** [vfmv.v.f]: a binary32 to every lane of a vector of that type *)
   | Vfsqrt of v
-  | Vinsert of int * v * v
+  | Vinsert of Mir_type.Lane.t * v * v
       (** sequence: the vector with one lane replaced by the binary32, through
           [vfmv.s.f] into v0 and a tail-undisturbed [vslideup.vi] *)
   | Vle32 of Mir_type.t * v  (** [vle32.v]: four lanes from the address *)
-  | Vle_int of Mir_width.t * int * v
+  | Vle_int of Mir_width.t * Mir_type.Lanes.t * v
       (** sequence: [lanes] i8 or i16 lanes ([vle8.v], [vle16.v]), a whole
           register or sixteen 16-bit lanes (half a group, at LMUL 2, only ever
           widened), under their own configuration, which is then restored *)
@@ -75,7 +80,7 @@ type t =
           one register of eight 16-bit lanes; the result shares no register with
           an operand *)
   | Vse32 of v * v  (** [vse32.v]: address, value *)
-  | Vse_int of Mir_width.t * int * v * v
+  | Vse_int of Mir_width.t * Mir_type.Lanes.t * v * v
       (** sequence: [lanes] i16 lanes ([vse16.v]), a whole register or half a
           group at LMUL 2, under their own configuration, which is then
           restored: address, value *)
@@ -183,7 +188,10 @@ let ( let* ) = Result.bind
 let ty (v : v) = v.Mir_value.ty
 let is t u = Mir_type.equal t u
 let need ok why = if ok then Ok () else Error why
-let lane_ok k = k >= 0 && k < 4
+
+let lane_ok k =
+  let k = Mir_type.Lane.to_int k in
+  k >= 0 && k < 4
 
 let typing op =
   let fv a = is_f32v (ty a) in
@@ -201,6 +209,7 @@ let typing op =
       in
       Ok [ t ]
   | Vext { from; first; src; _ } ->
+      let first = Mir_type.Lane.to_int first in
       let* () =
         need
           ((narrow_int from
@@ -236,6 +245,7 @@ let typing op =
       in
       Ok [ Mir_type.F32 ]
   | Vfmv_f_s (k, a) ->
+      let k = Mir_type.Lane.to_int k in
       (* a lane of one register, or of a group of four (the lane's own
          register, at LMUL 1) *)
       let* () =
@@ -266,10 +276,11 @@ let typing op =
   | Vle_int (w, n, base) ->
       let* () = need (is (ty base) Mir_type.Ptr) "vle address" in
       let* () = need (narrow_int w) "integer register width" in
-      let t = Mir_type.Vec (Mir_type.Elem.Int w, Mir_type.Lanes.of_int n) in
+      let t = Mir_type.Vec (Mir_type.Elem.Int w, n) in
       let* () =
         need
-          (is t (int_register w) || (w = Mir_width.W16 && n = 16))
+          (is t (int_register w)
+          || (w = Mir_width.W16 && Mir_type.Lanes.to_int n = 16))
           "integer register lanes"
       in
       Ok [ t ]
@@ -331,10 +342,12 @@ let typing op =
       Ok []
   | Vse_int (w, n, base, x) ->
       let* () = need (is (ty base) Mir_type.Ptr) "vse address" in
-      let t = Mir_type.Vec (Mir_type.Elem.Int w, Mir_type.Lanes.of_int n) in
+      let t = Mir_type.Vec (Mir_type.Elem.Int w, n) in
       let* () =
         need
-          (w = Mir_width.W16 && (is t (int_register w) || n = 16) && is (ty x) t)
+          (w = Mir_width.W16
+          && (is t (int_register w) || Mir_type.Lanes.to_int n = 16)
+          && is (ty x) t)
           "stored 16-bit lanes"
       in
       Ok []
@@ -352,20 +365,25 @@ let pp pv fmt op =
   | Vext { signed; from; first; src } ->
       Fmt.pf fmt "v%cext.%s[%d] %a"
         (if signed then 's' else 'z')
-        (Mir_width.name from) first pv src
+        (Mir_width.name from)
+        (Mir_type.Lane.to_int first)
+        pv src
   | Vfbin (o, a, b) -> Fmt.pf fmt "%s %a" (Fop.vname o) vs [ a; b ]
   | Vfredosum (s, a) -> Fmt.pf fmt "vfredosum.vs %a" vs [ s; a ]
   | Vfcmp (o, a, b) -> Fmt.pf fmt "%s.lanes %a" (Fcmp.vname o) vs [ a; b ]
   | Vfcvt_f_x a -> Fmt.pf fmt "vfcvt.f.x.v %a" pv a
   | Vfcvt_x_f a -> Fmt.pf fmt "vfcvt.rtz.x.f.v %a" pv a
   | Vfmacc (acc, a, b) -> Fmt.pf fmt "vfmacc.vv %a" vs [ acc; a; b ]
-  | Vfmv_f_s (k, a) -> Fmt.pf fmt "vfmv.f.s %a[%d]" pv a k
+  | Vfmv_f_s (k, a) ->
+      Fmt.pf fmt "vfmv.f.s %a[%d]" pv a (Mir_type.Lane.to_int k)
   | Vfmv_v_f (t, a) -> Fmt.pf fmt "vfmv.v.f.%a %a" Mir_type.pp t pv a
   | Vfsqrt a -> Fmt.pf fmt "vfsqrt.v %a" pv a
-  | Vinsert (k, a, x) -> Fmt.pf fmt "vinsert %a[%d], %a" pv a k pv x
+  | Vinsert (k, a, x) ->
+      Fmt.pf fmt "vinsert %a[%d], %a" pv a (Mir_type.Lane.to_int k) pv x
   | Vle32 (t, base) -> Fmt.pf fmt "vle32.v.%a (%a)" Mir_type.pp t pv base
   | Vle_int (w, n, base) ->
-      Fmt.pf fmt "vle%d.v x%d (%a)" (Mir_width.bits w) n pv base
+      Fmt.pf fmt "vle%d.v x%d (%a)" (Mir_width.bits w) (Mir_type.Lanes.to_int n)
+        pv base
   | Vlogic (o, a, b) -> Fmt.pf fmt "%s %a" (Logic.name o) vs [ a; b ]
   | Vlse32 (t, base, s) ->
       Fmt.pf fmt "vlse32.v.%a (%a), %a" Mir_type.pp t pv base pv s
@@ -377,7 +395,8 @@ let pp pv fmt op =
   | Vnsrl16_pair (a, b) -> Fmt.pf fmt "vnsrl.wi.e16.pair %a" vs [ a; b ]
   | Vse32 (base, x) -> Fmt.pf fmt "vse32.v %a, (%a)" pv x pv base
   | Vse_int (w, n, base, x) ->
-      Fmt.pf fmt "vse%d.v x%d %a, (%a)" (Mir_width.bits w) n pv x pv base
+      Fmt.pf fmt "vse%d.v x%d %a, (%a)" (Mir_width.bits w)
+        (Mir_type.Lanes.to_int n) pv x pv base
   | Vshift (o, k, a) -> Fmt.pf fmt "%s %a, %d" (Rv32_kind.Shift.name o) pv a k
   | Vsgnj (o, a, b) -> Fmt.pf fmt "%s %a" (Sgnj.vname o) vs [ a; b ]
   | Vsse32 (base, s, x) -> Fmt.pf fmt "vsse32.v %a, (%a), %a" pv x pv base pv s

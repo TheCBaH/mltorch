@@ -76,7 +76,20 @@ end
 module Span = struct
   type t = One | Two | Four | Eight
 
-  let count = function One -> 1 | Two -> 2 | Four -> 4 | Eight -> 8
+  (* How many consecutive units the group covers. *)
+  module Count =
+    Core.Tagged_int.Make
+      (struct
+        let prefix = "units"
+      end)
+      ()
+
+  let count = function
+    | One -> Count.of_int 1
+    | Two -> Count.of_int 2
+    | Four -> Count.of_int 4
+    | Eight -> Count.of_int 8
+
   let name = function One -> "m1" | Two -> "m2" | Four -> "m4" | Eight -> "m8"
 
   (* The span a value [bits] wide needs of units [unit] wide: one for
@@ -92,14 +105,26 @@ module Span = struct
   (* The register numbers a group of this span based at [base] covers, lowest
      first, and whether [base] may start one (a multiple of the span). *)
   let members t (base : Reg_num.t) =
-    List.init (count t) (fun i -> Reg_num.of_int ((base :> int) + i))
+    List.init (count t :> int) (fun i -> Reg_num.of_int ((base :> int) + i))
 
-  let aligned t (base : Reg_num.t) = (base :> int) mod count t = 0
+  let aligned t (base : Reg_num.t) = (base :> int) mod (count t :> int) = 0
 
   (* The lanes of a vector of [lanes] lanes that one member of the group
      holds. *)
   let share t (lanes : Mir_type.Lanes.t) =
-    Mir_type.Lanes.of_int ((lanes :> int) / count t)
+    Mir_type.Lanes.of_int ((lanes :> int) / (count t :> int))
+
+  (* The width of a group of this span of units each [unit] wide. *)
+  let bits ~(unit : Bits.t) t = Bits.of_int ((unit :> int) * (count t :> int))
+
+  (* Whether a group of this span based at unit [base] has [u] among its
+     members, and whether it does with [u] above [base]. *)
+  let covers t ~(base : Mir_id.Unit.t) (u : Mir_id.Unit.t) =
+    let b = (base :> int) and u = (u :> int) in
+    b <= u && u < b + (count t :> int)
+
+  let covers_above t ~(base : Mir_id.Unit.t) (u : Mir_id.Unit.t) =
+    (base :> int) < (u :> int) && covers t ~base u
 end
 
 (* A physical register view: [bits] bits of a register unit starting at bit
@@ -126,7 +151,7 @@ module View = struct
     let rec go u k =
       if k = 0 then [] else u :: go (Mir_id.Unit.succ u) (k - 1)
     in
-    go v.unit (Span.count v.span)
+    go v.unit (Span.count v.span :> int)
 
   (* Whether two views share any bit: a common unit, and, between two
      single-unit views, intersecting bit ranges (a group covers its members

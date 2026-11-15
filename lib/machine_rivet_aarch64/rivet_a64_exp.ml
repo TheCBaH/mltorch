@@ -27,11 +27,19 @@ let extras =
   [| 1.0; Int64.float_of_bits 0x3fdfffffffffffffL; 0x1p1009; 0x1p-1022 |]
   |> Array.map Int64.bits_of_float
 
-let one = 7 * 8
-let round_bias = 8 * 8
-let big = 9 * 8
-let tiny = 10 * 8
-let table_at = 11 * 8
+(* A position in the data block, in 8-byte words. *)
+module Word =
+  Core.Tagged_int.Make
+    (struct
+      let prefix = "word"
+    end)
+    ()
+
+let one = Word.of_int 7
+let round_bias = Word.of_int 8
+let big = Word.of_int 9
+let tiny = Word.of_int 10
+let table_at = Word.of_int 11
 let words = Array.concat [ Mir_exp.constants; extras; Mir_exp.table ]
 
 let module_ =
@@ -47,7 +55,7 @@ let module_ =
     A.Operand.Mem
       {
         A.Mem.base = { A.Reg.num = base; width = 64; is_sp = false };
-        offset = A.Disp.Const (Int64.of_int off);
+        offset = A.Disp.Const (Int64.of_int (8 * Word.to_int off));
         writeback = false;
         pre = true;
       }
@@ -111,7 +119,7 @@ let module_ =
             (Asm_core.Expr.Modifier ("lo12", Asm_core.Expr.Symbol data));
         ];
       (* z = x * N/ln2; ki = z rounded half away from zero, kd = ki *)
-      i A.Opcode.Ldr [ d 1; at 0 ];
+      i A.Opcode.Ldr [ d 1; at (Word.of_int 0) ];
       i A.Opcode.Fmul [ d 1; d 0; d 1 ];
       i A.Opcode.Fmov [ x 4; d 1 ];
       i A.Opcode.Ubfx [ x 4; x 4; imm 63; imm 1 ];
@@ -123,24 +131,24 @@ let module_ =
       i A.Opcode.Fcvtzs [ x 6; d 2 ];
       i A.Opcode.Scvtf [ d 2; x 6 ];
       (* r = x - kd * ln2 / N, in two fused steps *)
-      i A.Opcode.Ldr [ d 4; at 8 ];
+      i A.Opcode.Ldr [ d 4; at (Word.of_int 1) ];
       i A.Opcode.Fmadd [ d 3; d 4; d 2; d 0 ];
-      i A.Opcode.Ldr [ d 4; at 16 ];
+      i A.Opcode.Ldr [ d 4; at (Word.of_int 2) ];
       i A.Opcode.Fmadd [ d 3; d 4; d 2; d 3 ];
       (* the table entry and the scale bits *)
       i A.Opcode.Ubfiz [ x 7; x 6; imm 4; imm 7 ];
       i A.Opcode.Add [ x 8; x 9; x 7 ];
       i A.Opcode.Ldr [ d 5; at ~base:8 table_at ];
-      i A.Opcode.Ldr [ x 10; at ~base:8 (table_at + 8) ];
+      i A.Opcode.Ldr [ x 10; at ~base:8 (Word.succ table_at) ];
       i A.Opcode.Ubfiz [ x 11; x 6; imm 45; imm 19 ];
       i A.Opcode.Add [ x 10; x 10; x 11 ];
       (* tmp = (r + tail) + r2 * (c2 + r * c3) + r2 * r2 * (c4 + r * c5) *)
-      i A.Opcode.Ldr [ d 4; at 24 ];
-      i A.Opcode.Ldr [ d 1; at 32 ];
+      i A.Opcode.Ldr [ d 4; at (Word.of_int 3) ];
+      i A.Opcode.Ldr [ d 1; at (Word.of_int 4) ];
       i A.Opcode.Fmadd [ d 4; d 1; d 3; d 4 ];
       i A.Opcode.Fmul [ d 2; d 3; d 3 ];
-      i A.Opcode.Ldr [ d 1; at 40 ];
-      i A.Opcode.Ldr [ d 6; at 48 ];
+      i A.Opcode.Ldr [ d 1; at (Word.of_int 5) ];
+      i A.Opcode.Ldr [ d 6; at (Word.of_int 6) ];
       i A.Opcode.Fmadd [ d 1; d 6; d 3; d 1 ];
       i A.Opcode.Fadd [ d 5; d 3; d 5 ];
       i A.Opcode.Fmadd [ d 5; d 4; d 2; d 5 ];

@@ -17,7 +17,7 @@ let v ?(span = Mir_target.Span.One) k =
     unit = Mir_id.Unit.of_int (65 + k);
     span;
     lo = Mir_target.Bits.of_int 0;
-    bits = Mir_target.Bits.of_int (128 * Mir_target.Span.count span);
+    bits = Mir_target.Span.bits ~unit:(Mir_target.Bits.of_int 128) span;
   }
 
 let m4 = v ~span:Mir_target.Span.Four

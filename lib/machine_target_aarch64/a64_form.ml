@@ -179,12 +179,14 @@ type t =
   | Csel of Sz.t * Cond.t * v * v * v  (** flags, then, else *)
   | Cset of Cond.t * v  (** CSINC Wd, WZR, WZR, invert(cond): 0 or 1 *)
   | Dup_elem of Arr.t * v  (** DUP Vd.T, Vn.Ts[0]: every lane the scalar *)
-  | Dup_half of int * v
-      (** DUP Dd, Vn.D[k]: half [k] of a 4S vector as a 2S vector *)
+  | Dup_half of Mir_type.Lane.t * v
+      (** DUP Dd, Vn.D[k]: the half starting at lane [first] (so
+          [k = first / 2]) of a 4S vector as a 2S vector *)
   | Dup_mask of Arr.t * v
       (** DUP Vd.T, Wn/Xn: a general register of all ones or zero to every lane,
           which makes the mask *)
-  | Dup_lane of Fsz.t * int * v  (** DUP Sd/Dd, Vn.Ts[k]: a lane as a scalar *)
+  | Dup_lane of Fsz.t * Mir_type.Lane.t * v
+      (** DUP Sd/Dd, Vn.Ts[k]: a lane as a scalar *)
   | Dup_w of v  (** DUP Vd.4S, Wn: four int32 lanes the W *)
   | Ext of { signed : bool; from : Mir_width.t; src : v }
       (** SXTB, SXTH, UXTB, UXTH: a W register from a byte or halfword *)
@@ -203,9 +205,9 @@ type t =
   | Ins_half of v * v
       (** INS Vd.D[1], Vn.D[0]: the 2S vector as the upper half, tied to the 4S
           vector *)
-  | Ins_lane of Fsz.t * int * v * v
+  | Ins_lane of Fsz.t * Mir_type.Lane.t * v * v
       (** INS Vd.Ts[k], Vn.Ts[0]: tied to the vector *)
-  | Ld1_lane of Fsz.t * int * v * v
+  | Ld1_lane of Fsz.t * Mir_type.Lane.t * v * v
       (** LD1 \{Vt.Ts\}[k], [Xn]: one lane from memory, tied to the vector *)
   | Ld1r of Arr.t * v  (** LD1R \{Vt.T\}, [Xn]: one element to every lane *)
   | Ldr of Msz.t * v * int64
@@ -234,7 +236,8 @@ type t =
       (** SCVTF Vd.4S, Vn.4S: four int32 lanes to binary32, one rounding each *)
   | Sdiv of Sz.t * v * v  (** truncating; [x / 0 = 0], [min / -1 = min] *)
   | Shift_imm of Shift.t * Sz.t * v * int
-  | St1_lane of Fsz.t * int * v * v  (** ST1 \{Vt.Ts\}[k], [Xn]: vector, base *)
+  | St1_lane of Fsz.t * Mir_type.Lane.t * v * v
+      (** ST1 \{Vt.Ts\}[k], [Xn]: vector, base *)
   | Str of Msz.t * v * int64 * v  (** base, imm, value *)
   | Str_idx of Msz.t * v * v * v
       (** [base, Wm, SXTW #log2 size]: base, index, value *)
@@ -274,7 +277,12 @@ type t =
   | Vwiden of v
       (** FMOV Dd, Dn: a 2S vector as the lower half of a 4S, upper half zero *)
   | Wtrunc of v  (** W from the low half of an X *)
-  | Xtl_w of { signed : bool; from : Mir_width.t; first : int; src : v }
+  | Xtl_w of {
+      signed : bool;
+      from : Mir_width.t;
+      first : Mir_type.Lane.t;
+      src : v;
+    }
       (** lanes [first .. first + 3] of an [i8x16] or [i16x8] register extended
           to four int32 lanes: SXTL or UXTL (2) to [.8h] (from bytes), then to
           [.4s] *)

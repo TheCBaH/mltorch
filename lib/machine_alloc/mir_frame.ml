@@ -53,7 +53,15 @@ module Mutation = struct
 end
 
 module Make (T : Mir_sel.TARGET) (F : FRAME with type op = T.op) = struct
-  let placeholder k ty =
+  (* The operand a rewritten instruction is built around, which its builder
+     reads only for the type: a distinct value per use so that none is mistaken
+     for another. *)
+  type placeholder = Control_read | Control_write | Stack_base
+
+  let placeholder p ty =
+    let k =
+      match p with Stack_base -> 0 | Control_read -> 1 | Control_write -> 2
+    in
     { Mir_value.id = Mir_id.Value.of_int (1_000_000 + k); ty }
 
   type area = {
@@ -203,7 +211,7 @@ module Make (T : Mir_sel.TARGET) (F : FRAME with type op = T.op) = struct
         ( [
             Mir_phys.Instr.Late
               {
-                op = F.add_imm (placeholder 0 Mir_type.Ptr) hi;
+                op = F.add_imm (placeholder Stack_base Mir_type.Ptr) hi;
                 uses = [ Loc.Reg T.stack_pointer ];
                 defs = [ Loc.Reg base ];
               };
@@ -258,7 +266,7 @@ module Make (T : Mir_sel.TARGET) (F : FRAME with type op = T.op) = struct
           [
             Mir_phys.Instr.Late
               {
-                op = mrs (placeholder 1 Mir_type.i64);
+                op = mrs (placeholder Control_read Mir_type.i64);
                 uses = [ Loc.Reg view ];
                 defs = [ x17 ];
               };
@@ -269,7 +277,7 @@ module Make (T : Mir_sel.TARGET) (F : FRAME with type op = T.op) = struct
               Mir_phys.Instr.Late { op = zero; uses = []; defs = [ x17 ] };
               Mir_phys.Instr.Late
                 {
-                  op = msr (placeholder 2 Mir_type.i64);
+                  op = msr (placeholder Control_write Mir_type.i64);
                   uses = [ x17 ];
                   defs = [ Loc.Reg view ];
                 };
@@ -286,7 +294,7 @@ module Make (T : Mir_sel.TARGET) (F : FRAME with type op = T.op) = struct
                 Mir_phys.Instr.Save { dst = x17; src = mem };
                 Mir_phys.Instr.Late
                   {
-                    op = msr (placeholder 2 Mir_type.i64);
+                    op = msr (placeholder Control_write Mir_type.i64);
                     uses = [ x17 ];
                     defs = [ Loc.Reg view ];
                   };

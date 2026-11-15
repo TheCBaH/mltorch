@@ -39,7 +39,9 @@ let is_arr arr (t : Mir_type.t) = Mir_type.equal t (Arr.ty arr)
 let is_mask arr (t : Mir_type.t) =
   match Arr.mask_ty arr with Some m -> Mir_type.equal t m | None -> false
 
-let lane_ok fsz k = k >= 0 && k < Mir_type.Lanes.to_int (Arr.lanes (full fsz))
+let lane_ok fsz k =
+  let k = Mir_type.Lane.to_int k in
+  k >= 0 && k < Mir_type.Lanes.to_int (Arr.lanes (full fsz))
 
 (* The integer lane width of a register-wide integer vector: [i8x16] or
    [i16x8]. *)
@@ -155,8 +157,14 @@ let typing op =
   | Dup_w a ->
       let* () = need (Mir_type.equal (ty a) Mir_type.i32) "dup source" in
       Ok [ int32x4 ]
-  | Dup_half (k, a) ->
-      let* () = need ((k = 0 || k = 1) && is_arr Arr.S4 (ty a)) "dup half" in
+  | Dup_half (first, a) ->
+      let* () =
+        need
+          ((let k = Mir_type.Lane.to_int first in
+            k = 0 || k = 2)
+          && is_arr Arr.S4 (ty a))
+          "dup half"
+      in
       Ok [ Arr.ty Arr.S2 ]
   | Dup_lane (fsz, k, a) ->
       let* () =
@@ -552,8 +560,10 @@ let typing op =
       let* () =
         need
           (match (int_register (ty src), from) with
-          | Some Mir_width.W8, Mir_width.W8 -> List.mem first [ 0; 4; 8; 12 ]
-          | Some Mir_width.W16, Mir_width.W16 -> List.mem first [ 0; 4 ]
+          | Some Mir_width.W8, Mir_width.W8 ->
+              List.mem (Mir_type.Lane.to_int first) [ 0; 4; 8; 12 ]
+          | Some Mir_width.W16, Mir_width.W16 ->
+              List.mem (Mir_type.Lane.to_int first) [ 0; 4 ]
           | _ -> false)
           "extended lanes"
       in

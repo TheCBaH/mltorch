@@ -8,11 +8,20 @@
 let version = 1
 
 (* Helper ids from 16 up, past the math helpers'. *)
-let first_id = 16
+let first_id = Mir_id.Helper.of_int 16
+
+(* A contraction's position among the declared contractions, in lowering order. *)
+module Index =
+  Core.Tagged_int.Make
+    (struct
+      let prefix = "contraction"
+    end)
+    ()
 
 let descriptor ~index (d : Contraction.t) =
   {
-    Mir_helper.id = Mir_id.Helper.of_int (first_id + index);
+    Mir_helper.id =
+      Mir_id.Helper.of_int (Mir_id.Helper.to_int first_id + Index.to_int index);
     name = Contraction.name d;
     version;
     params = [ Mir_type.Ptr; Mir_type.Ptr; Mir_type.Ptr ];

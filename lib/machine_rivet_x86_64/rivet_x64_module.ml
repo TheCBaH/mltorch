@@ -160,11 +160,7 @@ let instrs_of_func ~table_slot esc relocations
           | Mir_phys.Term.Return _ -> true
           | _ -> false
         in
-        let split = Rivet_cfi.epilogue_start b.Mir_phys.Block.body in
-        let before, epilogue =
-          ( List.filteri (fun k _ -> k < split) b.Mir_phys.Block.body,
-            List.filteri (fun k _ -> k >= split) b.Mir_phys.Block.body )
-        in
+        let before, epilogue = Rivet_cfi.split_epilogue b.Mir_phys.Block.body in
         let cfi_state name = dir (D.Cfi { name; argument = "" }) in
         let saved = Rivet_cfi.cfa cfi in
         let body_items = List.concat_map items_of before in
@@ -296,7 +292,10 @@ let of_artifact ?entry_mutation ?(binding = Image_resident) artifact =
   let table_slot =
     match binding with
     | Image_resident -> fun _ -> None
-    | Table -> Rivet_table.slot_of_symbol slots
+    | Table ->
+        fun symbol ->
+          Option.map Core.Table_slot.to_int
+            (Rivet_table.slot_of_symbol slots symbol)
   in
   let text =
     List.concat_map

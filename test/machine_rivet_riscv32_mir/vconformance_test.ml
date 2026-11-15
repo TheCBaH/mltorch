@@ -143,14 +143,14 @@ let lanes_moves =
       [
         inst
           (Fmt.str "vfmv.f.s [%d]" k)
-          (Vo.Vfmv_f_s (k, vf 0))
+          (Vo.Vfmv_f_s (Mir_type.Lane.of_int k, vf 0))
           [ Vr 1 ] [ Fr 14 ] float_singles;
         inst (Fmt.str "vinsert [%d]" k)
-          (Vo.Vinsert (k, vf 0, fv 1))
+          (Vo.Vinsert (Mir_type.Lane.of_int k, vf 0, fv 1))
           [ Vr 1; Fr 11 ] [ Vr 4 ] (with_scalar k);
         inst
           (Fmt.str "vinsert [%d], rd = vector" k)
-          (Vo.Vinsert (k, vf 0, fv 1))
+          (Vo.Vinsert (Mir_type.Lane.of_int k, vf 0, fv 1))
           [ Vr 1; Fr 11 ] [ Vr 1 ] (with_scalar k);
       ])
     [ 0; 1; 2; 3 ]
@@ -212,7 +212,12 @@ let integer_lanes =
                    (if signed then 's' else 'z')
                    (Mir_width.name from) first)
                 (Vo.Vext
-                   { signed; from; first; src = v 0 (Vo.int_register from) })
+                   {
+                     signed;
+                     from;
+                     first = Mir_type.Lane.of_int first;
+                     src = v 0 (Vo.int_register from);
+                   })
                 [ Vn (1, from) ]
                 [ Vr 4 ] narrow)
             firsts)
@@ -222,7 +227,7 @@ let integer_lanes =
       (fun w ->
         inst ~memory:true
           (Fmt.str "vle%d.v" (Mir_width.bits w))
-          (Vo.Vle_int (w, 128 / Mir_width.bits w, ptr))
+          (Vo.Vle_int (w, Mir_type.Lanes.of_int (128 / Mir_width.bits w), ptr))
           [ base ]
           [ Vn (4, w) ]
           [ [] ])

@@ -501,3 +501,14 @@ allocator's k-th operand register (`use_scratch`); a constraint's operand positi
 (`of_width`, `members`, `aligned`, `share`), and the physical interpreter takes `Bits`
 and `Lanes` throughout. `Mir_vsplit.widening_slices` returns `Mir_type.Lane.t`. x86-64
 keeps architectural `int` numbers inside its own `Regs` and converts at the contract.
+
+## Machine IR and targets: typed so far
+
+Lane payloads of the AArch64 and RV32 vector forms are `Mir_type.Lane.t` (and
+`Lanes.t` for a register's element count); the encoder converts to the
+instruction field. A register group's extent is `Mir_target.Span.Count.t`, with
+`Span.covers`/`bits` instead of unwrapped arithmetic. Table slots are
+`Core.Table_slot.t` through `Rivet_table`, the hosts and the form environments;
+relocation keys are the typed ids. Still bare: `Mir_width.bits` (widths need
+`Bits` below `Mir_width`), the Rv32 harness layout, and the Coral GEMM
+shape/tiling and `Peak_zvt` plan/tile immediates.

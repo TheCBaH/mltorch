@@ -175,8 +175,10 @@ let v k =
    instructions name it; the configuration says the size. *)
 let group span k =
   let i = Num.to_int k in
-  if i < 0 || i >= 32 || i mod Mir_target.Span.count span <> 0 then
-    Err.fail (`Unaligned_group (span, k))
+  if
+    i < 0 || i >= 32
+    || not (Mir_target.Span.aligned span (Mir_target.Reg_num.of_int i))
+  then Err.fail (`Unaligned_group (span, k))
   else
     Err.return
       {
@@ -185,7 +187,7 @@ let group span k =
         unit = vector_unit k;
         span;
         lo = Mir_target.Bits.of_int 0;
-        bits = Mir_target.Bits.of_int (128 * Mir_target.Span.count span);
+        bits = Mir_target.Span.bits ~unit:(Mir_target.Bits.of_int 128) span;
       }
 
 let pp_group_error ppf (`Unaligned_group (span, k)) =

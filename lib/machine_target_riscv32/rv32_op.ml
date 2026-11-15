@@ -196,11 +196,13 @@ let ordered = function
    compare's mask, a slide's temporary, the scalar a lane insert slides up. *)
 let vector_scratch (x : Rv32_vop.t) =
   match x with
-  | Rv32_vop.Vext { first; _ } when first <> 0 -> [ Rv32_reg.vector_scratch ]
+  | Rv32_vop.Vext { first; _ } when Mir_type.Lane.to_int first <> 0 ->
+      [ Rv32_reg.vector_scratch ]
   | Rv32_vop.Vfcmp _ | Rv32_vop.Vfredosum _ | Rv32_vop.Vinsert _
   | Rv32_vop.Vmerge _ | Rv32_vop.Vnsrl16_pair _ ->
       [ Rv32_reg.vector_scratch ]
-  | Rv32_vop.Vfmv_f_s (k, _) when k <> 0 -> [ Rv32_reg.vector_scratch ]
+  | Rv32_vop.Vfmv_f_s (k, _) when Mir_type.Lane.to_int k <> 0 ->
+      [ Rv32_reg.vector_scratch ]
   | Rv32_vop.Vadd _ | Rv32_vop.Vcast _ | Rv32_vop.Vext _ | Rv32_vop.Vfbin _
   | Rv32_vop.Vfcvt_f_x _ | Rv32_vop.Vfcvt_x_f _ | Rv32_vop.Vfmacc _
   | Rv32_vop.Vfmv_f_s _ | Rv32_vop.Vfmv_v_f _ | Rv32_vop.Vfsqrt _

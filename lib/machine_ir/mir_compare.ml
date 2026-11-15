@@ -13,6 +13,14 @@ module Sites = struct
     | Normalized  (** both routes number sites by one convention *)
 end
 
+(* An output cell's position in its output, in element order. *)
+module Cell =
+  Core.Tagged_int.Make
+    (struct
+      let prefix = "cell"
+    end)
+    ()
+
 module Difference = struct
   type t =
     | Event of { event : Mir_event.t; expected : int64; actual : int64 }
@@ -20,7 +28,7 @@ module Difference = struct
     | Missing_output of Expr.Source.t
     | Output of {
         source : Expr.Source.t;
-        index : int;
+        index : Cell.t;
         expected : Mir_const.t option;
         actual : Mir_const.t option;
       }
@@ -56,8 +64,8 @@ module Difference = struct
         Fmt.pf fmt "inconclusive: %a vs %a" pp_status a pp_status b
     | Missing_output s -> Fmt.pf fmt "output %a missing" Expr.Source.pp s
     | Output { source; index; expected; actual } ->
-        Fmt.pf fmt "output %a[%d]: %a vs %a" Expr.Source.pp source index pp_cell
-          expected pp_cell actual
+        Fmt.pf fmt "output %a[%d]: %a vs %a" Expr.Source.pp source
+          (Cell.to_int index) pp_cell expected pp_cell actual
     | Row (a, b) -> Fmt.pf fmt "failure row: %a vs %a" pp_row a pp_row b
     | Status (a, b) -> Fmt.pf fmt "status: %a vs %a" pp_status a pp_status b
 end
@@ -124,11 +132,17 @@ let outputs ~cell ~(expected : Mir_observation.t) ~(actual : Mir_observation.t)
           let get c i = if i < Array.length c then c.(i) else None in
           let rec go i =
             if i >= n then None
-            else if cell source i (get a i) (get b i) then go (i + 1)
+            else if cell source (Cell.of_int i) (get a i) (get b i) then
+              go (i + 1)
             else
               Some
                 (Difference.Output
-                   { source; index = i; expected = get a i; actual = get b i })
+                   {
+                     source;
+                     index = Cell.of_int i;
+                     expected = get a i;
+                     actual = get b i;
+                   })
           in
           go 0)
     expected.Mir_observation.outputs
@@ -172,6 +186,7 @@ let observations ?(sites = Sites.Decoded) ~expected ~actual () =
   with_cells ~sites ~cell:(fun _ _ -> defined_equal) ~expected ~actual
 
 let cell_of (o : Mir_observation.t) source i =
+  let i = Cell.to_int i in
   Option.bind
     (List.find_opt
        (fun (p : Mir_observation.Output.t) ->

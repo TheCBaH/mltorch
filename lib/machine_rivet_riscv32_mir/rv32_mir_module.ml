@@ -26,9 +26,7 @@ let relocation_index artifact =
   List.iter
     (fun (r : Art.Relocation.t) ->
       Hashtbl.add t
-        ( Mir_id.Func.to_int r.Art.Relocation.func,
-          Mir_id.Block.to_int r.Art.Relocation.block,
-          Option.map Mir_id.Instr.to_int r.Art.Relocation.instr )
+        (r.Art.Relocation.func, r.Art.Relocation.block, r.Art.Relocation.instr)
         r)
     (Art.relocations artifact);
   t
@@ -138,7 +136,7 @@ let configurations ?mutation (items : (F.Vconfig.t option * bool) list) =
 
 let func_items env relocations (f : (Rv32_op.t, Rv32_op.test) Mir_phys.Func.t) =
   let outer = env in
-  let fid = Mir_id.Func.to_int f.Mir_phys.Func.id in
+  let fid = f.Mir_phys.Func.id in
   let blocks = f.Mir_phys.Func.blocks in
   let rec pairs = function
     | a :: (b :: _ as rest) -> (a, Some b) :: pairs rest
@@ -155,7 +153,7 @@ let func_items env relocations (f : (Rv32_op.t, Rv32_op.test) Mir_phys.Func.t) =
   entry_jump
   @ List.concat_map
       (fun ((b : (_, _) Mir_phys.Block.t), following) ->
-        let bid = Mir_id.Block.to_int b.Mir_phys.Block.id in
+        let bid = b.Mir_phys.Block.id in
         let env instr =
           {
             env with
@@ -174,18 +172,14 @@ let func_items env relocations (f : (Rv32_op.t, Rv32_op.test) Mir_phys.Func.t) =
           | Mir_phys.Instr.Exec { instr; uses; defs } -> (
               match instr.Mir_instr.op with
               | Mir_sel.Op.Machine op ->
-                  F.items
-                    (env (Some (Mir_id.Instr.to_int instr.Mir_instr.id)))
-                    op ~uses ~defs
+                  F.items (env (Some instr.Mir_instr.id)) op ~uses ~defs
               | Mir_sel.Op.Event _ | Mir_sel.Op.Undef _ -> [])
           | Mir_phys.Instr.Late { op; uses; defs } ->
               F.items (env None) op ~uses ~defs
           | Mir_phys.Instr.Remat { instr; defs } -> (
               match instr.Mir_instr.op with
               | Mir_sel.Op.Machine op ->
-                  F.items
-                    (env (Some (Mir_id.Instr.to_int instr.Mir_instr.id)))
-                    op ~uses:[] ~defs
+                  F.items (env (Some instr.Mir_instr.id)) op ~uses:[] ~defs
               | Mir_sel.Op.Event _ | Mir_sel.Op.Undef _ -> [])
           | Mir_phys.Instr.Move { dst; src; _ }
           | Mir_phys.Instr.Save { dst; src } ->

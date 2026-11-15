@@ -402,10 +402,8 @@ let vector st (i : Mir_op.t Mir_instr.t) =
       else
         let low = emit st (Arr.ty Arr.S4) (Vwiden a) in
         def (Ins_half (low, b))
-  | Mir_op.Vextract (lane, a) ->
-      def (Dup_lane (Arr.fsz (arr a), Mir_type.Lane.to_int lane, a))
-  | Mir_op.Vinsert (lane, a, x) ->
-      def (Ins_lane (Arr.fsz (arr a), Mir_type.Lane.to_int lane, a, x))
+  | Mir_op.Vextract (lane, a) -> def (Dup_lane (Arr.fsz (arr a), lane, a))
+  | Mir_op.Vinsert (lane, a, x) -> def (Ins_lane (Arr.fsz (arr a), lane, a, x))
   | Mir_op.Vload { Mir_op.Vaccess.addr; stride; elem = Mir_type.Elem.Int w; _ }
     -> (
       (* a whole register of integer lanes, contiguous *)
@@ -428,7 +426,7 @@ let vector st (i : Mir_op.t Mir_instr.t) =
            {
              signed = k = Mir_op.Iext.Sext;
              from = Option.get (A64_op.int_register src.Mir_value.ty);
-             first = Mir_type.Lane.to_int first;
+             first;
              src;
            })
   | Mir_op.Vsplat _ when Hashtbl.mem st.shift_counts (r ()).Mir_value.id ->
@@ -496,13 +494,13 @@ let vector st (i : Mir_op.t Mir_instr.t) =
               (Mir_sel.Op.Machine
                  (match !acc with
                  | None -> Ld1r (a, at)
-                 | Some v -> Ld1_lane (fsz, k, v, at)));
+                 | Some v -> Ld1_lane (fsz, Mir_type.Lane.of_int k, v, at)));
             acc := Some res)
   | Mir_op.Vslice (first, count, a)
     when arr a = Arr.S4
          && Mir_type.Lanes.to_int count = 2
          && Mir_type.Lane.to_int first mod 2 = 0 ->
-      def (Dup_half (Mir_type.Lane.to_int first / 2, a))
+      def (Dup_half (first, a))
   | Mir_op.Vsplat (_, p)
     when match (r ()).Mir_value.ty with Mir_type.Mask _ -> true | _ -> false ->
       (* a predicate is 0 or 1: all ones where it is set, then to every lane *)
@@ -527,7 +525,9 @@ let vector st (i : Mir_op.t Mir_instr.t) =
       else
         chained st i.Mir_instr.order n (fun k order ->
             let at = offset st addr (Int64.mul (Int64.of_int k) stride) in
-            push st ~order [] (Mir_sel.Op.Machine (St1_lane (fsz, k, v, at))))
+            push st ~order []
+              (Mir_sel.Op.Machine
+                 (St1_lane (fsz, Mir_type.Lane.of_int k, v, at))))
   | _ -> unsupported ()
 
 let instr st (i : Mir_op.t Mir_instr.t) =

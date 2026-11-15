@@ -25,7 +25,9 @@ let names : Rv32_profile.t -> string list = function
 let fn name body =
   [ align 4; global name; label name ] @ body @ [ insn "ret" [] ]
 
-let f n = reg (Printf.sprintf "fa%d" n)
+let fa0 = reg "fa0"
+let fa1 = reg "fa1"
+let fa2 = reg "fa2"
 
 (* [memcpy(dst, src, n)] and [memset(dst, byte, n)] return [dst]. *)
 let memcpy =
@@ -63,27 +65,27 @@ let memset =
 let truncf () =
   fn "truncf"
     [
-      insn "fabs.s" [ reg "ft0"; f 0 ];
+      insn "fabs.s" [ reg "ft0"; fa0 ];
       insn "lui" [ reg "t0"; imm 0x4b000 ];
       insn "fmv.w.x" [ reg "ft1"; reg "t0" ];
       insn "flt.s" [ reg "t1"; reg "ft0"; reg "ft1" ];
       insn "beqz" [ reg "t1"; sym "truncf_done" ];
-      insn "fcvt.w.s" [ reg "t0"; f 0; sym "rtz" ];
+      insn "fcvt.w.s" [ reg "t0"; fa0; sym "rtz" ];
       insn "fcvt.s.w" [ reg "ft0"; reg "t0" ];
-      insn "fsgnj.s" [ f 0; reg "ft0"; f 0 ];
+      insn "fsgnj.s" [ fa0; reg "ft0"; fa0 ];
       label "truncf_done";
     ]
 
 let binary32 () =
-  fn "fabsf" [ insn "fabs.s" [ f 0; f 0 ] ]
-  @ fn "fmaf" [ insn "fmadd.s" [ f 0; f 0; f 1; f 2 ] ]
-  @ fn "sqrtf" [ insn "fsqrt.s" [ f 0; f 0 ] ]
+  fn "fabsf" [ insn "fabs.s" [ fa0; fa0 ] ]
+  @ fn "fmaf" [ insn "fmadd.s" [ fa0; fa0; fa1; fa2 ] ]
+  @ fn "sqrtf" [ insn "fsqrt.s" [ fa0; fa0 ] ]
   @ truncf ()
 
 let binary64 () =
-  fn "fabs" [ insn "fabs.d" [ f 0; f 0 ] ]
-  @ fn "fma" [ insn "fmadd.d" [ f 0; f 0; f 1; f 2 ] ]
-  @ fn "sqrt" [ insn "fsqrt.d" [ f 0; f 0 ] ]
+  fn "fabs" [ insn "fabs.d" [ fa0; fa0 ] ]
+  @ fn "fma" [ insn "fmadd.d" [ fa0; fa0; fa1; fa2 ] ]
+  @ fn "sqrt" [ insn "fsqrt.d" [ fa0; fa0 ] ]
 
 let module_ ?(profile = Rv32_profile.default) () =
   module_ "libc" (fun () ->

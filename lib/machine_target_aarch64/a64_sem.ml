@@ -175,10 +175,11 @@ let exec env op =
       ]
   | Dup_elem (arr, x) ->
       [ vec (Array.make (Mir_type.Lanes.to_int (Arr.lanes arr)) (bits env x)) ]
-  | Dup_half (k, x) -> [ vec (Array.sub (lanes env x) (2 * k) 2) ]
+  | Dup_half (first, x) ->
+      [ vec (Array.sub (lanes env x) (Mir_type.Lane.to_int first) 2) ]
   | Dup_mask (arr, x) ->
       [ vec (Array.make (Mir_type.Lanes.to_int (Arr.lanes arr)) (bits env x)) ]
-  | Dup_lane (_, k, x) -> [ b (lanes env x).(k) ]
+  | Dup_lane (_, k, x) -> [ b (lanes env x).(Mir_type.Lane.to_int k) ]
   | Dup_w x -> [ vec (Array.make 4 (norm Sz.W (bits env x))) ]
   | Ext { signed; from; src } ->
       let k = Mir_width.bits from in
@@ -241,11 +242,12 @@ let exec env op =
       [ vec l ]
   | Ins_lane (_, k, x, y) ->
       let l = Array.copy (lanes env x) in
-      l.(k) <- bits env y;
+      l.(Mir_type.Lane.to_int k) <- bits env y;
       [ vec l ]
   | Ld1_lane (fsz, k, x, base) ->
       let l = Array.copy (lanes env x) in
-      l.(k) <- E.load env (E.ptr env base) ~bytes:(lane_bytes fsz) ~align:1L;
+      l.(Mir_type.Lane.to_int k) <-
+        E.load env (E.ptr env base) ~bytes:(lane_bytes fsz) ~align:1L;
       [ vec l ]
   | Ld1r (arr, base) ->
       let x =
@@ -329,7 +331,7 @@ let exec env op =
   | Shift_imm (o, sz, x, k) -> [ b (shift_imm sz o (bits env x) k) ]
   | St1_lane (fsz, k, x, base) ->
       E.store env (E.ptr env base) ~bytes:(lane_bytes fsz) ~align:1L
-        (lanes env x).(k);
+        (lanes env x).(Mir_type.Lane.to_int k);
       []
   | Str (m, base, k, x) ->
       let size = Msz.bytes m in
@@ -455,7 +457,11 @@ let exec env op =
       [
         vec
           (Array.init 4 (fun j ->
-               let x = Int64.logand l.(first + j) (Mir_width.mask from) in
+               let x =
+                 Int64.logand
+                   l.(Mir_type.Lane.to_int first + j)
+                   (Mir_width.mask from)
+               in
                if signed then
                  Mir_width.normalize Mir_width.W32 (Mir_width.signed from x)
                else x));

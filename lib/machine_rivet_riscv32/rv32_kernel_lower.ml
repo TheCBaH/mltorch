@@ -285,11 +285,14 @@ let module_ ?(extensions = []) ~profile kernel =
     let origin =
       Foundation.Origin.producer ~tool:"rv32_kernel"
         ~item:
-          (Fmt.str "%s#%d%a" name index Fmt.(option (any " " ++ string)) note)
+          (Fmt.str "%s#%d%a" name
+             (Item.Position.to_int index)
+             Fmt.(option (any " " ++ string))
+             note)
         ()
     in
     let directive directive = N.Directive { directive; origin } in
-    let next items = Ok (index + 1, note', items @ rev) in
+    let next items = Ok (Item.Position.succ index, note', items @ rev) in
     match item with
     | Item.Align boundary -> next [ directive (D.Align { boundary }) ]
     | Bss ->
@@ -361,4 +364,4 @@ let module_ ?(extensions = []) ~profile kernel =
   in
   Err.map
     (fun (_, _, rev) -> { N.unit_name = name; items = List.rev rev })
-    (go (0, None, []) items)
+    (go (Item.Position.of_int 0, None, []) items)

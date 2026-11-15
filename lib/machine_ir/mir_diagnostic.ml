@@ -9,6 +9,15 @@ module Stage = struct
     | Selected -> "selected"
 end
 
+(* The position of an argument in an edge's list, which is also the position of the
+   target block parameter it feeds. *)
+module Edge_argument =
+  Core.Tagged_int.Make
+    (struct
+      let prefix = "arg"
+    end)
+    ()
+
 module Problem = struct
   type t =
     | Bad_helper of Mir_id.Helper.t
@@ -23,7 +32,7 @@ module Problem = struct
     | Duplicate_value of Mir_id.Value.t
     | Duplicate_view of Mir_id.View.t
     | Edge_arity of { target : Mir_id.Block.t; expected : int; found : int }
-    | Edge_type of { target : Mir_id.Block.t; position : int }
+    | Edge_type of { target : Mir_id.Block.t; position : Edge_argument.t }
     | Entry_has_predecessor of Mir_id.Block.t
     | Missing_block of Mir_id.Block.t
     | Missing_main of Mir_id.Func.t
@@ -68,7 +77,8 @@ module Problem = struct
           Mir_id.Block.pp target found expected
     | Edge_type { target; position } ->
         Fmt.pf fmt "edge to %a: argument %d has the wrong type" Mir_id.Block.pp
-          target position
+          target
+          (Edge_argument.to_int position)
     | Entry_has_predecessor b ->
         Fmt.pf fmt "entry %a is a branch target" Mir_id.Block.pp b
     | Missing_block b -> Fmt.pf fmt "no block %a" Mir_id.Block.pp b

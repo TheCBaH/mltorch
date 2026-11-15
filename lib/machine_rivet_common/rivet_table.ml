@@ -35,11 +35,12 @@ let of_artifact artifact =
         (Mir_id.Region.to_int a.region)
         (Mir_id.Region.to_int b.region))
 
-let slot_of_symbol slots name =
+let slot_of_symbol slots name : Core.Table_slot.t option =
   let rec go k = function
     | [] -> None
     | s :: rest ->
-        if String.equal s.symbol name then Some k else go (k + 1) rest
+        if String.equal s.symbol name then Some (Core.Table_slot.of_int k)
+        else go (k + 1) rest
   in
   go 0 slots
 

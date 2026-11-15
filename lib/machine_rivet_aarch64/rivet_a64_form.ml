@@ -28,7 +28,7 @@ type env = {
   esc : R.t Err.Escape.t;
   reference : Mir_target.Reference.t -> (string * int64) option;
       (** the symbol and addend the artifact records for this reference *)
-  table_slot : string -> int option;
+  table_slot : string -> Core.Table_slot.t option;
       (** the slot of the caller's table a region symbol is addressed through;
           [None]: the symbol is resident in the image *)
 }
@@ -357,7 +357,7 @@ let instructions env (op : A.t) ~(uses : Loc.t list) ~(defs : Loc.t list) :
           (env.reference
              (Mir_target.Reference.View (view, Mir_target.Reference.Form.Page)))
       in
-      let slot = Option.get (env.table_slot symbol) in
+      let slot = (Option.get (env.table_slot symbol) :> int) in
       let rd = gpr env ~width:w64 (loc_view env (d 0)) in
       let page = Int64.logand addend (Int64.lognot 0xFFFL) in
       ins Op.Ldr
@@ -555,7 +555,8 @@ let instructions env (op : A.t) ~(uses : Loc.t list) ~(defs : Loc.t list) :
         match arr with A.Arr.D2 -> A.Sz.X | A.Arr.S2 | A.Arr.S4 -> A.Sz.W
       in
       [ ins Op.Dup [ vec env arr (d 0); g env sz (u 0) ] ]
-  | A.Dup_half (k, _) ->
+  | A.Dup_half (first, _) ->
+      let k = Mir_type.Lane.to_int first / 2 in
       let k = if mutated Mutation.Wrong_lane then 1 - k else k in
       [
         ins Op.Dup
@@ -565,6 +566,7 @@ let instructions env (op : A.t) ~(uses : Loc.t list) ~(defs : Loc.t list) :
           ];
       ]
   | A.Dup_lane (fsz, k, _) ->
+      let k = Mir_type.Lane.to_int k in
       let k = if mutated Mutation.Wrong_lane then k lxor 1 else k in
       [ ins Op.Dup [ f env fsz (d 0); O.Vlane (vnum env (u 0), lane fsz, k) ] ]
   | A.Fcvtl _ ->
@@ -593,6 +595,7 @@ let instructions env (op : A.t) ~(uses : Loc.t list) ~(defs : Loc.t list) :
           ];
       ]
   | A.Ins_lane (fsz, k, _, _) ->
+      let k = Mir_type.Lane.to_int k in
       let k = if mutated Mutation.Wrong_lane then k lxor 1 else k in
       [
         ins Op.Ins
@@ -602,6 +605,7 @@ let instructions env (op : A.t) ~(uses : Loc.t list) ~(defs : Loc.t list) :
           ];
       ]
   | A.Ld1_lane (fsz, k, _, _) ->
+      let k = Mir_type.Lane.to_int k in
       let k = if mutated Mutation.Wrong_lane then k lxor 1 else k in
       [
         ins Op.Ld1
@@ -616,6 +620,7 @@ let instructions env (op : A.t) ~(uses : Loc.t list) ~(defs : Loc.t list) :
           [ O.Vlist (vnum env (d 0), varr arr); mem env ~base:(u 0) ~offset:0L ];
       ]
   | A.St1_lane (fsz, k, _, _) ->
+      let k = Mir_type.Lane.to_int k in
       let k = if mutated Mutation.Wrong_lane then k lxor 1 else k in
       [
         ins Op.St1
@@ -879,6 +884,7 @@ let words env (op : A.t) ~(uses : Loc.t list) ~(defs : Loc.t list) =
       in
       Some [ Int32.of_int (base lor (immhb lsl 16) lor (u 0 lsl 5) lor d 0) ]
   | A.Xtl_w { signed; from = Mir_width.W8; first; _ } ->
+      let first = Mir_type.Lane.to_int first in
       (* bytes to halfwords (the half holding the four lanes), then the
          halfwords' half to words, in the destination *)
       let u' = if signed then 0 else 1 in
@@ -888,6 +894,7 @@ let words env (op : A.t) ~(uses : Loc.t list) ~(defs : Loc.t list) =
           xtl ~u:u' ~q:(first / 4 mod 2) ~immhb:16 ~rn:(d 0) ~rd:(d 0);
         ]
   | A.Xtl_w { signed; from = Mir_width.W16; first; _ } ->
+      let first = Mir_type.Lane.to_int first in
       Some
         [
           xtl

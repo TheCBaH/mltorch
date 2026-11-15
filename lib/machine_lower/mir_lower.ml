@@ -276,7 +276,9 @@ let rec instr st (i : Ssa_instr.t) =
             st.attentions <- st.attentions @ [ desc ];
             List.length st.attentions - 1
       in
-      let h = Mir_attention.descriptor ~index desc in
+      let h =
+        Mir_attention.descriptor ~index:(Mir_attention.Index.of_int index) desc
+      in
       let addr id = emit st (Mir_op.Addr (entry_of st id).L.Entry.view) in
       let args =
         List.map addr
@@ -311,7 +313,9 @@ let rec instr st (i : Ssa_instr.t) =
             st.contracts <- st.contracts @ [ desc ];
             List.length st.contracts - 1
       in
-      let h = Mir_contract.descriptor ~index desc in
+      let h =
+        Mir_contract.descriptor ~index:(Mir_contract.Index.of_int index) desc
+      in
       let addr id = emit st (Mir_op.Addr (entry_of st id).L.Entry.view) in
       let args = [ addr a; addr b; addr c ] in
       let signature = function
@@ -966,10 +970,14 @@ let program ?mutation ~planning (p : Ssa_program.t) =
              else None)
            Mir_math.Fn.all
         @ List.mapi
-            (fun index d -> Mir_contract.descriptor ~index d)
+            (fun index d ->
+              Mir_contract.descriptor ~index:(Mir_contract.Index.of_int index) d)
             st.contracts
         @ List.mapi
-            (fun index d -> Mir_attention.descriptor ~index d)
+            (fun index d ->
+              Mir_attention.descriptor
+                ~index:(Mir_attention.Index.of_int index)
+                d)
             st.attentions)
       ~planning [ f ] ~main:fn
   in

@@ -1,14 +1,22 @@
 (* What a kernel is made of, in order: directives, labels, instructions and
    annotations. *)
 
+(* An item's position in its kernel, counted from zero. *)
+module Position =
+  Core.Tagged_int.Make
+    (struct
+      let prefix = "item"
+    end)
+    ()
+
 module At = struct
   (* Where an item is: its position and the annotation in effect there. *)
-  type t = { index : int; note : string option }
+  type t = { index : Position.t; note : string option }
 
   let pp ppf { index; note } =
     match note with
-    | None -> Fmt.pf ppf "item %d" index
-    | Some note -> Fmt.pf ppf "item %d (%s)" index note
+    | None -> Fmt.pf ppf "item %d" (Position.to_int index)
+    | Some note -> Fmt.pf ppf "item %d (%s)" (Position.to_int index) note
 end
 
 (* [Note (Some s)] annotates the items after it until the next [Note]; [Note

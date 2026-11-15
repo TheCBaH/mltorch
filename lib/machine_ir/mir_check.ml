@@ -333,7 +333,12 @@ module Make (S : STAGE) = struct
                 use bid pos a;
                 check_use_type bid a;
                 if not (Mir_type.equal a.Mir_value.ty p.Mir_value.ty) then
-                  reject (P.Edge_type { target = e.Mir_edge.target; position }))
+                  reject
+                    (P.Edge_type
+                       {
+                         target = e.Mir_edge.target;
+                         position = Mir_diagnostic.Edge_argument.of_int position;
+                       }))
               (List.combine e.Mir_edge.args params);
             use bid pos e.Mir_edge.order;
             if not (Mir_value.equal e.Mir_edge.order !current) then

@@ -198,14 +198,17 @@ type outlined = {
   items : Item.t list;
 }
 
-let sp_slot k = -4 * (k + 1)
+(* Which word below the stack pointer a saved register is kept in. *)
+module Save_slot =
+  Core.Tagged_int.Make
+    (struct
+      let prefix = "save"
+    end)
+    ()
 
-let save r k =
-  Item.Insn { mnemonic = "sw"; ops = [ A.reg r; A.mem "sp" (sp_slot k) ] }
-
-let restore r k =
-  Item.Insn { mnemonic = "lw"; ops = [ A.reg r; A.mem "sp" (sp_slot k) ] }
-
+let sp_slot k = A.mem "sp" (-4 * (Save_slot.to_int k + 1))
+let save r k = Item.Insn { mnemonic = "sw"; ops = [ A.reg r; sp_slot k ] }
+let restore r k = Item.Insn { mnemonic = "lw"; ops = [ A.reg r; sp_slot k ] }
 let jump l = Item.Insn { mnemonic = "j"; ops = [ A.sym l ] }
 
 (* The name a resident block label is exported under. *)
@@ -263,7 +266,9 @@ let split t ~name chosen =
         ( c,
           {
             entry;
-            items = List.mapi (fun i r -> restore r i) saved @ body @ tail;
+            items =
+              List.mapi (fun i r -> restore r (Save_slot.of_int i)) saved
+              @ body @ tail;
           } ))
       chosen
   in
@@ -284,7 +289,7 @@ let split t ~name chosen =
                match Hashtbl.find_opt starts k with
                | Some o ->
                    Item.Label t.labels.(k)
-                   :: List.mapi (fun i r -> save r i) saved
+                   :: List.mapi (fun i r -> save r (Save_slot.of_int i)) saved
                    @ [ jump o.entry ]
                | None -> t.runs.(k)))
   in

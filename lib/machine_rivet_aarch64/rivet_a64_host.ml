@@ -19,7 +19,7 @@ let ( let* ) = Result.bind
 type kernel = {
   view : Mm.Kernel_view.t;
   slots : Rivet_a64_table.slot list;
-  record_slot : int;
+  record_slot : Core.Table_slot.t;
   sites : Mir_failure.Site_entry.t array;
   loaded : I.t;
   manifest : Rivet_a64_manifest.t;
@@ -35,7 +35,8 @@ let slot_index slots region =
   let rec go k = function
     | [] -> None
     | (s : Rivet_a64_table.slot) :: rest ->
-        if Mir_id.Region.equal s.Rivet_a64_table.region region then Some k
+        if Mir_id.Region.equal s.Rivet_a64_table.region region then
+          Some (Core.Table_slot.of_int k)
         else go (k + 1) rest
   in
   go 0 slots
@@ -148,7 +149,7 @@ module Context = struct
     table :
       (char, Bigarray.int8_unsigned_elt, Bigarray.c_layout) Bigarray.Array1.t;
     scratch :
-      (int
+      (Core.Table_slot.t
       * (char, Bigarray.int8_unsigned_elt, Bigarray.c_layout) Bigarray.Array1.t)
       list;
         (** table slot, storage: the regions no tensor binds *)
@@ -266,14 +267,15 @@ module Context = struct
                               Tensor_id.pp id (tensor_bytes t)
                               s.Rivet_a64_table.size))
                     else (
-                      set_word table i (tensor_address t);
+                      set_word table (Core.Table_slot.to_int i)
+                        (tensor_address t);
                       Ok scratch)
                 | None ->
                     let store = bytes (Int64.to_int s.Rivet_a64_table.size) in
-                    set_word table i (I.address store);
+                    set_word table (Core.Table_slot.to_int i) (I.address store);
                     Ok ((i, store) :: scratch))
               (Ok [])
-              (List.mapi (fun i s -> (i, s)) k.slots)
+              (List.mapi (fun i s -> (Core.Table_slot.of_int i, s)) k.slots)
           in
           Ok ({ kernel = k; table; scratch } :: bound))
         (Ok []) host.kernels

@@ -84,7 +84,7 @@ type env = {
   esc : Refusal.t Err.Escape.t;
   reference : Mir_target.Reference.t -> (string * int64) option;
       (** the symbol and addend the artifact records for this reference *)
-  table_slot : string -> int option;
+  table_slot : string -> Core.Table_slot.t option;
       (** the slot of the caller's table a region symbol is addressed through;
           [None]: the symbol is resident in the image *)
   fresh_label : unit -> string;
@@ -276,6 +276,7 @@ let vitems env (op : Rv32_vop.t) ~(uses : Loc.t list) ~(defs : Loc.t list) :
           gmove8 (d 0) (u 0)
       | _ -> vmove (d 0) (u 0))
   | V.Vext { signed; from; first; _ } ->
+      let first = Mir_type.Lane.to_int first in
       let ext =
         Printf.sprintf "v%cext.vf%d"
           (if signed then 's' else 'z')
@@ -299,6 +300,7 @@ let vitems env (op : Rv32_vop.t) ~(uses : Loc.t list) ~(defs : Loc.t list) :
           i ext [ rd 0; A.reg v0 ];
         ]
   | V.Vle_int (w, n, _) ->
+      let n = Mir_type.Lanes.to_int n in
       (* a register, or half a group at LMUL 2 *)
       let b = Mir_width.bits w in
       [
@@ -336,8 +338,10 @@ let vitems env (op : Rv32_vop.t) ~(uses : Loc.t list) ~(defs : Loc.t list) :
         i "vfredosum.vs" [ A.reg v0; ru 1; A.reg v0 ];
         i "vfmv.f.s" [ rd 0; A.reg v0 ];
       ]
-  | V.Vfmv_f_s (0, _) -> [ i "vfmv.f.s" [ rd 0; ru 0 ] ]
+  | V.Vfmv_f_s (k, _) when Mir_type.Lane.to_int k = 0 ->
+      [ i "vfmv.f.s" [ rd 0; ru 0 ] ]
   | V.Vfmv_f_s (k, a) ->
+      let k = Mir_type.Lane.to_int k in
       (* a register's lane slides into v0; a group's, at LMUL 4 and whatever
          VLEN, into the group copy scratch, where nothing is allocated *)
       let scratch =
@@ -352,6 +356,7 @@ let vitems env (op : Rv32_vop.t) ~(uses : Loc.t list) ~(defs : Loc.t list) :
   | V.Vfmv_v_f _ -> [ i "vfmv.v.f" [ rd 0; ru 0 ] ]
   | V.Vfsqrt _ -> [ i "vfsqrt.v" [ rd 0; ru 0 ] ]
   | V.Vinsert (k, _, _) ->
+      let k = Mir_type.Lane.to_int k in
       (* the scalar to v0's first lane, then slid up to lane [k] with only
          lanes [0, k] active and the rest undisturbed *)
       vmove (d 0) (u 0)
@@ -394,6 +399,7 @@ let vitems env (op : Rv32_vop.t) ~(uses : Loc.t list) ~(defs : Loc.t list) :
       ]
   | V.Vse32 _ -> [ i "vse32.v" [ ru 1; A.mem (u 0) 0 ] ]
   | V.Vse_int (w, n, _, _) ->
+      let n = Mir_type.Lanes.to_int n in
       (* a register, or half a group at LMUL 2 *)
       let b = Mir_width.bits w in
       [
@@ -450,6 +456,7 @@ let items env (op : O.t) ~(uses : Loc.t list) ~(defs : Loc.t list) : Item.t list
       | Some slot ->
           (* a table-bound region: its base from the caller's table, then
              the view's offset in it *)
+          let slot = (slot :> int) in
           let slot =
             if mutated env Mutation.Shifted_slot then slot + 1 else slot
           in

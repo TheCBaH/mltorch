@@ -94,8 +94,9 @@ let located items =
     List.fold_left
       (fun (index, note, acc) item ->
         let note' = match item with Item.Note n -> n | _ -> note in
-        (index + 1, note', (item, { At.index; note }) :: acc))
-      (0, None, []) items
+        (Item.Position.succ index, note', (item, { At.index; note }) :: acc))
+      (Item.Position.of_int 0, None, [])
+      items
   in
   List.rev rev
 
@@ -232,7 +233,10 @@ let bad_forms located =
       | _ -> [])
     located
 
-let index_of i = match Invalid.at i with None -> -1 | Some at -> at.At.index
+let index_of i =
+  match Invalid.at i with
+  | None -> -1
+  | Some at -> Item.Position.to_int at.At.index
 
 let finalize ~name items =
   let located = located items in
