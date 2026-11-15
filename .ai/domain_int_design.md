@@ -314,6 +314,15 @@ Types alone do not stop the next `int`. Three layers:
    `todo-domain` (`Vtype.Sew` and `Vtype.Lmul` exist and are bypassed), and so are
    lane arguments.
 
+   The Coral kernel generators now type their byte sizes as
+   `Transfer_units.Bytes` (the DMA geometry's row and block sizes, the SDPA
+   panels and budget, a slot's size, the block shape), their row counts as
+   `Transfer_units.Rows`, their widths and depths as `Dim.extent`, and the DMA
+   table's word index as a private `Slot.t`. What stays `todo-domain` there is
+   blocked on the instruction-immediate and scale arithmetic of `Gemm.shape`,
+   `Peak_zvt.plan` and the Zvt tile loads, and on step and chunk counts that
+   have no count role yet.
+
    The eight `machine_rivet_*` libraries entered last, adding 163 `todo-domain`
    entries: the register-allocation intervals and positions the routes re-export,
    value ids unwrapped as keys, byte offsets and sizes in the data blocks and the

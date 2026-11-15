@@ -42,6 +42,13 @@ module Bytes : sig
   val times : Rows.t -> t -> t
   (** [times rows per_row]. *)
 
+  val times_extent : Core.Dim.extent Core.Dim.t -> t -> t
+  (** [times_extent n per]: [n] copies of [per], a width in elements times the
+      bytes of one. *)
+
+  val round_up : to_:t -> t -> t
+  (** The next multiple of [to_], which is positive. *)
+
   val double : t -> t
   val max : t -> t -> t
   val compare : t -> t -> int

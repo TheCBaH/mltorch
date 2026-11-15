@@ -4,7 +4,7 @@
 # [todo-domain] is a debt marker (an int that names an entity); the ceiling only goes down.
 # [ml:<dir>] scope entries also read the inferred interface of each .ml without an .mli; a library enters with an opening
 # [todo-domain] balance that is part of the ceiling, and the ceiling only goes down from there.
-@todo-domain-ceiling 313
+@todo-domain-ceiling 276
 lib/band_schedule/band_schedule.mli	defn	type t = private int
 lib/band_schedule/band_schedule.mli	defn	val of_int : int -> t
 lib/band_schedule/band_schedule.mli	defn	val to_int : t -> int
@@ -40,12 +40,8 @@ lib/coralnpu/coral_mailbox.mli	wire	val max_hashes : int
 lib/coralnpu/coral_mailbox.mli	as-written	type t = | Hash_count of int | Magic of string | Size of int end
 lib/coralnpu/coral_mailbox.mli	wire	val is_done : string -> int -> bool
 lib/coralnpu/coral_profile.mli	wire	type t = { artifact : string; artifact_sha256 : string; command : string list; configuration_id : string; extensions : string list; name : string; regions : Region.t list; simulator : Simulator.t; threads : int; }
-lib/coralnpu_kernels/kernel_refusal.mli	as-written	type t = | Assembler of string | Bf16_ordered | Block_keys_unsupported | C_columns_not_contiguous | C_strides_not_one | Constant | D_odd | D_past_128 | Empty_k | Encoder of string | Extent_past_2_16 | Feature_stride_not_one | Fused_requirement | Int_rows_too_far_apart | Invariant of string | No_rounding_registers | Not_paired_bf16 | Offset_past_31_bits | Operand_past_dma_transfer | Paired_requirement | Panels_over_budget of { needed : int; available : int } | Past_31_bits of string | Precision_not_paired_bf16 | Register_or_immediate | Ring_block_past_dma_transfer | Seeded_from_output | Seeded_k_padding | Stride_past_30_bits | Too_many_output_tiles | Transfer_plan_mismatch | Vector_expression of string
-lib/coralnpu_kernels/dma_block.ml	todo-domain	type t = { accumulate : bool; b : Coralnpu_kernels.Peak_kernels.Gpr.t; b_row : int; c_row : int; depth : int; lanes : int; } end
-lib/coralnpu_kernels/dma_block.ml	todo-domain	val repack : bytes:int -> rows:int -> depth:int -> src:Coralnpu_kernels.Peak_kernels.Insn.Gpr.t -> (Coralnpu_kernels.Peak_kernels.Item.t list, [> `Constant_range of Coralnpu_kernels.Peak_kernels.Insn.Constant_range.t ]) Err.t
 lib/coralnpu_kernels/peak_kernels.ml	todo-domain	val bytes : t -> int
 lib/coralnpu_kernels/peak_kernels.ml	todo-domain	val set : t -> bytes -> int -> int -> unit end
-lib/coralnpu_kernels/peak_kernels.ml	todo-domain	val slot : Coral_layout.Placement.t -> int -> L.Slot.t
 lib/coralnpu_kernels/peak_kernels.ml	tally	val iterations : int
 lib/coralnpu_kernels/peak_kernels.ml	defn	val sew_of_bits : int -> Vtype.Sew.t
 lib/coralnpu_kernels/peak_kernels.ml	defn	val lmul_of_factor : int -> Vtype.Lmul.t
@@ -78,41 +74,14 @@ lib/coralnpu_kernels_zvt/vexpr.mli	todo-domain	val input : int -> t
 lib/coralnpu_kernels_zvt/vexpr.mli	tally	type t = { items : Machine_rivet_riscv32.Rv32_kernel_item.t list; result : Machine_rivet_riscv32.Rv32_kernel_reg.Vreg.t; peak : int; } end
 lib/coralnpu_kernels_zvt/vexpr.mli	todo-domain	val emit : lmul:int -> scratch:Machine_rivet_riscv32.Rv32_kernel_reg.Gpr.t -> free:Machine_rivet_riscv32.Rv32_kernel_reg.Vreg.t list -> inputs: (Machine_rivet_riscv32.Rv32_kernel_reg.Vreg.t * [ `Consumed | `Kept ]) array -> t -> (Plan.t, string) result
 lib/coralnpu_kernels_zvt/zvt_packed_contraction.mli	todo-domain	type t = | Always | Outside of { base : int; bytes : int } end
-lib/coralnpu_kernels_zvt/zvt_sdpa.mli	todo-domain	val block_queries : Attention_block.t -> (int, Coralnpu_kernels.Kernel_refusal.t) result
-lib/coralnpu_kernels_zvt/zvt_sdpa.mli	todo-domain	val module_ : ?mutation:Mutation.t -> ?budget:int -> ?dtcm:int * int -> ?skip:Phase.t list -> Attention_block.t -> ( Riscv32_encode.Instruction.t Asm_core.Normalized_ast.module_, Coralnpu_kernels.Kernel_refusal.t ) result
-lib/coralnpu_kernels_zvt/dma_gemm.ml	todo-domain	val streamed : int
-lib/coralnpu_kernels_zvt/dma_gemm.ml	todo-domain	val c : int
-lib/coralnpu_kernels_zvt/dma_gemm.ml	todo-domain	val resident : int
-lib/coralnpu_kernels_zvt/dma_gemm.ml	todo-domain	val resident_dtcm : int
-lib/coralnpu_kernels_zvt/dma_gemm.ml	todo-domain	val ring : int
-lib/coralnpu_kernels_zvt/dma_gemm.ml	todo-domain	val c_ring : int
-lib/coralnpu_kernels_zvt/dma_gemm.ml	todo-domain	val steps : int
-lib/coralnpu_kernels_zvt/dma_gemm.ml	todo-domain	val chains : int
-lib/coralnpu_kernels_zvt/dma_gemm.ml	todo-domain	val timings : int
-lib/coralnpu_kernels_zvt/dma_gemm.ml	todo-domain	val zeros : int
-lib/coralnpu_kernels_zvt/dma_gemm.ml	todo-domain	val packed : int end
+lib/coralnpu_kernels_zvt/dma_gemm.ml	defn	type t = private int
 lib/coralnpu_kernels_zvt/dma_gemm.ml	wire	val words : int list -> string
-lib/coralnpu_kernels_zvt/dma_gemm.ml	todo-domain	val core_trip : int
 lib/coralnpu_kernels_zvt/dma_gemm.ml	todo-domain	val chunks : t -> int
 lib/coralnpu_kernels_zvt/dma_gemm.ml	todo-domain	val steps : t -> int
-lib/coralnpu_kernels_zvt/dma_gemm.ml	todo-domain	val b_row : t -> int
-lib/coralnpu_kernels_zvt/dma_gemm.ml	todo-domain	val c_row : t -> int
-lib/coralnpu_kernels_zvt/dma_gemm.ml	todo-domain	val c_block : t -> int
-lib/coralnpu_kernels_zvt/dma_gemm.ml	todo-domain	val c_stride : t -> int
-lib/coralnpu_kernels_zvt/dma_gemm.ml	todo-domain	val c_step : t -> int
-lib/coralnpu_kernels_zvt/dma_gemm.ml	todo-domain	val a_block : t -> int
-lib/coralnpu_kernels_zvt/dma_gemm.ml	todo-domain	val a_pad : t -> int
-lib/coralnpu_kernels_zvt/dma_gemm.ml	todo-domain	val b_pad : t -> int
-lib/coralnpu_kernels_zvt/dma_gemm.ml	todo-domain	val piece : t -> int
-lib/coralnpu_kernels_zvt/dma_gemm.ml	todo-domain	val chunk_bytes : t -> int
 lib/coralnpu_kernels_zvt/dma_gemm.ml	todo-domain	val c_descriptors : t -> int
-lib/coralnpu_kernels_zvt/dma_gemm.ml	todo-domain	val pieces : src:int64 -> dst:int64 -> int -> D.Descriptor.t list
 lib/coralnpu_kernels_zvt/dma_gemm.ml	wire	val andi : Coralnpu_kernels.Peak_kernels.Insn.Gpr.t -> Coralnpu_kernels.Peak_kernels.Insn.Gpr.t -> int -> Coralnpu_kernels.Peak_kernels.Item.t
 lib/coralnpu_kernels_zvt/dma_gemm.ml	todo-domain	val core_copy : src:int -> dst:Coralnpu_kernels.Peak_kernels.Insn.Gpr.t -> bytes_at:int -> Coralnpu_kernels.Peak_kernels.Item.t list
 lib/coralnpu_kernels_zvt/dma_gemm.ml	tally	val ops : t -> int
-lib/coralnpu_kernels_zvt/dma_model.ml	todo-domain	val dtcm : G.t -> int
-lib/coralnpu_kernels_zvt/dma_model.ml	as-written	type t = Nothing_fits of { budget : int; least : int; } | Rows of { m : int; rows : int; }
-lib/coralnpu_kernels_zvt/dma_model.ml	todo-domain	val variants : ?a_row_major:bool -> budget:int -> engine:G.Engine.t -> m:int -> width:int -> depth:int -> unit -> ((Float.t * G.t) list, Refusal.t) result
 lib/coralnpu_kernels_zvt/peak_zvt.ml	todo-domain	type shape = { mtwiden : int; tk : int; vtype : int; lmul : int; a : int; b : int; acc : Coralnpu_kernels.Peak_kernels.Elem.t; sum : int; }
 lib/coralnpu_kernels_zvt/peak_zvt.ml	todo-domain	val elements : int
 lib/coralnpu_kernels_zvt/peak_zvt.ml	bits	val mtype : tk:int -> mtwiden:int -> int
@@ -126,14 +95,7 @@ lib/coralnpu_kernels_zvt/peak_zvt.ml	todo-domain	val passes : plan -> int list l
 lib/coralnpu_kernels_zvt/peak_zvt.ml	todo-domain	val accumulator : int -> int -> Coralnpu_kernels.Peak_kernels.Reg.Mtreg.t
 lib/coralnpu_kernels_zvt/peak_zvt.ml	todo-domain	val loads : ?pitch:int -> plan -> n:int -> base:int -> Coralnpu_kernels.Peak_kernels.Insn.Gpr.t -> (Coralnpu_kernels.Peak_kernels.Item.t list, [> `Register_index of Machine_rivet_riscv32.Rv32_kernel_reg.Register_index.t ]) Err.t
 lib/coralnpu_kernels_zvt/peak_zvt.ml	todo-domain	val multiplies : plan -> int list -> a:int -> b:int -> (Coralnpu_kernels.Peak_kernels.Item.t list, [> `Register_index of Machine_rivet_riscv32.Rv32_kernel_reg.Register_index.t ]) Err.t
-lib/coralnpu_kernels_zvt/peak_zvt.ml	todo-domain	val a_block : plan -> int
-lib/coralnpu_kernels_zvt/peak_zvt.ml	todo-domain	val c_row : plan -> int
 lib/coralnpu_kernels_zvt/peak_zvt.ml	todo-domain	val block_items : ?prefix:string -> ?a_pitch:int -> ?b_pitch:int -> ?b_pass:int -> ?split:int * Coralnpu_kernels.Peak_kernels.Insn.Gpr.t -> ?c_row:int -> ?accumulate:bool -> plan -> (Coralnpu_kernels.Peak_kernels.Item.t list, [> `Constant_range of Coralnpu_kernels.Peak_kernels.Insn.Constant_range.t | `Register_index of Machine_rivet_riscv32.Rv32_kernel_reg.Register_index.t ]) Err.t
-lib/coralnpu_kernels_zvt/zvt_sdpa_geometry.ml	todo-domain	val bq : int
-lib/coralnpu_kernels_zvt/zvt_sdpa_geometry.ml	todo-domain	val plan : rows:int -> depth:int -> n:int -> P.Tile_gemm.plan
-lib/coralnpu_kernels_zvt/zvt_sdpa_geometry.ml	todo-domain	type t = { d : int; depth : int; bk : int; tile_bytes : Coral_transfer.Transfer_units.Bytes.t; oacc_bytes : Coral_transfer.Transfer_units.Bytes.t; q_panel : Coral_transfer.Transfer_units.Bytes.t; k_panel : Coral_transfer.Transfer_units.Bytes.t; stage_bytes : Coral_transfer.Transfer_units.Bytes.t; arrays_bytes : Coral_transfer.Transfer_units.Bytes.t; q_blocks : int; q_tail : int; k_blocks : int; k_tail : int; }
-lib/coralnpu_kernels_zvt/zvt_sdpa_geometry.ml	todo-domain	val align64 : int -> int
-lib/coralnpu_kernels_zvt/zvt_sdpa_geometry.ml	todo-domain	val total : t -> int end
 lib/coralnpu_rv32/coral_cpus.mli	tally	val with_cpus : int -> (unit -> 'a) -> 'a
 lib/coralnpu_rv32/coral_cpus.mli	tally	val pool : unit -> int
 lib/coralnpu_rv32/coral_image.mli	as-written	type error = [ Coral_layout.error | Coral_dma.error | Coral_elf.error | Coral_overlay.error | `Layout_unsettled | `Mailbox_full of int | `Overlay_needs_dma | `Runtime_form of string ]

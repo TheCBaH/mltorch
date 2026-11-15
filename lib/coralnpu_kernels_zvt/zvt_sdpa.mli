@@ -43,13 +43,16 @@ val panel_bytes :
     computes. *)
 
 val block_queries :
-  Attention_block.t -> (int, Coralnpu_kernels.Kernel_refusal.t) result
+  Attention_block.t ->
+  ( Coral_transfer.Transfer_units.Rows.t,
+    Coralnpu_kernels.Kernel_refusal.t )
+  result
 (** The queries a block holds (16), or why the descriptor is refused. *)
 
 val module_ :
   ?mutation:Mutation.t ->
-  ?budget:int ->
-  ?dtcm:int * int ->
+  ?budget:Coral_transfer.Transfer_units.Bytes.t ->
+  ?dtcm:int64 * Coral_transfer.Transfer_units.Bytes.t ->
   ?skip:Phase.t list ->
   Attention_block.t ->
   ( Riscv32_encode.Instruction.t Asm_core.Normalized_ast.module_,

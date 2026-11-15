@@ -458,6 +458,9 @@ let%expect_test "the model against runs it was not fitted to" =
    mailbox and the alignment the layout gives them. *)
 let normal = (32 * 1024) - 3072
 let highmem = (1024 * 1024) - 3072
+let budget_of = Coral_transfer.Transfer_units.Bytes.of_int
+let rows_of = Coral_transfer.Transfer_units.Rows.of_int
+let extent = Core.Dim.extent
 
 let%expect_test "the fastest variants of a problem, by the model" =
   List.iter
@@ -465,7 +468,10 @@ let%expect_test "the fastest variants of a problem, by the model" =
       Fmt.pr "%s, %d x %d x %d:@." soc m width depth;
       List.concat_map
         (fun engine ->
-          match M.variants ~budget ~engine ~m ~width ~depth () with
+          match
+            M.variants ~budget:(budget_of budget) ~engine ~m:(rows_of m)
+              ~width:(extent width) ~depth:(extent depth) ()
+          with
           | Ok v -> v
           | Error r ->
               Fmt.pr "  %s: %a@." (G.Engine.name engine) M.Refusal.pp r;
@@ -572,7 +578,8 @@ let%expect_test "the fastest variants with A row-major, by the model" =
     (fun (soc, budget, engine, m, width, depth) ->
       Fmt.pr "%s, %s %d x %d x %d:@." soc (G.Engine.name engine) m width depth;
       match
-        M.variants ~a_row_major:true ~budget ~engine ~m ~width ~depth ()
+        M.variants ~a_row_major:true ~budget:(budget_of budget) ~engine
+          ~m:(rows_of m) ~width:(extent width) ~depth:(extent depth) ()
       with
       | Error r -> Fmt.pr "  %a@." M.Refusal.pp r
       | Ok v ->

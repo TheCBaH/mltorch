@@ -195,7 +195,10 @@ module Tile = struct
     done;
     {
       items;
-      slots = [ slot L.Placement.Out size ];
+      slots =
+        [
+          slot L.Placement.Out (Coral_transfer.Transfer_units.Bytes.of_int size);
+        ];
       inputs = [];
       expected = Bytes.to_string expected;
       shape = Printf.sprintf "%d iterations of:" iterations;
@@ -350,9 +353,13 @@ module Tile_gemm = struct
 
   (* Bytes of A's block of rows, and of a row of C. *)
   let a_block p =
-    p.s.depth / p.t.tk * p.tile_rows * tile * p.t.tk * Elem.bytes p.s.src
+    Coral_transfer.Transfer_units.Bytes.of_int
+      (p.s.depth / p.t.tk * p.tile_rows * tile * p.t.tk * Elem.bytes p.s.src)
 
-  let c_row p = p.s.width * Elem.bytes p.s.dst
+  let c_row p =
+    Coral_transfer.Transfer_units.Bytes.times_extent
+      (Core.Dim.extent p.s.width)
+      (Elem.size p.s.dst)
 
   (* One block of rows: every pass over A's block at [a3] and B at [a7], C's
      rows stored from [a4], [c_row p] apart; [a3] and [a4] are left as they
@@ -371,7 +378,7 @@ module Tile_gemm = struct
     let open Gpr in
     let src = Elem.bytes p.s.src and dst = Elem.bytes p.s.dst in
     let k_steps = p.s.depth / p.t.tk in
-    let c_row = Option.value row ~default:(c_row p) in
+    let c_row = Option.value row ~default:(c_row p :> int) in
     let* config =
       Tile.configure
         ~mtype:((p.tm lsl 10) lor (p.t.tk lsl 5) lor p.t.mtwiden)
@@ -493,8 +500,8 @@ module Tile_gemm = struct
     let open Gpr in
     let block = Label.named "peak_block" in
     let* blocks = block_items p in
-    let* next_a = Insn.load_imm t2 (a_block p) in
-    let* next_c = Insn.load_imm t2 (2 * tile * c_row p) in
+    let* next_a = Insn.load_imm t2 (a_block p :> int) in
+    let* next_c = Insn.load_imm t2 (2 * tile * (c_row p :> int)) in
     Ok
       (start_items
       @ [ lw a3 a0 0; lw a7 a0 4; lw a4 a0 8; li a5 p.blocks; Item.label block ]
@@ -555,9 +562,14 @@ module Tile_gemm = struct
       items = items p;
       slots =
         [
-          slot L.Placement.In (String.length (List.nth inputs 0));
-          slot L.Placement.In (String.length (List.nth inputs 1));
-          slot L.Placement.Out (String.length expected);
+          slot L.Placement.In
+            (Coral_transfer.Transfer_units.Bytes.of_int
+               (String.length (List.nth inputs 0)));
+          slot L.Placement.In
+            (Coral_transfer.Transfer_units.Bytes.of_int
+               (String.length (List.nth inputs 1)));
+          slot L.Placement.Out
+            (Coral_transfer.Transfer_units.Bytes.of_int (String.length expected));
         ];
       inputs;
       expected;

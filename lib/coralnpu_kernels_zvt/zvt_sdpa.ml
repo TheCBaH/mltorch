@@ -29,7 +29,8 @@ module Mutation = struct
     | V_tail_unzeroed
 end
 
-let bq = Zvt_sdpa_geometry.bq
+let bq = (Zvt_sdpa_geometry.bq :> int)
+let extent = Core.Dim.extent
 let insn i = Item.insn i
 let imm12 = Imm.Imm12.of_int
 let vreg i = match Vreg.of_index i with Ok r -> r | Error _ -> assert false
@@ -82,11 +83,12 @@ let plan = Zvt_sdpa_geometry.plan
 
 let panel_bytes t =
   Kernel_refusal.generate_checked @@ fun esc ->
-  Coral_transfer.Transfer_units.Bytes.of_int
-    (Geometry.total (Geometry.make esc t))
+  Geometry.total (Geometry.make esc t)
 
 let block_queries t =
-  match panel_bytes t with Ok _ -> Ok bq | Error why -> Error why
+  match panel_bytes t with
+  | Ok _ -> Ok (Coral_transfer.Transfer_units.Rows.of_int bq)
+  | Error why -> Error why
 
 (* Frame offsets, bytes from [sp]: the saved registers, then the loop state. *)
 module Frame = struct
@@ -124,7 +126,9 @@ let items esc ?mutation ?dtcm ?(skip = []) (t : A.t) =
   and vcfg ~tmp vt vl = vcfg esc ~tmp vt vl in
   let skipped p l = if List.mem p skip then [] else l in
   let g = Geometry.make esc t in
-  let d = g.Geometry.d and bk = g.Geometry.bk and depth = g.Geometry.depth in
+  let d = (g.Geometry.d :> int)
+  and bk = (g.Geometry.bk :> int)
+  and depth = (g.Geometry.depth :> int) in
   let name = A.symbol t in
   let label stem = Label.named (name ^ "_" ^ stem) in
   let n_labels = ref 0 in
@@ -258,7 +262,7 @@ let items esc ?mutation ?dtcm ?(skip = []) (t : A.t) =
   (* the block product, the registers set as the packed function sets them *)
   let compute ~prefix ~rows ~depth ~n ~c_row ?a_pitch ?b_pitch ?b_pass
       ~accumulate ~a3 ~a7 ~a4 () =
-    let p = plan ~rows ~depth ~n in
+    let p = plan ~rows:(extent rows) ~depth:(extent depth) ~n:(extent n) in
     let blocks =
       ok
         (P.Tile_gemm.block_items ~prefix ?a_pitch ?b_pitch ?b_pass ~c_row
@@ -687,6 +691,11 @@ let items esc ?mutation ?dtcm ?(skip = []) (t : A.t) =
     let prepare, b_source =
       match (mutation, dtcm) with
       | Some Mutation.V_in_place_in_dtcm, Some (base, bytes) ->
+          let base =
+            if Int64.compare base 0L < 0 || Int64.compare base 0x7FFF_FFFFL > 0
+            then Kernel_refusal.refuse esc Offset_past_31_bits
+            else Int64.to_int base
+          and bytes = (bytes : Coral_transfer.Transfer_units.Bytes.t :> int) in
           let bits =
             let rec go b n = if n lsr (b + 1) = 0 then b else go (b + 1) n in
             go 0 bytes
@@ -802,7 +811,7 @@ let items esc ?mutation ?dtcm ?(skip = []) (t : A.t) =
   let k_loop =
     let l = fresh "kblock" in
     let exit_l = fresh "kexit" in
-    li Gpr.t0 g.Geometry.k_blocks
+    li Gpr.t0 (g.Geometry.k_blocks :> int)
     @ [
         sw Gpr.t0 Frame.kleft;
         lw Gpr.t0 Frame.k;
@@ -814,7 +823,7 @@ let items esc ?mutation ?dtcm ?(skip = []) (t : A.t) =
         Item.label l;
       ]
     @ set_valid ~left:Frame.kleft ~slot:Frame.vk ~full:bk
-        ~tail:g.Geometry.k_tail
+        ~tail:(g.Geometry.k_tail :> int)
     @ skipped Phase.Scores scores
     @ pass1 @ a_step @ rescale @ skipped Phase.Exp pass2 @ zero_p_tail
     @ l_update @ commit_max
@@ -832,7 +841,7 @@ let items esc ?mutation ?dtcm ?(skip = []) (t : A.t) =
   let q_loop =
     let l = fresh "qblock" in
     let exit_l = fresh "qexit" in
-    li Gpr.t0 g.Geometry.q_blocks
+    li Gpr.t0 (g.Geometry.q_blocks :> int)
     @ [
         sw Gpr.t0 Frame.qleft;
         lw Gpr.t0 Frame.q;
@@ -844,7 +853,7 @@ let items esc ?mutation ?dtcm ?(skip = []) (t : A.t) =
         Item.label l;
       ]
     @ set_valid ~left:Frame.qleft ~slot:Frame.vq ~full:bq
-        ~tail:g.Geometry.q_tail
+        ~tail:(g.Geometry.q_tail :> int)
     @ stage_q @ pack_q @ init_state @ k_loop
     @ skipped Phase.Normalize normalize
     @ [ lw Gpr.t0 Frame.qptr ]
@@ -928,14 +937,16 @@ let items esc ?mutation ?dtcm ?(skip = []) (t : A.t) =
   @ prologue @ body @ epilogue @ exp_routine @ [ Item.bss ]
   @ List.concat_map
       (fun (l, size) ->
-        [ Item.align 64; Item.label l; Item.zero (Geometry.align64 size) ])
+        [
+          Item.align 64; Item.label l; Item.zero (Geometry.align64 size :> int);
+        ])
       [
-        (tile_l, (g.Geometry.tile_bytes :> int));
-        (oacc_l, (g.Geometry.oacc_bytes :> int));
-        (qp_l, (g.Geometry.q_panel :> int));
-        (kp_l, (g.Geometry.k_panel :> int));
-        (stage_l, (g.Geometry.stage_bytes :> int));
-        (arrays_l, (g.Geometry.arrays_bytes :> int));
+        (tile_l, g.Geometry.tile_bytes);
+        (oacc_l, g.Geometry.oacc_bytes);
+        (qp_l, g.Geometry.q_panel);
+        (kp_l, g.Geometry.k_panel);
+        (stage_l, g.Geometry.stage_bytes);
+        (arrays_l, g.Geometry.arrays_bytes);
       ]
 
 let module_ ?mutation ?budget ?dtcm ?skip t =
@@ -946,7 +957,7 @@ let module_ ?mutation ?budget ?dtcm ?skip t =
     (items, Geometry.total (Geometry.make esc t))
   in
   match budget with
-  | Some b when total > b ->
+  | Some b when Coral_transfer.Transfer_units.Bytes.compare total b > 0 ->
       Error
         (Kernel_refusal.Panels_over_budget { needed = total; available = b })
   | _ -> Kernel_module.of_items ~name:(A.symbol t) items

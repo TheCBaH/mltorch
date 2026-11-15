@@ -30,6 +30,9 @@ module Elem = struct
 
   let bytes = function Bf16 | I16 -> 2 | F32 | I32 -> 4 | I8 -> 1
 
+  (* The same size as the quantity a transfer plan trades in. *)
+  let size t = Coral_transfer.Transfer_units.Bytes.of_int (bytes t)
+
   let name = function
     | Bf16 -> "bf16"
     | F32 -> "fp32"
@@ -97,8 +100,13 @@ let build_with ~extensions t profile :
     (Err.bind (t.items ()) (fun items ->
          typed_module ~name:"peak" ~extensions items profile))
 
-let slot placement size =
-  { L.Slot.align = 64L; home = Any; placement; size = Int64.of_int size }
+let slot placement (size : Coral_transfer.Transfer_units.Bytes.t) =
+  {
+    L.Slot.align = 64L;
+    home = Any;
+    placement;
+    size = Int64.of_int (size :> int);
+  }
 
 (* {1 One instruction}
 
@@ -275,7 +283,11 @@ let elementwise ~sew ~lmul op =
       Ok
         {
           items;
-          slots = [ slot L.Placement.Out 256 ];
+          slots =
+            [
+              slot L.Placement.Out
+                (Coral_transfer.Transfer_units.Bytes.of_int 256);
+            ];
           inputs = [];
           expected = Bytes.to_string expected;
           shape = Printf.sprintf "%d iterations of:" iterations;
@@ -744,9 +756,14 @@ module Gemm = struct
       items = items_of s;
       slots =
         [
-          slot L.Placement.In (String.length (List.nth inputs 0));
-          slot L.Placement.In (String.length (List.nth inputs 1));
-          slot L.Placement.Out (String.length expected);
+          slot L.Placement.In
+            (Coral_transfer.Transfer_units.Bytes.of_int
+               (String.length (List.nth inputs 0)));
+          slot L.Placement.In
+            (Coral_transfer.Transfer_units.Bytes.of_int
+               (String.length (List.nth inputs 1)));
+          slot L.Placement.Out
+            (Coral_transfer.Transfer_units.Bytes.of_int (String.length expected));
         ];
       inputs;
       expected;
