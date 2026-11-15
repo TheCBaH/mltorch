@@ -134,7 +134,9 @@ module RmsNorm = struct
               (fun i -> sum_sq rest ((d, i) :: override))
       in
       let count = normalized_count_unchecked ~x_shape ~dims:p.dims in
-      let ms = S.div (sum_sq p.dims []) (S.const (float_of_int count)) in
+      let ms =
+        S.div (sum_sq p.dims []) (S.const (float_of_int (count :> int)))
+      in
       (* 1 / sqrt(mean(x^2) + eps) — ATen's rsqrt, expressed with the sqrt
          primitive. *)
       let inv = S.div (S.const 1.) (S.sqrt (S.add ms (S.const p.eps))) in
@@ -171,7 +173,8 @@ module RmsNorm = struct
                        (Expr.Value.const
                           (float_of_int
                              (normalized_count_unchecked
-                                ~x_shape:x.Tensor_sig.shape ~dims:params.dims))))
+                                ~x_shape:x.Tensor_sig.shape ~dims:params.dims
+                               :> int))))
                     (Expr.Value.const params.eps)))
           in
           let weight = load weight (affine_coord params.dims) in

@@ -53,6 +53,12 @@ val delta : int -> delta t
 (* count/offset are derived, not constructed from a raw int *)
 val one_count : count t
 val zero_offset : offset t
+
+(* The offset of no element: a sentinel for a fused check-and-offset that must
+   not allocate an option ([Vec6.offset_of]). Compare with [is_offset] before
+   use as a position; it is never the offset of an element. *)
+val no_offset : offset t
+val is_offset : offset t -> bool
 val ( *@ ) : count t -> extent t -> count t (* numel fold step *)
 
 val lin :

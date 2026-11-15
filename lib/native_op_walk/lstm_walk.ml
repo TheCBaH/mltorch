@@ -70,8 +70,8 @@ module Walk (L : Walk_core.Limits.S) = struct
 
   let state_shape (c : cfg) =
     state_shape ~p:(params c)
-      ~layers:(c.num_layers * directions c)
-      ~batch:c.batch
+      ~layers:(Dim.extent (c.num_layers * directions c))
+      ~batch:(Dim.extent c.batch)
 
   (* Layer 0 reads the raw input width; every later layer reads the
      previous layer's [R]-wide hidden trace (the LSTM lowering analysis), matching
@@ -80,7 +80,8 @@ module Walk (L : Walk_core.Limits.S) = struct
     if layer = 0 then c.input_size else c.hidden_size * directions c
 
   let weight_ih_shape (c : cfg) ~layer =
-    weight_ih_shape (params c) ~layer_input_size:(layer_input_size c ~layer)
+    weight_ih_shape (params c)
+      ~layer_input_size:(Dim.extent (layer_input_size c ~layer))
 
   let weight_hh_shape (c : cfg) = weight_hh_shape (params c)
   let bias_shape (c : cfg) = bias_shape (params c)

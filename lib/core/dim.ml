@@ -38,6 +38,8 @@ let extent_checked n =
 let delta n : delta t = n
 let one_count : count t = 1
 let zero_offset : offset t = 0
+let no_offset : offset t = -1
+let is_offset (o : offset t) = o >= 0
 let ( *@ ) (acc : count t) (e : extent t) : count t = acc * e
 let lin (acc : offset t) (e : extent t) (i : index t) : offset t = (acc * e) + i
 let to_delta (i : index t) : delta t = i

@@ -23,7 +23,7 @@ let swap_h_w : Permute.Permute.perm =
 
 let decompose (t : L.t) : Tensor_id.t Graph_builder.t =
   let* x_shape = shape_of t.L.x in
-  let b = L.sequences x_shape
+  let b = (L.sequences x_shape :> int)
   and l = Dim.to_int (Vec6.get x_shape Axis.W)
   and e = Dim.to_int (Vec6.get x_shape Axis.C) in
   let heads = Op_config.Pos.to_int t.L.params.L.heads in

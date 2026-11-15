@@ -630,11 +630,12 @@ module Make (S : Side.S) = struct
     let position =
       let table =
         List.fold_left
-          (fun (i, acc) (n : node) -> (i + 1, Node_id.Map.add n.Node.id i acc))
+          (fun (i, acc) (n : node) ->
+            (i + 1, Node_id.Map.add n.Node.id (Graph_view.Position.of_int i) acc))
           (0, Node_id.Map.empty) nodes
         |> snd
       in
-      fun id -> Option.value (Node_id.Map.find_opt id table) ~default:max_int
+      fun id -> Node_id.Map.find_opt id table
     in
     let ids, placements = placements old_view ids stamped in
     let root = rebuild_groups old_g.Graph.root ~removed ~placements ~position in

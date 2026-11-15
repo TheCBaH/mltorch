@@ -15,8 +15,9 @@ open Native_interp_decode
    complete ownership, which a unit-by-unit comparison needs. *)
 module Capture = struct
   type t = {
-    emitted : (int * Node_id.t list) list;
-    bound : (int * (string * Tensor_id.t) list) list;
+    emitted : (Pt2_native_graph.Node_origin.Index.t * Node_id.t list) list;
+    bound :
+      (Pt2_native_graph.Node_origin.Index.t * (string * Tensor_id.t) list) list;
         (** The exporter result names each node's lowering bound, with the
             Native edge each name now denotes (an aliasing op binds a name to an
             existing edge). *)
@@ -197,7 +198,10 @@ let lower_captured program =
                 !tensor_origins)
           names ids;
         node_outputs := (index, ids) :: !node_outputs;
-        bound := (index, List.combine names ids) :: !bound;
+        bound :=
+          ( Pt2_native_graph.Node_origin.Index.of_int index,
+            List.combine names ids )
+          :: !bound;
         add_env env names ids
       in
       let* before = watermark in
@@ -208,7 +212,7 @@ let lower_captured program =
       in
       let* after = watermark in
       emitted :=
-        ( index,
+        ( Pt2_native_graph.Node_origin.Index.of_int index,
           List.init
             ((after :> int) - (before :> int))
             (fun k -> Node_id.of_int ((before :> int) + k)) )

@@ -162,10 +162,10 @@ module GroupNorm = struct
      the same precondition [normalized_count_unchecked] documents above, one
      level up: a node whose shape rule never ran cannot be evaluated. *)
   let count_unchecked ~(x_shape : Vec6.shape) ~(batch : Axis.t)
-      ~(channel : Axis.t) ~cpg =
+      ~(channel : Axis.t) ~(cpg : Dim.extent Dim.t) =
     List.fold_left
-      (fun acc a -> acc * (Vec6.get x_shape a :> int))
-      cpg
+      (fun acc a -> Dim.(acc *@ Vec6.get x_shape a))
+      Dim.(one_count *@ cpg)
       (spatial_dims ~batch channel)
 
   (* Both affine operands are full PER-CHANNEL vectors -- [normalized_shape]
@@ -237,7 +237,10 @@ module GroupNorm = struct
       in
       let count =
         S.const
-          (float_of_int (count_unchecked ~x_shape ~batch:p.batch ~channel ~cpg))
+          (float_of_int
+             (count_unchecked ~x_shape ~batch:p.batch ~channel
+                ~cpg:(Dim.extent cpg)
+               :> int))
       in
       let mean = S.div (sum_over (fun v -> v)) count in
       let var =

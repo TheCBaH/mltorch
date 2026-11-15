@@ -100,8 +100,8 @@ let check_mixed_dtype (g : Graph.graph) op =
 
 let first_free_tid (g : Graph.graph) =
   Tensor_id.Map.fold
-    (fun k _ acc -> max acc (Tensor_id.to_int k + 1))
-    g.Graph.Graph.tensors 0
+    (fun k _ acc -> Tensor_id.Next.after k acc)
+    g.Graph.Graph.tensors Tensor_id.Next.first
 
 (* The Native4D twin of [Eval_symbolic.i64_arange_pixel] -- see its own
    comment for the full rationale (same [Expr.Value] typed constructors, same
@@ -130,8 +130,8 @@ let fresh_fill (g : Graph.graph) =
   let consts = ref [] in
   let next_const = ref (first_free_tid g) in
   let fill v shape =
-    let id = Tensor_id.of_int !next_const in
-    incr next_const;
+    let id, next = Tensor_id.Next.alloc !next_const in
+    next_const := next;
     let sg = Tensor_sig.create ~id ~name:"" ~shape ~fmt:f32 () in
     consts := (sg, v) :: !consts;
     sg

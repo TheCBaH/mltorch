@@ -170,26 +170,30 @@ let in_bounds (s : shape) (c : coord) =
    direct.ml, where [position index = Dim.index Dim.t] and every producer of
    one goes through [Dim.index]/[Dim.succ]), so only the upper bound is
    checked here — no re-validating what the caller already guarantees.
-   Returns [-1] (not [Dim.offset Dim.t option]) for a point that isn't fully
-   inside [s]: a valid offset is always >= 0, so it's an unambiguous,
-   allocation-free sentinel — see the `.ai/` pt2 inference perf doc for why this
+   Returns [Dim.no_offset] (not [Dim.offset Dim.t option]) for a point that
+   isn't fully inside [s]: a valid offset is always >= 0, so it's an
+   unambiguous, allocation-free sentinel — see the `.ai/` pt2 inference perf doc for why this
    exists as a separate function instead of composing
    [coord]+[in_bounds]+[offset]. *)
 let offset_of (s : shape) ~(n : Dim.index Dim.t) ~(t : Dim.index Dim.t)
     ~(d : Dim.index Dim.t) ~(h : Dim.index Dim.t) ~(w : Dim.index Dim.t)
     ~(c : Dim.index Dim.t) =
-  let n = (n :> int) and t = (t :> int) and d = (d :> int) in
-  let h = (h :> int) and w = (w :> int) and c = (c :> int) in
+  let ni = (n :> int) and ti = (t :> int) and di = (d :> int) in
+  let hi = (h :> int) and wi = (w :> int) and ci = (c :> int) in
   let en = Dim.to_int s.n in
   let et = Dim.to_int s.t in
   let ed = Dim.to_int s.d in
   let eh = Dim.to_int s.h in
   let ew = Dim.to_int s.w in
   let ec = Dim.to_int s.c in
-  if n < en && t < et && d < ed && h < eh && w < ew && c < ec then
-    let acc = (((((((n * et) + t) * ed) + d) * eh) + h) * ew) + w in
-    (acc * ec) + c
-  else -1
+  if ni < en && ti < et && di < ed && hi < eh && wi < ew && ci < ec then
+    let acc = Dim.lin Dim.zero_offset s.n n in
+    let acc = Dim.lin acc s.t t in
+    let acc = Dim.lin acc s.d d in
+    let acc = Dim.lin acc s.h h in
+    let acc = Dim.lin acc s.w w in
+    Dim.lin acc s.c c
+  else Dim.no_offset
 
 let iter (s : shape) (f : coord -> unit) =
   let en = Dim.to_int s.n in

@@ -203,8 +203,8 @@ module BatchNormNoStats = struct
 
   let reduction_count_unchecked ~(x_shape : Vec6.shape) (p : params) =
     List.fold_left
-      (fun n a -> n * (Vec6.get x_shape a :> int))
-      1 (reduced_axes p)
+      (fun n a -> Dim.(n *@ Vec6.get x_shape a))
+      Dim.one_count (reduced_axes p)
 
   let output_shapes ~(x_shape : Vec6.shape) (p : params) =
     let open Err.Syntax in
@@ -241,7 +241,7 @@ module BatchNormNoStats = struct
               (fun i -> sum_over leaf rest ((a, i) :: override))
       in
       let count =
-        S.const (float_of_int (reduction_count_unchecked ~x_shape p))
+        S.const (float_of_int (reduction_count_unchecked ~x_shape p :> int))
       in
       let axes = reduced_axes p in
       let mean = S.div (sum_over (fun v -> v) axes []) count in

@@ -16,6 +16,7 @@ type +'role t = private int
 type extent
 type count
 type offset
+type position
 
 val extent : int -> extent t (* raises [Invalid_argument] if negative *)
 
@@ -42,14 +43,21 @@ module Range : sig
   type nonrec t = { offset : offset t; count : count t }
 end
 
-val at : Range.t -> int -> int option
-(** The array index of the [pos]-th slot of the range, [None] outside it. [pos]
-    is the position an expression asked for, which may be anything. *)
+val at : Range.t -> int -> position t option
+(** The array position of the [pos]-th slot of the range, [None] outside it.
+    [pos] is as an expression asked for it, which may be anything. *)
 
-val trace_at : offset t -> width:extent t -> row:int -> lane:int -> int
-(** The array index of a trace's cell, row-major: [offset + row * width + lane].
-    The caller has bounds-checked [row] and [lane] against the trace's own steps
-    and width. *)
+val trace_at :
+  offset t ->
+  steps:extent t ->
+  width:extent t ->
+  row:int ->
+  lane:int ->
+  (position t, [> `Lane | `Row ]) result
+(** The array position of a trace's cell, row-major:
+    [offset + row * width + lane]. [row] is checked against [steps] (the trace
+    holds [steps + 1] rows) and [lane] against [width], row first. Both are as
+    an expression asked for them. *)
 
 val equal : 'role t -> 'role t -> bool
 val pp : Format.formatter -> 'role t -> unit

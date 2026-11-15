@@ -167,7 +167,8 @@ module LayerNorm = struct
       in
       let count =
         S.const
-          (float_of_int (normalized_count_unchecked ~x_shape ~dims:p.dims))
+          (float_of_int
+             (normalized_count_unchecked ~x_shape ~dims:p.dims :> int))
       in
       let mean = S.div (sum_over (fun v -> v)) count in
       (* The BIASED variance of the CENTRED data. Two passes, not
@@ -213,7 +214,8 @@ module LayerNorm = struct
             Expr.Value.const
               (float_of_int
                  (normalized_count_unchecked ~x_shape:x.Tensor_sig.shape
-                    ~dims:params.dims))
+                    ~dims:params.dims
+                   :> int))
           in
           let affine value = load value (affine_coord params.dims) in
           program

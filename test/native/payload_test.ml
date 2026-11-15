@@ -1,5 +1,7 @@
 open Payload
 
+let off i = Dim.lin Dim.zero_offset (Dim.extent 1) (Dim.index i)
+
 let%expect_test "format names" =
   Format.printf "%a %a %a %a %a %a %a %a@." pp_fmt BF16 pp_fmt Bool pp_fmt F16
     pp_fmt F32 pp_fmt I16 pp_fmt I32 pp_fmt I64 pp_fmt I8;
@@ -23,11 +25,11 @@ let%expect_test "decode f32 and bf16 (real, no metadata)" =
     }
   in
   Format.printf "%a %g %g | %a %g %g@." pp f32
-    (get_float f32 ~c:(Dim.index 0) ~i:0)
-    (get_float f32 ~c:(Dim.index 0) ~i:1)
+    (get_float f32 ~c:(Dim.index 0) ~i:(off 0))
+    (get_float f32 ~c:(Dim.index 0) ~i:(off 1))
     pp bf16
-    (get_float bf16 ~c:(Dim.index 0) ~i:0)
-    (get_float bf16 ~c:(Dim.index 0) ~i:1);
+    (get_float bf16 ~c:(Dim.index 0) ~i:(off 0))
+    (get_float bf16 ~c:(Dim.index 0) ~i:(off 1));
   [%expect {| f32 1.5 -2 | bf16 1 3 |}]
 
 let%expect_test
@@ -41,13 +43,13 @@ let%expect_test
     }
   in
   Format.printf "%a: %g %g@." pp p
-    (get_float p ~c:(Dim.index 0) ~i:0)
-    (get_float p ~c:(Dim.index 0) ~i:1);
+    (get_float p ~c:(Dim.index 0) ~i:(off 0))
+    (get_float p ~c:(Dim.index 0) ~i:(off 1));
   [%expect {| i8[Per_tensor s=0.5 zero_point=0]: 1 -2 |}];
-  set_float p ~c:(Dim.index 0) ~i:0 3.0;
+  set_float p ~c:(Dim.index 0) ~i:(off 0) 3.0;
   (* 3.0 / 0.5 = 6 stored, decodes back to 3.0 *)
   Format.printf "stored=%d deq=%g@." p.data.{0}
-    (get_float p ~c:(Dim.index 0) ~i:0);
+    (get_float p ~c:(Dim.index 0) ~i:(off 0));
   [%expect {| stored=6 deq=3 |}]
 
 let%expect_test "bool: nonzero byte reads true, canonical 0/1 writes" =
@@ -60,16 +62,16 @@ let%expect_test "bool: nonzero byte reads true, canonical 0/1 writes" =
     }
   in
   Format.printf "%a: %g %g %g %g@." pp p
-    (get_float p ~c:(Dim.index 0) ~i:0)
-    (get_float p ~c:(Dim.index 0) ~i:1)
-    (get_float p ~c:(Dim.index 0) ~i:2)
-    (get_float p ~c:(Dim.index 0) ~i:3);
+    (get_float p ~c:(Dim.index 0) ~i:(off 0))
+    (get_float p ~c:(Dim.index 0) ~i:(off 1))
+    (get_float p ~c:(Dim.index 0) ~i:(off 2))
+    (get_float p ~c:(Dim.index 0) ~i:(off 3));
   [%expect {| bool: 0 1 1 1 |}];
   (* Float->Bool: [x <> 0.]; both zeros false, NaN/infinities true. *)
-  set_float p ~c:(Dim.index 0) ~i:0 0.0;
-  set_float p ~c:(Dim.index 0) ~i:1 (-0.0);
-  set_float p ~c:(Dim.index 0) ~i:2 Float.nan;
-  set_float p ~c:(Dim.index 0) ~i:3 Float.infinity;
+  set_float p ~c:(Dim.index 0) ~i:(off 0) 0.0;
+  set_float p ~c:(Dim.index 0) ~i:(off 1) (-0.0);
+  set_float p ~c:(Dim.index 0) ~i:(off 2) Float.nan;
+  set_float p ~c:(Dim.index 0) ~i:(off 3) Float.infinity;
   Format.printf "%d %d %d %d@." p.data.{0} p.data.{1} p.data.{2} p.data.{3};
   [%expect {| 0 0 1 1 |}]
 

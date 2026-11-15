@@ -4,7 +4,7 @@ type t = {
   (* [width, steps] for every SCAN-shaped local only -- built once here so
      [scan_reader] below is O(1) setup (a closure over this map), exactly like
      [reader], rather than re-scanning [locals] on every key/output. *)
-  scans : (Slot.extent Slot.t * int) Expr.Local_var.Map.t;
+  scans : (Slot.extent Slot.t * Slot.extent Slot.t) Expr.Local_var.Map.t;
 }
 
 let of_locals locals =
@@ -16,7 +16,7 @@ let of_locals locals =
           match local.Region_local.rhs with
           | Region_local.Rhs.Scan s ->
               Expr.Local_var.Map.add local.Region_local.id
-                (Slot.extent s.Expr.Scan.width, s.Expr.Scan.steps)
+                (Slot.extent s.Expr.Scan.width, Slot.extent s.Expr.Scan.steps)
                 scans
           | Region_local.Rhs.Scalar _ | Region_local.Rhs.Vector _ -> scans
         in
@@ -45,7 +45,8 @@ let reader t values =
     match offset t id with
     | Some range -> (
         match Slot.at range pos with
-        | Some i when i < Array.length values -> Some values.(i)
+        | Some i when (i :> int) < Array.length values ->
+            Some values.((i :> int))
         | _ -> None)
     | None -> None
   in
@@ -59,17 +60,18 @@ let scan_reader t values : Expr.Eval.scan_reader =
  fun id ~row ~lane ->
   match Expr.Local_var.Map.find_opt id t.scans with
   | None -> Err.fail (Expr.Eval.Unknown_local id)
-  | Some (width, steps) ->
+  | Some (width, steps) -> (
       let { Slot.Range.offset; _ } = Option.get (offset t id) in
       let projection =
         { Expr.Eval.Scan_projection.local = Some id; row; lane }
       in
-      if row < 0 || row > steps then
-        Err.fail
-          (Expr.Eval.Row_out_of_range
-             { Expr.Eval.Scan_bounds.projection; extent = steps + 1 })
-      else if lane < 0 || lane >= (width :> int) then
-        Err.fail
-          (Expr.Eval.Lane_out_of_range
-             { Expr.Eval.Scan_bounds.projection; extent = (width :> int) })
-      else Err.return values.(Slot.trace_at offset ~width ~row ~lane)
+      match Slot.trace_at offset ~steps ~width ~row ~lane with
+      | Ok i -> Err.return values.((i :> int))
+      | Error `Row ->
+          Err.fail
+            (Expr.Eval.Row_out_of_range
+               { Expr.Eval.Scan_bounds.projection; extent = (steps :> int) + 1 })
+      | Error `Lane ->
+          Err.fail
+            (Expr.Eval.Lane_out_of_range
+               { Expr.Eval.Scan_bounds.projection; extent = (width :> int) }))

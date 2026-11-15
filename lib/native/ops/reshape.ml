@@ -65,13 +65,12 @@ module Reshape = struct
 
   (* Row-major stride of each axis: the product of the extents of all axes
      strictly inner to it (C innermost). *)
-  let strides (shape : Vec6.shape) : int Vec6.t =
-    let ext a = (Vec6.get shape a :> int) in
+  let strides (shape : Vec6.shape) : Dim.count Dim.t Vec6.t =
     let rec go acc prod = function
       | [] -> acc
-      | a :: rest -> go ((a, prod) :: acc) (prod * ext a) rest
+      | a :: rest -> go ((a, prod) :: acc) Dim.(prod *@ Vec6.get shape a) rest
     in
-    let assoc = go [] 1 (List.rev Axis.all) in
+    let assoc = go [] Dim.one_count (List.rev Axis.all) in
     Vec6.mapi (fun a _ -> List.assoc a assoc) shape
 
   (* Coordinate math alone, shared by [Compute]'s float pixel and
@@ -94,7 +93,7 @@ module Reshape = struct
       let strides = strides shape in
       Vec6.mapi
         (fun a _ ->
-          let stride = Op_config.Pos.of_int (Vec6.get strides a) in
+          let stride = Op_config.Pos.of_int (Vec6.get strides a :> int) in
           let ext = (Vec6.get shape a :> int) in
           let q = S.index_floor_div_pos off stride in
           let c =

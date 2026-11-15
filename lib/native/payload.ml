@@ -72,54 +72,62 @@ let qrange : type e b q. (e, b, q) fmt -> int * int = function
 (* Decode storage cell [i] to the compute domain (float); [c] is the channel
    coordinate, used by per-channel dequant. *)
 let get_float : type e b q.
-    (e, b, q) payload -> c:Dim.index Dim.t -> i:int -> float =
+    (e, b, q) payload -> c:Dim.index Dim.t -> i:Dim.offset Dim.t -> float =
  fun p ~c ~i ->
   match p.fmt with
-  | BF16 -> Half.Bf16.to_float p.data.{i}
-  | Bool -> if p.data.{i} <> 0 then 1.0 else 0.0
-  | F16 -> Half.Half.to_float p.data.{i}
-  | F32 -> p.data.{i}
-  | F64 -> p.data.{i}
+  | BF16 -> Half.Bf16.to_float p.data.{(i :> int)}
+  | Bool -> if p.data.{(i :> int)} <> 0 then 1.0 else 0.0
+  | F16 -> Half.Half.to_float p.data.{(i :> int)}
+  | F32 -> p.data.{(i :> int)}
+  | F64 -> p.data.{(i :> int)}
   | I16 -> (
-      match p.quant with Quant qz -> Quant.dequantize qz ~c ~q:p.data.{i})
-  | I32 -> Int32.to_float p.data.{i}
-  | I64 -> Int64.to_float p.data.{i}
+      match p.quant with
+      | Quant qz -> Quant.dequantize qz ~c ~q:p.data.{(i :> int)})
+  | I32 -> Int32.to_float p.data.{(i :> int)}
+  | I64 -> Int64.to_float p.data.{(i :> int)}
   | I8 -> (
-      match p.quant with Quant qz -> Quant.dequantize qz ~c ~q:p.data.{i})
+      match p.quant with
+      | Quant qz -> Quant.dequantize qz ~c ~q:p.data.{(i :> int)})
 
 (* [get_float] at binary32: a quantized cell is {!Quant.dequantize32}'s explicit
    binary32 operations, every other format the value [get_float] gives (each of
    which a binary32 working type holds or rounds once). *)
 let get_float32 : type e b q.
-    (e, b, q) payload -> c:Dim.index Dim.t -> i:int -> float =
+    (e, b, q) payload -> c:Dim.index Dim.t -> i:Dim.offset Dim.t -> float =
  fun p ~c ~i ->
   match p.fmt with
   | I16 -> (
-      match p.quant with Quant qz -> Quant.dequantize32 qz ~c ~q:p.data.{i})
+      match p.quant with
+      | Quant qz -> Quant.dequantize32 qz ~c ~q:p.data.{(i :> int)})
   | I8 -> (
-      match p.quant with Quant qz -> Quant.dequantize32 qz ~c ~q:p.data.{i})
+      match p.quant with
+      | Quant qz -> Quant.dequantize32 qz ~c ~q:p.data.{(i :> int)})
   | _ -> get_float p ~c ~i
 
 (* Encode a float into storage cell [i] (round/quantise per format). *)
 let set_float : type e b q.
-    (e, b, q) payload -> c:Dim.index Dim.t -> i:int -> float -> unit =
+    (e, b, q) payload ->
+    c:Dim.index Dim.t ->
+    i:Dim.offset Dim.t ->
+    float ->
+    unit =
  fun p ~c ~i x ->
   match p.fmt with
-  | BF16 -> p.data.{i} <- Half.Bf16.of_float x
-  | Bool -> p.data.{i} <- (if x <> 0.0 then 1 else 0)
-  | F16 -> p.data.{i} <- Half.Half.of_float x
-  | F32 -> p.data.{i} <- x
-  | F64 -> p.data.{i} <- x
+  | BF16 -> p.data.{(i :> int)} <- Half.Bf16.of_float x
+  | Bool -> p.data.{(i :> int)} <- (if x <> 0.0 then 1 else 0)
+  | F16 -> p.data.{(i :> int)} <- Half.Half.of_float x
+  | F32 -> p.data.{(i :> int)} <- x
+  | F64 -> p.data.{(i :> int)} <- x
   | I16 -> (
       let qmin, qmax = qrange p.fmt in
       match p.quant with
-      | Quant qz -> p.data.{i} <- Quant.quantize qz ~c ~qmin ~qmax x)
-  | I32 -> p.data.{i} <- Int32.of_float x
-  | I64 -> p.data.{i} <- Int64.of_float x
+      | Quant qz -> p.data.{(i :> int)} <- Quant.quantize qz ~c ~qmin ~qmax x)
+  | I32 -> p.data.{(i :> int)} <- Int32.of_float x
+  | I64 -> p.data.{(i :> int)} <- Int64.of_float x
   | I8 -> (
       let qmin, qmax = qrange p.fmt in
       match p.quant with
-      | Quant qz -> p.data.{i} <- Quant.quantize qz ~c ~qmin ~qmax x)
+      | Quant qz -> p.data.{(i :> int)} <- Quant.quantize qz ~c ~qmin ~qmax x)
 
 let pp : type e b q. Format.formatter -> (e, b, q) payload -> unit =
  fun fmt p ->
