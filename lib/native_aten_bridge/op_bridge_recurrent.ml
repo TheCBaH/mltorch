@@ -43,6 +43,7 @@ let dispatch ~(aten_env : aten_env) (node : Node.t) :
            | xs ->
                fail (`Lstm_reject (Lstm.Lstm.Reject.Hx_arity (List.length xs)))
          in
+         let num_layers = Lstm.Lstm.Num_layers.of_int num_layers in
          let expected =
            Lstm.Lstm.params_length ~has_biases ~bidirectional ~num_layers
          in
@@ -96,9 +97,6 @@ let dispatch ~(aten_env : aten_env) (node : Node.t) :
            | ((wih, whh, _), _) :: _ ->
                ((Aten_tensor.shape whh).(1), (Aten_tensor.shape wih).(1))
            | [] -> (1, 1)
-         in
-         let lstm_params : Lstm.Lstm.params =
-           { hidden_size; input_size; batch_first }
          in
          let* x_input = native_of_aten "input" aten_input in
          let* x_h0 = native_of_aten "hx" aten_h0 in
@@ -156,6 +154,9 @@ let dispatch ~(aten_env : aten_env) (node : Node.t) :
                          return ({ Lstm.Lstm.Layer.forward; reverse } :: rest')
                    in
                    let* layers = build_layers grouped_ids in
+                   let* lstm_params =
+                     lstm_params_of_sizes ~hidden_size ~input_size ~batch_first
+                   in
                    let* out_id, hn_id, cn_id =
                      lstm lstm_params ~input:input_id ~layers ~h0:h0_id
                        ~c0:c0_id ()

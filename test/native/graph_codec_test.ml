@@ -87,7 +87,11 @@ let%expect_test "op_name agrees with the JSON case tag, Discard included" =
           let* padded =
             pad
               {
-                Pad.Pad.pads = [ (Axis.C, { Pad.Pad.before = 1; after = 0 }) ];
+                Pad.Pad.pads =
+                  [
+                    ( Axis.C,
+                      { Pad.Pad.before = Dim.delta 1; after = Dim.delta 0 } );
+                  ];
                 mode = Pad.Pad.Constant 0.;
               }
               act

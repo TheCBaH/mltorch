@@ -367,7 +367,8 @@ module Bounds = struct
        own six-factor fold. *)
     let bytes =
       Int64.mul numel
-        (Int64.of_int (Payload.packed_cell_bytes sg.Tensor_sig.fmt))
+        (Core.Storage_units.Element_bytes.to_int64
+           (Payload.packed_cell_bytes sg.Tensor_sig.fmt))
     in
     if Int64.compare bytes limits.Limits.max_bytes > 0 then
       Err.fail (`Bytes_too_large id)

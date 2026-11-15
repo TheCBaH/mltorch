@@ -17,28 +17,16 @@ module Convolution = struct
       let { Walk_core.Walk.h = ph; w = pw } = c.pad in
       let { Walk_core.Walk.h = dh; w = dw } = c.dilation in
       {
-        stride =
-          {
-            Op_config.Hw.h = Op_config.Pos.of_int sh;
-            w = Op_config.Pos.of_int sw;
-          };
-        padding =
-          {
-            Op_config.Hw.h = Op_config.Nonneg.of_int ph;
-            w = Op_config.Nonneg.of_int pw;
-          };
-        dilation =
-          {
-            Op_config.Hw.h = Op_config.Pos.of_int dh;
-            w = Op_config.Pos.of_int dw;
-          };
+        stride = { Op_config.Hw.h = sh; w = sw };
+        padding = { Op_config.Hw.h = ph; w = pw };
+        dilation = { Op_config.Hw.h = dh; w = dw };
         transposed = false;
         output_padding =
           {
             Op_config.Hw.h = Op_config.Nonneg.of_int 0;
             w = Op_config.Nonneg.of_int 0;
           };
-        groups = Op_config.Pos.of_int c.groups;
+        groups = Op_config.Pos.of_int (c.groups :> int);
       }
   end
 end

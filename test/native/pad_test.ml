@@ -22,7 +22,8 @@ let%expect_test "Direct: pad constant, one axis, asymmetric" =
      1..3; slots 0, 4, 5 are the fill. *)
   pad_eval ~x_shape ~x
     {
-      Pad.Pad.pads = [ (Axis.W, { Pad.Pad.before = 1; after = 2 }) ];
+      Pad.Pad.pads =
+        [ (Axis.W, { Pad.Pad.before = Dim.delta 1; after = Dim.delta 2 }) ];
       mode = Pad.Pad.Constant (-7.);
     };
   [%expect {|
@@ -38,8 +39,8 @@ let%expect_test "Direct: pad constant, two axes at once" =
     {
       Pad.Pad.pads =
         [
-          (Axis.H, { Pad.Pad.before = 1; after = 0 });
-          (Axis.W, { Pad.Pad.before = 0; after = 1 });
+          (Axis.H, { Pad.Pad.before = Dim.delta 1; after = Dim.delta 0 });
+          (Axis.W, { Pad.Pad.before = Dim.delta 0; after = Dim.delta 1 });
         ];
       mode = Pad.Pad.Constant 9.;
     };
@@ -55,7 +56,8 @@ let%expect_test "Direct: pad constant fill is used, not zero" =
      element is 0 too, which is exactly why the fill must not be. *)
   pad_eval ~x_shape ~x
     {
-      Pad.Pad.pads = [ (Axis.W, { Pad.Pad.before = 1; after = 1 }) ];
+      Pad.Pad.pads =
+        [ (Axis.W, { Pad.Pad.before = Dim.delta 1; after = Dim.delta 1 }) ];
       mode = Pad.Pad.Constant 0.5;
     };
   [%expect {|
@@ -71,7 +73,8 @@ let%expect_test "Direct: pad reflect mirrors about the boundary, not through it"
      right one. *)
   pad_eval ~x_shape ~x
     {
-      Pad.Pad.pads = [ (Axis.W, { Pad.Pad.before = 2; after = 2 }) ];
+      Pad.Pad.pads =
+        [ (Axis.W, { Pad.Pad.before = Dim.delta 2; after = Dim.delta 2 }) ];
       mode = Pad.Pad.Reflect;
     };
   [%expect {|
@@ -86,8 +89,8 @@ let%expect_test "Direct: pad reflect, two axes, asymmetric" =
     {
       Pad.Pad.pads =
         [
-          (Axis.H, { Pad.Pad.before = 1; after = 0 });
-          (Axis.W, { Pad.Pad.before = 0; after = 2 });
+          (Axis.H, { Pad.Pad.before = Dim.delta 1; after = Dim.delta 0 });
+          (Axis.W, { Pad.Pad.before = Dim.delta 0; after = Dim.delta 2 });
         ];
       mode = Pad.Pad.Reflect;
     };
@@ -107,8 +110,8 @@ let%expect_test "Direct: negative pads crop" =
     {
       Pad.Pad.pads =
         [
-          (Axis.H, { Pad.Pad.before = -1; after = 0 });
-          (Axis.W, { Pad.Pad.before = -1; after = -1 });
+          (Axis.H, { Pad.Pad.before = Dim.delta (-1); after = Dim.delta 0 });
+          (Axis.W, { Pad.Pad.before = Dim.delta (-1); after = Dim.delta (-1) });
         ];
       mode = Pad.Pad.Constant 0.;
     };
@@ -124,8 +127,8 @@ let%expect_test "Direct: pad and crop on different axes of one node" =
     {
       Pad.Pad.pads =
         [
-          (Axis.H, { Pad.Pad.before = 1; after = 0 });
-          (Axis.W, { Pad.Pad.before = -1; after = 0 });
+          (Axis.H, { Pad.Pad.before = Dim.delta 1; after = Dim.delta 0 });
+          (Axis.W, { Pad.Pad.before = Dim.delta (-1); after = Dim.delta 0 });
         ];
       mode = Pad.Pad.Constant 5.;
     };
@@ -145,31 +148,38 @@ let%expect_test "Direct: pad rejects the configurations with no Native result" =
      here. *)
   refuse
     {
-      Pad.Pad.pads = [ (Axis.H, { Pad.Pad.before = -2; after = -1 }) ];
+      Pad.Pad.pads =
+        [
+          (Axis.H, { Pad.Pad.before = Dim.delta (-2); after = Dim.delta (-1) });
+        ];
       mode = Pad.Pad.Constant 0.;
     };
   refuse
     {
-      Pad.Pad.pads = [ (Axis.H, { Pad.Pad.before = -5; after = 0 }) ];
+      Pad.Pad.pads =
+        [ (Axis.H, { Pad.Pad.before = Dim.delta (-5); after = Dim.delta 0 }) ];
       mode = Pad.Pad.Constant 0.;
     };
   (* Reflect needs each POSITIVE side below the extent it mirrors: H is 3, so 3
      is already too wide while 2 is fine. *)
   refuse
     {
-      Pad.Pad.pads = [ (Axis.H, { Pad.Pad.before = 3; after = 0 }) ];
+      Pad.Pad.pads =
+        [ (Axis.H, { Pad.Pad.before = Dim.delta 3; after = Dim.delta 0 }) ];
       mode = Pad.Pad.Reflect;
     };
   refuse
     {
-      Pad.Pad.pads = [ (Axis.H, { Pad.Pad.before = 0; after = 3 }) ];
+      Pad.Pad.pads =
+        [ (Axis.H, { Pad.Pad.before = Dim.delta 0; after = Dim.delta 3 }) ];
       mode = Pad.Pad.Reflect;
     };
   (* The same widths are ordinary in constant mode — the rule is reflect's, not
      padding's. *)
   refuse
     {
-      Pad.Pad.pads = [ (Axis.H, { Pad.Pad.before = 3; after = 3 }) ];
+      Pad.Pad.pads =
+        [ (Axis.H, { Pad.Pad.before = Dim.delta 3; after = Dim.delta 3 }) ];
       mode = Pad.Pad.Constant 0.;
     };
   (* Two entries for one axis: unreachable from either importer, so this is the
@@ -178,8 +188,8 @@ let%expect_test "Direct: pad rejects the configurations with no Native result" =
     {
       Pad.Pad.pads =
         [
-          (Axis.W, { Pad.Pad.before = 1; after = 1 });
-          (Axis.W, { Pad.Pad.before = 2; after = 2 });
+          (Axis.W, { Pad.Pad.before = Dim.delta 1; after = Dim.delta 1 });
+          (Axis.W, { Pad.Pad.before = Dim.delta 2; after = Dim.delta 2 });
         ];
       mode = Pad.Pad.Constant 0.;
     };

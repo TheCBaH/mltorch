@@ -10,32 +10,49 @@
 module Window_cfg (L : Walk_core.Limits.S) = struct
   type cfg = {
     shape : Walk_core.Shape.t;
-    kernel : Walk_core.Walk.hw;
-    stride : Walk_core.Walk.hw;
-    pad : Walk_core.Walk.hw;
+    kernel : Dim.extent Dim.t Walk_core.Walk.hw;
+    stride : Op_config.Pos.t Walk_core.Walk.hw;
+    pad : Op_config.Nonneg.t Walk_core.Walk.hw;
   }
 
   let l = L.limits
 
   let initial =
     {
-      shape = { Walk_core.Shape.n = 1; t = 1; d = 1; h = 8; w = 8; c = 4 };
-      kernel = { Walk_core.Walk.h = 2; w = 2 };
-      stride = { Walk_core.Walk.h = 2; w = 2 };
-      pad = { Walk_core.Walk.h = 0; w = 0 };
+      shape =
+        {
+          Walk_core.Shape.n = Dim.one;
+          t = Dim.one;
+          d = Dim.one;
+          h = Dim.extent 8;
+          w = Dim.extent 8;
+          c = Dim.extent 4;
+        };
+      kernel = { Walk_core.Walk.h = Dim.extent 2; w = Dim.extent 2 };
+      stride =
+        {
+          Walk_core.Walk.h = Op_config.Pos.of_int 2;
+          w = Op_config.Pos.of_int 2;
+        };
+      pad =
+        {
+          Walk_core.Walk.h = Op_config.Nonneg.of_int 0;
+          w = Op_config.Nonneg.of_int 0;
+        };
     }
 
   let cascade c =
     let kh = c.kernel.Walk_core.Walk.h and kw = c.kernel.Walk_core.Walk.w in
     let pad_h = Walk_core.Window_math.clamp_pad_pool ~pad:c.pad.h ~kernel:kh in
     let pad_w = Walk_core.Window_math.clamp_pad_pool ~pad:c.pad.w ~kernel:kw in
+    let one = Op_config.Pos.of_int 1 in
     let h =
       Walk_core.Window_math.grow_input ~in_size:c.shape.Walk_core.Shape.h
-        ~pad:pad_h ~kernel:kh ~dilation:1
+        ~pad:pad_h ~kernel:kh ~dilation:one
     in
     let w =
       Walk_core.Window_math.grow_input ~in_size:c.shape.Walk_core.Shape.w
-        ~pad:pad_w ~kernel:kw ~dilation:1
+        ~pad:pad_w ~kernel:kw ~dilation:one
     in
     {
       c with
@@ -44,24 +61,9 @@ module Window_cfg (L : Walk_core.Limits.S) = struct
     }
 
   let shape (c : cfg) = Walk_shape.vec6 c.shape
-
-  let kernel (c : cfg) : Dim.extent Dim.t Op_config.Hw.t =
-    {
-      Op_config.Hw.h = Dim.extent c.kernel.Walk_core.Walk.h;
-      w = Dim.extent c.kernel.w;
-    }
-
-  let stride (c : cfg) : Op_config.Pos.t Op_config.Hw.t =
-    {
-      Op_config.Hw.h = Op_config.Pos.of_int c.stride.Walk_core.Walk.h;
-      w = Op_config.Pos.of_int c.stride.w;
-    }
-
-  let pad (c : cfg) : Op_config.Nonneg.t Op_config.Hw.t =
-    {
-      Op_config.Hw.h = Op_config.Nonneg.of_int c.pad.Walk_core.Walk.h;
-      w = Op_config.Nonneg.of_int c.pad.w;
-    }
+  let kernel (c : cfg) : Dim.extent Dim.t Op_config.Hw.t = c.kernel
+  let stride (c : cfg) : Op_config.Pos.t Op_config.Hw.t = c.stride
+  let pad (c : cfg) : Op_config.Nonneg.t Op_config.Hw.t = c.pad
 
   let axes =
     Walk_core.Walk.
@@ -69,17 +71,27 @@ module Window_cfg (L : Walk_core.Limits.S) = struct
         shape_axis "input" l
           ~get:(fun c -> c.shape)
           ~set:(fun c s -> { c with shape = s });
-        hw_axis "kernel" ~lo:1 ~hi:l.max_kernel (fun c v ->
-            { c with kernel = v });
-        hw_axis "stride" ~lo:1 ~hi:l.max_stride (fun c v ->
-            { c with stride = v });
-        hw_axis "pad" ~lo:0 ~hi:l.max_pad (fun c v -> { c with pad = v });
+        hw_axis
+          (module Extent)
+          "kernel" ~lo:Extent.one
+          ~hi:(Extent.of_int l.max_kernel)
+          (fun c v -> { c with kernel = v });
+        hw_axis
+          (module Pos)
+          "stride" ~lo:(Pos.of_int 1) ~hi:(Pos.of_int l.max_stride)
+          (fun c v -> { c with stride = v });
+        hw_axis
+          (module Nonneg)
+          "pad" ~lo:(Nonneg.of_int 0) ~hi:(Nonneg.of_int l.max_pad)
+          (fun c v -> { c with pad = v });
       ]
 
   let pp fmt (c : cfg) =
-    Format.fprintf fmt "{shape=%a kernel=%dx%d stride=%dx%d pad=%dx%d}"
-      Walk_core.Shape.pp c.shape c.kernel.Walk_core.Walk.h c.kernel.w
-      c.stride.Walk_core.Walk.h c.stride.w c.pad.Walk_core.Walk.h c.pad.w
+    Format.fprintf fmt "{shape=%a kernel=%ax%a stride=%ax%a pad=%ax%a}"
+      Walk_core.Shape.pp c.shape Dim.pp c.kernel.Walk_core.Walk.h Dim.pp
+      c.kernel.w Op_config.Pos.pp c.stride.Walk_core.Walk.h Op_config.Pos.pp
+      c.stride.w Op_config.Nonneg.pp c.pad.Walk_core.Walk.h Op_config.Nonneg.pp
+      c.pad.w
 end
 
 (* [Window_cfg] plus a [ceil_mode] axis, for the two max-pool walks (not

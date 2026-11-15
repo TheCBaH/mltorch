@@ -56,6 +56,7 @@ let dispatch ~ctx ~env (node : Node.t) =
                    (`Lstm_reject (Lstm.Lstm.Reject.Hx_arity (List.length xs)))
            in
            let param_names = tensor_names_arg esc node "params" in
+           let num_layers = Lstm.Lstm.Num_layers.of_int num_layers in
            let expected =
              Lstm.Lstm.params_length ~has_biases ~bidirectional ~num_layers
            in
@@ -107,8 +108,8 @@ let dispatch ~ctx ~env (node : Node.t) =
                  (List.nth whh_sizes 1, List.nth wih_sizes 1)
              | [] -> (1, 1)
            in
-           let params : Lstm.Lstm.params =
-             { hidden_size; input_size; batch_first }
+           let* params =
+             lstm_params_of_sizes ~hidden_size ~input_size ~batch_first
            in
            (* [weight_ih]/[weight_hh]/[bias_ih]/[bias_hh] land on different
               axes than [Lstm.Lstm]'s own shapes expect under

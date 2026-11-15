@@ -427,7 +427,11 @@ let lstm_graph () =
   let vec n = s n 1 1 1 1 1 in
   let state = s 1 1 1 1 1 k in
   let params : Lstm.Lstm.params =
-    { hidden_size = k; input_size = isz; batch_first = false }
+    {
+      hidden_size = Dim.extent k;
+      input_size = Dim.extent isz;
+      batch_first = false;
+    }
   in
   Graph_builder.(
     build ~name:"lstm" ~outputs:(fun (o, h, c) -> [ o; h; c ])
@@ -477,7 +481,11 @@ let stacked_lstm_graph ~outputs =
   let vec n = s n 1 1 1 1 1 in
   let state = s 1 1 1 4 1 k in
   let params : Lstm.Lstm.params =
-    { hidden_size = k; input_size = isz; batch_first = false }
+    {
+      hidden_size = Dim.extent k;
+      input_size = Dim.extent isz;
+      batch_first = false;
+    }
   in
   Graph_builder.(
     build ~name:"lstm_stacked" ~outputs

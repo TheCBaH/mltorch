@@ -37,7 +37,10 @@ let align_up n =
   Int64.mul (Int64.div (Int64.add n (Int64.pred alignment)) alignment) alignment
 
 let tensor_bytes (sg : Tensor_sig.t) =
-  let cell = Int64.of_int (Payload.packed_cell_bytes sg.Tensor_sig.fmt) in
+  let cell =
+    Core.Storage_units.Element_bytes.to_int64
+      (Payload.packed_cell_bytes sg.Tensor_sig.fmt)
+  in
   match
     Vec6.numel_bounded ~limit:(Int64.shift_left 1L 40) sg.Tensor_sig.shape
   with

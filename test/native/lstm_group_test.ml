@@ -18,7 +18,13 @@ let sig_ id shape =
 let fixture ~batch_first =
   let batch = 2 and seq = 2 and input_size = 2 and hidden_size = 2 in
   let directions = 2 in
-  let params : Lstm.Lstm.params = { hidden_size; input_size; batch_first } in
+  let params : Lstm.Lstm.params =
+    {
+      hidden_size = Dim.extent hidden_size;
+      input_size = Dim.extent input_size;
+      batch_first;
+    }
+  in
   let seq_shape =
     if batch_first then Vec6.shape ~n:1 ~t:1 ~d:1 ~h:batch ~w:seq ~c:input_size
     else Vec6.shape ~n:1 ~t:1 ~d:1 ~h:seq ~w:batch ~c:input_size

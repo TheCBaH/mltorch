@@ -13,11 +13,7 @@ let tensor_bytes (Tensor.Tensor t) : U.Byte_size.t =
       (U.Element_count.of_int64
          (Int64.of_int (Bigarray.Array1.dim p.Payload.data)))
   in
-  let cell =
-    sure
-      (U.Element_bytes.of_int64
-         (Int64.of_int (Payload.cell_bytes p.Payload.fmt)))
-  in
+  let cell = Payload.cell_bytes p.Payload.fmt in
   sure (U.Element_count.to_bytes cells cell)
 
 (* One byte at least: a Bigarray is never empty here, so its address is. *)

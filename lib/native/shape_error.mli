@@ -160,6 +160,7 @@ module Lstm : sig
     | Empty_layers
     | Non_positive_dim of { dim : dim; value : int }
     | Nonuniform_direction
+    | Width_over_limit of Dim.Product_witness.t
 
   val pp_error : Format.formatter -> error -> unit
 end

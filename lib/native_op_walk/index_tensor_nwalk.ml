@@ -12,32 +12,72 @@
    test/native/load_index_test.ml and index_tensor_test.ml already pin. *)
 
 module M = struct
-  type cfg = { n : int; h : int; w : int; c : int; axis : Axis.t; l : int }
+  type cfg = {
+    n : Dim.extent Dim.t;
+    h : Dim.extent Dim.t;
+    w : Dim.extent Dim.t;
+    c : Dim.extent Dim.t;
+    axis : Axis.t;
+    l : Dim.extent Dim.t;
+  }
+
   type subject = Native_subject.t
 
   let target = "index_tensor"
-  let initial = { n = 1; h = 2; w = 3; c = 4; axis = Axis.W; l = 2 }
+
+  let initial =
+    {
+      n = Dim.one;
+      h = Dim.extent 2;
+      w = Dim.extent 3;
+      c = Dim.extent 4;
+      axis = Axis.W;
+      l = Dim.extent 2;
+    }
+
   let cascade c = c
 
   let axes =
     Walk_core.Walk.
       [
-        int_axis "n" ~lo:1 ~hi:3 (fun (c : cfg) v -> { c with n = v });
-        int_axis "h" ~lo:1 ~hi:4 (fun (c : cfg) v -> { c with h = v });
-        int_axis "w" ~lo:1 ~hi:4 (fun (c : cfg) v -> { c with w = v });
-        int_axis "c" ~lo:1 ~hi:4 (fun (c : cfg) v -> { c with c = v });
+        range_axis
+          (module Extent)
+          "n" ~lo:Extent.one ~hi:(Extent.of_int 3)
+          (fun (c : cfg) v -> { c with n = v });
+        range_axis
+          (module Extent)
+          "h" ~lo:Extent.one ~hi:(Extent.of_int 4)
+          (fun (c : cfg) v -> { c with h = v });
+        range_axis
+          (module Extent)
+          "w" ~lo:Extent.one ~hi:(Extent.of_int 4)
+          (fun (c : cfg) v -> { c with w = v });
+        range_axis
+          (module Extent)
+          "c" ~lo:Extent.one ~hi:(Extent.of_int 4)
+          (fun (c : cfg) v -> { c with c = v });
         field_axis "axis"
           Axis.[ N; H; W; C ]
           (fun (c : cfg) v -> { c with axis = v });
-        int_axis "l" ~lo:1 ~hi:4 (fun (c : cfg) v -> { c with l = v });
+        range_axis
+          (module Extent)
+          "l" ~lo:Extent.one ~hi:(Extent.of_int 4)
+          (fun (c : cfg) v -> { c with l = v });
       ]
 
   let pp fmt c =
-    Format.fprintf fmt "{n=%d h=%d w=%d c=%d axis=%a l=%d}" c.n c.h c.w c.c
-      Axis.pp c.axis c.l
+    Format.fprintf fmt "{n=%d h=%d w=%d c=%d axis=%a l=%d}"
+      (c.n :> int)
+      (c.h :> int)
+      (c.w :> int)
+      (c.c :> int)
+      Axis.pp c.axis
+      (c.l :> int)
 
-  let self_shape c = Vec6.shape ~n:c.n ~t:1 ~d:1 ~h:c.h ~w:c.w ~c:c.c
-  let index_shape c = Vec6.shape ~n:1 ~t:1 ~d:1 ~h:1 ~w:1 ~c:c.l
+  let self_shape c = Vec6.make ~n:c.n ~t:Dim.one ~d:Dim.one ~h:c.h ~w:c.w ~c:c.c
+
+  let index_shape c =
+    Vec6.make ~n:Dim.one ~t:Dim.one ~d:Dim.one ~h:Dim.one ~w:Dim.one ~c:c.l
 
   let self_extent c =
     match c.axis with
@@ -75,7 +115,7 @@ module M = struct
   let build pcg c =
     let self_v, pcg = Native_tensor.synth pcg (self_shape c) in
     let index_v, pcg =
-      synth_index pcg ~extent:(self_extent c) (index_shape c)
+      synth_index pcg ~extent:(self_extent c :> int) (index_shape c)
     in
     let g =
       Err.or_raise ~pp_error:Graph_builder.pp_error

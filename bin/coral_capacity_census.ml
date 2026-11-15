@@ -14,7 +14,10 @@ open Loop_ir
 
 let bytes (sg : Tensor_sig.t) =
   let cells = (Vec6.numel sg.Tensor_sig.shape :> int) in
-  cells * Payload.packed_cell_bytes sg.Tensor_sig.fmt
+  cells
+  * Int64.to_int
+      (Core.Storage_units.Element_bytes.to_int64
+         (Payload.packed_cell_bytes sg.Tensor_sig.fmt))
 
 let () =
   let limit = ref 4_194_304 in

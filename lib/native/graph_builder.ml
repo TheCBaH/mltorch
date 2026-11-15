@@ -497,6 +497,11 @@ let leaky_relu ?name params x =
 let linear ?name params ~x ~weight ?bias () =
   op1 ?name ~kind:"linear" (Linear { Linear.Linear.params; x; weight; bias })
 
+(* The [params] of an [lstm] whose sizes were read off an untrusted model: a
+   size below one is rejected as written. *)
+let lstm_params_of_sizes ~hidden_size ~input_size ~batch_first =
+  lift_result (Lstm.Lstm.params_of_sizes ~hidden_size ~input_size ~batch_first)
+
 (* Three outputs (output, h_n, c_n): allocate an edge per output shape,
    append the node with all three, and return them as a triple. *)
 let lstm ?name params ~input ~layers ~h0 ~c0 () =

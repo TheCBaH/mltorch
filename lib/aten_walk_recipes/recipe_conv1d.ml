@@ -11,11 +11,10 @@ type t = {
 }
 
 let cascade c =
-  let inc = Walk_core.Window_math.round_up_multiple ~n:c.inc ~m:c.g
-  and outc = Walk_core.Window_math.round_up_multiple ~n:c.outc ~m:c.g in
+  let inc = Recipe_window.round_up_multiple ~n:c.inc ~m:c.g
+  and outc = Recipe_window.round_up_multiple ~n:c.outc ~m:c.g in
   let len =
-    Walk_core.Window_math.grow_input ~in_size:c.len ~pad:c.p ~kernel:c.k
-      ~dilation:c.d
+    Recipe_window.grow_input ~in_size:c.len ~pad:c.p ~kernel:c.k ~dilation:c.d
   in
   { c with inc; outc; len }
 

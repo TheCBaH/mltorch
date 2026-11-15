@@ -21,7 +21,17 @@ are their own singletons. Region scratch slots have their own phantom family, `S
 slot offset cannot be mistaken for a tensor's `Dim.offset`. The ATen boundary is typed: `Rank.t`, and `Aten_int` (`Dim`, `Index`,
 `Size`, `Step` — signed, as written) enter `Aten_shape`, which is the only place they are
 resolved (slice bounds into fences, a select index into a `Dim.index`); the importers'
-error payloads report them as written. Window and im2col products are bounded once (`Window_axis.product`, `Dim_arith.Extent.scale`); a ranked class is a `Dim.index`. Extends
+error payloads report them as written. Window and im2col products are bounded once (`Window_axis.product`, `Dim_arith.Extent.scale`); a ranked class is a `Dim.index`. The random-walk
+machinery is typed the same way: `Walk_core.Shape.t` holds extents, `Walk.range_axis`/`hw_axis` draw a value
+of a stated domain (`Extent`, `Pos`, `Nonneg`, or any module with `of_int`/`to_int`), `Walk.hw` is
+`Core.Geometry.Hw.t`, and `Window_math` takes the guarded geometry types, so a pad cannot be passed for a
+kernel; the ATen recipes, whose configs are the ints written into ATen arguments, enter and leave those
+types once, in `Recipe_window`. `Payload.cell_bytes` is a `Storage_units.Element_bytes`. `Pad.entry` holds
+signed `Dim.delta` amounts; `Lstm.params` holds extents, `Lstm.Num_layers` is the importer's layer count,
+and `Lstm.output_shape` bounds `4 * hidden_size` (which covers every width derived from it) before any
+shape is built, so a 32-bit `int` cannot wrap there; `Index_pair` keeps frame positions and the trailing
+count behind an abstract `Frame`. A size read off an untrusted model that fails the extent check is still
+reported as written (`Lstm.params_of_sizes`). Extends
 `native_tensor_design.md` §1a, which introduced `Dim` for tensor sizes and positions,
 to every integer that names an entity. Reads with `js_backends_design.md` (the 32-bit
 `int` rule) and `error_handling_design.md` (payloads carry data, not prose).
@@ -167,6 +177,14 @@ them does with the number. The audit of the exempt entries, by family:
   limit on invocations run (`run_prefix ~count`) is `budget`, as `Mir_model`'s is; a
   literal factor on a size (`scale`) is `expr-literal`, as `Dim.scale` is. A name suffix
   is built by the caller, so an ordinal need not appear in a signature.
+- **Native, walk_core and pt2** (6 entries, were `tally`, `arity` or `wire`):
+  `Quant.channel_count` is the extent the per-channel arrays must match;
+  `Ground_expr.Valuation.draw`'s argument is the ordinal of a draw in a retry
+  sequence; `Pt2_storage`'s `length` and offset arguments are a byte size and a
+  byte offset. `Tensor.read_at_raw` and its siblings take the evaluator's
+  `int Expr.Coord.t` callback and stay `expr-literal`. `Pt2_tensor`'s `sizes`,
+  `strides` and `storage_offset` (and the functions over them) stay open: strides
+  are signed and the loops that read them are hot.
 
 ## 2. Taxonomy
 

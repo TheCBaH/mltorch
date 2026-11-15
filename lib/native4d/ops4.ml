@@ -696,8 +696,10 @@ module Pad4 = struct
     Jsont.Object.map ~kind:"pad4_entry" (fun axis before after ->
         (axis, { Pad.Pad.before; after }))
     |> Jsont.Object.mem "axis" Axis4.jsont ~enc:fst
-    |> Jsont.Object.mem "before" Jsont.int ~enc:(fun (_, e) -> e.Pad.Pad.before)
-    |> Jsont.Object.mem "after" Jsont.int ~enc:(fun (_, e) -> e.Pad.Pad.after)
+    |> Jsont.Object.mem "before" Pad.Pad.amount_jsont ~enc:(fun (_, e) ->
+        e.Pad.Pad.before)
+    |> Jsont.Object.mem "after" Pad.Pad.amount_jsont ~enc:(fun (_, e) ->
+        e.Pad.Pad.after)
     |> Jsont.Object.finish
 
   let params_jsont : params Jsont.t =
@@ -707,7 +709,8 @@ module Pad4 = struct
     |> Jsont.Object.finish
 
   let pp_entry fmt (axis, (e : Pad.Pad.entry)) =
-    Fmt.pf fmt "@[<h>%a:%d,%d@]" Axis4.pp axis e.Pad.Pad.before e.Pad.Pad.after
+    Fmt.pf fmt "@[<h>%a:%a,%a@]" Axis4.pp axis Dim.pp e.Pad.Pad.before Dim.pp
+      e.Pad.Pad.after
 
   let pp_params fmt (p : params) =
     Fmt.pf fmt "@[<hv>{pads=%a mode=%a}@]"

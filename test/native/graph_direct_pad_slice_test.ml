@@ -14,7 +14,10 @@ let%expect_test "Direct graph: pad reflect on W, constant fill on H" =
           let* x = input ~shape:(s 1 1 1 2 3 1) ~name:"x" () in
           pad ~name:"out"
             {
-              Pad.Pad.pads = [ (Axis.W, { Pad.Pad.before = 1; after = 1 }) ];
+              Pad.Pad.pads =
+                [
+                  (Axis.W, { Pad.Pad.before = Dim.delta 1; after = Dim.delta 1 });
+                ];
               mode = Pad.Pad.Reflect;
             }
             x)
@@ -52,7 +55,11 @@ let%expect_test "Direct graph: a pad that empties an axis is not buildable" =
           let* x = input ~shape:(s 1 1 1 2 3 1) ~name:"x" () in
           pad ~name:"out"
             {
-              Pad.Pad.pads = [ (Axis.H, { Pad.Pad.before = -2; after = 0 }) ];
+              Pad.Pad.pads =
+                [
+                  ( Axis.H,
+                    { Pad.Pad.before = Dim.delta (-2); after = Dim.delta 0 } );
+                ];
               mode = Pad.Pad.Constant 0.;
             }
             x)

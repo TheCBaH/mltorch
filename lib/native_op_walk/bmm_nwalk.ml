@@ -8,28 +8,56 @@
    the same [N]-like role the rest of this directory bounds that way. *)
 
 module M = struct
-  type cfg = { batch : int; n : int; m : int; p : int }
+  type cfg = {
+    batch : Dim.extent Dim.t;
+    n : Dim.extent Dim.t;
+    m : Dim.extent Dim.t;
+    p : Dim.extent Dim.t;
+  }
+
   type subject = Native_subject.t
 
   let target = "bmm"
-  let initial = { batch = 1; n = 2; m = 3; p = 4 }
+
+  let initial =
+    { batch = Dim.one; n = Dim.extent 2; m = Dim.extent 3; p = Dim.extent 4 }
+
   let cascade c = c
 
   let axes =
     Walk_core.Walk.
       [
-        int_axis "batch" ~lo:1 ~hi:Walk_limits.L.limits.max_batch (fun c v ->
-            { c with batch = v });
-        int_axis "n" ~lo:1 ~hi:8 (fun c v -> { c with n = v });
-        int_axis "m" ~lo:1 ~hi:8 (fun c v -> { c with m = v });
-        int_axis "p" ~lo:1 ~hi:8 (fun c v -> { c with p = v });
+        range_axis
+          (module Extent)
+          "batch" ~lo:Extent.one
+          ~hi:(Extent.of_int Walk_limits.L.limits.max_batch)
+          (fun c v -> { c with batch = v });
+        range_axis
+          (module Extent)
+          "n" ~lo:Extent.one ~hi:(Extent.of_int 8)
+          (fun c v -> { c with n = v });
+        range_axis
+          (module Extent)
+          "m" ~lo:Extent.one ~hi:(Extent.of_int 8)
+          (fun c v -> { c with m = v });
+        range_axis
+          (module Extent)
+          "p" ~lo:Extent.one ~hi:(Extent.of_int 8)
+          (fun c v -> { c with p = v });
       ]
 
   let pp fmt c =
-    Format.fprintf fmt "{batch=%d n=%d m=%d p=%d}" c.batch c.n c.m c.p
+    Format.fprintf fmt "{batch=%d n=%d m=%d p=%d}"
+      (c.batch :> int)
+      (c.n :> int)
+      (c.m :> int)
+      (c.p :> int)
 
-  let input_shape c = Vec6.shape ~n:1 ~t:1 ~d:1 ~h:c.batch ~w:c.n ~c:c.m
-  let mat2_shape c = Vec6.shape ~n:1 ~t:1 ~d:1 ~h:c.batch ~w:c.m ~c:c.p
+  let input_shape c =
+    Vec6.make ~n:Dim.one ~t:Dim.one ~d:Dim.one ~h:c.batch ~w:c.n ~c:c.m
+
+  let mat2_shape c =
+    Vec6.make ~n:Dim.one ~t:Dim.one ~d:Dim.one ~h:c.batch ~w:c.m ~c:c.p
 
   let build pcg c =
     let input_v, pcg = Native_tensor.synth pcg (input_shape c) in

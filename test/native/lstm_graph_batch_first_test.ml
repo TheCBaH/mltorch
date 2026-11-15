@@ -74,7 +74,11 @@ let c0 = [| 0.5; 0.1; -0.2; 0.3 |]
 let input = [| 1.0; -0.5; 0.2; 0.7; -0.3; 0.4; 0.6; -0.2 |]
 
 let params : Lstm.Lstm.params =
-  { hidden_size = k; input_size = isz; batch_first = true }
+  {
+    hidden_size = Dim.extent k;
+    input_size = Dim.extent isz;
+    batch_first = true;
+  }
 
 let graph =
   Err.or_raise ~pp_error:Graph_builder.pp_error

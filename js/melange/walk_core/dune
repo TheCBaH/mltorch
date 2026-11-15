@@ -13,4 +13,4 @@
  (modes melange)
  (enabled_if
   (= %{profile} melange))
- (libraries jsont_mel))
+ (libraries core_mel jsont_mel))

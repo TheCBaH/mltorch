@@ -153,7 +153,7 @@ let invocation_text ?dialect ws ~position ~kernel (inv : Loop_bundle.invocation)
                 match loc with
                 | W.Workspace off ->
                     let cell =
-                      Int64.of_int
+                      Core.Storage_units.Element_bytes.to_int64
                         (Payload.packed_cell_bytes
                            buf.Loop_buffer.sg.Tensor_sig.fmt)
                     in

@@ -65,7 +65,10 @@ module Scratch = struct
 end
 
 let sig_bytes (sg : Tensor_sig.t) =
-  let cell = Int64.of_int (Payload.packed_cell_bytes sg.Tensor_sig.fmt) in
+  let cell =
+    Core.Storage_units.Element_bytes.to_int64
+      (Payload.packed_cell_bytes sg.Tensor_sig.fmt)
+  in
   match
     Vec6.numel_bounded ~limit:(Int64.shift_left 1L 40) sg.Tensor_sig.shape
   with

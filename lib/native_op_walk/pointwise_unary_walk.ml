@@ -7,7 +7,17 @@ module Abs = struct
     type cfg = { shape : Walk_core.Shape.t }
 
     let initial =
-      { shape = { Walk_core.Shape.n = 1; t = 1; d = 1; h = 4; w = 4; c = 3 } }
+      {
+        shape =
+          {
+            Walk_core.Shape.n = Dim.one;
+            t = Dim.one;
+            d = Dim.one;
+            h = Dim.extent 4;
+            w = Dim.extent 4;
+            c = Dim.extent 3;
+          };
+      }
 
     let cascade c = c
     let shape (c : cfg) = Walk_shape.vec6 c.shape
@@ -48,7 +58,15 @@ module Clamp = struct
 
     let initial =
       {
-        shape = { Walk_core.Shape.n = 1; t = 1; d = 1; h = 4; w = 4; c = 3 };
+        shape =
+          {
+            Walk_core.Shape.n = Dim.one;
+            t = Dim.one;
+            d = Dim.one;
+            h = Dim.extent 4;
+            w = Dim.extent 4;
+            c = Dim.extent 3;
+          };
         bounds = { min = Some 0.; max = Some 6. };
       }
 
@@ -74,7 +92,17 @@ module Clone = struct
     type cfg = { shape : Walk_core.Shape.t }
 
     let initial =
-      { shape = { Walk_core.Shape.n = 1; t = 1; d = 1; h = 4; w = 4; c = 3 } }
+      {
+        shape =
+          {
+            Walk_core.Shape.n = Dim.one;
+            t = Dim.one;
+            d = Dim.one;
+            h = Dim.extent 4;
+            w = Dim.extent 4;
+            c = Dim.extent 3;
+          };
+      }
 
     let cascade c = c
     let shape (c : cfg) = Walk_shape.vec6 c.shape
@@ -102,7 +130,17 @@ module To_copy = struct
     type cfg = { shape : Walk_core.Shape.t }
 
     let initial =
-      { shape = { Walk_core.Shape.n = 1; t = 1; d = 1; h = 4; w = 4; c = 3 } }
+      {
+        shape =
+          {
+            Walk_core.Shape.n = Dim.one;
+            t = Dim.one;
+            d = Dim.one;
+            h = Dim.extent 4;
+            w = Dim.extent 4;
+            c = Dim.extent 3;
+          };
+      }
 
     let cascade c = c
     let shape (c : cfg) = Walk_shape.vec6 c.shape

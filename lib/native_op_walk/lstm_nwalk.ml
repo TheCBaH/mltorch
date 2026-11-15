@@ -45,7 +45,7 @@ module M = struct
 
   let rec build_layers (c : W.cfg) ~layer =
     let open Graph_builder in
-    if layer >= c.num_layers then return []
+    if layer >= Lstm.Lstm.Num_layers.to_int c.num_layers then return []
     else
       let shapes = W.direction_shapes c ~layer in
       let* forward = build_direction ~layer ~suffix:"" shapes in
@@ -71,7 +71,7 @@ module M = struct
         ([ wih; whh; bih; bhh ], pcg)
 
   let rec synth_layers (c : W.cfg) pcg ~layer =
-    if layer >= c.num_layers then ([], pcg)
+    if layer >= Lstm.Lstm.Num_layers.to_int c.num_layers then ([], pcg)
     else
       let shapes = W.direction_shapes c ~layer in
       let fwd, pcg = synth_direction pcg shapes in

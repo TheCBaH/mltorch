@@ -137,10 +137,24 @@ module Lstm = struct
       | Train -> Fmt.string fmt "lstm: train=true is not supported"
   end
 
+  (* [aten.lstm.input]'s [num_layers], as read: zero and negative stay
+     representable so a ragged [params] list is still a typed row. *)
+  module Num_layers : sig
+    type t
+
+    val of_int : int -> t
+    val to_int : t -> int
+  end = struct
+    type t = int
+
+    let of_int n = n
+    let to_int n = n
+  end
+
   let params_per_direction ~has_biases = if has_biases then 4 else 2
 
   let params_length ~has_biases ~bidirectional ~num_layers =
-    num_layers
+    Num_layers.to_int num_layers
     * (if bidirectional then 2 else 1)
     * params_per_direction ~has_biases
 
@@ -155,7 +169,8 @@ module Lstm = struct
      decoding an untrusted flat list must check its length against
      [params_length] first ([Reject.Params_arity]), turning a ragged list
      into a typed rejection rather than this exception. *)
-  let group_params ~has_biases ~bidirectional ~num_layers (flat : 'a list) :
+  let group_params ~has_biases ~bidirectional ~(num_layers : Num_layers.t)
+      (flat : 'a list) :
       (('a * 'a * ('a * 'a) option) * ('a * 'a * ('a * 'a) option) option) list
       =
     let take_direction lst =
@@ -166,7 +181,7 @@ module Lstm = struct
       | _ -> invalid_arg "Lstm.group_params: ragged params list"
     in
     let rec go layer lst =
-      if layer >= num_layers then
+      if layer >= Num_layers.to_int num_layers then
         match lst with
         | [] -> []
         | _ -> invalid_arg "Lstm.group_params: leftover params"
@@ -182,20 +197,48 @@ module Lstm = struct
     in
     go 0 flat
 
-  type params = { hidden_size : int; input_size : int; batch_first : bool }
+  module Directions = struct
+    type t = Bidirectional | Forward_only
+
+    let count = function Bidirectional -> 2 | Forward_only -> 1
+
+    (* [directions * hidden_size], the width a layer presents to the next;
+       in range once [output_shape] has bounded [4 * hidden_size]. *)
+    let width t (k : Dim.extent Dim.t) = Dim.extent (count t * (k :> int))
+  end
+
+  type params = {
+    hidden_size : Dim.extent Dim.t;
+    input_size : Dim.extent Dim.t;
+    batch_first : bool;
+  }
+
+  (* [params] from untrusted sizes; one below 1 is reported as written. *)
+  let params_of_sizes ~hidden_size ~input_size ~batch_first =
+    let size dim value =
+      if value < 1 then
+        Err.fail (`Lstm (Shape_error.Lstm.Non_positive_dim { dim; value }))
+      else Err.return (Dim.extent value)
+    in
+    let open Err.Syntax in
+    let* hidden_size = size Shape_error.Lstm.Hidden_size hidden_size in
+    let+ input_size = size Shape_error.Lstm.Input_size input_size in
+    { hidden_size; input_size; batch_first }
 
   let params_jsont : params Jsont.t =
     Jsont.Object.map ~kind:"lstm_params"
       (fun hidden_size input_size batch_first ->
         { hidden_size; input_size; batch_first })
-    |> Jsont.Object.mem "hidden_size" Jsont.int ~enc:(fun p -> p.hidden_size)
-    |> Jsont.Object.mem "input_size" Jsont.int ~enc:(fun p -> p.input_size)
+    |> Jsont.Object.mem "hidden_size" Dim.extent_jsont ~enc:(fun p ->
+        p.hidden_size)
+    |> Jsont.Object.mem "input_size" Dim.extent_jsont ~enc:(fun p ->
+        p.input_size)
     |> Jsont.Object.mem "batch_first" Jsont.bool ~enc:(fun p -> p.batch_first)
     |> Jsont.Object.finish
 
   let pp_params fmt (p : params) =
-    Fmt.pf fmt "@[<hv>{hidden_size=%d;@ input_size=%d;@ batch_first=%b}@]"
-      p.hidden_size p.input_size p.batch_first
+    Fmt.pf fmt "@[<hv>{hidden_size=%a;@ input_size=%a;@ batch_first=%b}@]"
+      Dim.pp p.hidden_size Dim.pp p.input_size p.batch_first
 
   (* Time-first: seq on H, batch on W. Batch-first: batch on H, seq on W.
      Channel is C either way (the LSTM lowering analysis's table). *)
@@ -257,20 +300,30 @@ module Lstm = struct
 
   let state_shape ~(p : params) ~(layers : Dim.extent Dim.t)
       ~(batch : Dim.extent Dim.t) =
-    Vec6.shape ~n:1 ~t:1 ~d:1
-      ~h:(layers :> int)
-      ~w:(batch :> int)
+    Vec6.make ~n:Dim.one ~t:Dim.one ~d:Dim.one ~h:layers ~w:batch
       ~c:p.hidden_size
 
+  (* [4 * hidden_size] bounds every width [params] implies. *)
+  let check_gate_rows (p : params) =
+    Err.map_error
+      (function
+        | `Product_over_limit w -> `Lstm (Shape_error.Lstm.Width_over_limit w))
+      (Dim.product_bounded ~limit:(Int64.shift_left 1L 31)
+         [ Dim.extent 4; p.hidden_size ])
+
+  let gate_rows (p : params) =
+    match check_gate_rows p with
+    | Ok rows -> rows
+    | Error _ -> invalid_arg "Lstm: 4 * hidden_size exceeds the int range"
+
+  let row_shape ~n ~c =
+    Vec6.make ~n ~t:Dim.one ~d:Dim.one ~h:Dim.one ~w:Dim.one ~c
+
   let weight_ih_shape (p : params) ~(layer_input_size : Dim.extent Dim.t) =
-    Vec6.shape ~n:(4 * p.hidden_size) ~t:1 ~d:1 ~h:1 ~w:1
-      ~c:(layer_input_size :> int)
+    row_shape ~n:(gate_rows p) ~c:layer_input_size
 
-  let weight_hh_shape (p : params) =
-    Vec6.shape ~n:(4 * p.hidden_size) ~t:1 ~d:1 ~h:1 ~w:1 ~c:p.hidden_size
-
-  let bias_shape (p : params) =
-    Vec6.shape ~n:(4 * p.hidden_size) ~t:1 ~d:1 ~h:1 ~w:1 ~c:1
+  let weight_hh_shape (p : params) = row_shape ~n:(gate_rows p) ~c:p.hidden_size
+  let bias_shape (p : params) = row_shape ~n:(gate_rows p) ~c:Dim.one
 
   let same_shape a b =
     List.for_all
@@ -345,25 +398,15 @@ module Lstm = struct
     let* () = check_input_layout ~input_shape in
     let batch = Vec6.get input_shape (batch_axis p) in
     let seq = Vec6.get input_shape (time_axis p) in
-    let* () =
-      if p.hidden_size <= 0 then
-        Err.fail
-          (`Lstm
-             (Shape_error.Lstm.Non_positive_dim
-                { dim = Hidden_size; value = p.hidden_size }))
-      else if p.input_size <= 0 then
-        Err.fail
-          (`Lstm
-             (Shape_error.Lstm.Non_positive_dim
-                { dim = Input_size; value = p.input_size }))
-      else Err.return ()
-    in
+    let* (_ : Dim.extent Dim.t) = check_gate_rows p in
     let* () =
       if layers = [] then Err.fail (`Lstm Shape_error.Lstm.Empty_layers)
       else Err.return ()
     in
     let bidirectional = (List.hd layers).reverse <> None in
-    let directions = if bidirectional then 2 else 1 in
+    let directions : Directions.t =
+      if bidirectional then Bidirectional else Forward_only
+    in
     let* () =
       Err.List.iter
         (fun (q, (layer : Layer_shapes.t)) ->
@@ -373,8 +416,8 @@ module Lstm = struct
             else Err.return ()
           in
           let layer_input_size =
-            Dim.extent
-              (if q = 0 then p.input_size else directions * p.hidden_size)
+            if q = 0 then p.input_size
+            else Directions.width directions p.hidden_size
           in
           let* () = check_direction ~p ~layer_input_size layer.forward in
           match layer.reverse with
@@ -384,7 +427,9 @@ module Lstm = struct
     in
     let num_layers = List.length layers in
     let expected_state =
-      state_shape ~p ~layers:(Dim.extent (num_layers * directions)) ~batch
+      state_shape ~p
+        ~layers:(Dim.extent (num_layers * Directions.count directions))
+        ~batch
     in
     let* () =
       check_operand ~operand:`Lstm_state ~expected:expected_state
@@ -396,7 +441,7 @@ module Lstm = struct
     in
     let out_shape =
       let base =
-        Vec6.shape ~n:1 ~t:1 ~d:1 ~h:1 ~w:1 ~c:(directions * p.hidden_size)
+        row_shape ~n:Dim.one ~c:(Directions.width directions p.hidden_size)
       in
       Vec6.set (Vec6.set base (time_axis p) seq) (batch_axis p) batch
     in
@@ -437,17 +482,6 @@ module Lstm = struct
     end
 
     (* Whether a layer has a reverse scan beside its forward one. *)
-    module Directions = struct
-      type t = Bidirectional | Forward_only
-
-      let count = function Bidirectional -> 2 | Forward_only -> 1
-
-      (* The width of the hidden state the scans of a layer present to the
-         next, [directions * hidden_size]. [output_shape] has already built a
-         shape with this as its channel extent, so it is in range. *)
-      let width t (k : Dim.extent Dim.t) = Dim.extent (count t * (k :> int))
-    end
-
     (* A layer's position in the stack. *)
     module Layer =
       Core.Tagged_int.Make
@@ -883,7 +917,7 @@ module Lstm = struct
         ~(layers : Layer_operands.t list) ~(input : Tensor_sig.t) ~h0 ~c0
         ~out_shape ~hn_shape ~cn_shape :
         (Region_group.t, Region_group.error) Err.t =
-      let k = Dim.extent p.hidden_size in
+      let k = p.hidden_size in
       let time_axis = time_axis p and batch_axis = batch_axis p in
       let seq = Vec6.get input.Tensor_sig.shape time_axis in
       let num_layers = List.length layers in
@@ -905,8 +939,8 @@ module Lstm = struct
       let partition_state = whole_partition [ Axis.H; Axis.C ] in
       Region_program.Builder.run
         (build_layers ~scan_limits ~k ~seq ~batch ~time_axis ~batch_axis
-           ~directions ~input_size:(Dim.extent p.input_size) ~input ~h0 ~c0
-           ~layers:indexed ~prev:None ~acc:[] ~finish:(fun reads ->
+           ~directions ~input_size:p.input_size ~input ~h0 ~c0 ~layers:indexed
+           ~prev:None ~acc:[] ~finish:(fun reads ->
              let by_a =
                Array.make
                  (num_layers * Directions.count directions)

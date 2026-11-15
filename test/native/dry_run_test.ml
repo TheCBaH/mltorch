@@ -77,7 +77,8 @@ let input_bytes (g : graph) =
       in
       Int64.add acc
         (Int64.mul numel
-           (Int64.of_int (Payload.packed_cell_bytes sg.Tensor_sig.fmt))))
+           (Core.Storage_units.Element_bytes.to_int64
+              (Payload.packed_cell_bytes sg.Tensor_sig.fmt))))
     0L g.Graph.inputs
 
 let%expect_test "the script's peak plus the inputs equals peak_bytes" =

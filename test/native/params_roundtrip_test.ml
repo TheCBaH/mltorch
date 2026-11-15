@@ -427,8 +427,8 @@ let%expect_test "Pad: encode -> decode, signed entries and a non-exact fill" =
         {
           Pad.Pad.pads =
             [
-              (Axis.H, { Pad.Pad.before = 2; after = 1 });
-              (Axis.W, { Pad.Pad.before = -1; after = 0 });
+              (Axis.H, { Pad.Pad.before = Dim.delta 2; after = Dim.delta 1 });
+              (Axis.W, { Pad.Pad.before = Dim.delta (-1); after = Dim.delta 0 });
             ];
           mode = Pad.Pad.Constant 0.1;
         }
@@ -450,7 +450,8 @@ let%expect_test "Pad: encode -> decode, the reflect mode has no fill to carry" =
       let* x = input ~shape:(s 1 1 1 4 5 2) ~name:"x" () in
       pad ~name:"y"
         {
-          Pad.Pad.pads = [ (Axis.W, { Pad.Pad.before = 3; after = 2 }) ];
+          Pad.Pad.pads =
+            [ (Axis.W, { Pad.Pad.before = Dim.delta 3; after = Dim.delta 2 }) ];
           mode = Pad.Pad.Reflect;
         }
         x);
@@ -483,7 +484,10 @@ let%expect_test "Pad: the builder narrows a Constant fill to f32" =
           let* x = input ~shape:(s1c 4) ~name:"x" () in
           pad ~name:"y"
             {
-              Pad.Pad.pads = [ (Axis.C, { Pad.Pad.before = 1; after = 0 }) ];
+              Pad.Pad.pads =
+                [
+                  (Axis.C, { Pad.Pad.before = Dim.delta 1; after = Dim.delta 0 });
+                ];
               mode = Pad.Pad.Constant 0.1;
             }
             x)

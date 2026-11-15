@@ -4,7 +4,7 @@
 # [todo-domain] is a debt marker (an int that names an entity); the ceiling only goes down.
 # [ml:<dir>] scope entries also read the inferred interface of each .ml without an .mli; a library enters with an opening
 # [todo-domain] balance that is part of the ceiling, and the ceiling only goes down from there.
-@todo-domain-ceiling 44
+@todo-domain-ceiling 25
 lib/band_schedule/band_schedule.mli	defn	type t = private int
 lib/band_schedule/band_schedule.mli	defn	val of_int : int -> t
 lib/band_schedule/band_schedule.mli	defn	val to_int : t -> int
@@ -561,7 +561,7 @@ lib/native/op_config.mli	defn	type fault = [ `Negative of int | `Not_positive of
 lib/native/op_config.mli	defn	val pos : op:string -> param:param -> int -> (Pos.t, t) result
 lib/native/op_config.mli	defn	val nonneg : op:string -> param:param -> int -> (Nonneg.t, t) result end
 lib/native/quant.mli	arity	type error = [ `Quant_array_lengths of int * int | `Quant_not_binary32 of [ `Scale | `Zero_point ] * float ]
-lib/native/quant.mli	tally	val channel_count : t -> int option
+lib/native/quant.mli	todo-domain	val channel_count : t -> int option
 lib/native/quant.mli	quantum	val dequantize : t -> c:Dim.index Dim.t -> q:int -> float
 lib/native/quant.mli	quantum	val dequantize32 : t -> c:Dim.index Dim.t -> q:int -> float
 lib/native/quant.mli	quantum	val quantize : t -> c:Dim.index Dim.t -> qmin:int -> qmax:int -> float -> int
@@ -595,7 +595,7 @@ lib/native/region_program.mli	budget	val scan : limits:Expr.Scan_limits.t -> wid
 lib/native/region_program.mli	budget	val finish : max_size:int -> max_depth:int -> partition:Region_partition.t -> output:float Expr.Value.t -> (program, error) Err.t t
 lib/native/region_slots.mli	expr-literal	val reader : t -> float array -> (Expr.Local_var.t -> float option) * (Expr.Local_var.t -> int -> float option)
 lib/native/region_trace.mli	tally	type coverage = { total : int; keys : int; visited : int; duplicates : int; missing : int; }
-lib/native/shape_error.mli	as-written	type error = | Empty_layers | Non_positive_dim of { dim : dim; value : int } | Nonuniform_direction
+lib/native/shape_error.mli	as-written	type error = | Empty_layers | Non_positive_dim of { dim : dim; value : int } | Nonuniform_direction | Width_over_limit of Dim.Product_witness.t
 lib/native/shape_error.mli	arity	type t = { side : perm_side; axis : Axis.t; count : int }
 lib/native/shape_error.mli	tally	type observed = At_least of int | Exact of int
 lib/native/shape_error.mli	budget	type t = { limit : int; observed : observed }
@@ -622,7 +622,7 @@ lib/native/transform/ground_eval.mli	budget	type t = { max_ground_nodes : int64;
 lib/native/transform/ground_eval.mli	budget	type error = [ Expr.Eval.error | `Data_index_unresolved | `Ground_nodes_over_limit of int64 | `Group of Region_group.error | `Pair_nodes_over_limit of int | `Partition of Region_partition.error | `Region of Region_program.error | `Unknown_edge of Tensor_id.t | `Unsupported_i64_comparison_ground | `Unsupported_i64_stage_ground | `Unsupported_i64_to_float_ground | `Unsupported_value_eq_ground ]
 lib/native/transform/ground_expr.mli	hash	val compare : t -> t -> int
 lib/native/transform/ground_expr.mli	hash	val compare : t -> t -> int
-lib/native/transform/ground_expr.mli	arity	val draw : int -> Cell.Set.t -> t end
+lib/native/transform/ground_expr.mli	todo-domain	val draw : int -> Cell.Set.t -> t end
 lib/native/transform/ground_expr.mli	hash	val compare : t -> t -> int
 lib/native/transform/ground_expr.mli	hash	val hash : t -> int
 lib/native/transform/ground_expr.mli	hash	val compare_guard : guard -> guard -> int
@@ -688,15 +688,9 @@ lib/native/kernel_hard_shared.ml	budget	val max_local_slots : int
 lib/native/kernel_hard_shared.ml	budget	val max_scan_state : int
 lib/native/ops/factory.ml	as-written	module Overflow : sig type t = { start : int64; step : int64; i : int; } end
 lib/native/ops/factory.ml	as-written	val value_i64_exact : Exact.t -> int -> (int64, [> `Arange_i64_overflow of Overflow.t ]) Err.t
-lib/native/ops/index_tensor.ml	todo-domain	val axis_at : int -> Axis.t
-lib/native/ops/index_tensor.ml	defn	val rank_int : Rank.t -> int
-lib/native/ops/index_tensor.ml	todo-domain	val trailing : params -> int
-lib/native/ops/index_tensor.ml	todo-domain	val broadcast_rank : params -> int
 lib/native/ops/lstm.ml	as-written	type t = Hx_arity of int | Params_arity of { expected : int; got : int; } | Train
 lib/native/ops/lstm.ml	tally	val params_per_direction : has_biases:bool -> int
-lib/native/ops/lstm.ml	tally	val params_length : has_biases:bool -> bidirectional:bool -> num_layers:int -> int
-lib/native/ops/lstm.ml	todo-domain	val group_params : has_biases:bool -> bidirectional:bool -> num_layers:int -> 'a list -> (('a * 'a * ('a * 'a) option) * ('a * 'a * ('a * 'a) option) option) list
-lib/native/ops/lstm.ml	todo-domain	type params = { hidden_size : int; input_size : int; batch_first : bool; }
+lib/native/ops/lstm.ml	tally	val params_length : has_biases:bool -> bidirectional:bool -> num_layers:Num_layers.t -> int
 lib/native/ops/lstm.ml	tally	val count : t -> int
 lib/native/ops/lstm.ml	defn	type t = private int
 lib/native/ops/lstm.ml	defn	val of_int : int -> t
@@ -711,9 +705,6 @@ lib/native/ops/lstm.ml	defn	val of_int : int -> t
 lib/native/ops/lstm.ml	tally	val check_room : t -> count:int -> unit
 lib/native/ops/lstm.ml	tally	val alloc_n : t -> int -> id list * t
 lib/native/ops/lstm.ml	hash	val compare : t -> t -> int
-lib/native/ops/pad.ml	todo-domain	type entry = { before : int; after : int; }
-lib/native/ops/pad.ml	todo-domain	type t = { pad : int list; rank : Rank.t; mode : string; fault : fault; }
-lib/native/ops/pad.ml	todo-domain	val params_of_aten : rank:Rank.t -> pad:int list -> mode:string -> value:float option -> (params, [> `Bad_pad_list of Bad_pad_list.t ]) Err.t
 lib/native/ops/pad.ml	as-written	val bound : what:Shape_error.Window_over_limit.quantity -> int -> (int64, Shape_error.t) Err.t
 lib/native/ops/resize.ml	expr-literal	val index_const : int -> Semantics.delta index
 lib/native/ops/resize.ml	expr-literal	val index_scale : int -> Semantics.delta index -> Semantics.delta index
@@ -727,8 +718,6 @@ lib/native/ops/window_axis.ml	as-written	val factor : what:Shape_error.Window_ov
 lib/native/ops/window_axis.ml	expr-literal	val index_const : int -> Semantics.delta index
 lib/native/ops/window_axis.ml	expr-literal	val index_scale : int -> Semantics.delta index -> Semantics.delta index
 lib/native/payload.ml	defn	type ('elt, 'ba, 'q) fmt = BF16 : (int, Bigarray.int16_unsigned_elt, [ `Real ]) fmt | Bool : (int, Bigarray.int8_unsigned_elt, [ `Real ]) fmt | F16 : (int, Bigarray.int16_unsigned_elt, [ `Real ]) fmt | F32 : (float, Bigarray.float32_elt, [ `Real ]) fmt | F64 : (float, Bigarray.float64_elt, [ `Real ]) fmt | I16 : (int, Bigarray.int16_signed_elt, [ `Quant ]) fmt | I32 : (int32, Bigarray.int32_elt, [ `Real ]) fmt | I64 : (int64, Bigarray.int64_elt, [ `Real ]) fmt | I8 : (int, Bigarray.int8_signed_elt, [ `Quant ]) fmt
-lib/native/payload.ml	todo-domain	val cell_bytes : ('e, 'b, 'q) fmt -> int
-lib/native/payload.ml	todo-domain	val packed_cell_bytes : packed_fmt -> int
 lib/native/payload.ml	wire	val qrange : ('e, 'b, 'q) fmt -> int * int
 lib/native/payload.ml	budget	val enc_data_union : max_elts:int option -> numel:int -> iter_floats:((int -> float -> unit) -> 'a) -> Jsont.json
 lib/native/region_slots_i64.ml	expr-literal	val reader : t -> int64 array -> (Expr.Local_var.Map.key -> int64 option) * (Expr.Local_var.Map.key -> int -> int64 option)
@@ -895,10 +884,10 @@ lib/native_predict/native_predict.mli	as-written	val top_predictions : Tensor.pa
 lib/paired_timing/count.mli	defn	type t = private int
 lib/paired_timing/count.mli	defn	val of_int : int -> t
 lib/paired_timing/count.mli	defn	val to_int : t -> int
-lib/pt2/pt2_storage.mli	wire	val length : t -> int
-lib/pt2/pt2_storage.mli	wire	val get_uint8 : t -> int -> int
-lib/pt2/pt2_storage.mli	wire	val get_int32_le : t -> int -> int32
-lib/pt2/pt2_storage.mli	wire	val get_int64_le : t -> int -> int64
+lib/pt2/pt2_storage.mli	todo-domain	val length : t -> int
+lib/pt2/pt2_storage.mli	todo-domain	val get_uint8 : t -> int -> int
+lib/pt2/pt2_storage.mli	todo-domain	val get_int32_le : t -> int -> int32
+lib/pt2/pt2_storage.mli	todo-domain	val get_int64_le : t -> int -> int64
 lib/pt2/pt2_archive.ml	as-written	val of_string : ?limits:Pt2_zip.Limits.t -> name:'a -> string -> (t, [> `Constants_config_decode of string | `Model_json_decode of string | `Read_archive_member of string * [> `Zip_missing_entry of Zipc.Fpath.t | `Zip_read_failed of Pt2_zip.Zip_read_failure.t | `Zip_stored_size_mismatch of Zipc.Fpath.t | `Zip_unsupported_method of Zipc.Fpath.t ] | `Weights_config_decode of string | `Zip_open of 'a * [> `Zip_bad_path of Pt2_zip.Path_rejection.t | `Zip_duplicate_paths of int | `Zip_encrypted_entry of Zipc.Fpath.t | `Zip_entry_too_large of Pt2_zip.Entry_bound.t | `Zip_no_eocd | `Zip_parse_failed of string | `Zip_too_many_entries of int | `Zip_total_too_large of int64 | `Zip_unsupported_method of Zipc.Fpath.t ] ]) Err.t
 lib/pt2/pt2_archive.ml	as-written	val open_pt2 : ?limits:Pt2_zip.Limits.t -> ?max_bytes:Int64.t -> string -> (t, [> `Constants_config_decode of string | `Io of Io.t | `Io_too_large of string * Int64.t | `Model_json_decode of string | `Read_archive_member of string * [> `Zip_missing_entry of Zipc.Fpath.t | `Zip_read_failed of Pt2_zip.Zip_read_failure.t | `Zip_stored_size_mismatch of Zipc.Fpath.t | `Zip_unsupported_method of Zipc.Fpath.t ] | `Weights_config_decode of string | `Zip_open of string * [> `Zip_bad_path of Pt2_zip.Path_rejection.t | `Zip_duplicate_paths of int | `Zip_encrypted_entry of Zipc.Fpath.t | `Zip_entry_too_large of Pt2_zip.Entry_bound.t | `Zip_no_eocd | `Zip_parse_failed of string | `Zip_too_many_entries of int | `Zip_total_too_large of int64 | `Zip_unsupported_method of Zipc.Fpath.t ] ]) Err.t
 lib/pt2/pt2_archive.ml	as-written	val pt_of_string : ?limits:Pt2_zip.Limits.t -> name:'a -> string -> (Pt2_tensor.t, [> `Pt_pickle of 'a * Pt2_pickle.error | `Read_archive_member of string * [> `Zip_missing_entry of Zipc.Fpath.t | `Zip_read_failed of Pt2_zip.Zip_read_failure.t | `Zip_stored_size_mismatch of Zipc.Fpath.t | `Zip_unsupported_method of Zipc.Fpath.t ] | `Zip_open of 'a * [> `Zip_bad_path of Pt2_zip.Path_rejection.t | `Zip_duplicate_paths of int | `Zip_encrypted_entry of Zipc.Fpath.t | `Zip_entry_too_large of Pt2_zip.Entry_bound.t | `Zip_no_eocd | `Zip_parse_failed of string | `Zip_too_many_entries of int | `Zip_total_too_large of int64 | `Zip_unsupported_method of Zipc.Fpath.t ] ]) Err.t
@@ -982,22 +971,7 @@ lib/ssa_wasm/ssa_wasm_ctx.ml	expr-literal	val fits32 : int -> bool
 lib/ssa_wasm/ssa_wasm_ctx.ml	as-written	val i64_of_int : int -> I.t list
 lib/walk_core/limits.ml	budget	type t = { max_kernel : int; max_stride : int; max_pad : int; max_dilation : int; max_channels : int; max_extent : int; max_batch : int; max_numel : int; }
 lib/walk_core/pcg.ml	bits	val top24 : int64 -> int
-lib/walk_core/shape.ml	todo-domain	type t = { n : int; t : int; d : int; h : int; w : int; c : int; }
-lib/walk_core/shape.ml	todo-domain	val numel : t -> int
-lib/walk_core/shape.ml	todo-domain	val cap : Walk_core.Limits.t -> [< `C | `H | `N | `W ] -> int
-lib/walk_core/shape.ml	todo-domain	val get : t -> [< `C | `H | `N | `W ] -> int
-lib/walk_core/shape.ml	todo-domain	val set : t -> [< `C | `H | `N | `W ] -> int -> t
-lib/walk_core/shape.ml	todo-domain	val resize : Walk_core.Limits.t -> t -> axis:[< `C | `H | `N | `W ] -> int -> t
-lib/walk_core/walk.ml	todo-domain	val index_of : int64 -> m:int -> int
-lib/walk_core/walk.ml	todo-domain	val int_in : Walk_core.Pcg.t -> lo:int -> hi:int -> int * Walk_core.Pcg.t
-lib/walk_core/walk.ml	todo-domain	val int_axis : string -> lo:int -> hi:int -> ('a -> int -> 'a) -> 'a axis
-lib/walk_core/walk.ml	todo-domain	type hw = { h : int; w : int; }
-lib/walk_core/walk.ml	todo-domain	val hw_axis : string -> lo:int -> hi:int -> ('a -> hw -> 'a) -> 'a axis
 lib/walk_core/walk.ml	budget	val run : (module Op with type subject = 's) -> verify:(Format.formatter -> 's -> bool) -> ppf:Format.formatter -> pcg:Walk_core.Pcg.t -> steps:int -> bool
-lib/walk_core/window_math.ml	todo-domain	val output_dim : in_size:int -> pad:int -> kernel:int -> dilation:int -> stride:int -> int
-lib/walk_core/window_math.ml	todo-domain	val grow_input : in_size:int -> pad:int -> kernel:int -> dilation:int -> int
-lib/walk_core/window_math.ml	todo-domain	val clamp_pad_pool : pad:int -> kernel:int -> int
-lib/walk_core/window_math.ml	todo-domain	val round_up_multiple : n:int -> m:int -> int
 lib/wasm_ir/wasm_census.mli	tally	val count : t -> Role.t -> int
 lib/wasm_ir/wasm_census.mli	tally	val total : t -> int
 lib/wasm_ir/wasm_census.mli	tally	val helpers : t -> (string * int) list
@@ -1037,3 +1011,9 @@ lib/coralnpu_kernels/peak_kernels.ml	cell	type shape = { rows : Core.Dim.extent 
 lib/coralnpu_kernels/peak_kernels.ml	cell	val a : shape -> Core.Dim.index Core.Dim.t -> Core.Dim.index Core.Dim.t -> int
 lib/coralnpu_kernels/peak_kernels.ml	cell	val b : shape -> Core.Dim.index Core.Dim.t -> Core.Dim.index Core.Dim.t -> int
 lib/coralnpu_kernels_zvt/peak_zvt.ml	bits	type shape = { mtwiden : int; tk : Core.Dim.extent Core.Dim.t; vtype : int; lmul : Coralnpu_kernels.Peak_kernels.Vtype.Lmul.t; a : int; b : int; acc : Coralnpu_kernels.Peak_kernels.Elem.t; sum : int; }
+lib/native/graph_builder.mli	as-written	val lstm_params_of_sizes : hidden_size:int -> input_size:int -> batch_first:bool -> Lstm.Lstm.params t
+lib/native/ops/lstm.ml	as-written	val params_of_sizes : hidden_size:int -> input_size:int -> batch_first:bool -> (params, [> `Lstm of Shape_error.Lstm.error ]) Err.t
+lib/native/ops/lstm.ml	defn	module Num_layers : sig type t val of_int : int -> t val to_int : t -> int end
+lib/walk_core/walk.ml	defn	module type Domain = sig type t val of_int : int -> t val to_int : t -> int end
+lib/walk_core/walk.ml	defn	val of_int : int -> Core.Dim.extent Core.Dim.t
+lib/walk_core/walk.ml	defn	val to_int : t -> int

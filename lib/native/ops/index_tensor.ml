@@ -276,15 +276,72 @@ module Index_pair = struct
     Fmt.pf fmt "@[<hv 2>index_pair@ self=%a@ index0=%a@ index1=%a@ params=%a@]"
       pp_ref t.self pp_ref t.index0 pp_ref t.index1 pp_params t.params
 
-  let axis_at k = List.nth Axis.all k
-  let rank_int (r : Rank.t) = (r :> int)
+  (* Positions along the six-axis frame, and the count of self axes after the
+     two indexed ones. Both are signed: shifting a result position left by the
+     trailing count can leave the frame, which is how the compute tells a result
+     axis that indexes the broadcast shape from a trailing self axis, and a
+     rank-1 self has a trailing count of -1 (refused before it is used). The
+     representation stays behind the signature so a position cannot be passed
+     for a count. *)
+  module Frame : sig
+    type pos
+    type trailing
 
-  (* The shift between an index axis and the result axis for the same logical
-     dimension, and the broadcast rank. *)
-  let trailing (p : params) = rank_int p.self_rank - 2
+    val of_axis : Axis.t -> pos
+    val axis_at : pos -> Axis.t
+    val positions : pos list
+    val succ : pos -> pos
+    val at_or_after : pos -> pos -> bool
+    val inside : pos -> bool
+    val first_real : rank:Rank.t -> pos
+    val is_real : rank:Rank.t -> pos -> bool
+    val trailing_of_self_rank : Rank.t -> trailing
+    val self_too_small : trailing -> bool
+    val fits : broadcast:Rank.t -> trailing:trailing -> bool
+    val trailing_start : trailing:trailing -> pos
+    val result_start : broadcast:Rank.t -> trailing:trailing -> pos
+    val index_side : pos -> trailing:trailing -> pos
+    val result_side : pos -> trailing:trailing -> pos
+  end = struct
+    type pos = int
+    type trailing = int
 
-  let broadcast_rank (p : params) =
-    max (rank_int p.index0_rank) (rank_int p.index1_rank)
+    let frame = 6
+    let of_axis a = Axis.to_int a
+
+    (* The axis at a position known to be inside the frame. *)
+    let axis_at p = List.nth Axis.all p
+    let positions = List.map of_axis Axis.all
+    let succ = Stdlib.succ
+    let at_or_after p q = p >= q
+    let inside p = p >= 0 && p < frame
+
+    (* Where a [rank]-dimensional tensor's real axes begin: the frame is
+       right-aligned. *)
+    let first_real ~(rank : Rank.t) = frame - (rank :> int)
+    let is_real ~rank p = p >= first_real ~rank
+    let trailing_of_self_rank (r : Rank.t) = (r :> int) - 2
+    let self_too_small t = t < 0
+
+    (* Whether the broadcast index axes and the trailing self axes fit the
+       frame together. *)
+    let fits ~(broadcast : Rank.t) ~trailing =
+      (broadcast :> int) + trailing <= frame
+
+    (* The first position of the trailing self axes. *)
+    let trailing_start ~trailing = frame - trailing
+
+    (* The first position of the result's broadcast axes. *)
+    let result_start ~(broadcast : Rank.t) ~trailing =
+      frame - ((broadcast :> int) + trailing)
+
+    (* An index axis sits [trailing] axes to the right of the result axis for
+       the same logical dimension. *)
+    let index_side p ~trailing = p + trailing
+    let result_side p ~trailing = p - trailing
+  end
+
+  let broadcast_rank (p : params) : Rank.t = max p.index0_rank p.index1_rank
 
   (* Extents outside a tensor's own [rank] real axes must be 1: the rank is a
      claim made before the frame erased it, proved here against the shape. *)
@@ -302,13 +359,15 @@ module Index_pair = struct
   let output_shape ~(self_shape : Vec6.shape) ~(index0_shape : Vec6.shape)
       ~(index1_shape : Vec6.shape) (p : params) =
     let open Err.Syntax in
-    let t = trailing p and rb = broadcast_rank p in
+    let trailing = Frame.trailing_of_self_rank p.self_rank
+    and broadcast = broadcast_rank p in
     let* () =
-      if rank_int p.self_rank < 2 || rb + t > 6 then
+      if Frame.self_too_small trailing || not (Frame.fits ~broadcast ~trailing)
+      then
         Err.fail
           (`Index_tensor
              (Shape_error.Index_tensor.Pair_rank
-                { self_rank = p.self_rank; broadcast_rank = Rank.of_int rb }))
+                { self_rank = p.self_rank; broadcast_rank = broadcast }))
       else Err.return ()
     in
     let* () =
@@ -332,14 +391,16 @@ module Index_pair = struct
       check_extents ~rank:p.index1_rank index1_shape
         ~fail:(index_mismatch p.index1_rank)
     in
-    let ro = rb + t in
+    let result_start = Frame.result_start ~broadcast ~trailing in
+    let trailing_start = Frame.trailing_start ~trailing in
     (* The B dimension at result frame axis [k] (k in [6 - ro, 6 - t)): each
        index contributes the extent at the axis [t] to the right, if it is one
        of its real axes. *)
     let b_extent k =
       let from shape rank =
-        let a = k + t in
-        if a >= 6 - rank_int rank then Vec6.get shape (axis_at a) else Dim.one
+        let a = Frame.index_side k ~trailing in
+        if Frame.is_real ~rank a then Vec6.get shape (Frame.axis_at a)
+        else Dim.one
       in
       let e0 = from index0_shape p.index0_rank
       and e1 = from index1_shape p.index1_rank in
@@ -349,31 +410,35 @@ module Index_pair = struct
       else
         Err.fail
           (`Broadcast
-             Shape_error.Broadcast.{ axis = axis_at k; lhs = e0; rhs = e1 })
+             Shape_error.Broadcast.
+               { axis = Frame.axis_at k; lhs = e0; rhs = e1 })
     in
     Err.List.fold_left
       (fun s k ->
-        let a = axis_at k in
-        if k >= 6 - t then Err.return (Vec6.set s a (Vec6.get self_shape a))
-        else if k >= 6 - ro then
+        let a = Frame.axis_at k in
+        if Frame.at_or_after k trailing_start then
+          Err.return (Vec6.set s a (Vec6.get self_shape a))
+        else if Frame.at_or_after k result_start then
           let+ e = b_extent k in
           Vec6.set s a e
         else Err.return s)
       (Vec6.of_fn (fun _ -> Dim.one))
-      [ 0; 1; 2; 3; 4; 5 ]
+      Frame.positions
 
   module Compute (S : Semantics.SEMANTICS) = struct
     let pixel (p : params) ~(self_shape : Vec6.shape)
         ~(index0_shape : Vec6.shape) ~(index1_shape : Vec6.shape) ~self ~index0
         ~index1 (out : Semantics.position S.index Vec6.t) =
-      let t = trailing p in
-      let ax0 = axis_at (6 - rank_int p.self_rank) in
-      let ax1 = axis_at (6 - rank_int p.self_rank + 1) in
+      let trailing = Frame.trailing_of_self_rank p.self_rank in
+      let first = Frame.first_real ~rank:p.self_rank in
+      let ax0 = Frame.axis_at first in
+      let ax1 = Frame.axis_at (Frame.succ first) in
       let index_coord shape =
         let shifted =
           Vec6.of_fn (fun a ->
-              let k = Axis.to_int a - t in
-              if k >= 0 then Vec6.get out (axis_at k) else S.index_zero)
+              let k = Frame.result_side (Frame.of_axis a) ~trailing in
+              if Frame.inside k then Vec6.get out (Frame.axis_at k)
+              else S.index_zero)
         in
         Pointwise.broadcast_coord ~index_zero:S.index_zero shape shifted
       in
@@ -389,7 +454,10 @@ module Index_pair = struct
         Vec6.of_fn (fun a ->
             if Axis.equal a ax0 then p0
             else if Axis.equal a ax1 then p1
-            else if Axis.to_int a >= 6 - t then Vec6.get out a
+            else if
+              Frame.at_or_after (Frame.of_axis a)
+                (Frame.trailing_start ~trailing)
+            then Vec6.get out a
             else S.index_zero)
       in
       S.load self self_coord

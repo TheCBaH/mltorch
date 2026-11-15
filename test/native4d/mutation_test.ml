@@ -338,8 +338,14 @@ let%expect_test "mutation: convolution padding applied to the wrong side" =
    line into [2 clusters: 2 proved (structural)], so what the counterexample
    refutes is the swap and not the fixture. *)
 let%expect_test "mutation: pad amounts swapped between the two sides" =
-  let pads ~before ~after = [ (Axis.H, { Pad.Pad.before; after }) ] in
-  let pads4 ~before ~after = [ (Axis4.H, { Pad.Pad.before; after }) ] in
+  let pads ~before ~after =
+    [ (Axis.H, { Pad.Pad.before = Dim.delta before; after = Dim.delta after }) ]
+  in
+  let pads4 ~before ~after =
+    [
+      (Axis4.H, { Pad.Pad.before = Dim.delta before; after = Dim.delta after });
+    ]
+  in
   mutated "pad 1/2 -> 2/1"
     (nat "pad"
        Graph_builder.(

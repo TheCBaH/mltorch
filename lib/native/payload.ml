@@ -50,16 +50,22 @@ let pp_fmt fmt f = Fmt.string fmt (fmt_name f)
    cannot give it: I64's 8-byte cell is twice F32's 4-byte one at the same
    cell count. [Bigarray.kind_size_in_bytes] on the format's own kind, not a
    hand-maintained table that could drift from it. *)
-let cell_bytes : type e b q. (e, b, q) fmt -> int = function
-  | BF16 -> Bigarray.kind_size_in_bytes Bigarray.int16_unsigned
-  | Bool -> Bigarray.kind_size_in_bytes Bigarray.int8_unsigned
-  | F16 -> Bigarray.kind_size_in_bytes Bigarray.int16_unsigned
-  | F32 -> Bigarray.kind_size_in_bytes Bigarray.float32
-  | F64 -> Bigarray.kind_size_in_bytes Bigarray.float64
-  | I16 -> Bigarray.kind_size_in_bytes Bigarray.int16_signed
-  | I32 -> Bigarray.kind_size_in_bytes Bigarray.int32
-  | I64 -> Bigarray.kind_size_in_bytes Bigarray.int64
-  | I8 -> Bigarray.kind_size_in_bytes Bigarray.int8_signed
+let element_bytes kind =
+  let width = Int64.of_int (Bigarray.kind_size_in_bytes kind) in
+  Err.or_raise ~pp_error:Core.Storage_units.pp_error
+    (Core.Storage_units.Element_bytes.of_int64 width)
+
+let cell_bytes : type e b q. (e, b, q) fmt -> Core.Storage_units.Element_bytes.t
+    = function
+  | BF16 -> element_bytes Bigarray.int16_unsigned
+  | Bool -> element_bytes Bigarray.int8_unsigned
+  | F16 -> element_bytes Bigarray.int16_unsigned
+  | F32 -> element_bytes Bigarray.float32
+  | F64 -> element_bytes Bigarray.float64
+  | I16 -> element_bytes Bigarray.int16_signed
+  | I32 -> element_bytes Bigarray.int32
+  | I64 -> element_bytes Bigarray.int64
+  | I8 -> element_bytes Bigarray.int8_signed
 
 let packed_cell_bytes (Fmt f) = cell_bytes f
 

@@ -25,7 +25,8 @@ module Pad = struct
             [... c b | a b c d | c b ...]. Requires each positive pad below the
             extent it mirrors, which [output_shape] checks. *)
 
-  type entry = { before : int; after : int }
+  (* Signed, because ATen's are: a negative amount crops. *)
+  type entry = { before : Dim.delta Dim.t; after : Dim.delta Dim.t }
 
   (* One entry per PADDED axis, in [Axis.all] order. Axes absent from the list
      are unpadded; an entry of [{before = 0; after = 0}] is equivalent to
@@ -33,12 +34,15 @@ module Pad = struct
      evidence a reader may want in a printed graph. *)
   type params = { pads : (Axis.t * entry) list; mode : mode }
 
+  let amount_jsont : Dim.delta Dim.t Jsont.t =
+    Jsont.map ~kind:"pad_amount" ~dec:Dim.delta ~enc:Dim.to_int Jsont.int
+
   let entry_jsont : (Axis.t * entry) Jsont.t =
     Jsont.Object.map ~kind:"pad_entry" (fun axis before after ->
         (axis, { before; after }))
     |> Jsont.Object.mem "axis" Axis.jsont ~enc:fst
-    |> Jsont.Object.mem "before" Jsont.int ~enc:(fun (_, e) -> e.before)
-    |> Jsont.Object.mem "after" Jsont.int ~enc:(fun (_, e) -> e.after)
+    |> Jsont.Object.mem "before" amount_jsont ~enc:(fun (_, e) -> e.before)
+    |> Jsont.Object.mem "after" amount_jsont ~enc:(fun (_, e) -> e.after)
     |> Jsont.Object.finish
 
   (* [{"constant": <f32>}] / [{"reflect": null}] through the same single-key
@@ -73,7 +77,7 @@ module Pad = struct
     | Reflect -> Fmt.string fmt "reflect"
 
   let pp_entry fmt (axis, e) =
-    Fmt.pf fmt "@[<h>%a:%d,%d@]" Axis.pp axis e.before e.after
+    Fmt.pf fmt "@[<h>%a:%a,%a@]" Axis.pp axis Dim.pp e.before Dim.pp e.after
 
   let pp_params fmt (p : params) =
     Fmt.pf fmt "@[<hv>{pads=%a mode=%a}@]"
@@ -123,7 +127,12 @@ module Pad = struct
       | `Value_with_non_constant_mode
       | `Unsupported_rank ]
 
-    type t = { pad : int list; rank : Rank.t; mode : string; fault : fault }
+    type t = {
+      pad : Dim.delta Dim.t list;
+      rank : Rank.t;
+      mode : string;
+      fault : fault;
+    }
 
     let pp ppf { pad; rank; mode; fault } =
       let pairs = List.length pad / 2 in
@@ -163,8 +172,8 @@ module Pad = struct
         combination ATen rejects would turn a refusal into a walk MISMATCH,
         which reads as a wrong answer rather than as a boundary.
      5. replicate and circular are outside the Native domain entirely. *)
-  let params_of_aten ~(rank : Rank.t) ~(pad : int list) ~(mode : string)
-      ~(value : float option) =
+  let params_of_aten ~(rank : Rank.t) ~(pad : Dim.delta Dim.t list)
+      ~(mode : string) ~(value : float option) =
     let n = List.length pad in
     let rank_n = (rank :> int) in
     let fail fault =
@@ -208,8 +217,11 @@ module Pad = struct
   (* The per-axis amount, or a zero entry for an unpadded axis. A later
      duplicate cannot shadow an earlier one silently: [output_shape] rejects a
      repeated axis before this is ever consulted. *)
+  let none = { before = Dim.delta 0; after = Dim.delta 0 }
+  let is_none (e : entry) = e.before = none.before && e.after = none.after
+
   let entry_of (p : params) axis =
-    Option.value (List.assoc_opt axis p.pads) ~default:{ before = 0; after = 0 }
+    Option.value (List.assoc_opt axis p.pads) ~default:none
 
   (* Each factor bounded BEFORE the arithmetic, then combined in [int64] -- the
      shape [Window_axis.factor] establishes, and for the same reason: the pad
@@ -231,8 +243,8 @@ module Pad = struct
     let e = Vec6.get x_shape axis in
     let { before; after } = entry_of p axis in
     let* i = bound ~what:`Input_extent (e :> int) in
-    let* b = bound ~what:`Padding before in
-    let* a = bound ~what:`Padding after in
+    let* b = bound ~what:`Padding (before :> int) in
+    let* a = bound ~what:`Padding (after :> int) in
     let out = Int64.add (Int64.add i b) a in
     let fail fault =
       Err.fail
@@ -287,8 +299,8 @@ module Pad = struct
                  {
                    axis;
                    in_extent = Vec6.get x_shape axis;
-                   before = Int64.of_int before;
-                   after = Int64.of_int after;
+                   before = Int64.of_int (before :> int);
+                   after = Int64.of_int (after :> int);
                    out = 0L;
                    fault = `Duplicate_axis;
                  })
@@ -336,9 +348,11 @@ module Pad = struct
          program -- without it every graph stages the full mirror expression on
          all six axes, four of which are structurally extent 1, and the staged
          term for a two-axis pad becomes unreadable. *)
-      if before = 0 && after = 0 then (out_i, S.index_const 0)
+      if is_none { before; after } then (out_i, S.index_const 0)
       else
-        let j = S.index_add (S.of_index out_i) (S.index_const (-before)) in
+        let j =
+          S.index_add (S.of_index out_i) (S.index_const (-(before :> int)))
+        in
         let src =
           match p.mode with
           | Reflect -> clamp_into ~extent (reflect_into ~extent j)
@@ -352,7 +366,7 @@ module Pad = struct
         List.fold_left
           (fun (coord, disp) axis ->
             let { before; after } = entry_of p axis in
-            if before = 0 && after = 0 then (coord, disp)
+            if is_none { before; after } then (coord, disp)
             else
               let src, d = source_axis p ~x_shape axis (Vec6.get out axis) in
               (Vec6.set coord axis src, S.index_add disp (abs d)))
