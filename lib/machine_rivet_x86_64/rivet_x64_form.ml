@@ -49,9 +49,14 @@ let make env mnemonic ops =
 
 let names8 = [| "al"; "cl"; "dl"; "bl"; "spl"; "bpl"; "sil"; "dil" |]
 let names16 = [| "ax"; "cx"; "dx"; "bx"; "sp"; "bp"; "si"; "di" |]
+let w8 = Mir_target.Bits.of_int 8
+let w16 = Mir_target.Bits.of_int 16
+let w32 = Mir_target.Bits.of_int 32
+let w64 = Mir_target.Bits.of_int 64
 
-let gpr_name ~bits k =
-  match bits with
+let gpr_name ~(bits : Mir_target.Bits.t) (k : X64_reg.Num.t) =
+  let k = (k :> int) in
+  match (bits :> int) with
   | 64 -> X64_reg.names64.(k)
   | 32 -> X64_reg.names32.(k)
   | 16 -> if k < 8 then names16.(k) else Printf.sprintf "r%dw" k
@@ -69,20 +74,21 @@ let view env = function
   | Loc.Slot _ -> refuse env (R.Location "a frame slot")
   | Loc.Mem _ -> refuse env (R.Location "memory")
 
-let unit_of env l = Mir_id.Unit.to_int (view env l).Mir_target.View.unit
+(* The register number of a general register's location, in range. *)
+let gpr_num env l =
+  let v = view env l in
+  match X64_reg.gpr_num_of_unit v.Mir_target.View.unit with
+  | Some k -> k
+  | None -> refuse env (R.Register v.Mir_target.View.name)
 
-(* A general register of [bits] bits. *)
-let g env ~bits l =
-  let k = unit_of env l in
-  if k < 0 || k > 15 then
-    refuse env (R.Register (view env l).Mir_target.View.name)
-  else Op.Reg (find env (gpr_name ~bits k))
+let g env ~(bits : Mir_target.Bits.t) l =
+  Op.Reg (find env (gpr_name ~bits (gpr_num env l)))
 
 let xmm env l =
-  let k = unit_of env l - 16 in
-  if k < 0 || k > 15 then
-    refuse env (R.Register (view env l).Mir_target.View.name)
-  else Op.Reg (find env (Printf.sprintf "xmm%d" k))
+  let v = view env l in
+  match X64_reg.xmm_num_of_unit v.Mir_target.View.unit with
+  | Some k -> Op.Reg (find env (Printf.sprintf "xmm%d" (k :> int)))
+  | None -> refuse env (R.Register v.Mir_target.View.name)
 
 let imm n = Op.Imm (Foundation.Bigint.of_int64 n)
 
@@ -128,7 +134,7 @@ let cc_of env c =
 let addr env (a : X.Addr.t) uses =
   (* [uses] are the locations of the address's own values, in order *)
   let base = nth env "use" uses 0 in
-  let b = find env (gpr_name ~bits:64 (unit_of env base)) in
+  let b = find env (gpr_name ~bits:w64 (gpr_num env base)) in
   let disp =
     if env.mutation = Some Mutation.Dropped_disp then 0L else a.X.Addr.disp
   in
@@ -136,7 +142,7 @@ let addr env (a : X.Addr.t) uses =
   | None -> mem_op ~base:b ~disp ()
   | Some (_, scale) ->
       let i =
-        find env (gpr_name ~bits:64 (unit_of env (nth env "use" uses 1)))
+        find env (gpr_name ~bits:w64 (gpr_num env (nth env "use" uses 1)))
       in
       mem_op ~base:b ~index:(i, Int64.to_int scale) ~disp ()
 
@@ -146,7 +152,7 @@ let instructions env (op : X.t) ~(uses : Loc.t list) ~(defs : Loc.t list) :
     X86_64_encode.Instruction.t list =
   let u = nth env "use" uses and d = nth env "def" defs in
   let mk = make env in
-  let gq l = g env ~bits:64 l and gl l = g env ~bits:32 l in
+  let gq l = g env ~bits:w64 l and gl l = g env ~bits:w32 l in
   let gs sz l = g env ~bits:(sz_bits sz) l in
   let x l = xmm env l in
   let fs = X.Fsz.name in
@@ -156,7 +162,7 @@ let instructions env (op : X.t) ~(uses : Loc.t list) ~(defs : Loc.t list) :
   | X.Alu_imm (o, sz, _, k) ->
       [ mk (X.Alu.name o ^ sfx sz) [ imm k; gs sz (d 0) ] ]
   | X.Bt (sz, _, k) ->
-      [ mk ("bt" ^ sfx sz) [ imm (Int64.of_int k); gs sz (u 0) ] ]
+      [ mk ("bt" ^ sfx sz) [ imm (Int64.of_int (k :> int)); gs sz (u 0) ] ]
   | X.Call { callee; _ } -> (
       match env.reference (Mir_target.Reference.Call callee) with
       | Some (sym, _) -> [ mk "call" [ Op.Sym (Asm_core.Expr.Symbol sym) ] ]
@@ -183,7 +189,7 @@ let instructions env (op : X.t) ~(uses : Loc.t list) ~(defs : Loc.t list) :
       [ mk ("cvtt" ^ fs fsz ^ "2si") [ x (u 0); gq (d 0) ] ]
   | X.Ext { signed; from; _ } ->
       let bits, w =
-        match from with Mir_width.W8 -> (8, "b") | _ -> (16, "w")
+        match from with Mir_width.W8 -> (w8, "b") | _ -> (w16, "w")
       in
       [
         mk
@@ -203,7 +209,7 @@ let instructions env (op : X.t) ~(uses : Loc.t list) ~(defs : Loc.t list) :
   | X.Imul_imm (sz, _, k) ->
       [ mk ("imul" ^ sfx sz) [ imm k; gs sz (u 0); gs sz (d 0) ] ]
   | X.Lea (_, k) ->
-      let b = find env (gpr_name ~bits:64 (unit_of env (u 0))) in
+      let b = find env (gpr_name ~bits:w64 (gpr_num env (u 0))) in
       [ mk "leaq" [ mem_op ~base:b ~disp:k (); gq (d 0) ] ]
   | X.Lea_view view -> (
       match
@@ -226,7 +232,7 @@ let instructions env (op : X.t) ~(uses : Loc.t list) ~(defs : Loc.t list) :
               in
               if Int64.equal addend 0L then [ load ]
               else if Int64.compare addend 0x7FFF_FFFFL <= 0 then
-                let b = find env (gpr_name ~bits:64 (unit_of env (d 0))) in
+                let b = find env (gpr_name ~bits:w64 (gpr_num env (d 0))) in
                 [ load; mk "leaq" [ mem_op ~base:b ~disp:addend (); gq (d 0) ] ]
               else
                 let r11 = Op.Reg (find env "r11") in
@@ -292,13 +298,14 @@ let instructions env (op : X.t) ~(uses : Loc.t list) ~(defs : Loc.t list) :
       match from with
       | Mir_width.W8 ->
           [
-            mk "pshufd" [ imm (Int64.of_int (first / 4)); x (u 0); x (d 0) ];
+            mk "pshufd"
+              [ imm (Int64.of_int ((first :> int) / 4)); x (u 0); x (d 0) ];
             mk "punpcklbw" [ x (d 0); x (d 0) ];
             mk "punpcklwd" [ x (d 0); x (d 0) ];
             mk down [ imm 24L; x (d 0) ];
           ]
       | Mir_width.W16 ->
-          let k = first / 2 in
+          let k = (first :> int) / 2 in
           [
             mk "pshufd"
               [ imm (Int64.of_int (k lor ((k + 1) lsl 2))); x (u 0); x (d 0) ];
@@ -314,7 +321,7 @@ let instructions env (op : X.t) ~(uses : Loc.t list) ~(defs : Loc.t list) :
         | X.Shift.Shr -> "psrld"
         | X.Shift.Sar -> "psrad"
       in
-      [ mk name [ imm (Int64.of_int k); x (d 0) ] ]
+      [ mk name [ imm (Int64.of_int (k :> int)); x (d 0) ] ]
   | X.Movup_load (pk, a) ->
       [ mk ("movu" ^ X.Pk.name pk) [ addr env a uses; x (d 0) ] ]
   | X.Movup_store (pk, a, _) ->
@@ -351,8 +358,8 @@ let instructions env (op : X.t) ~(uses : Loc.t list) ~(defs : Loc.t list) :
   | X.Pshufd_lane (fsz, k, _) ->
       let i =
         match fsz with
-        | X.Fsz.S -> k * 0x55
-        | X.Fsz.D -> if k = 0 then 0x44 else 0xEE
+        | X.Fsz.S -> (k :> int) * 0x55
+        | X.Fsz.D -> if (k :> int) = 0 then 0x44 else 0xEE
       in
       [ mk "pshufd" [ imm (Int64.of_int i); x (u 0); x (d 0) ] ]
   | X.Pshufd_splat (pk, _) | X.Pshufd_splat_mask (pk, _) ->
@@ -369,25 +376,31 @@ let instructions env (op : X.t) ~(uses : Loc.t list) ~(defs : Loc.t list) :
       [ mk ("round" ^ fs fsz) [ imm 3L; x (u 0); x (d 0) ] ]
   | X.Setcc_zx (c, _) ->
       [
-        mk ("set" ^ cc_of env c) [ g env ~bits:8 (d 0) ];
-        mk "movzbl" [ g env ~bits:8 (d 0); gl (d 0) ];
+        mk ("set" ^ cc_of env c) [ g env ~bits:w8 (d 0) ];
+        mk "movzbl" [ g env ~bits:w8 (d 0); gl (d 0) ];
       ]
   | X.Shift_imm (o, sz, _, k) ->
-      [ mk (X.Shift.name o ^ sfx sz) [ imm (Int64.of_int k); gs sz (d 0) ] ]
+      [
+        mk
+          (X.Shift.name o ^ sfx sz)
+          [ imm (Int64.of_int (k :> int)); gs sz (d 0) ];
+      ]
   | X.Sqrt (fsz, _) -> [ mk ("sqrt" ^ fs fsz) [ x (u 0); x (d 0) ] ]
   | X.Store (m, a, _) -> (
       let n = List.length (X.Addr.uses a) in
       let mem = addr env a uses and v = u n in
       match m with
-      | X.Msz.B -> [ mk "movb" [ g env ~bits:8 v; mem ] ]
-      | X.Msz.H -> [ mk "movw" [ g env ~bits:16 v; mem ] ]
+      | X.Msz.B -> [ mk "movb" [ g env ~bits:w8 v; mem ] ]
+      | X.Msz.H -> [ mk "movw" [ g env ~bits:w16 v; mem ] ]
       | X.Msz.L -> [ mk "movl" [ gl v; mem ] ]
       | X.Msz.Q -> [ mk "movq" [ gq v; mem ] ]
       | X.Msz.S -> [ mk "movss" [ x v; mem ] ]
       | X.Msz.D -> [ mk "movsd" [ x v; mem ] ])
   | X.Test (sz, _, _) -> [ mk ("test" ^ sfx sz) [ gs sz (u 1); gs sz (u 0) ] ]
   | X.Trunc_zx (w, _) ->
-      let bits, n = match w with Mir_width.W8 -> (8, "b") | _ -> (16, "w") in
+      let bits, n =
+        match w with Mir_width.W8 -> (w8, "b") | _ -> (w16, "w")
+      in
       [ mk ("movz" ^ n ^ "l") [ g env ~bits (u 0); gl (d 0) ] ]
   | X.Ucomis (fsz, _, _) -> [ mk ("ucomi" ^ fs fsz) [ x (u 1); x (u 0) ] ]
 
@@ -404,10 +417,7 @@ let transfer env ~(dst : Loc.t) ~(src : Loc.t) :
           [
             mk
               (if (bits :> int) = 64 then "movq" else "movl")
-              [
-                g env ~bits:(bits :> int) (Loc.Reg s);
-                g env ~bits:(bits :> int) (Loc.Reg d);
-              ];
+              [ g env ~bits (Loc.Reg s); g env ~bits (Loc.Reg d) ];
           ]
       | Mir_target.Bank.Fpr, Mir_target.Bank.Fpr ->
           [ mk "movaps" [ xmm env (Loc.Reg s); xmm env (Loc.Reg d) ] ]
@@ -415,12 +425,12 @@ let transfer env ~(dst : Loc.t) ~(src : Loc.t) :
   | Loc.Mem { base; offset; bytes }, Loc.Reg r
   | Loc.Reg r, Loc.Mem { base; offset; bytes } -> (
       let load = match dst with Loc.Reg _ -> true | _ -> false in
-      let b = find env (gpr_name ~bits:64 (unit_of env (Loc.Reg base))) in
+      let b = find env (gpr_name ~bits:w64 (gpr_num env (Loc.Reg base))) in
       let m = mem_op ~base:b ~disp:offset () in
       let pair a z = if load then [ mk a [ m; z ] ] else [ mk a [ z; m ] ] in
       match (r.Mir_target.View.bank, bytes) with
-      | Mir_target.Bank.Gpr, 8L -> pair "movq" (g env ~bits:64 (Loc.Reg r))
-      | Mir_target.Bank.Gpr, 4L -> pair "movl" (g env ~bits:32 (Loc.Reg r))
+      | Mir_target.Bank.Gpr, 8L -> pair "movq" (g env ~bits:w64 (Loc.Reg r))
+      | Mir_target.Bank.Gpr, 4L -> pair "movl" (g env ~bits:w32 (Loc.Reg r))
       | Mir_target.Bank.Fpr, 16L -> pair "movups" (xmm env (Loc.Reg r))
       | Mir_target.Bank.Fpr, 8L -> pair "movsd" (xmm env (Loc.Reg r))
       | Mir_target.Bank.Fpr, 4L -> pair "movss" (xmm env (Loc.Reg r))

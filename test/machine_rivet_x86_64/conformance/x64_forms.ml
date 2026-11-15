@@ -131,8 +131,8 @@ let all : t list =
         List.map
           (fun k ->
             form (Printf.sprintf "bt%s $%d" n k) [ Val t ] (fun vs ->
-                Bt (sz, nth vs 0, k)))
-          [ 0; 1; 5; Sz.bits sz - 1 ];
+                Bt (sz, nth vs 0, Machine_ir.Mir_target.Bits.of_int k)))
+          [ 0; 1; 5; (Sz.bits sz :> int) - 1 ];
         List.map
           (fun c ->
             form
@@ -167,8 +167,10 @@ let all : t list =
                 form
                   (Printf.sprintf "%s%s $%d" (Shift.name o) n k)
                   [ Val t ]
-                  (fun vs -> Shift_imm (o, sz, nth vs 0, k)))
-              [ 0; 1; 7; Sz.bits sz - 1 ])
+                  (fun vs ->
+                    Shift_imm
+                      (o, sz, nth vs 0, Machine_ir.Mir_target.Bits.of_int k)))
+              [ 0; 1; 7; (Sz.bits sz :> int) - 1 ])
           shifts;
       ]
   in
@@ -292,9 +294,12 @@ let all : t list =
                   Movup_store (pk, addr vs, nth vs (List.length roles)));
             ])
           addrs;
-        List.init (Pk.lanes pk) (fun k ->
+        List.init
+          (Pk.lanes pk :> int)
+          (fun k ->
             form (Printf.sprintf "pshufd.lane%s[%d]" n k) [ Val t ] (fun vs ->
-                Pshufd_lane (Pk.fsz pk, k, nth vs 0)));
+                Pshufd_lane
+                  (Pk.fsz pk, Machine_ir.Mir_type.Lane.of_int k, nth vs 0)));
       ]
   in
   let memory_forms =
@@ -371,7 +376,13 @@ let all : t list =
                            (Mir_width.name w) first)
                         [ Val t ]
                         (fun vs ->
-                          Xt_lanes { signed; from = w; first; src = nth vs 0 }))
+                          Xt_lanes
+                            {
+                              signed;
+                              from = w;
+                              first = Machine_ir.Mir_type.Lane.of_int first;
+                              src = nth vs 0;
+                            }))
                     (List.init (32 / Mir_width.bits w) (fun k -> 4 * k)))
                 [ true; false ])
           Mir_width.[ W8; W16 ]
@@ -383,7 +394,8 @@ let all : t list =
                   form
                     (Printf.sprintf "p%s.4s#%d" (Shift.name o) k)
                     [ Val X64_op.int32x4 ]
-                    (fun vs -> Pshift (o, k, nth vs 0)))
+                    (fun vs ->
+                      Pshift (o, Machine_ir.Mir_target.Bits.of_int k, nth vs 0)))
                 ks)
             [
               (Shift.Shl, [ 0; 1; 13; 16; 17; 31 ]);

@@ -37,7 +37,7 @@ let parity r =
 let top sz r =
   not
     (Int64.equal
-       (Int64.logand (Int64.shift_right_logical r (Sz.bits sz - 1)) 1L)
+       (Int64.logand (Int64.shift_right_logical r ((Sz.bits sz :> int) - 1)) 1L)
        0L)
 
 (* RFLAGS of [a - b] at [sz]. *)
@@ -151,7 +151,9 @@ let exec env op =
         flags
           (bit
              (Int64.equal
-                (Int64.logand (Int64.shift_right_logical (bits env x) k) 1L)
+                (Int64.logand
+                   (Int64.shift_right_logical (bits env x) (k :> int))
+                   1L)
                 1L)
              Flag.cf)
           Flag.cf;
@@ -253,7 +255,9 @@ let exec env op =
       [
         vec
           (Array.init 4 (fun j ->
-               let x = Int64.logand l.(first + j) (Mir_width.mask from) in
+               let x =
+                 Int64.logand l.((first :> int) + j) (Mir_width.mask from)
+               in
                if signed then
                  Mir_width.normalize Mir_width.W32 (Mir_width.signed from x)
                else x));
@@ -261,11 +265,12 @@ let exec env op =
   | Pshift (o, k, x) ->
       let shift l =
         match o with
-        | Shift.Shl -> Mir_width.normalize Mir_width.W32 (Int64.shift_left l k)
-        | Shift.Shr -> Int64.shift_right_logical l k
+        | Shift.Shl ->
+            Mir_width.normalize Mir_width.W32 (Int64.shift_left l (k :> int))
+        | Shift.Shr -> Int64.shift_right_logical l (k :> int)
         | Shift.Sar ->
             Mir_width.normalize Mir_width.W32
-              (Int64.shift_right (Mir_width.signed Mir_width.W32 l) k)
+              (Int64.shift_right (Mir_width.signed Mir_width.W32 l) (k :> int))
       in
       [ vec (Array.map shift (lanes env x)) ]
   | Movap_cast (t, x) -> (
@@ -326,7 +331,9 @@ let exec env op =
   | Movup_load (pk, a) ->
       [
         vec
-          (Array.init (Pk.lanes pk) (fun j ->
+          (Array.init
+             (Pk.lanes pk :> int)
+             (fun j ->
                E.load env (lane_at env a pk j)
                  ~bytes:(lane_bytes (Pk.fsz pk))
                  ~align:1L));
@@ -422,7 +429,7 @@ let exec env op =
                else 0L)
              (lanes env x) (lanes env y));
       ]
-  | Pones pk -> [ vec (Array.make (Pk.lanes pk) (fmask (Pk.fsz pk))) ]
+  | Pones pk -> [ vec (Array.make (Pk.lanes pk :> int) (fmask (Pk.fsz pk))) ]
   | Pshuf (pk, k, x, y) ->
       let a = lanes env x and c = lanes env y in
       [
@@ -448,9 +455,9 @@ let exec env op =
              (lanes env x) (lanes env y));
       ]
   | Pshufd_half x -> [ vec (Array.sub (lanes env x) 2 2) ]
-  | Pshufd_lane (_, k, x) -> [ b (lanes env x).(k) ]
+  | Pshufd_lane (_, k, x) -> [ b (lanes env x).((k :> int)) ]
   | Pshufd_splat (pk, x) | Pshufd_splat_mask (pk, x) ->
-      [ vec (Array.make (Pk.lanes pk) (bits env x)) ]
+      [ vec (Array.make (Pk.lanes pk :> int) (bits env x)) ]
   | Psqrt (pk, x) ->
       let fsz = Pk.fsz pk in
       [
@@ -469,9 +476,9 @@ let exec env op =
       [
         b
           (match o with
-          | Shift.Shl -> norm sz (Int64.shift_left a k)
-          | Shift.Shr -> Int64.shift_right_logical (norm sz a) k
-          | Shift.Sar -> norm sz (Int64.shift_right (signed sz a) k));
+          | Shift.Shl -> norm sz (Int64.shift_left a (k :> int))
+          | Shift.Shr -> Int64.shift_right_logical (norm sz a) (k :> int)
+          | Shift.Sar -> norm sz (Int64.shift_right (signed sz a) (k :> int)));
       ]
   | Sqrt (fsz, x) -> [ fres fsz (Float.sqrt (fval fsz (bits env x))) ]
   | Store (m, a, x) ->

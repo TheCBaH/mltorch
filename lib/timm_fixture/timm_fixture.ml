@@ -45,7 +45,9 @@ module Descriptor = struct
     let* () =
       if
         count > 134217728 || bytes > 134217728
-        || bytes <> count * Pt2_dtype.element_size dtype
+        || not
+             (Int64.equal (Int64.of_int bytes)
+                (Int64.mul (Int64.of_int count) (Pt2_dtype.element_size dtype)))
       then bad J.Failure.Tensor_byte_count_disagrees
       else Ok ()
     in

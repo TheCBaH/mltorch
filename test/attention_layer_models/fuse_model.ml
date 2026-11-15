@@ -208,7 +208,9 @@ let synthetic dir =
         with
         | Error _ -> Error ("unreadable metadata " ^ name)
         | Ok t ->
-            let size = Pt2_dtype.element_size t.Pt2_tensor.dtype in
+            let size =
+              Int64.to_int (Pt2_dtype.element_size t.Pt2_tensor.dtype)
+            in
             let cells =
               if List.exists (fun n -> n = 0) t.Pt2_tensor.sizes then 0
               else

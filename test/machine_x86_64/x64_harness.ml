@@ -47,7 +47,11 @@ let selected ?mutation ?(sites = [||]) ?features (case : Src.Case.t) =
 (* Callee-saved registers as a caller might leave them. *)
 let caller_state regs =
   List.iter
-    (fun k -> P.seed regs (X64_reg.q k) ~lo:(Int64.of_int (0x5A00 + k)) ~hi:0L)
+    (fun k ->
+      P.seed regs
+        (X64_reg.q (X64_reg.Num.of_int k))
+        ~lo:(Int64.of_int (0x5A00 + k))
+        ~hi:0L)
     [ 3; 5; 12; 13; 14; 15 ]
 
 type stage = Allocated | Realized | Selected
