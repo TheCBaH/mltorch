@@ -13,7 +13,7 @@ let shape =
 
 let stack_pointer = A64_reg.sp
 let call_push = 0L
-let link = Some (A64_reg.x 30)
+let link = Some (A64_reg.x (A64_reg.Num.of_int 30))
 let address_step = function Add_imm (Sz.X, _, k) -> Some k | _ -> None
 
 (* LDR/STR (unsigned offset): a multiple of the size, at most 4095 of them. *)

@@ -17,6 +17,14 @@ type func =
     Machine_target_riscv32.Rv32_op.test )
   Mir_phys.Func.t
 
+(* A block's position in the function's layout order. *)
+module Position =
+  Core.Tagged_int.Make
+    (struct
+      let prefix = "pos"
+    end)
+    ()
+
 (* The registers the manager's stubs and loader clobber, saved by the jump into
    an overlay, from just below the stack pointer. *)
 let saved = [ "t0"; "t1"; "t2"; "t3"; "t4"; "t5"; "t6" ]
@@ -28,7 +36,7 @@ type layout = {
   head : Item.t list;  (** before the first block: the jump to the entry *)
   labels : string array;
   runs : Item.t list array;
-  index : (int, int) Hashtbl.t;
+  index : (Mir_id.Block.t, Position.t) Hashtbl.t;
 }
 
 let layout (f : func) items =
@@ -39,7 +47,7 @@ let layout (f : func) items =
   let index = Hashtbl.create 64 in
   Array.iteri
     (fun k (b : (_, _) Mir_phys.Block.t) ->
-      Hashtbl.replace index (Mir_id.Block.to_int b.id) k)
+      Hashtbl.replace index b.id (Position.of_int k))
     blocks;
   let runs = Array.make (Array.length blocks) [] in
   let current = ref (-1) and head = ref [] in
@@ -60,9 +68,9 @@ let layout (f : func) items =
   { func = f; head = List.rev !head; labels; runs; index }
 
 let successors t k =
-  let b = List.nth t.func.Mir_phys.Func.blocks k in
+  let b = List.nth t.func.Mir_phys.Func.blocks (Position.to_int k) in
   List.map
-    (fun id -> Hashtbl.find t.index (Mir_id.Block.to_int id))
+    (fun id -> Hashtbl.find t.index id)
     (Mir_phys.Term.successors b.Mir_phys.Block.terminator)
 
 let target = function
@@ -71,11 +79,16 @@ let target = function
       Some l
   | _ -> None
 
-let bytes items = List.fold_left (fun n it -> n + Item.bytes it) 0 items
+let bytes items = Item.Size_math.total (List.map Item.bytes items)
 
 (* [depth]: how many loops the region's entry is inside, taking a branch back
    to an earlier block in layout order as a loop over the blocks between. *)
-type candidate = { first : int; last : int; size : int; depth : int }
+type candidate = {
+  first : Position.t;
+  last : Position.t;
+  size : Item.Size.t;
+  depth : int;
+}
 
 (* The labels a run defines, and those its branches and jumps name. *)
 let defined run =
@@ -96,9 +109,12 @@ let mentions names run =
 let candidates ?(avoid = []) t =
   let n = Array.length t.labels in
   let entry =
-    Hashtbl.find t.index (Mir_id.Block.to_int t.func.Mir_phys.Func.entry)
+    Position.to_int (Hashtbl.find t.index t.func.Mir_phys.Func.entry)
   in
-  let succ = Array.init n (successors t) in
+  let succ =
+    Array.init n (fun k ->
+        List.map Position.to_int (successors t (Position.of_int k)))
+  in
   let is_block_label =
     let h = Hashtbl.create 64 in
     Array.iter (fun l -> Hashtbl.replace h l ()) t.labels;
@@ -153,9 +169,14 @@ let candidates ?(avoid = []) t =
         if escapes && not (mentions avoid run) then
           found :=
             {
-              first;
-              last;
-              size = bytes run + (4 * outward) + 4;
+              first = Position.of_int first;
+              last = Position.of_int last;
+              size =
+                Item.Size_math.(
+                  add (bytes run)
+                    (add
+                       (scale outward (Item.Size.of_int 4))
+                       (Item.Size.of_int 4)));
               depth = depth first;
             }
             :: !found
@@ -165,6 +186,12 @@ let candidates ?(avoid = []) t =
   List.rev !found
 
 (* {1 Outlining} *)
+
+let run_of t c =
+  let first = Position.to_int c.first in
+  List.concat
+    (Array.to_list
+       (Array.sub t.runs first (Position.to_int c.last - first + 1)))
 
 type outlined = {
   entry : string;  (** the overlay's entry symbol *)
@@ -194,7 +221,7 @@ let exported l =
    items, the overlays, and the resident labels the overlays jump to. *)
 let split t ~name chosen =
   let n = Array.length t.labels in
-  let chosen = List.sort (fun a b -> compare a.first b.first) chosen in
+  let chosen = List.sort (fun a b -> Position.compare a.first b.first) chosen in
   let targets = ref [] in
   let export l =
     if not (List.mem l !targets) then targets := l :: !targets;
@@ -204,10 +231,7 @@ let split t ~name chosen =
   let overlays =
     List.mapi
       (fun k c ->
-        let run =
-          List.concat
-            (Array.to_list (Array.sub t.runs c.first (c.last - c.first + 1)))
-        in
+        let run = run_of t c in
         let own = defined run in
         let fix it =
           match it with
@@ -229,11 +253,11 @@ let split t ~name chosen =
         in
         let body = List.concat_map fix run in
         let tail =
-          if c.last + 1 >= n then []
+          if Position.to_int c.last + 1 >= n then []
           else
             match List.rev run with
             | Item.Insn { mnemonic = "j" | "ret"; _ } :: _ -> []
-            | _ -> [ jump (export t.labels.(c.last + 1)) ]
+            | _ -> [ jump (export t.labels.(Position.to_int c.last + 1)) ]
         in
         let entry = Printf.sprintf "%s_ovl%d" name k in
         ( c,
@@ -246,8 +270,8 @@ let split t ~name chosen =
   let starts = Hashtbl.create 8 and inside = Hashtbl.create 64 in
   List.iter
     (fun (c, o) ->
-      Hashtbl.replace starts c.first o;
-      for k = c.first + 1 to c.last do
+      Hashtbl.replace starts (Position.to_int c.first) o;
+      for k = Position.to_int c.first + 1 to Position.to_int c.last do
         Hashtbl.replace inside k ()
       done)
     overlays;
@@ -278,15 +302,17 @@ let split t ~name chosen =
    moving both out of the way saves is the smaller one's size, as they share
    one slot. *)
 let best_pair cands =
-  let disjoint a b = a.last < b.first || b.last < a.first in
+  let disjoint a b =
+    Position.compare a.last b.first < 0 || Position.compare b.last a.first < 0
+  in
   List.fold_left
     (fun best a ->
       List.fold_left
         (fun best b ->
-          if a.first < b.first && disjoint a b then
-            let v = min a.size b.size in
+          if Position.compare a.first b.first < 0 && disjoint a b then
+            let v = Item.Size_math.min a.size b.size in
             match best with
-            | Some (v', _) when v' >= v -> best
+            | Some (v', _) when Item.Size.compare v' v >= 0 -> best
             | _ -> Some (v, [ a; b ])
           else best)
         best cands)
@@ -298,24 +324,31 @@ let best_pair cands =
    that fit it, largest first, scored by what they move out less what the slot
    grows by; the best of them. *)
 let fill ~slot cands =
-  let disjoint a b = a.last < b.first || b.last < a.first in
+  let disjoint a b =
+    Position.compare a.last b.first < 0 || Position.compare b.last a.first < 0
+  in
   let take limit =
     List.fold_left
       (fun taken c ->
-        if c.size <= limit && List.for_all (disjoint c) taken then c :: taken
+        if
+          Item.Size.compare c.size limit <= 0 && List.for_all (disjoint c) taken
+        then c :: taken
         else taken)
       []
-      (List.sort (fun a b -> compare b.size a.size) cands)
+      (List.sort (fun a b -> Item.Size.compare b.size a.size) cands)
   in
   let sizes =
-    List.sort_uniq compare
+    List.sort_uniq Item.Size.compare
       (slot
       :: List.filter_map
-           (fun c -> if c.size > slot then Some c.size else None)
+           (fun c ->
+             if Item.Size.compare c.size slot > 0 then Some c.size else None)
            cands)
   in
   let score limit taken =
-    List.fold_left (fun n c -> n + c.size) 0 taken - (limit - slot)
+    Item.Size_math.sub
+      (Item.Size_math.total (List.map (fun c -> c.size) taken))
+      (Item.Size_math.sub limit slot)
   in
   match
     List.fold_left
@@ -323,13 +356,13 @@ let fill ~slot cands =
         let taken = take limit in
         let v = score limit taken in
         match best with
-        | Some (v', _) when v' >= v -> best
+        | Some (v', _) when Item.Size.compare v' v >= 0 -> best
         | _ -> if taken = [] then best else Some (v, taken))
       None sizes
   with
   | None -> None
   | Some (_, taken) ->
-      Some (List.sort (fun a b -> compare a.first b.first) taken)
+      Some (List.sort (fun a b -> Position.compare a.first b.first) taken)
 
 let of_artifact ?mutation ?(choose = best_pair) ?avoid artifact =
   let overlays = ref [] and globals = ref [] in

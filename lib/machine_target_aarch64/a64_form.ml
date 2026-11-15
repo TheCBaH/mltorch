@@ -9,7 +9,10 @@ open Machine_ir
 module Sz = struct
   type t = W | X
 
-  let bits = function W -> 32 | X -> 64
+  let bits = function
+    | W -> Mir_target.Bits.of_int 32
+    | X -> Mir_target.Bits.of_int 64
+
   let name = function W -> "w" | X -> "x"
 end
 
@@ -123,14 +126,17 @@ module Arr = struct
   type t = D2 | S2 | S4
 
   let fsz = function D2 -> Fsz.D | S2 | S4 -> Fsz.S
-  let lanes = function D2 | S2 -> 2 | S4 -> 4
+
+  let lanes = function
+    | D2 | S2 -> Mir_type.Lanes.of_int 2
+    | S4 -> Mir_type.Lanes.of_int 4
 
   let ty t =
     Mir_type.Vec
       ( (match fsz t with
         | Fsz.D -> Mir_type.Elem.F64
         | Fsz.S -> Mir_type.Elem.F32),
-        Mir_type.Lanes.of_int (lanes t) )
+        lanes t )
 
   let name = function D2 -> "2d" | S2 -> "2s" | S4 -> "4s"
 
@@ -393,17 +399,19 @@ let unit_bits = function
    link register, v0-v7 and v16-v31 whole, the upper 64 bits of v8-v15, and
    NZCV. *)
 let call_clobbers =
-  List.map A64_reg.x (A64_reg.range 0 18 @ [ 30 ])
-  @ List.map A64_reg.q (A64_reg.range 0 7 @ A64_reg.range 16 31)
+  let module N = A64_reg.Num in
+  let module Ns = A64_reg.Num_seq in
+  List.map A64_reg.x (Ns.range 0 18 @ Ns.of_ints [ 30 ])
+  @ List.map A64_reg.q (Ns.range 0 7 @ Ns.range 16 31)
   @ List.map
       (fun k ->
         {
           (A64_reg.q k) with
-          Mir_target.View.name = Printf.sprintf "v%d.d[1]" k;
+          Mir_target.View.name = Printf.sprintf "v%d.d[1]" (N.to_int k);
           lo = Machine_ir.Mir_target.Bits.of_int 64;
           bits = Machine_ir.Mir_target.Bits.of_int 64;
         })
-      (A64_reg.range 8 15)
+      (Ns.range 8 15)
   @ [ A64_reg.nzcv ]
 
 let clobbers = function Bl _ -> call_clobbers | _ -> []
@@ -451,7 +459,8 @@ let op_features = function
 
 (* Whether [v] is an AArch64 bitmask immediate of [bits] bits: a repetition of
    a rotated run of ones that is neither empty nor full. *)
-let bitmask_immediate ~bits v =
+let bitmask_immediate ~(bits : Mir_target.Bits.t) v =
+  let bits = (bits :> int) in
   let mask = if bits = 64 then -1L else Int64.pred (Int64.shift_left 1L bits) in
   let v = Int64.logand v mask in
   (not (Int64.equal v 0L || Int64.equal v mask))

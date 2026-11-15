@@ -136,8 +136,8 @@ let i16x16 =
 
 (* The lane counts a form may have: one register, or a group of four or of
    eight. *)
-let lane_counts = [ 4; 16; 32 ]
-let counted n = List.mem (Mir_type.Lanes.to_int n) lane_counts
+let lane_counts = List.map Mir_type.Lanes.of_int [ 4; 16; 32 ]
+let counted n = List.exists (Mir_type.Lanes.equal n) lane_counts
 let f32v n = Mir_type.Vec (Mir_type.Elem.F32, n)
 let i32v n = Mir_type.Vec (Mir_type.Elem.Int Mir_width.W32, n)
 

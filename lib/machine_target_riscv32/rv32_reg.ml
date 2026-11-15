@@ -9,8 +9,27 @@
 open Machine_ir
 module V = Mir_target.View
 
-let gpr_unit k = Mir_id.Unit.of_int k
-let fpr_unit k = Mir_id.Unit.of_int (32 + k)
+(* A register's number within its bank: x5, f5 and v5 are each number 5. It
+   also counts a sequence from its first member (the k-th argument register
+   is a0 plus k), which is why two numbers add. *)
+module Num =
+  Core.Tagged_int.Make
+    (struct
+      let prefix = "r"
+    end)
+    ()
+
+(* Sequences of register numbers: a range or list written as literals, and
+   the sum of two numbers where one is an offset. *)
+module Num_seq = struct
+  let zero = Num.of_int 0
+  let add a b = Num.of_int (Num.to_int a + Num.to_int b)
+  let range lo hi = List.init (hi - lo + 1) (fun i -> Num.of_int (lo + i))
+  let of_ints = List.map Num.of_int
+end
+
+let gpr_unit k = Mir_id.Unit.of_int (Num.to_int k)
+let fpr_unit k = Mir_id.Unit.of_int (32 + Num.to_int k)
 
 let gpr_names =
   [|
@@ -86,7 +105,7 @@ let fpr_names =
 
 let x k =
   {
-    V.name = gpr_names.(k);
+    V.name = gpr_names.(Num.to_int k);
     bank = Mir_target.Bank.Gpr;
     unit = gpr_unit k;
     span = Mir_target.Span.One;
@@ -96,7 +115,7 @@ let x k =
 
 let f k =
   {
-    V.name = fpr_names.(k);
+    V.name = fpr_names.(Num.to_int k);
     bank = Mir_target.Bank.Fpr;
     unit = fpr_unit k;
     span = Mir_target.Span.One;
@@ -105,19 +124,19 @@ let f k =
   }
 
 (* The ABI names of the registers the target refers to by role. *)
-let zero = x 0
-let ra = x 1
-let sp = x 2
-let gp = x 3
-let tp = x 4
-let a k = x (10 + k)
-let fa k = f (10 + k)
+let zero = x (Num.of_int 0)
+let ra = x (Num.of_int 1)
+let sp = x (Num.of_int 2)
+let gp = x (Num.of_int 3)
+let tp = x (Num.of_int 4)
+let a k = x (Num_seq.add (Num.of_int 10) k)
+let fa k = f (Num_seq.add (Num.of_int 10) k)
 
 (* t6 holds the address of a large frame offset; s11 the table of region
    addresses a table-bound image is entered with, which every callee keeps.
    Neither is allocatable. *)
-let scratch = x 31
-let table = x 27
+let scratch = x (Num.of_int 31)
+let table = x (Num.of_int 27)
 
 (* A condition register no form writes: the selected stage needs one. *)
 let flags =
@@ -138,11 +157,11 @@ let flags =
    operand there ([Rv32_op.clobbers], [Rv32_op.constraints]). Otherwise v0
    holds values like any other. Every vector register is caller-saved (the
    psABI preserves none). *)
-let vector_unit k = Mir_id.Unit.of_int (65 + k)
+let vector_unit k = Mir_id.Unit.of_int (65 + Num.to_int k)
 
 let v k =
   {
-    V.name = Printf.sprintf "v%d" k;
+    V.name = Printf.sprintf "v%d" (Num.to_int k);
     bank = Mir_target.Bank.Vector;
     unit = vector_unit k;
     span = Mir_target.Span.One;
@@ -154,12 +173,13 @@ let v k =
    to be a multiple of the group's size), named by its base, as the emitted
    instructions name it; the configuration says the size. *)
 let group span k =
-  if k < 0 || k >= 32 || k mod Mir_target.Span.count span <> 0 then
+  let i = Num.to_int k in
+  if i < 0 || i >= 32 || i mod Mir_target.Span.count span <> 0 then
     Err.fail (`Unaligned_group (span, k))
   else
     Err.return
       {
-        V.name = Printf.sprintf "v%d" k;
+        V.name = Printf.sprintf "v%d" i;
         bank = Mir_target.Bank.Vector;
         unit = vector_unit k;
         span;
@@ -168,21 +188,23 @@ let group span k =
       }
 
 let pp_group_error ppf (`Unaligned_group (span, k)) =
-  Fmt.pf ppf "no %s register group at v%d" (Mir_target.Span.name span) k
+  Fmt.pf ppf "no %s register group at v%d"
+    (Mir_target.Span.name span)
+    (Num.to_int k)
 
-let vector_scratch = v 0
-let range a b = List.init (b - a + 1) (fun i -> a + i)
+let vector_scratch = v Num_seq.zero
 let reserved = [ zero; ra; sp; gp; tp; scratch; table ]
 
 let abi =
   {
-    Mir_target.Abi.int_args = List.map a (range 0 7);
-    fp_args = List.map fa (range 0 7);
-    int_results = [ a 0 ];
-    fp_results = [ fa 0 ];
+    Mir_target.Abi.int_args = List.map a (Num_seq.range 0 7);
+    fp_args = List.map fa (Num_seq.range 0 7);
+    int_results = [ a Num_seq.zero ];
+    fp_results = [ fa Num_seq.zero ];
     (* s0-s10 and fs0-fs11; s11 is reserved for the table *)
     preserved =
-      List.map x ([ 8; 9 ] @ range 18 26) @ List.map f ([ 8; 9 ] @ range 18 27);
+      List.map x (Num_seq.of_ints [ 8; 9 ] @ Num_seq.range 18 26)
+      @ List.map f (Num_seq.of_ints [ 8; 9 ] @ Num_seq.range 18 27);
     reserved;
     stack_align = 16L;
   }
@@ -192,9 +214,10 @@ let abi =
 let allocatable_gpr =
   List.filter
     (fun k -> not (List.exists (fun (v : V.t) -> V.equal v (x k)) reserved))
-    (range 0 31)
+    (Num_seq.range 0 31)
 
 let gpr32 =
   { Mir_target.Class.name = "gpr32"; views = List.map x allocatable_gpr }
 
-let fpr32 = { Mir_target.Class.name = "fpr32"; views = List.map f (range 0 31) }
+let fpr32 =
+  { Mir_target.Class.name = "fpr32"; views = List.map f (Num_seq.range 0 31) }

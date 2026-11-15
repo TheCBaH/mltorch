@@ -119,21 +119,23 @@ let form_name : A.t -> string = function
 
 (* {1 Registers} *)
 
-let sp_unit = Mir_id.Unit.to_int A64_reg.sp.Mir_target.View.unit
-let width_bits = function A.Sz.W -> 32 | A.Sz.X -> 64
+let sp_unit = A64_reg.sp.Mir_target.View.unit
+let w32 = Mir_target.Bits.of_int 32
+let w64 = Mir_target.Bits.of_int 64
+let width_bits = function A.Sz.W -> w32 | A.Sz.X -> w64
 
 (* A general register view as a register of [width] bits. The stack pointer's
    unit is register 31 with the stack-pointer meaning; no other view is 31. *)
-let gpr env ~width (v : Mir_target.View.t) =
-  let unit = Mir_id.Unit.to_int v.Mir_target.View.unit in
+let gpr env ~(width : Mir_target.Bits.t) (v : Mir_target.View.t) =
+  let unit = v.Mir_target.View.unit in
   (* AArch64 has no register groups *)
   if v.Mir_target.View.span <> Mir_target.Span.One then
     refuse env (R.Register v.Mir_target.View.name);
   match v.Mir_target.View.bank with
-  | Mir_target.Bank.Gpr when unit = sp_unit ->
-      { Aarch64_encode.Reg.num = 31; width; is_sp = true }
-  | Mir_target.Bank.Gpr when unit >= 0 && unit <= 30 ->
-      { Aarch64_encode.Reg.num = unit; width; is_sp = false }
+  | Mir_target.Bank.Gpr when Mir_id.Unit.equal unit sp_unit ->
+      { Aarch64_encode.Reg.num = 31; width :> int; is_sp = true }
+  | Mir_target.Bank.Gpr when (unit :> int) >= 0 && (unit :> int) <= 30 ->
+      { Aarch64_encode.Reg.num = (unit :> int); width :> int; is_sp = false }
   | _ -> refuse env (R.Register v.Mir_target.View.name)
 
 let fpr env ~double (v : Mir_target.View.t) =
@@ -183,7 +185,7 @@ let cond_name (c : A.Cond.t) = A.Cond.name c
 let mem env ~base ~offset =
   O.Mem
     {
-      Aarch64_encode.Mem.base = gpr env ~width:64 (loc_view env base);
+      Aarch64_encode.Mem.base = gpr env ~width:w64 (loc_view env base);
       offset = Aarch64_encode.Disp.Const offset;
       writeback = false;
       pre = true;
@@ -205,11 +207,11 @@ let access ?index env ~load (m : A.Msz.t) ~rt ~base ~offset =
         in
         O.Mem
           {
-            Aarch64_encode.Mem.base = gpr env ~width:64 (loc_view env base);
+            Aarch64_encode.Mem.base = gpr env ~width:w64 (loc_view env base);
             offset =
               Aarch64_encode.Disp.Reg
                 {
-                  index = gpr env ~width:32 (loc_view env index);
+                  index = gpr env ~width:w32 (loc_view env index);
                   extend = Aarch64_encode.Extend.Sxtw;
                   amount;
                 };
@@ -221,14 +223,14 @@ let access ?index env ~load (m : A.Msz.t) ~rt ~base ~offset =
   let fp ~double = O.Freg (fpr env ~double (loc_view env rt)) in
   let op, reg =
     match (m, load) with
-    | A.Msz.B, true -> (Op.Ldrb, gp ~width:32)
-    | A.Msz.B, false -> (Op.Strb, gp ~width:32)
-    | A.Msz.H, true -> (Op.Ldrh, gp ~width:32)
-    | A.Msz.H, false -> (Op.Strh, gp ~width:32)
-    | A.Msz.W, true -> (Op.Ldr, gp ~width:32)
-    | A.Msz.W, false -> (Op.Str, gp ~width:32)
-    | A.Msz.X, true -> (Op.Ldr, gp ~width:64)
-    | A.Msz.X, false -> (Op.Str, gp ~width:64)
+    | A.Msz.B, true -> (Op.Ldrb, gp ~width:w32)
+    | A.Msz.B, false -> (Op.Strb, gp ~width:w32)
+    | A.Msz.H, true -> (Op.Ldrh, gp ~width:w32)
+    | A.Msz.H, false -> (Op.Strh, gp ~width:w32)
+    | A.Msz.W, true -> (Op.Ldr, gp ~width:w32)
+    | A.Msz.W, false -> (Op.Str, gp ~width:w32)
+    | A.Msz.X, true -> (Op.Ldr, gp ~width:w64)
+    | A.Msz.X, false -> (Op.Str, gp ~width:w64)
     | A.Msz.S, true -> (Op.Ldr, fp ~double:false)
     | A.Msz.S, false -> (Op.Str, fp ~double:false)
     | A.Msz.D, true -> (Op.Ldr, fp ~double:true)
@@ -245,7 +247,7 @@ let vector_access env ~load (arr : A.Arr.t) ~rt ~base ~offset =
       let m =
         Aarch64_encode.Mem.
           {
-            base = gpr env ~width:64 (loc_view env base);
+            base = gpr env ~width:w64 (loc_view env base);
             offset = Aarch64_encode.Disp.Const offset;
             writeback = false;
             pre = true;
@@ -356,7 +358,7 @@ let instructions env (op : A.t) ~(uses : Loc.t list) ~(defs : Loc.t list) :
              (Mir_target.Reference.View (view, Mir_target.Reference.Form.Page)))
       in
       let slot = Option.get (env.table_slot symbol) in
-      let rd = gpr env ~width:64 (loc_view env (d 0)) in
+      let rd = gpr env ~width:w64 (loc_view env (d 0)) in
       let page = Int64.logand addend (Int64.lognot 0xFFFL) in
       ins Op.Ldr
         [
@@ -513,7 +515,7 @@ let instructions env (op : A.t) ~(uses : Loc.t list) ~(defs : Loc.t list) :
       refuse env (R.Location (form_name op ^ " is an encoded-word form"))
   | A.Sdiv (sz, _, _) -> binary Op.Sdiv sz
   | A.Shift_imm (o, sz, _, k) ->
-      let bits = width_bits sz in
+      let bits = (width_bits sz :> int) in
       let rd = g env sz (d 0) and rn = g env sz (u 0) in
       [
         (match o with
@@ -717,7 +719,10 @@ let transfer ?mutation ?(save = false) env ~(dst : Loc.t) ~(src : Loc.t) :
       match (d.Mir_target.View.bank, s.Mir_target.View.bank) with
       | Mir_target.Bank.Gpr, Mir_target.Bank.Gpr ->
           let width =
-            min (d.Mir_target.View.bits :> int) (s.Mir_target.View.bits :> int)
+            Mir_target.Bits.of_int
+              (min
+                 (d.Mir_target.View.bits :> int)
+                 (s.Mir_target.View.bits :> int))
           in
           [ ins Op.Mov [ O.Reg (gpr env ~width d); O.Reg (gpr env ~width s) ] ]
       | Mir_target.Bank.Fpr, Mir_target.Bank.Fpr
@@ -769,7 +774,7 @@ let transfer ?mutation ?(save = false) env ~(dst : Loc.t) ~(src : Loc.t) :
           let mem =
             O.Mem
               {
-                Aarch64_encode.Mem.base = gpr env ~width:64 base;
+                Aarch64_encode.Mem.base = gpr env ~width:w64 base;
                 offset = Aarch64_encode.Disp.Const offset;
                 writeback = false;
                 pre = true;

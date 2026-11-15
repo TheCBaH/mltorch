@@ -7,13 +7,30 @@
 open Machine_ir
 module V = Mir_target.View
 
-let gpr_unit k = Mir_id.Unit.of_int k
-let fpr_unit k = Mir_id.Unit.of_int (32 + k)
+(* A register's number within its bank: x5, w5, d5 and q5 are each number 5.
+   It also counts a sequence from its first member. *)
+module Num =
+  Core.Tagged_int.Make
+    (struct
+      let prefix = "r"
+    end)
+    ()
+
+(* Sequences of register numbers: a range or list written as literals, and
+   the sum of two numbers where one is an offset. *)
+module Num_seq = struct
+  let zero = Num.of_int 0
+  let range lo hi = List.init (hi - lo + 1) (fun i -> Num.of_int (lo + i))
+  let of_ints = List.map Num.of_int
+end
+
+let gpr_unit k = Mir_id.Unit.of_int (Num.to_int k)
+let fpr_unit k = Mir_id.Unit.of_int (32 + Num.to_int k)
 let nzcv_unit = Mir_id.Unit.of_int 64
 
 let x k =
   {
-    V.name = Printf.sprintf "x%d" k;
+    V.name = Printf.sprintf "x%d" (Num.to_int k);
     bank = Mir_target.Bank.Gpr;
     unit = gpr_unit k;
     span = Mir_target.Span.One;
@@ -23,7 +40,7 @@ let x k =
 
 let w k =
   {
-    V.name = Printf.sprintf "w%d" k;
+    V.name = Printf.sprintf "w%d" (Num.to_int k);
     bank = Mir_target.Bank.Gpr;
     unit = gpr_unit k;
     span = Mir_target.Span.One;
@@ -33,7 +50,7 @@ let w k =
 
 let q k =
   {
-    V.name = Printf.sprintf "q%d" k;
+    V.name = Printf.sprintf "q%d" (Num.to_int k);
     bank = Mir_target.Bank.Fpr;
     unit = fpr_unit k;
     span = Mir_target.Span.One;
@@ -43,7 +60,7 @@ let q k =
 
 let d k =
   {
-    V.name = Printf.sprintf "d%d" k;
+    V.name = Printf.sprintf "d%d" (Num.to_int k);
     bank = Mir_target.Bank.Fpr;
     unit = fpr_unit k;
     span = Mir_target.Span.One;
@@ -53,7 +70,7 @@ let d k =
 
 let s k =
   {
-    V.name = Printf.sprintf "s%d" k;
+    V.name = Printf.sprintf "s%d" (Num.to_int k);
     bank = Mir_target.Bank.Fpr;
     unit = fpr_unit k;
     span = Mir_target.Span.One;
@@ -92,29 +109,31 @@ let fpcr =
     bits = Mir_target.Bits.of_int 64;
   }
 
-let range a b = List.init (b - a + 1) (fun i -> a + i)
-
 (* x16/x17 are the intra-procedure-call scratch a linker veneer may clobber,
    x18 the platform register, x29 the frame pointer, x30 the link register;
    none is allocatable. *)
-let reserved = List.map x [ 16; 17; 18; 29; 30 ] @ [ sp ]
+let reserved = List.map x (Num_seq.of_ints [ 16; 17; 18; 29; 30 ]) @ [ sp ]
 
 let abi =
   {
-    Mir_target.Abi.int_args = List.map x (range 0 7);
-    fp_args = List.map d (range 0 7);
-    int_results = [ x 0 ];
-    fp_results = [ d 0 ];
+    Mir_target.Abi.int_args = List.map x (Num_seq.range 0 7);
+    fp_args = List.map d (Num_seq.range 0 7);
+    int_results = [ x Num_seq.zero ];
+    fp_results = [ d Num_seq.zero ];
     (* x19-x28 and the frame pointer whole; v8-v15 only their low 64 bits;
        FPCR as the caller set it *)
     preserved =
-      List.map x (range 19 28) @ List.map d (range 8 15) @ [ x 29; fpcr ];
+      List.map x (Num_seq.range 19 28)
+      @ List.map d (Num_seq.range 8 15)
+      @ [ x (Num.of_int 29); fpcr ];
     reserved;
     stack_align = 16L;
   }
 
 let allocatable_gpr =
-  List.filter (fun k -> not (List.mem k [ 16; 17; 18; 29; 30 ])) (range 0 30)
+  List.filter
+    (fun k -> not (List.mem k (Num_seq.of_ints [ 16; 17; 18; 29; 30 ])))
+    (Num_seq.range 0 30)
 
 let gpr64 =
   { Mir_target.Class.name = "gpr64"; views = List.map x allocatable_gpr }
@@ -122,8 +141,11 @@ let gpr64 =
 let gpr32 =
   { Mir_target.Class.name = "gpr32"; views = List.map w allocatable_gpr }
 
-let fpr64 = { Mir_target.Class.name = "fpr64"; views = List.map d (range 0 31) }
-let fpr32 = { Mir_target.Class.name = "fpr32"; views = List.map s (range 0 31) }
+let fpr64 =
+  { Mir_target.Class.name = "fpr64"; views = List.map d (Num_seq.range 0 31) }
+
+let fpr32 =
+  { Mir_target.Class.name = "fpr32"; views = List.map s (Num_seq.range 0 31) }
 
 (* The class a virtual value of this type occupies. *)
 let class_of (ty : Mir_type.t) =

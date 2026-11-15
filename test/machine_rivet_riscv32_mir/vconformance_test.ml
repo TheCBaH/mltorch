@@ -22,9 +22,9 @@ type reg = G of int | Fr of int | Vr of int | Vn of int * Mir_width.t
 (* [Vn]: a vector register of i8 or i16 lanes, loaded as its four words *)
 
 let view = function
-  | G k -> Rv32_reg.x k
-  | Fr k -> Rv32_reg.f k
-  | Vr k | Vn (k, _) -> Rv32_reg.v k
+  | G k -> Rv32_reg.x (Rv32_reg.Num.of_int k)
+  | Fr k -> Rv32_reg.f (Rv32_reg.Num.of_int k)
+  | Vr k | Vn (k, _) -> Rv32_reg.v (Rv32_reg.Num.of_int k)
 
 let rname r = (view r).Mir_target.View.name
 let width = function G _ | Fr _ -> 1 | Vr _ | Vn _ -> 4

@@ -54,11 +54,29 @@ module Item = struct
     | Insn of { mnemonic : string; ops : A.E.Operand.t list }
     | Label of string
 
+  (* A length or position in the emitted code, in bytes. *)
+  module Size =
+    Core.Tagged_int.Make
+      (struct
+        let prefix = "B"
+      end)
+      ()
+
+  module Size_math = struct
+    let zero = Size.of_int 0
+    let add a b = Size.of_int (Size.to_int a + Size.to_int b)
+    let sub a b = Size.of_int (Size.to_int a - Size.to_int b)
+    let min a b = if Size.compare a b <= 0 then a else b
+    let distance a b = Size.of_int (abs (Size.to_int a - Size.to_int b))
+    let scale n a = Size.of_int (n * Size.to_int a)
+    let total = List.fold_left add zero
+  end
+
   let bytes = function
-    | Branch _ -> 4
-    | Insn { mnemonic = "la" | "call"; _ } -> 8
-    | Insn _ -> 4
-    | Label _ -> 0
+    | Branch _ -> Size.of_int 4
+    | Insn { mnemonic = "la" | "call"; _ } -> Size.of_int 8
+    | Insn _ -> Size.of_int 4
+    | Label _ -> Size_math.zero
 end
 
 type env = {

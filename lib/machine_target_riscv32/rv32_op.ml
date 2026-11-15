@@ -213,14 +213,15 @@ let vector_scratch (x : Rv32_vop.t) =
 (* Integers and pointers take the next of a0-a7, floats the next of fa0-fa7;
    the status follows the results in the integer sequence. *)
 let sequence tys =
-  let gi = ref 0 and fi = ref 0 in
+  let gi = ref Rv32_reg.Num_seq.zero and fi = ref Rv32_reg.Num_seq.zero in
   List.map
     (fun (t : Mir_type.t) ->
       let fp = Mir_type.equal t Mir_type.F32 in
       let k = if fp then fi else gi in
       let r = if fp then Rv32_reg.fa !k else Rv32_reg.a !k in
-      incr k;
-      if !k > 8 then invalid_arg "Rv32_op: more than eight of one class";
+      k := Rv32_reg.Num.succ !k;
+      if Rv32_reg.Num.compare !k (Rv32_reg.Num.of_int 8) > 0 then
+        invalid_arg "Rv32_op: more than eight of one class";
       r)
     tys
 
@@ -252,11 +253,12 @@ let unit_bits = function
 (* A call leaves undefined every register the psABI does not preserve: ra,
    t0-t6, a0-a7, ft0-ft11, fa0-fa7 and every vector register. *)
 let call_clobbers =
+  let module N = Rv32_reg.Num in
+  let module Ns = Rv32_reg.Num_seq in
   List.map Rv32_reg.x
-    ([ 1; 5; 6; 7 ] @ Rv32_reg.range 10 17 @ Rv32_reg.range 28 31)
-  @ List.map Rv32_reg.f
-      (Rv32_reg.range 0 7 @ Rv32_reg.range 10 17 @ Rv32_reg.range 28 31)
-  @ List.map Rv32_reg.v (Rv32_reg.range 0 31)
+    (Ns.of_ints [ 1; 5; 6; 7 ] @ Ns.range 10 17 @ Ns.range 28 31)
+  @ List.map Rv32_reg.f (Ns.range 0 7 @ Ns.range 10 17 @ Ns.range 28 31)
+  @ List.map Rv32_reg.v (Ns.range 0 31)
 
 let clobbers = function
   | Call _ -> call_clobbers

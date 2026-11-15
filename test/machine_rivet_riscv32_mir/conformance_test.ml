@@ -18,7 +18,10 @@ module Loc = Mir_phys.Loc
 
 type reg = G of int | Fr of int
 
-let view = function G k -> Rv32_reg.x k | Fr k -> Rv32_reg.f k
+let view = function
+  | G k -> Rv32_reg.x (Rv32_reg.Num.of_int k)
+  | Fr k -> Rv32_reg.f (Rv32_reg.Num.of_int k)
+
 let rname r = (view r).Mir_target.View.name
 let a k = G (10 + k)
 let fa k = Fr (10 + k)

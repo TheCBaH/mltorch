@@ -35,41 +35,42 @@ let relocation_index artifact =
 
 (* A B-type branch reaches [-4096, 4094] bytes; the margin keeps a promotion
    from pushing a neighbour out of reach within the same round. *)
-let reach = 4000
+let reach = Item.Size.of_int 4000
 
 (* The items with every conditional branch resolved, short or long. *)
 let lay_out items =
   let long = Hashtbl.create 16 in
   let rec round () =
     let at = Hashtbl.create 64 in
-    let pos = ref 0 in
+    let pos = ref Item.Size_math.zero in
     List.iteri
       (fun k it ->
         (match it with Item.Label l -> Hashtbl.replace at l !pos | _ -> ());
         pos :=
-          !pos
-          +
-          match it with
-          | Item.Branch _ when Hashtbl.mem long k -> 8
-          | it -> Item.bytes it)
+          Item.Size_math.add !pos
+            (match it with
+            | Item.Branch _ when Hashtbl.mem long k -> Item.Size.of_int 8
+            | it -> Item.bytes it))
       items;
-    let pos = ref 0 and changed = ref false in
+    let pos = ref Item.Size_math.zero and changed = ref false in
     List.iteri
       (fun k it ->
         (match it with
         | Item.Branch { label; _ } when not (Hashtbl.mem long k) -> (
             match Hashtbl.find_opt at label with
-            | Some target when abs (target - !pos) <= reach -> ()
+            | Some target
+              when Item.Size.compare (Item.Size_math.distance target !pos) reach
+                   <= 0 ->
+                ()
             | _ ->
                 Hashtbl.replace long k ();
                 changed := true)
         | _ -> ());
         pos :=
-          !pos
-          +
-          match it with
-          | Item.Branch _ when Hashtbl.mem long k -> 8
-          | it -> Item.bytes it)
+          Item.Size_math.add !pos
+            (match it with
+            | Item.Branch _ when Hashtbl.mem long k -> Item.Size.of_int 8
+            | it -> Item.bytes it))
       items;
     if !changed then round ()
   in

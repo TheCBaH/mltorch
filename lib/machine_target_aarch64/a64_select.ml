@@ -475,7 +475,7 @@ let vector st (i : Mir_op.t Mir_instr.t) =
       def (Scvtf_vec a)
   | Mir_op.Vload { Mir_op.Vaccess.addr; stride; _ } ->
       let a = arr (r ()) in
-      let fsz = Arr.fsz a and n = Arr.lanes a in
+      let fsz = Arr.fsz a and n = Mir_type.Lanes.to_int (Arr.lanes a) in
       let size = match fsz with Fsz.D -> 8L | Fsz.S -> 4L in
       if a = Arr.S2 then refuse st (Refusal.Width (r ()).Mir_value.ty);
       if Int64.equal stride size || mutated st Mutation.Contiguous_lanes then
@@ -517,7 +517,7 @@ let vector st (i : Mir_op.t Mir_instr.t) =
   | Mir_op.Vsplat (_, x) -> def (Dup_elem (arr (r ()), x))
   | Mir_op.Vstore ({ Mir_op.Vaccess.addr; stride; _ }, v) ->
       let a = arr v in
-      let fsz = Arr.fsz a and n = Arr.lanes a in
+      let fsz = Arr.fsz a and n = Mir_type.Lanes.to_int (Arr.lanes a) in
       let size = match fsz with Fsz.D -> 8L | Fsz.S -> 4L in
       if a = Arr.S2 then refuse st (Refusal.Width v.Mir_value.ty);
       if Int64.equal stride size then
@@ -646,7 +646,7 @@ let instr st (i : Mir_op.t Mir_instr.t) =
             let log2 k =
               List.find_opt
                 (fun n -> Int64.equal k (Int64.shift_left 1L n))
-                (List.init (Sz.bits sz) Fun.id)
+                (List.init (Sz.bits sz :> int) Fun.id)
             in
             match
               immediate st ~commutes:true

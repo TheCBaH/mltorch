@@ -39,7 +39,7 @@ let is_arr arr (t : Mir_type.t) = Mir_type.equal t (Arr.ty arr)
 let is_mask arr (t : Mir_type.t) =
   match Arr.mask_ty arr with Some m -> Mir_type.equal t m | None -> false
 
-let lane_ok fsz k = k >= 0 && k < Arr.lanes (full fsz)
+let lane_ok fsz k = k >= 0 && k < Mir_type.Lanes.to_int (Arr.lanes (full fsz))
 
 (* The integer lane width of a register-wide integer vector: [i8x16] or
    [i16x8]. *)
@@ -318,7 +318,7 @@ let typing op =
           (imm >= 0 && imm <= 0xFFFF
           && shift mod 16 = 0
           && shift >= 0
-          && shift < Sz.bits sz)
+          && shift < (Sz.bits sz :> int))
           "movk immediate"
       in
       Ok [ ty a ]
@@ -328,7 +328,7 @@ let typing op =
           (imm >= 0 && imm <= 0xFFFF
           && shift mod 16 = 0
           && shift >= 0
-          && shift < Sz.bits sz)
+          && shift < (Sz.bits sz :> int))
           "move immediate"
       in
       Ok [ (match sz with Sz.W -> Mir_type.i32 | Sz.X -> Mir_type.i64) ]
@@ -374,7 +374,7 @@ let typing op =
       Ok [ Arr.ty Arr.S4 ]
   | Shift_imm (_, sz, a, k) ->
       let* () = need (arith sz (ty a)) "shift operand" in
-      let* () = need (k >= 0 && k < Sz.bits sz) "shift amount" in
+      let* () = need (k >= 0 && k < (Sz.bits sz :> int)) "shift amount" in
       Ok [ ty a ]
   | St1_lane (fsz, k, a, base) ->
       let* () =

@@ -356,7 +356,10 @@ let image ?mutation ?kernel_mutation ?home ?(engine = true) ?engine_mutation
             | Ok l -> String.length l.Coral_overlay.Linked.text
             | Error _ -> 0
           in
-          let slot = List.fold_left (fun n o -> max n (text o)) 0 attentions in
+          let slot =
+            O.Item.Size.of_int
+              (List.fold_left (fun n o -> max n (text o)) 0 attentions)
+          in
           O.of_artifact ?mutation ~avoid:(List.map fst !attended)
             ~choose:(O.fill ~slot) artifact
     in

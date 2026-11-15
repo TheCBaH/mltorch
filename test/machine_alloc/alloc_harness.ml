@@ -101,14 +101,17 @@ module Fr = Machine_alloc.Mir_frame.Make (A64) (A64_frame)
 (* Callee-saved registers and FPCR as a caller might leave them. *)
 let caller_state regs =
   List.iter
-    (fun k -> P.seed regs (A64_reg.x k) ~lo:(Int64.of_int (0x1900 + k)) ~hi:0L)
-    (A64_reg.range 19 29);
+    (fun k ->
+      P.seed regs (A64_reg.x k)
+        ~lo:(Int64.of_int (0x1900 + A64_reg.Num.to_int k))
+        ~hi:0L)
+    (A64_reg.Num_seq.range 19 29);
   List.iter
     (fun k ->
       P.seed regs (A64_reg.q k)
-        ~lo:(Int64.of_int (0x800 + k))
-        ~hi:(Int64.of_int (0x8000 + k)))
-    (A64_reg.range 8 15);
+        ~lo:(Int64.of_int (0x800 + A64_reg.Num.to_int k))
+        ~hi:(Int64.of_int (0x8000 + A64_reg.Num.to_int k)))
+    (A64_reg.Num_seq.range 8 15);
   (* flush-to-zero set by the caller: the entry function must replace it *)
   P.seed regs A64_reg.fpcr ~lo:0x0100_0000L ~hi:0L
 

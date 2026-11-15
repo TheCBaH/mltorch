@@ -15,10 +15,20 @@ let%expect_test "a cycle across a W and an X view" =
     Pc.resolve
       ~scratch:(fun (v : Mir_value.t) ->
         Loc.Reg
-          (if Mir_type.equal v.Mir_value.ty Mir_type.Ptr then R.x 14 else R.w 14))
+          (if Mir_type.equal v.Mir_value.ty Mir_type.Ptr then
+             R.x (R.Num.of_int 14)
+           else R.w (R.Num.of_int 14)))
       [
-        { Pc.dst = Loc.Reg (R.x 1); src = Loc.Reg (R.x 0); value = p };
-        { Pc.dst = Loc.Reg (R.w 0); src = Loc.Reg (R.w 1); value = i };
+        {
+          Pc.dst = Loc.Reg (R.x (R.Num.of_int 1));
+          src = Loc.Reg (R.x (R.Num.of_int 0));
+          value = p;
+        };
+        {
+          Pc.dst = Loc.Reg (R.w (R.Num.of_int 0));
+          src = Loc.Reg (R.w (R.Num.of_int 1));
+          value = i;
+        };
       ]
   in
   List.iter

@@ -479,3 +479,11 @@ coercions), which is to be confirmed by the timed inference run rather than assu
    own dimensionless algebra is undecided.
 4. Test code: a `Test_util` of typed builders versus per-file `of_int` calls. Tests
    were not part of the survey.
+
+The RV32 and AArch64 targets type their register numbers as `Rv32_reg.Num` and
+`A64_reg.Num` (`Core.Tagged_int`, one per target, beside a `Num_seq` of literal
+sequences), AArch64 widths as `Mir_target.Bits` and arrangement lane counts as
+`Mir_type.Lanes`, and the RV32 outliner's block positions and code byte counts as
+`Position` and `Item.Size`. The register-allocation contract still passes a pool
+position as `int` (`view`, `use_scratch`, `allocatable`); the targets convert at
+that boundary, and those entries stay `todo-domain` until the contract is typed.

@@ -8,8 +8,12 @@
    same sequence, an extension of the base convention's single result. *)
 
 open Machine_ir
+module Num = A64_reg.Num
+module Num_seq = A64_reg.Num_seq
 
-let view bank ~(bits : Mir_target.Bits.t) k =
+(* [view], [use_scratch] and [allocatable] keep the allocator's [int]: the
+   register-allocation contract numbers a pool by position, and converts here. *)
+let view_at bank ~(bits : Mir_target.Bits.t) k =
   let width = (bits :> int) in
   match (bank, width) with
   | Mir_target.Bank.Gpr, 64 -> A64_reg.x k
@@ -20,17 +24,28 @@ let view bank ~(bits : Mir_target.Bits.t) k =
   | Mir_target.Bank.Flags, _ -> A64_reg.nzcv
   | _ -> invalid_arg "A64_regs: no view of that shape"
 
+let view bank ~bits k = view_at bank ~bits (Num.of_int k)
+
 let use_scratch bank ~bits k =
   view bank ~bits (match bank with Mir_target.Bank.Fpr -> 16 + k | _ -> 9 + k)
 
 let result_scratch bank ~bits =
-  view bank ~bits (match bank with Mir_target.Bank.Fpr -> 19 | _ -> 12)
+  view_at bank ~bits
+    (match bank with
+    | Mir_target.Bank.Fpr -> Num.of_int 19
+    | _ -> Num.of_int 12)
 
 let copy_scratch bank ~bits =
-  view bank ~bits (match bank with Mir_target.Bank.Fpr -> 20 | _ -> 13)
+  view_at bank ~bits
+    (match bank with
+    | Mir_target.Bank.Fpr -> Num.of_int 20
+    | _ -> Num.of_int 13)
 
 let cycle_scratch bank ~bits =
-  view bank ~bits (match bank with Mir_target.Bank.Fpr -> 21 | _ -> 14)
+  view_at bank ~bits
+    (match bank with
+    | Mir_target.Bank.Fpr -> Num.of_int 21
+    | _ -> Num.of_int 14)
 
 let shape (t : Mir_type.t) =
   match t with
@@ -44,14 +59,15 @@ let shape (t : Mir_type.t) =
 
 (* Integers and floats each take the next register of their own sequence. *)
 let sequence tys =
-  let gi = ref 0 and fi = ref 0 in
+  let gi = ref Num_seq.zero and fi = ref Num_seq.zero in
   List.map
     (fun t ->
       let bank, bits = shape t in
       let k = match bank with Mir_target.Bank.Fpr -> fi | _ -> gi in
-      let r = view bank ~bits !k in
-      incr k;
-      if !k > 8 then invalid_arg "A64_regs: more than eight of one class";
+      let r = view_at bank ~bits !k in
+      k := Num.succ !k;
+      if Num.compare !k (Num.of_int 8) > 0 then
+        invalid_arg "A64_regs: more than eight of one class";
       r)
     tys
 
@@ -64,10 +80,13 @@ let results = sequence
    parallel copy's scratch (x13, x14, v20, v21). The reference strategy's
    operand and result scratch is allocatable here: linear scan gives every
    operand and result a register of its own. *)
-let allocatable = function
-  | Mir_target.Bank.Gpr -> A64_reg.range 0 12 @ [ 15 ] @ A64_reg.range 19 28
+let pool = function
+  | Mir_target.Bank.Gpr ->
+      Num_seq.range 0 12 @ Num_seq.of_ints [ 15 ] @ Num_seq.range 19 28
   | Mir_target.Bank.Fpr ->
-      A64_reg.range 0 7 @ A64_reg.range 16 19 @ A64_reg.range 22 31
-      @ A64_reg.range 8 15
+      Num_seq.range 0 7 @ Num_seq.range 16 19 @ Num_seq.range 22 31
+      @ Num_seq.range 8 15
   | Mir_target.Bank.Control | Mir_target.Bank.Flags | Mir_target.Bank.Vector ->
       []
+
+let allocatable bank = List.map Num.to_int (pool bank)

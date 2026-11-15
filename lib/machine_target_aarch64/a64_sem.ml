@@ -173,9 +173,11 @@ let exec env op =
         (if Cond.holds c (E.flags env f ~mask:(Cond.reads c)) then get x
          else get y);
       ]
-  | Dup_elem (arr, x) -> [ vec (Array.make (Arr.lanes arr) (bits env x)) ]
+  | Dup_elem (arr, x) ->
+      [ vec (Array.make (Mir_type.Lanes.to_int (Arr.lanes arr)) (bits env x)) ]
   | Dup_half (k, x) -> [ vec (Array.sub (lanes env x) (2 * k) 2) ]
-  | Dup_mask (arr, x) -> [ vec (Array.make (Arr.lanes arr) (bits env x)) ]
+  | Dup_mask (arr, x) ->
+      [ vec (Array.make (Mir_type.Lanes.to_int (Arr.lanes arr)) (bits env x)) ]
   | Dup_lane (_, k, x) -> [ b (lanes env x).(k) ]
   | Dup_w x -> [ vec (Array.make 4 (norm Sz.W (bits env x))) ]
   | Ext { signed; from; src } ->
@@ -249,7 +251,7 @@ let exec env op =
       let x =
         E.load env (E.ptr env base) ~bytes:(lane_bytes (Arr.fsz arr)) ~align:1L
       in
-      [ vec (Array.make (Arr.lanes arr) x) ]
+      [ vec (Array.make (Mir_type.Lanes.to_int (Arr.lanes arr)) x) ]
   | Ldr_ivec (t, base, k) ->
       let w = Option.get (A64_op.int_register t) in
       let size = Mir_width.bytes w in
@@ -266,7 +268,9 @@ let exec env op =
       let size = lane_bytes (Arr.fsz arr) in
       [
         vec
-          (Array.init (Arr.lanes arr) (fun j ->
+          (Array.init
+             (Mir_type.Lanes.to_int (Arr.lanes arr))
+             (fun j ->
                E.load env
                  (addr env base (Int64.add k (Int64.mul (Int64.of_int j) size)))
                  ~bytes:size ~align:1L));
