@@ -204,30 +204,39 @@ module Make (T : TARGET) = struct
                   (fun v ->
                     if is_flags v then read_flags ~instr v (T.flags_read o))
                   uses;
-                let n_uses = List.length uses
-                and n_res = List.length i.Mir_instr.results in
                 List.iter
                   (function
                     | Mir_target.Constraint.Early_clobber k ->
-                        if k < 0 || k >= n_res then
-                          reject ~instr "constraint names no result"
+                        if
+                          not
+                            (Mir_target.Constraint.has_result
+                               i.Mir_instr.results k)
+                        then reject ~instr "constraint names no result"
                     | Mir_target.Constraint.Fixed_result { result; _ } ->
-                        if result < 0 || result >= n_res then
-                          reject ~instr "constraint names no result"
+                        if
+                          not
+                            (Mir_target.Constraint.has_result
+                               i.Mir_instr.results result)
+                        then reject ~instr "constraint names no result"
                     | Mir_target.Constraint.Fixed_use { use; _ } ->
-                        if use < 0 || use >= n_uses then
+                        if not (Mir_target.Constraint.has_use uses use) then
                           reject ~instr "constraint names no use"
                     | Mir_target.Constraint.Scratch _ -> ()
                     | Mir_target.Constraint.Tied { result; use } ->
                         if
-                          result < 0 || result >= n_res || use < 0
-                          || use >= n_uses
+                          not
+                            (Mir_target.Constraint.has_result
+                               i.Mir_instr.results result
+                            && Mir_target.Constraint.has_use uses use)
                         then reject ~instr "constraint names no operand"
                         else if
                           not
                             (Mir_type.equal
-                               (List.nth i.Mir_instr.results result)
-                                 .Mir_value.ty (List.nth uses use).Mir_value.ty)
+                               (Mir_target.Constraint.nth_result
+                                  i.Mir_instr.results result)
+                                 .Mir_value.ty
+                               (Mir_target.Constraint.nth_use uses use)
+                                 .Mir_value.ty)
                         then reject ~instr "tied operands of different types")
                   (T.constraints o);
                 if T.writes_flags o then

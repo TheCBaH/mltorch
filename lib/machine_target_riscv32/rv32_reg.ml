@@ -12,18 +12,19 @@ module V = Mir_target.View
 (* A register's number within its bank: x5, f5 and v5 are each number 5. It
    also counts a sequence from its first member (the k-th argument register
    is a0 plus k), which is why two numbers add. *)
-module Num =
-  Core.Tagged_int.Make
-    (struct
-      let prefix = "r"
-    end)
-    ()
+module Num = Mir_target.Reg_num
 
 (* Sequences of register numbers: a range or list written as literals, and
    the sum of two numbers where one is an offset. *)
 module Num_seq = struct
   let zero = Num.of_int 0
   let add a b = Num.of_int (Num.to_int a + Num.to_int b)
+
+  (* The register [slot] places on from [base]: the k-th scratch operand
+     register. *)
+  let at base slot =
+    Num.of_int (Num.to_int base + Mir_target.Scratch_slot.to_int slot)
+
   let range lo hi = List.init (hi - lo + 1) (fun i -> Num.of_int (lo + i))
   let of_ints = List.map Num.of_int
 end

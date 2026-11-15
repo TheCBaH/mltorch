@@ -228,13 +228,23 @@ let sequence tys =
 let constraints = function
   | Call { args; results; _ } ->
       List.mapi
-        (fun use view -> Mir_target.Constraint.Fixed_use { use; view })
+        (fun use view ->
+          Mir_target.Constraint.Fixed_use
+            { use = Mir_target.Constraint.Use_position.of_int use; view })
         (sequence (List.map (fun (a : v) -> a.Mir_value.ty) args))
       @ List.mapi
           (fun result view ->
-            Mir_target.Constraint.Fixed_result { result; view })
+            Mir_target.Constraint.Fixed_result
+              {
+                result = Mir_target.Constraint.Result_position.of_int result;
+                view;
+              })
           (sequence (results @ [ Mir_type.i32 ]))
-  | Add_wide _ -> [ Mir_target.Constraint.Early_clobber 0 ]
+  | Add_wide _ ->
+      [
+        Mir_target.Constraint.Early_clobber
+          (Mir_target.Constraint.Result_position.of_int 0);
+      ]
   | Vec x ->
       Rv32_vop.constraints x
       @ List.map (fun v -> Mir_target.Constraint.Scratch v) (vector_scratch x)

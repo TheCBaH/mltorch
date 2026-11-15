@@ -380,7 +380,9 @@ let predict mutation (f : X64_forms.t) (v : vector) : prediction =
   let tied_use =
     List.find_map
       (function
-        | Mir_target.Constraint.Tied { result = 0; use } -> Some use | _ -> None)
+        | Mir_target.Constraint.Tied { result; use } when (result :> int) = 0 ->
+            Some (use :> int)
+        | _ -> None)
       (X64_op.constraints op)
   in
   let old_of_dest ty =

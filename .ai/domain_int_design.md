@@ -480,10 +480,15 @@ coercions), which is to be confirmed by the timed inference run rather than assu
 4. Test code: a `Test_util` of typed builders versus per-file `of_int` calls. Tests
    were not part of the survey.
 
-The RV32 and AArch64 targets type their register numbers as `Rv32_reg.Num` and
-`A64_reg.Num` (`Core.Tagged_int`, one per target, beside a `Num_seq` of literal
-sequences), AArch64 widths as `Mir_target.Bits` and arrangement lane counts as
+The RV32 and AArch64 targets type their register numbers as `Mir_target.Reg_num`
+(`Core.Tagged_int`, aliased `Rv32_reg.Num` and `A64_reg.Num`, beside a `Num_seq` of
+literal sequences), AArch64 widths as `Mir_target.Bits` and arrangement lane counts as
 `Mir_type.Lanes`, and the RV32 outliner's block positions and code byte counts as
-`Position` and `Item.Size`. The register-allocation contract still passes a pool
-position as `int` (`view`, `use_scratch`, `allocatable`); the targets convert at
-that boundary, and those entries stay `todo-domain` until the contract is typed.
+`Position` and `Item.Size`. The register-allocation contract uses the same
+`Reg_num` (`view`, `allocatable`, `Where.In`) and a `Scratch_slot` for the reference
+allocator's k-th operand register (`use_scratch`); a constraint's operand positions are
+`Constraint.Use_position` and `Constraint.Result_position`, read through `has_use`,
+`nth_use` and their result twins. Register-group arithmetic is `Mir_target.Span`
+(`of_width`, `members`, `aligned`, `share`), and the physical interpreter takes `Bits`
+and `Lanes` throughout. `Mir_vsplit.widening_slices` returns `Mir_type.Lane.t`. x86-64
+keeps architectural `int` numbers inside its own `Regs` and converts at the contract.

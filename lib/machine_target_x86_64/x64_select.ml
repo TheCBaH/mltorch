@@ -381,7 +381,7 @@ let vector st (i : Mir_op.t Mir_instr.t) =
            {
              signed = k = Mir_op.Iext.Sext;
              from = Option.get (X64_op.int_register src.Mir_value.ty);
-             first;
+             first = Mir_type.Lane.to_int first;
              src;
            })
   | Mir_op.Vsplat _ when Hashtbl.mem st.shift_counts (r ()).Mir_value.id ->

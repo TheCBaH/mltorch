@@ -213,7 +213,8 @@ module Make (T : Mir_sel.TARGET) = struct
                             | Mir_target.Constraint.Early_clobber k ->
                                 if
                                   List.exists
-                                    (Loc.overlap (List.nth defs k))
+                                    (Loc.overlap
+                                       (Mir_target.Constraint.nth_result defs k))
                                     uses
                                 then
                                   reject ~block ~instr:instr_id
@@ -222,7 +223,9 @@ module Make (T : Mir_sel.TARGET) = struct
                                 { result; view } ->
                                 if
                                   not
-                                    (Loc.equal (List.nth defs result)
+                                    (Loc.equal
+                                       (Mir_target.Constraint.nth_result defs
+                                          result)
                                        (Loc.Reg view))
                                 then
                                   reject ~block ~instr:instr_id
@@ -238,14 +241,16 @@ module Make (T : Mir_sel.TARGET) = struct
                             | Mir_target.Constraint.Fixed_use { use; view } ->
                                 if
                                   not
-                                    (Loc.equal (List.nth uses use)
+                                    (Loc.equal
+                                       (Mir_target.Constraint.nth_use uses use)
                                        (Loc.Reg view))
                                 then
                                   reject ~block ~instr:instr_id
                                     "a fixed use elsewhere"
                             | Mir_target.Constraint.Tied { result; use } -> (
                                 match
-                                  (List.nth defs result, List.nth uses use)
+                                  ( Mir_target.Constraint.nth_result defs result,
+                                    Mir_target.Constraint.nth_use uses use )
                                 with
                                 | Loc.Reg d, Loc.Reg u
                                   when Mir_target.View.same_register d u ->

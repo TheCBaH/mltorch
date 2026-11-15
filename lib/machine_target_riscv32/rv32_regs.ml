@@ -10,8 +10,6 @@ open Machine_ir
 module Num = Rv32_reg.Num
 module Num_seq = Rv32_reg.Num_seq
 
-(* [view] and [use_scratch] and [allocatable] keep the allocator's [int]: the
-   register-allocation contract numbers a pool by position, and converts here. *)
 let view_at bank ~(bits : Mir_target.Bits.t) k =
   let width = (bits :> int) in
   match (bank, width) with
@@ -27,16 +25,16 @@ let view_at bank ~(bits : Mir_target.Bits.t) k =
   | Mir_target.Bank.Flags, _ -> Rv32_reg.flags
   | _ -> invalid_arg "Rv32_regs: no view of that shape"
 
+let view = view_at
+
 (* t0-t2 are x5-x7, t3-t5 x28-x30; ft0-ft5 are f0-f5. *)
-let view bank ~bits k = view_at bank ~bits (Num.of_int k)
 
 let use_scratch bank ~bits k =
-  let k = Num.of_int k in
   view_at bank ~bits
     (match bank with
-    | Mir_target.Bank.Fpr -> k
-    | Mir_target.Bank.Vector -> Num_seq.add (Num.of_int 1) k
-    | _ -> Num_seq.add (Num.of_int 5) k)
+    | Mir_target.Bank.Fpr -> Num_seq.at Num_seq.zero k
+    | Mir_target.Bank.Vector -> Num_seq.at (Num.of_int 1) k
+    | _ -> Num_seq.at (Num.of_int 5) k)
 
 let result_scratch bank ~bits =
   view_at bank ~bits
@@ -83,7 +81,7 @@ let pool = function
       Num_seq.range 0 4 @ Num_seq.range 7 31
   | Mir_target.Bank.Control | Mir_target.Bank.Flags -> []
 
-let allocatable bank = List.map Num.to_int (pool bank)
+let allocatable = pool
 
 (* The pool of the grouped (LMUL 4) vector choice: sixteen-lane values in
    aligned groups of four as well as four-lane ones in single registers. A
@@ -115,11 +113,9 @@ module Grouped = struct
   let args = args
   let results = results
 
-  let allocatable bank =
-    List.map Num.to_int
-      (match bank with
-      | Mir_target.Bank.Vector -> Num_seq.range 0 4 @ Num_seq.range 7 23
-      | b -> pool b)
+  let allocatable = function
+    | Mir_target.Bank.Vector -> Num_seq.range 0 4 @ Num_seq.range 7 23
+    | b -> pool b
 end
 
 (* The pool of the eight-register choice (LMUL 8): thirty-two-lane values in
@@ -153,9 +149,7 @@ module Grouped8 = struct
   let args = args
   let results = results
 
-  let allocatable bank =
-    List.map Num.to_int
-      (match bank with
-      | Mir_target.Bank.Vector -> Num_seq.range 8 23
-      | b -> pool b)
+  let allocatable = function
+    | Mir_target.Bank.Vector -> Num_seq.range 8 23
+    | b -> pool b
 end

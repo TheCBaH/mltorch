@@ -60,7 +60,8 @@ let place_uses (f : X64_forms.t) op =
   let fixed =
     List.filter_map
       (function
-        | Mir_target.Constraint.Fixed_use { use; view } -> Some (use, view)
+        | Mir_target.Constraint.Fixed_use { use; view } ->
+            Some ((use :> int), view)
         | _ -> None)
       (X64_op.constraints op)
   in
@@ -102,7 +103,9 @@ let place_uses (f : X64_forms.t) op =
 let tied_use op =
   List.find_map
     (function
-      | Mir_target.Constraint.Tied { result = 0; use } -> Some use | _ -> None)
+      | Mir_target.Constraint.Tied { result; use } when (result :> int) = 0 ->
+          Some (use :> int)
+      | _ -> None)
     (X64_op.constraints op)
 
 (* The result registers: flags, the tied use's, a fixed one, or the scratch
@@ -112,7 +115,7 @@ let place_defs op tys (u : placed) =
     List.filter_map
       (function
         | Mir_target.Constraint.Fixed_result { result; view } ->
-            Some (result, view)
+            Some ((result :> int), view)
         | _ -> None)
       (X64_op.constraints op)
   in
@@ -190,7 +193,7 @@ let build_inner ?mutation (f : X64_forms.t) (vs : vector list) =
              List.exists
                (function
                  | Mir_target.Constraint.Fixed_result { result; _ } ->
-                     result = j
+                     (result :> int) = j
                  | _ -> false)
                (X64_op.constraints op)
            in

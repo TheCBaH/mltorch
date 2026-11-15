@@ -560,7 +560,7 @@ let widening_slices (f : (Mir_op.t, Mir_terminator.t) Mir_func.t) =
                       (function
                         | Mir_op.Iext (_, Mir_width.W32, _) -> true | _ -> false)
                       (Hashtbl.find_all readers (key r)) ->
-              Hashtbl.replace slices (key r) (Mir_type.Lane.to_int first, a)
+              Hashtbl.replace slices (key r) (first, a)
           | _ -> ())
         b.Mir_block.body)
     f.Mir_func.blocks;

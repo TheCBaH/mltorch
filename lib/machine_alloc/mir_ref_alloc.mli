@@ -5,7 +5,10 @@ open Machine_ir
 
 module type REGISTERS = sig
   val use_scratch :
-    Mir_target.Bank.t -> bits:Mir_target.Bits.t -> int -> Mir_target.View.t
+    Mir_target.Bank.t ->
+    bits:Mir_target.Bits.t ->
+    Mir_target.Scratch_slot.t ->
+    Mir_target.View.t
   (** the register for an instruction's [k]-th distinct operand *)
 
   val result_scratch :

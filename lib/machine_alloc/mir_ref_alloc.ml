@@ -13,7 +13,10 @@ module Loc = Mir_phys.Loc
 (* What the allocator needs of a target beyond its selected interface. *)
 module type REGISTERS = sig
   val use_scratch :
-    Mir_target.Bank.t -> bits:Mir_target.Bits.t -> int -> Mir_target.View.t
+    Mir_target.Bank.t ->
+    bits:Mir_target.Bits.t ->
+    Mir_target.Scratch_slot.t ->
+    Mir_target.View.t
   (** the register for an instruction's [k]-th distinct operand *)
 
   val result_scratch :
@@ -129,7 +132,9 @@ module Make (T : Mir_sel.TARGET) (R : REGISTERS) = struct
         let fixed_use k =
           List.find_map
             (function
-              | Mir_target.Constraint.Fixed_use { use; view } when use = k ->
+              | Mir_target.Constraint.Fixed_use { use; view }
+                when Mir_target.Constraint.Use_position.equal use
+                       (Mir_target.Constraint.Use_position.of_int k) ->
                   Some view
               | _ -> None)
             constraints
@@ -155,7 +160,8 @@ module Make (T : Mir_sel.TARGET) (R : REGISTERS) = struct
             | Some view -> Loc.Reg view
             | None ->
                 let bank, bits = shape v in
-                Loc.Reg (R.use_scratch bank ~bits k)
+                Loc.Reg
+                  (R.use_scratch bank ~bits (Mir_target.Scratch_slot.of_int k))
         in
         let reloads =
           List.map
@@ -174,11 +180,15 @@ module Make (T : Mir_sel.TARGET) (R : REGISTERS) = struct
                   List.find_map
                     (function
                       | Mir_target.Constraint.Fixed_result { result; view }
-                        when result = k ->
+                        when Mir_target.Constraint.Result_position.equal result
+                               (Mir_target.Constraint.Result_position.of_int k)
+                        ->
                           Some (Loc.Reg view)
                       | Mir_target.Constraint.Tied { result; use }
-                        when result = k && not (mutated st Mutation.Tie) -> (
-                          match List.nth uses use with
+                        when Mir_target.Constraint.Result_position.equal result
+                               (Mir_target.Constraint.Result_position.of_int k)
+                             && not (mutated st Mutation.Tie) -> (
+                          match Mir_target.Constraint.nth_use uses use with
                           | Loc.Reg u ->
                               let _, bits = shape r in
                               Some
@@ -290,7 +300,11 @@ module Make (T : Mir_sel.TARGET) (R : REGISTERS) = struct
                 if is_flags v then (Loc.Reg T.flags_view, [])
                 else
                   let bank, bits = shape v in
-                  let r = Loc.Reg (R.use_scratch bank ~bits k) in
+                  let r =
+                    Loc.Reg
+                      (R.use_scratch bank ~bits
+                         (Mir_target.Scratch_slot.of_int k))
+                  in
                   ( r,
                     [
                       Mir_phys.Instr.Move

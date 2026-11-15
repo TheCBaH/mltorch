@@ -150,7 +150,9 @@ let probe_module ?mutation (f : Form.t) =
         let tied =
           List.find_map
             (function
-              | Mir_target.Constraint.Tied { result = 0; use } -> Some use
+              | Mir_target.Constraint.Tied { result; use }
+                when (result :> int) = 0 ->
+                  Some (use :> int)
               | _ -> None)
             (A64_op.constraints op)
         in

@@ -7,7 +7,7 @@
 
 open Machine_ir
 
-let view bank ~(bits : Mir_target.Bits.t) k =
+let view_of_int bank ~(bits : Mir_target.Bits.t) k =
   let width = (bits :> int) in
   match (bank, width) with
   | Mir_target.Bank.Gpr, 64 -> X64_reg.q k
@@ -21,19 +21,20 @@ let view bank ~(bits : Mir_target.Bits.t) k =
 let gpr_uses = [| 8; 9; X64_reg.rsi |]
 
 let use_scratch bank ~bits k =
-  view bank ~bits
+  let k = Mir_target.Scratch_slot.to_int k in
+  view_of_int bank ~bits
     (match bank with Mir_target.Bank.Fpr -> 8 + k | _ -> gpr_uses.(k))
 
 let result_scratch bank ~bits =
-  view bank ~bits
+  view_of_int bank ~bits
     (match bank with Mir_target.Bank.Fpr -> 11 | _ -> X64_reg.rdi)
 
 let copy_scratch bank ~bits =
-  view bank ~bits
+  view_of_int bank ~bits
     (match bank with Mir_target.Bank.Fpr -> 12 | _ -> X64_reg.rcx)
 
 let cycle_scratch bank ~bits =
-  view bank ~bits
+  view_of_int bank ~bits
     (match bank with Mir_target.Bank.Fpr -> 13 | _ -> X64_reg.rdx)
 
 let shape (t : Mir_type.t) =
@@ -56,7 +57,7 @@ let sequence ~ints ~floats tys =
       in
       if !k >= Array.length pool then
         invalid_arg "X64_regs: more operands of one class than registers";
-      let r = view bank ~bits pool.(!k) in
+      let r = view_of_int bank ~bits pool.(!k) in
       incr k;
       r)
     tys
@@ -73,7 +74,7 @@ let results = sequence ~ints:[| X64_reg.rax; X64_reg.rdx |] ~floats:[| 0; 1 |]
    nor the parallel copy's scratch (rcx, rdx, xmm12, xmm13). The reference
    strategy's operand and result scratch is allocatable here: linear scan
    gives every operand and result a register of its own. *)
-let allocatable = function
+let allocatable_ints = function
   | Mir_target.Bank.Gpr ->
       [
         X64_reg.rax; X64_reg.rsi; X64_reg.rdi; 8; 9; X64_reg.rbx; 12; 13; 14; 15;
@@ -81,3 +82,10 @@ let allocatable = function
   | Mir_target.Bank.Fpr -> List.init 12 Fun.id @ [ 14; 15 ]
   | Mir_target.Bank.Control | Mir_target.Bank.Flags | Mir_target.Bank.Vector ->
       []
+
+(* The register-allocation contract numbers registers by [Mir_target.Reg_num];
+   this target's own constructors still take the architectural number. *)
+let allocatable bank =
+  List.map Mir_target.Reg_num.of_int (allocatable_ints bank)
+
+let view bank ~bits k = view_of_int bank ~bits (Mir_target.Reg_num.to_int k)

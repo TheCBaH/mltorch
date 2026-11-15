@@ -61,7 +61,7 @@ type st = {
   unlisted : Mir_failure.Unlisted.t;
   fallible : Mir_op.Callee.t -> bool;
   features : Mir_target.Feature.t list;
-  int_slices : (Mir_id.Value.t, int * Mir_value.t) Hashtbl.t;
+  int_slices : (Mir_id.Value.t, Mir_type.Lane.t * Mir_value.t) Hashtbl.t;
       (** four lanes of an integer register read only by extensions to int32
           ({!Mir_vsplit.widening_slices}) *)
   shift_counts : (Mir_id.Value.t, int64) Hashtbl.t;

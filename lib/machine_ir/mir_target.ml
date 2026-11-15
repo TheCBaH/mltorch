@@ -37,6 +37,26 @@ module Bits =
     end)
     ()
 
+(* A register's number within its bank: x5, f5 and v5 are each number 5. The
+   allocation contract names a pool, a view and a position in a sequence by
+   it; a target's own register constructors take the same type. *)
+module Reg_num =
+  Core.Tagged_int.Make
+    (struct
+      let prefix = "r"
+    end)
+    ()
+
+(* Which scratch operand register of an instruction: the reference
+   allocator reloads its k-th distinct operand into the k-th. A target places
+   the sequence at a register number of its own. *)
+module Scratch_slot =
+  Core.Tagged_int.Make
+    (struct
+      let prefix = "scratch"
+    end)
+    ()
+
 (* A register bank: storage of one kind. Views of one bank overlap; banks do
    not. *)
 module Bank = struct
@@ -58,6 +78,28 @@ module Span = struct
 
   let count = function One -> 1 | Two -> 2 | Four -> 4 | Eight -> 8
   let name = function One -> "m1" | Two -> "m2" | Four -> "m4" | Eight -> "m8"
+
+  (* The span a value [bits] wide needs of units [unit] wide: one for
+     anything not wider than a unit. *)
+  let of_width ~(unit : Bits.t) (bits : Bits.t) =
+    match (bits :> int) / (unit :> int) with
+    | 0 | 1 -> One
+    | 2 -> Two
+    | 4 -> Four
+    | 8 -> Eight
+    | _ -> invalid_arg "Mir_target.Span.of_width: no such register group"
+
+  (* The register numbers a group of this span based at [base] covers, lowest
+     first, and whether [base] may start one (a multiple of the span). *)
+  let members t (base : Reg_num.t) =
+    List.init (count t) (fun i -> Reg_num.of_int ((base :> int) + i))
+
+  let aligned t (base : Reg_num.t) = (base :> int) mod count t = 0
+
+  (* The lanes of a vector of [lanes] lanes that one member of the group
+     holds. *)
+  let share t (lanes : Mir_type.Lanes.t) =
+    Mir_type.Lanes.of_int ((lanes :> int) / count t)
 end
 
 (* A physical register view: [bits] bits of a register unit starting at bit
@@ -147,17 +189,44 @@ let lp64_shape ~(flags_bits : Bits.t) (ty : Mir_type.t) =
 (* A register-allocation constraint on an instruction's operands, by position
    among its value uses or results. *)
 module Constraint = struct
+  (* A position among an instruction's value uses, and one among its results:
+     two numberings, so neither passes for the other. *)
+  module Use_position =
+    Core.Tagged_int.Make
+      (struct
+        let prefix = "use"
+      end)
+      ()
+
+  module Result_position =
+    Core.Tagged_int.Make
+      (struct
+        let prefix = "result"
+      end)
+      ()
+
+  (* Whether a position names an element of the instruction's uses or
+     results, and that element. *)
+  let has_use uses (p : Use_position.t) =
+    (p :> int) >= 0 && (p :> int) < List.length uses
+
+  let has_result results (p : Result_position.t) =
+    (p :> int) >= 0 && (p :> int) < List.length results
+
+  let nth_use uses (p : Use_position.t) = List.nth uses (p :> int)
+  let nth_result results (p : Result_position.t) = List.nth results (p :> int)
+
   type t =
-    | Early_clobber of int
+    | Early_clobber of Result_position.t
         (** result [k] is written before every use is read: it may share no
             location with a use *)
-    | Fixed_result of { result : int; view : View.t }
-    | Fixed_use of { use : int; view : View.t }
+    | Fixed_result of { result : Result_position.t; view : View.t }
+    | Fixed_use of { use : Use_position.t; view : View.t }
     | Scratch of View.t
         (** the form's own sequence overwrites the view while it reads its uses
             and writes its results: no use or result may share it. The view is
             among the form's clobbers too. *)
-    | Tied of { result : int; use : int }
+    | Tied of { result : Result_position.t; use : Use_position.t }
         (** a destructive form: result [k] occupies use [j]'s location; the
             virtual values stay distinct *)
 end

@@ -11,8 +11,6 @@ open Machine_ir
 module Num = A64_reg.Num
 module Num_seq = A64_reg.Num_seq
 
-(* [view], [use_scratch] and [allocatable] keep the allocator's [int]: the
-   register-allocation contract numbers a pool by position, and converts here. *)
 let view_at bank ~(bits : Mir_target.Bits.t) k =
   let width = (bits :> int) in
   match (bank, width) with
@@ -24,10 +22,13 @@ let view_at bank ~(bits : Mir_target.Bits.t) k =
   | Mir_target.Bank.Flags, _ -> A64_reg.nzcv
   | _ -> invalid_arg "A64_regs: no view of that shape"
 
-let view bank ~bits k = view_at bank ~bits (Num.of_int k)
+let view = view_at
 
 let use_scratch bank ~bits k =
-  view bank ~bits (match bank with Mir_target.Bank.Fpr -> 16 + k | _ -> 9 + k)
+  view bank ~bits
+    (Num_seq.at
+       (Num.of_int (match bank with Mir_target.Bank.Fpr -> 16 | _ -> 9))
+       k)
 
 let result_scratch bank ~bits =
   view_at bank ~bits
@@ -89,4 +90,4 @@ let pool = function
   | Mir_target.Bank.Control | Mir_target.Bank.Flags | Mir_target.Bank.Vector ->
       []
 
-let allocatable bank = List.map Num.to_int (pool bank)
+let allocatable = pool

@@ -51,7 +51,7 @@ type st = {
   fallible : Mir_op.Callee.t -> bool;
   float_loads : (Mir_id.Value.t, Mir_value.t) Hashtbl.t;
       (** a load read only by one bitcast to a float: the float it defines *)
-  int_slices : (Mir_id.Value.t, int * Mir_value.t) Hashtbl.t;
+  int_slices : (Mir_id.Value.t, Mir_type.Lane.t * Mir_value.t) Hashtbl.t;
       (** four lanes of an integer register read only by extensions to int32:
           the first lane and the register *)
   shift_counts : (Mir_id.Value.t, int64) Hashtbl.t;
@@ -428,7 +428,7 @@ let vector st (i : Mir_op.t Mir_instr.t) =
            {
              signed = k = Mir_op.Iext.Sext;
              from = Option.get (A64_op.int_register src.Mir_value.ty);
-             first;
+             first = Mir_type.Lane.to_int first;
              src;
            })
   | Mir_op.Vsplat _ when Hashtbl.mem st.shift_counts (r ()).Mir_value.id ->

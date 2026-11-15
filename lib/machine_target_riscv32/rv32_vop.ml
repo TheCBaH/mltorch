@@ -120,8 +120,19 @@ let ordered = function
   | _ -> false
 
 let constraints = function
-  | Vfmacc _ -> [ Mir_target.Constraint.Tied { result = 0; use = 0 } ]
-  | Vext _ | Vnsrl16_pair _ -> [ Mir_target.Constraint.Early_clobber 0 ]
+  | Vfmacc _ ->
+      [
+        Mir_target.Constraint.Tied
+          {
+            result = Mir_target.Constraint.Result_position.of_int 0;
+            use = Mir_target.Constraint.Use_position.of_int 0;
+          };
+      ]
+  | Vext _ | Vnsrl16_pair _ ->
+      [
+        Mir_target.Constraint.Early_clobber
+          (Mir_target.Constraint.Result_position.of_int 0);
+      ]
   | _ -> []
 
 let lanes4 = Mir_type.Lanes.of_int 4

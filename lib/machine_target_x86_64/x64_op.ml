@@ -347,7 +347,14 @@ let ordered = function
       true
   | _ -> false
 
-let tied0 = [ Mir_target.Constraint.Tied { result = 0; use = 0 } ]
+let tied0 =
+  [
+    Mir_target.Constraint.Tied
+      {
+        result = Mir_target.Constraint.Result_position.of_int 0;
+        use = Mir_target.Constraint.Use_position.of_int 0;
+      };
+  ]
 
 let constraints = function
   | Alu _ | Alu_imm _ | Cmps _ | Fbin _ | Flogic _ | Imul _ | Movlhps _ | Neg _
@@ -355,25 +362,47 @@ let constraints = function
   | Shift_imm _ ->
       tied0
   | Cmov _ | Fmadd231 _ | Pfmadd231 _ ->
-      [ Mir_target.Constraint.Tied { result = 0; use = 2 } ]
+      [
+        Mir_target.Constraint.Tied
+          {
+            result = Mir_target.Constraint.Result_position.of_int 0;
+            use = Mir_target.Constraint.Use_position.of_int 2;
+          };
+      ]
   | Cqo_idiv _ ->
       (* CQO writes rdx before IDIV reads the divisor *)
       [
         Mir_target.Constraint.Fixed_use
-          { use = 0; view = X64_reg.q X64_reg.rax };
+          {
+            use = Mir_target.Constraint.Use_position.of_int 0;
+            view = X64_reg.q X64_reg.rax;
+          };
         Mir_target.Constraint.Fixed_result
-          { result = 0; view = X64_reg.q X64_reg.rax };
+          {
+            result = Mir_target.Constraint.Result_position.of_int 0;
+            view = X64_reg.q X64_reg.rax;
+          };
         Mir_target.Constraint.Fixed_result
-          { result = 1; view = X64_reg.q X64_reg.rdx };
-        Mir_target.Constraint.Early_clobber 1;
+          {
+            result = Mir_target.Constraint.Result_position.of_int 1;
+            view = X64_reg.q X64_reg.rdx;
+          };
+        Mir_target.Constraint.Early_clobber
+          (Mir_target.Constraint.Result_position.of_int 1);
       ]
   | Call { args; results; _ } ->
       List.mapi
-        (fun use view -> Mir_target.Constraint.Fixed_use { use; view })
+        (fun use view ->
+          Mir_target.Constraint.Fixed_use
+            { use = Mir_target.Constraint.Use_position.of_int use; view })
         (X64_regs.args (List.map (fun (a : v) -> a.Mir_value.ty) args))
       @ List.mapi
           (fun result view ->
-            Mir_target.Constraint.Fixed_result { result; view })
+            Mir_target.Constraint.Fixed_result
+              {
+                result = Mir_target.Constraint.Result_position.of_int result;
+                view;
+              })
           (X64_regs.results (results @ [ Mir_type.i32 ]))
   | _ -> []
 

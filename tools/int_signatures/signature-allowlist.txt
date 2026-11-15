@@ -4,7 +4,7 @@
 # [todo-domain] is a debt marker (an int that names an entity); the ceiling only goes down.
 # [ml:<dir>] scope entries also read the inferred interface of each .ml without an .mli; a library enters with an opening
 # [todo-domain] balance that is part of the ceiling, and the ceiling only goes down from there.
-@todo-domain-ceiling 340
+@todo-domain-ceiling 313
 lib/band_schedule/band_schedule.mli	defn	type t = private int
 lib/band_schedule/band_schedule.mli	defn	val of_int : int -> t
 lib/band_schedule/band_schedule.mli	defn	val to_int : t -> int
@@ -497,13 +497,8 @@ lib/machine_alloc/mir_point.ml	hash	val compare : Id.t -> Id.t -> int
 lib/machine_alloc/mir_pressure.mli	tally	type t = { peak : (Mir_target.Bank.t * int) list; hot_stores : (Mir_target.Bank.t * int) list; hot_loads : (Mir_target.Bank.t * int) list; by_depth : (int * int) list; innermost : int; stats : Mir_alloc_stats.t; frame : int64 option; helper_calls : int; }
 lib/machine_alloc/mir_pressure.mli	tally	val hot_spills : t -> int
 lib/machine_alloc/mir_pressure.mli	tally	val pp_depths : Format.formatter -> (int * int) list * int -> unit
-lib/machine_alloc/mir_ref_alloc.mli	todo-domain	val use_scratch : Mir_target.Bank.t -> bits:Mir_target.Bits.t -> int -> Mir_target.View.t
 lib/machine_alloc/mir_alloc_stats.ml	tally	type t = { register_moves : int; stores : int; loads : int; slot_moves : int; slots : int; slot_bytes : int64; executed : int; rematerialized : int; }
 lib/machine_alloc/mir_frame.ml	todo-domain	val placeholder : int -> Machine_ir.Mir_type.t -> Machine_ir.Mir_value.t
-lib/machine_alloc/mir_scan.ml	todo-domain	val use_scratch : Machine_ir.Mir_target.Bank.t -> bits:Machine_ir.Mir_target.Bits.t -> int -> Machine_ir.Mir_target.View.t
-lib/machine_alloc/mir_scan.ml	todo-domain	val view : Machine_ir.Mir_target.Bank.t -> bits:Machine_ir.Mir_target.Bits.t -> int -> Machine_ir.Mir_target.View.t
-lib/machine_alloc/mir_scan.ml	todo-domain	val allocatable : Machine_ir.Mir_target.Bank.t -> int list end
-lib/machine_alloc/mir_scan.ml	todo-domain	module Where : sig type t = In of int | Spilled | Unassigned end
 lib/machine_check/mir_checker.ml	todo-domain	type holder = Address of int64 | Value of { value : Machine_ir.Mir_value.t; width : int64; units : int; }
 lib/machine_check/mir_checker.ml	hash	val compare : ('a -> 'a -> int) -> 'a t -> 'a t -> int
 lib/machine_check/mir_checker.ml	tally	val cardinal : 'a t -> int
@@ -519,11 +514,6 @@ lib/machine_interp/mir_memory.ml	todo-domain	val read_bytes : t -> Key.t -> offs
 lib/machine_interp/mir_phys_interp.ml	hash	val compare : ('a -> 'a -> int) -> 'a t -> 'a t -> int
 lib/machine_interp/mir_phys_interp.ml	tally	val cardinal : 'a t -> int
 lib/machine_interp/mir_phys_interp.ml	budget	val run : ?fuel:Int64.t -> ?max_depth:int -> ?models:Machine_interp.Mir_helper_model.t list -> S.Verified.t -> Machine_interp.Mir_memory.t -> Machine_interp.Mir_interp.Binding.t -> args:Machine_interp.Mir_datum.t list -> run end
-lib/machine_interp/mir_phys_interp.ml	todo-domain	val mask : int -> int64
-lib/machine_interp/mir_phys_interp.ml	todo-domain	val range_masks : int -> int -> int64 * int64
-lib/machine_interp/mir_phys_interp.ml	todo-domain	val pack : int64 array -> int -> int64 * int64
-lib/machine_interp/mir_phys_interp.ml	todo-domain	val unpack : int64 -> int64 -> int -> int -> int64 array
-lib/machine_interp/mir_phys_interp.ml	todo-domain	val lanes_of : Machine_ir.Mir_type.t -> int option
 lib/machine_interp/mir_phys_interp.ml	budget	val run : ?fuel:Int64.t -> ?max_depth:int -> ?models:Machine_interp.Mir_helper_model.t list -> ?realized:bool -> ?seed:(regs -> unit) -> (T.op, T.test) Machine_ir.Mir_phys.Program.t -> Machine_interp.Mir_memory.t -> Machine_interp.Mir_interp.Binding.t -> args:Machine_interp.Mir_datum.t list -> run end
 lib/machine_interp/mir_sel_interp.ml	budget	val run : ?fuel:Int64.t -> ?max_depth:int -> ?models:Machine_interp.Mir_helper_model.t list -> S.Verified.t -> Machine_interp.Mir_memory.t -> Machine_interp.Mir_interp.Binding.t -> args:Machine_interp.Mir_datum.t list -> run end
 lib/machine_ir/mir_f64_census.mli	tally	val count : t -> Role.t -> int
@@ -552,10 +542,8 @@ lib/machine_ir/mir_math.ml	wire	val version : int
 lib/machine_ir/mir_offsets.ml	hash	val compare : t -> t -> int end
 lib/machine_ir/mir_pp.ml	todo-domain	type t = { blocks : int Machine_ir.Mir_id.Block.Map.t; values : int Machine_ir.Mir_id.Value.Map.t; }
 lib/machine_ir/mir_target.ml	todo-domain	val count : t -> int
-lib/machine_ir/mir_target.ml	todo-domain	type t = Early_clobber of int | Fixed_result of { result : int; view : View.t; } | Fixed_use of { use : int; view : View.t; } | Scratch of View.t | Tied of { result : int; use : int; } end
 lib/machine_ir/mir_type.ml	budget	val max_lanes : int
 lib/machine_ir/mir_value.ml	hash	val compare : t -> t -> int
-lib/machine_ir/mir_vsplit.ml	todo-domain	val widening_slices : (Machine_ir.Mir_op.t, Machine_ir.Mir_terminator.t) Machine_ir.Mir_func.t -> (Machine_ir.Mir_id.Value.t, int * Machine_ir.Mir_value.t) Hashtbl.t
 lib/machine_ir/mir_width.ml	todo-domain	val bits : t -> int
 lib/machine_lower/mir_layout_map.ml	todo-domain	val channels : Entry.t -> int
 lib/machine_lower/mir_layout_map.ml	todo-domain	val object_ : int -> size:int64 -> role:Machine_ir.Mir_view.role -> Machine_ir.Mir_region.t * Machine_ir.Mir_view.t
@@ -723,24 +711,11 @@ lib/machine_target_aarch64/a64_op.ml	todo-domain	type t = Machine_target_aarch64
 lib/machine_target_aarch64/a64_op.ml	todo-domain	val lane_ok : Machine_target_aarch64.A64_form.Fsz.t -> int -> bool
 lib/machine_target_aarch64/a64_reg.ml	defn	val range : int -> int -> Num.t list
 lib/machine_target_aarch64/a64_reg.ml	defn	val of_ints : int list -> Num.t list end
-lib/machine_target_aarch64/a64_regs.ml	todo-domain	val view : Machine_ir.Mir_target.Bank.t -> bits:Machine_ir.Mir_target.Bits.t -> int -> Machine_target_aarch64.A64_reg.V.t
-lib/machine_target_aarch64/a64_regs.ml	todo-domain	val use_scratch : Machine_ir.Mir_target.Bank.t -> bits:Machine_ir.Mir_target.Bits.t -> int -> Machine_target_aarch64.A64_reg.V.t
-lib/machine_target_aarch64/a64_regs.ml	todo-domain	val allocatable : Machine_ir.Mir_target.Bank.t -> int list
 lib/machine_target_aarch64/a64_stage.ml	budget	val run : ?fuel:Int64.t -> ?max_depth:int -> ?models:Machine_interp.Mir_helper_model.t list -> S.Verified.t -> Machine_interp.Mir_memory.t -> Machine_interp.Mir_interp.Binding.t -> args:Machine_interp.Mir_datum.t list -> run end
 lib/machine_target_aarch64/a64_typing.ml	todo-domain	val lane_ok : Machine_target_aarch64.A64_form.Fsz.t -> int -> bool
 lib/machine_target_riscv32/rv32_reg.ml	defn	val range : int -> int -> Num.t list
 lib/machine_target_riscv32/rv32_reg.ml	defn	val of_ints : int list -> Num.t list end
-lib/machine_target_riscv32/rv32_regs.ml	todo-domain	val view : Machine_ir.Mir_target.Bank.t -> bits:Machine_ir.Mir_target.Bits.t -> int -> Machine_target_riscv32.Rv32_reg.V.t
-lib/machine_target_riscv32/rv32_regs.ml	todo-domain	val use_scratch : Machine_ir.Mir_target.Bank.t -> bits:Machine_ir.Mir_target.Bits.t -> int -> Machine_target_riscv32.Rv32_reg.V.t
-lib/machine_target_riscv32/rv32_regs.ml	todo-domain	val allocatable : Machine_ir.Mir_target.Bank.t -> int list
-lib/machine_target_riscv32/rv32_regs.ml	todo-domain	val view : Machine_ir.Mir_target.Bank.t -> bits:Machine_ir.Mir_target.Bits.t -> int -> Machine_target_riscv32.Rv32_reg.V.t
-lib/machine_target_riscv32/rv32_regs.ml	todo-domain	val use_scratch : Machine_ir.Mir_target.Bank.t -> bits:Machine_ir.Mir_target.Bits.t -> int -> Machine_target_riscv32.Rv32_reg.V.t
-lib/machine_target_riscv32/rv32_regs.ml	todo-domain	val allocatable : Machine_ir.Mir_target.Bank.t -> int list end
-lib/machine_target_riscv32/rv32_regs.ml	todo-domain	val view : Machine_ir.Mir_target.Bank.t -> bits:Machine_ir.Mir_target.Bits.t -> int -> Machine_target_riscv32.Rv32_reg.V.t
-lib/machine_target_riscv32/rv32_regs.ml	todo-domain	val use_scratch : Machine_ir.Mir_target.Bank.t -> bits:Machine_ir.Mir_target.Bits.t -> int -> Machine_target_riscv32.Rv32_reg.V.t
-lib/machine_target_riscv32/rv32_regs.ml	todo-domain	val allocatable : Machine_ir.Mir_target.Bank.t -> int list end
 lib/machine_target_riscv32/rv32_select_seq.ml	tally	val log2 : Int64.t -> int option
-lib/machine_target_riscv32/rv32_select_st.ml	todo-domain	type st = { b : (Machine_target_riscv32.Rv32.op, Machine_target_riscv32.Rv32.test) Machine_ir.Mir_select.t; esc : Refusal.t Err.Escape.t; mutation : Mutation.t option; sites : Machine_ir.Mir_failure.Site_entry.t array; unlisted : Machine_ir.Mir_failure.Unlisted.t; fallible : Machine_ir.Mir_op.Callee.t -> bool; pairs : (Machine_ir.Mir_id.Value.t, pair) Hashtbl.t; subst : (Machine_ir.Mir_id.Value.t, Machine_ir.Mir_value.t) Hashtbl.t; float_loads : (Machine_ir.Mir_id.Value.t, Machine_ir.Mir_value.t) Hashtbl.t; int_slices : (Machine_ir.Mir_id.Value.t, int * Machine_ir.Mir_value.t) Hashtbl.t; shift_counts : (Machine_ir.Mir_id.Value.t, int64) Hashtbl.t; narrowing_halves : (Machine_ir.Mir_id.Value.t, Machine_ir.Mir_value.t) Hashtbl.t; reductions : (Machine_ir.Mir_id.Value.t, Machine_ir.Mir_value.t * Machine_ir.Mir_value.t) Hashtbl.t; reduced : (Machine_ir.Mir_id.Value.t, unit) Hashtbl.t; }
 lib/machine_target_riscv32/rv32_stage.ml	budget	val run : ?fuel:Int64.t -> ?max_depth:int -> ?models:Machine_interp.Mir_helper_model.t list -> S.Verified.t -> Machine_interp.Mir_memory.t -> Machine_interp.Mir_interp.Binding.t -> args:Machine_interp.Mir_datum.t list -> run end
 lib/machine_target_riscv32/rv32_vop.ml	todo-domain	type t = Vadd of v * v | Vcast of Machine_ir.Mir_type.t * v | Vext of { signed : bool; from : Machine_ir.Mir_width.t; first : int; src : v; } | Vfbin of Fop.t * v * v | Vfcmp of Fcmp.t * v * v | Vfcvt_f_x of v | Vfcvt_x_f of v | Vfmacc of v * v * v | Vfredosum of v * v | Vfmv_f_s of int * v | Vfmv_v_f of Machine_ir.Mir_type.t * v | Vfsqrt of v | Vinsert of int * v * v | Vle32 of Machine_ir.Mir_type.t * v | Vle_int of Machine_ir.Mir_width.t * int * v | Vlogic of Logic.t * v * v | Vlse32 of Machine_ir.Mir_type.t * v * v | Vmerge of v * v * v | Vmv of v | Vmv_v_x of Machine_ir.Mir_type.t * v | Vnot of v | Vnsrl16 of v | Vnsrl16_pair of v * v | Vse32 of v * v | Vse_int of Machine_ir.Mir_width.t * int * v * v | Vshift of Machine_target_riscv32.Rv32_kind.Shift.t * int * v | Vsgnj of Sgnj.t * v * v | Vsse32 of v * v * v
 lib/machine_target_riscv32/rv32_vop.ml	todo-domain	val lane_ok : int -> bool
@@ -764,12 +739,10 @@ lib/machine_target_x86_64/x64_reg.ml	todo-domain	val rbp : int
 lib/machine_target_x86_64/x64_reg.ml	todo-domain	val rsi : int
 lib/machine_target_x86_64/x64_reg.ml	todo-domain	val rdi : int
 lib/machine_target_x86_64/x64_reg.ml	todo-domain	val range : int -> int -> int list
-lib/machine_target_x86_64/x64_regs.ml	todo-domain	val view : Machine_ir.Mir_target.Bank.t -> bits:Machine_ir.Mir_target.Bits.t -> int -> Machine_target_x86_64.X64_reg.V.t
+lib/machine_target_x86_64/x64_regs.ml	todo-domain	val allocatable_ints : Machine_ir.Mir_target.Bank.t -> int list
+lib/machine_target_x86_64/x64_regs.ml	todo-domain	val view_of_int : Machine_ir.Mir_target.Bank.t -> bits:Machine_ir.Mir_target.Bits.t -> int -> Machine_target_x86_64.X64_reg.V.t
 lib/machine_target_x86_64/x64_regs.ml	todo-domain	val gpr_uses : int array
-lib/machine_target_x86_64/x64_regs.ml	todo-domain	val use_scratch : Machine_ir.Mir_target.Bank.t -> bits:Machine_ir.Mir_target.Bits.t -> int -> Machine_target_x86_64.X64_reg.V.t
 lib/machine_target_x86_64/x64_regs.ml	todo-domain	val sequence : ints:int array -> floats:int array -> Machine_ir.Mir_type.t list -> Machine_target_x86_64.X64_reg.V.t list
-lib/machine_target_x86_64/x64_regs.ml	todo-domain	val allocatable : Machine_ir.Mir_target.Bank.t -> int list
-lib/machine_target_x86_64/x64_select_st.ml	todo-domain	type st = { b : (Machine_target_x86_64.X64.op, Machine_target_x86_64.X64.test) Machine_ir.Mir_select.t; esc : Refusal.t Err.Escape.t; mutation : Mutation.t option; sites : Machine_ir.Mir_failure.Site_entry.t array; unlisted : Machine_ir.Mir_failure.Unlisted.t; fallible : Machine_ir.Mir_op.Callee.t -> bool; features : Machine_ir.Mir_target.Feature.t list; int_slices : (Machine_ir.Mir_id.Value.t, int * Machine_ir.Mir_value.t) Hashtbl.t; shift_counts : (Machine_ir.Mir_id.Value.t, int64) Hashtbl.t; narrowing_halves : (Machine_ir.Mir_id.Value.t, Machine_ir.Mir_value.t) Hashtbl.t; }
 lib/machine_target_x86_64/x64_stage.ml	budget	val run : ?fuel:Int64.t -> ?max_depth:int -> ?models:Machine_interp.Mir_helper_model.t list -> S.Verified.t -> Machine_interp.Mir_memory.t -> Machine_interp.Mir_interp.Binding.t -> args:Machine_interp.Mir_datum.t list -> run end
 lib/native/alloc_script.mli	hash	val compare : t -> t -> int
 lib/native/arena_schedule.mli	hash	val compare : t -> t -> int

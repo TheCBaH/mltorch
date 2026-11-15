@@ -211,13 +211,14 @@ module Make (T : Mir_sel.TARGET) (R : POOL) = struct
                         Fixed.view;
                         lo = Mir_point.succ p;
                         hi = Mir_point.next p;
-                        own = [ List.nth own result ];
+                        own = [ Mir_target.Constraint.nth_result own result ];
                       }
                       :: !fixed
                 | Mir_target.Constraint.Early_clobber k
                 | Mir_target.Constraint.Tied { result = k; _ } ->
                     Hashtbl.replace opens
-                      (Mir_id.Value.to_int (List.nth own k).Mir_value.id)
+                      (Mir_id.Value.to_int
+                         (Mir_target.Constraint.nth_result own k).Mir_value.id)
                       p)
               cs;
             List.iter
@@ -267,7 +268,8 @@ module Make (T : Mir_sel.TARGET) (R : POOL) = struct
                        (function
                          | Mir_target.Constraint.Fixed_use { use; _ }
                          | Mir_target.Constraint.Tied { use; _ } ->
-                             use = k
+                             Mir_target.Constraint.Use_position.equal use
+                               (Mir_target.Constraint.Use_position.of_int k)
                          | _ -> false)
                        cs)
                 then need v p)
@@ -279,7 +281,8 @@ module Make (T : Mir_sel.TARGET) (R : POOL) = struct
                     (List.exists
                        (function
                          | Mir_target.Constraint.Fixed_result { result; _ } ->
-                             result = k
+                             Mir_target.Constraint.Result_position.equal result
+                               (Mir_target.Constraint.Result_position.of_int k)
                          | _ -> false)
                        cs)
                 then need r (Mir_point.succ p))
@@ -329,7 +332,7 @@ module Make (T : Mir_sel.TARGET) (R : POOL) = struct
             List.iter
               (function
                 | Mir_target.Constraint.Tied { result; use } ->
-                    let v = List.nth operands use in
+                    let v = Mir_target.Constraint.nth_use operands use in
                     let key = Mir_id.Value.to_int v.Mir_value.id in
                     if
                       (not (is_flags v))
@@ -341,7 +344,9 @@ module Make (T : Mir_sel.TARGET) (R : POOL) = struct
                       Hashtbl.replace trimmed key p;
                       Hashtbl.replace prefer
                         (Mir_id.Value.to_int
-                           (List.nth i.Mir_instr.results result).Mir_value.id)
+                           (Mir_target.Constraint.nth_result i.Mir_instr.results
+                              result)
+                             .Mir_value.id)
                         v)
                 | _ -> ())
               (T.constraints op))
@@ -605,7 +610,9 @@ module Make (T : Mir_sel.TARGET) (R : POOL) = struct
           let fixed_use k =
             List.find_map
               (function
-                | Mir_target.Constraint.Fixed_use { use; view } when use = k ->
+                | Mir_target.Constraint.Fixed_use { use; view }
+                  when Mir_target.Constraint.Use_position.equal use
+                         (Mir_target.Constraint.Use_position.of_int k) ->
                     Some view
                 | _ -> None)
               cs
@@ -613,7 +620,9 @@ module Make (T : Mir_sel.TARGET) (R : POOL) = struct
           let tied_result k =
             List.find_map
               (function
-                | Mir_target.Constraint.Tied { result; use } when use = k ->
+                | Mir_target.Constraint.Tied { result; use }
+                  when Mir_target.Constraint.Use_position.equal use
+                         (Mir_target.Constraint.Use_position.of_int k) ->
                     Some result
                 | _ -> None)
               cs
@@ -622,7 +631,8 @@ module Make (T : Mir_sel.TARGET) (R : POOL) = struct
             List.find_map
               (function
                 | Mir_target.Constraint.Fixed_result { result; view }
-                  when result = k ->
+                  when Mir_target.Constraint.Result_position.equal result
+                         (Mir_target.Constraint.Result_position.of_int k) ->
                     Some view
                 | _ -> None)
               cs
@@ -644,7 +654,7 @@ module Make (T : Mir_sel.TARGET) (R : POOL) = struct
               (fun k (v : Mir_value.t) ->
                 match (fixed_use k, tied_result k) with
                 | Some view, _ -> Loc.Reg view
-                | None, Some r -> List.nth defs r
+                | None, Some r -> Mir_target.Constraint.nth_result defs r
                 | None, None -> loc v p)
               operands
           in
@@ -670,7 +680,8 @@ module Make (T : Mir_sel.TARGET) (R : POOL) = struct
                        | None, Some r ->
                            [
                              {
-                               Mir_parallel_copy.dst = List.nth defs r;
+                               Mir_parallel_copy.dst =
+                                 Mir_target.Constraint.nth_result defs r;
                                src = loc v (Mir_point.pred p);
                                value = v;
                              };

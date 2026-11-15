@@ -9,10 +9,13 @@ module type POOL = sig
   include Mir_ref_alloc.REGISTERS
 
   val view :
-    Mir_target.Bank.t -> bits:Mir_target.Bits.t -> int -> Mir_target.View.t
+    Mir_target.Bank.t ->
+    bits:Mir_target.Bits.t ->
+    Mir_target.Reg_num.t ->
+    Mir_target.View.t
   (** register [k] of a bank at a width *)
 
-  val allocatable : Mir_target.Bank.t -> int list
+  val allocatable : Mir_target.Bank.t -> Mir_target.Reg_num.t list
   (** the registers allocation may assign, in preference order *)
 end
 
@@ -48,7 +51,7 @@ module Make (T : Mir_sel.TARGET) (R : POOL) = struct
     | None -> invalid_arg "Mir_linear_scan: a value with no shape"
 
   module Where = struct
-    type t = In of int | Spilled | Unassigned
+    type t = In of Mir_target.Reg_num.t | Spilled | Unassigned
   end
 
   (* One allocated piece of a value's interval. *)
@@ -157,16 +160,19 @@ module Make (T : Mir_sel.TARGET) (R : POOL) = struct
        than a unit (a register group of [c] units), a base that is a
        multiple of [c] whose [c] registers are all allocatable *)
     let candidates (p : Piece.t) =
-      let c = (snd (shape p.Piece.value) :> int) / (T.unit_bits bank :> int) in
-      if c <= 1 then bank_pool
-      else
-        List.filter
-          (fun k ->
-            k mod c = 0
-            && List.for_all
-                 (fun i -> List.mem (k + i) bank_pool)
-                 (List.init c Fun.id))
-          bank_pool
+      match
+        Mir_target.Span.of_width ~unit:(T.unit_bits bank)
+          (snd (shape p.Piece.value))
+      with
+      | Mir_target.Span.One -> bank_pool
+      | span ->
+          List.filter
+            (fun k ->
+              Mir_target.Span.aligned span k
+              && List.for_all
+                   (fun m -> List.mem m bank_pool)
+                   (Mir_target.Span.members span k))
+            bank_pool
     in
     (* how soon [p] is read from [pos], per loop weight: its next use, or —
        when it has none ahead but lives across the back edge of the innermost

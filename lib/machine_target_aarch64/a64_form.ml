@@ -373,14 +373,26 @@ let ordered = function
 let constraints = function
   | Bl { args; results; _ } ->
       List.mapi
-        (fun use view -> Mir_target.Constraint.Fixed_use { use; view })
+        (fun use view ->
+          Mir_target.Constraint.Fixed_use
+            { use = Mir_target.Constraint.Use_position.of_int use; view })
         (A64_regs.args (List.map (fun (a : v) -> a.Mir_value.ty) args))
       @ List.mapi
           (fun result view ->
-            Mir_target.Constraint.Fixed_result { result; view })
+            Mir_target.Constraint.Fixed_result
+              {
+                result = Mir_target.Constraint.Result_position.of_int result;
+                view;
+              })
           (A64_regs.results (results @ [ Mir_type.i32 ]))
   | Ins_half _ | Ins_lane _ | Ld1_lane _ | Movk _ | Vbit _ | Vfmla _ ->
-      [ Mir_target.Constraint.Tied { result = 0; use = 0 } ]
+      [
+        Mir_target.Constraint.Tied
+          {
+            result = Mir_target.Constraint.Result_position.of_int 0;
+            use = Mir_target.Constraint.Use_position.of_int 0;
+          };
+      ]
   | _ -> []
 
 (* Every admitted form writes a W, X, S or D view and zeroes the rest of the

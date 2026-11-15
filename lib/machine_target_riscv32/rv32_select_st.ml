@@ -55,7 +55,7 @@ type st = {
       (** a generic value that is another one's half: its uses read that *)
   float_loads : (Mir_id.Value.t, Mir_value.t) Hashtbl.t;
       (** a load read only by one bitcast to binary32: the float it defines *)
-  int_slices : (Mir_id.Value.t, int * Mir_value.t) Hashtbl.t;
+  int_slices : (Mir_id.Value.t, Mir_type.Lane.t * Mir_value.t) Hashtbl.t;
       (** four lanes of an integer register read only by extensions to int32:
           the first lane and the register *)
   shift_counts : (Mir_id.Value.t, int64) Hashtbl.t;

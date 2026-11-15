@@ -102,7 +102,14 @@ let vector st (i : Mir_op.t Mir_instr.t) =
         | Mir_type.Vec (Mir_type.Elem.Int w, _) -> w
         | t -> refuse st (Refusal.Width t)
       in
-      def (V.Vext { signed = k = Mir_op.Iext.Sext; from; first; src = u src })
+      def
+        (V.Vext
+           {
+             signed = k = Mir_op.Iext.Sext;
+             from;
+             first = Mir_type.Lane.to_int first;
+             src = u src;
+           })
   | Mir_op.Iext (k, Mir_width.W32, s) when Mir_type.equal (ty s) V.i16x16 ->
       (* half a group of 16-bit lanes widened into a whole one *)
       def
