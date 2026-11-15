@@ -210,7 +210,7 @@ let predict mutation (f : Form.t) (ins : int64 list) nz seed (buf : Bytes.t) =
   let mem () =
     Array.init 32 (fun i ->
         Option.value ~default:0
-          (Mir_memory.read_bytes memory key ~offset:0L ~n:32).(i))
+          (Mir_memory.read_byte memory key ~offset:(Int64.of_int i)))
   in
   match f.Form.make vs flags_v with
   | `Test t -> ((if A64_sem.test env t then 1L else 0L), 0L, nz, mem ())

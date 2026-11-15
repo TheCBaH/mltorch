@@ -127,7 +127,7 @@ let output g ~constants ~inputs =
 
 let fold_over (Tensor.Tensor t) f init =
   Vec6.fold_coords t.Tensor.shape ~init ~f:(fun acc coord ->
-      let i = (Vec6.offset t.Tensor.shape coord :> int) in
+      let i = Vec6.offset t.Tensor.shape coord in
       let c = Vec6.get coord Axis.C in
       f acc (Payload.get_float t.Tensor.payload ~c ~i))
 
@@ -135,7 +135,7 @@ let max_abs t = fold_over t (fun acc v -> Float.max acc (Float.abs v)) 0.
 
 let max_abs_diff (Tensor.Tensor a) (Tensor.Tensor b) =
   Vec6.fold_coords a.Tensor.shape ~init:0. ~f:(fun acc coord ->
-      let i = (Vec6.offset a.Tensor.shape coord :> int) in
+      let i = Vec6.offset a.Tensor.shape coord in
       let c = Vec6.get coord Axis.C in
       Float.max acc
         (Float.abs

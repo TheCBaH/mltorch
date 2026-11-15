@@ -251,6 +251,7 @@ module Lstm = struct
     | Empty_layers
     | Non_positive_dim of { dim : dim; value : int }
     | Nonuniform_direction
+    | Width_over_limit of Dim.Product_witness.t
 
   let pp_dim ppf = function
     | Hidden_size -> Fmt.string ppf "hidden_size"
@@ -263,6 +264,9 @@ module Lstm = struct
     | Nonuniform_direction ->
         Fmt.string ppf
           "lstm: every layer must have a reverse direction, or none must"
+    | Width_over_limit witness ->
+        Fmt.pf ppf "lstm: 4 * hidden_size does not fit: %a"
+          Dim.Product_witness.pp witness
 end
 
 module Bmm = struct

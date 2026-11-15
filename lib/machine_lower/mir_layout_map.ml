@@ -86,21 +86,23 @@ let find entries id =
    scales then the zero points, each a binary32 (four bytes per channel each:
    both parameters are binary32 values), read through a view of its own. *)
 module Params = struct
-  let base = 100_000
+  (* A parameter table takes the id of its buffer's region and view, 100_000
+     higher: clear of every buffer's own. *)
+  let view_id v = Mir_id.View.of_int (100_000 + Mir_id.View.to_int v)
+  let region_id r = Mir_id.Region.of_int (100_000 + Mir_id.Region.to_int r)
 
   let view (e : Entry.t) =
     match e.Entry.buffer.Ssa_buffer.format with
     | Ssa_format.I8 (Ssa_format.Per_channel _)
     | Ssa_format.I16 (Ssa_format.Per_channel _) ->
-        Some (Mir_id.View.of_int (base + Mir_id.View.to_int e.Entry.view))
+        Some (view_id e.Entry.view)
     | _ -> None
 
-  let channels (e : Entry.t) =
-    Option.value ~default:0
-      (Ssa_format.channels e.Entry.buffer.Ssa_buffer.format)
-
   (* the byte offset of channel parameters: scales first, zero points after *)
-  let zero_point_offset e = Int64.mul 4L (Int64.of_int (channels e))
+  let zero_point_offset (e : Entry.t) =
+    match Ssa_format.channels e.Entry.buffer.Ssa_buffer.format with
+    | Some n -> Int64.mul 4L (Int64.of_int (n :> int))
+    | None -> 0L
 
   let bytes (e : Entry.t) =
     match Ssa_format.quant e.Entry.buffer.Ssa_buffer.format with
@@ -121,9 +123,7 @@ module Params = struct
   let objects (e : Entry.t) =
     match (view e, bytes e) with
     | Some v, Some s ->
-        let region =
-          Mir_id.Region.of_int (base + Mir_id.Region.to_int e.Entry.region)
-        in
+        let region = region_id e.Entry.region in
         let size = Int64.of_int (String.length s) in
         [
           ( {
@@ -152,14 +152,27 @@ end
    instance is reachable once the site runs again; each run begins with the
    object's bytes undefined. *)
 module Scratch = struct
-  let local_base = 200_000
-  let meter_id = 300_000
-
   (* the most bytes every local site of one program may hold together *)
   let local_limit = 0x8000_0000L
 
+  (* The ordinal of a local allocation site. *)
+  module Site =
+    Core.Tagged_int.Make
+      (struct
+        let prefix = "site"
+      end)
+      ()
+
+  (* The number an object's region and view share. *)
+  module Object =
+    Core.Tagged_int.Make
+      (struct
+        let prefix = "obj"
+      end)
+      ()
+
   let object_ id ~size ~role =
-    let region = Mir_id.Region.of_int id in
+    let region = Mir_id.Region.of_int (Object.to_int id) in
     ( {
         Mir_region.id = region;
         size;
@@ -167,7 +180,7 @@ module Scratch = struct
         init = Mir_region.Uninitialized;
       },
       {
-        Mir_view.id = Mir_id.View.of_int id;
+        Mir_view.id = Mir_id.View.of_int (Object.to_int id);
         region;
         offset = 0L;
         size;
@@ -178,10 +191,12 @@ module Scratch = struct
 
   (* the [k]th local site's object of [bytes] *)
   let local k ~bytes =
-    object_ (local_base + k) ~size:bytes ~role:Mir_view.Scratch
+    object_
+      (Object.of_int (200_000 + (k : Site.t :> int)))
+      ~size:bytes ~role:Mir_view.Scratch
 
   (* updates remaining at byte 0, live state at byte 8, both i64 *)
-  let meter = object_ meter_id ~size:16L ~role:Mir_view.Runtime
+  let meter = object_ (Object.of_int 300_000) ~size:16L ~role:Mir_view.Runtime
   let meter_remaining = 0L
   let meter_live = 8L
 end

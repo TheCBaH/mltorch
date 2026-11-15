@@ -34,7 +34,11 @@ let state_shape =
 let seq_shape = Vec6.shape ~n:1 ~t:1 ~d:1 ~h:seq ~w:batch ~c:isz
 
 let params : Lstm.Lstm.params =
-  { hidden_size = k; input_size = isz; batch_first = false }
+  {
+    hidden_size = Dim.extent k;
+    input_size = Dim.extent isz;
+    batch_first = false;
+  }
 
 let direction_inputs ~layer_input_size =
   Graph_builder.(
@@ -110,7 +114,7 @@ let lstm_node_outputs (g : Graph_ir.graph) =
 
 let max_abs_diff (Tensor.Tensor a) (Tensor.Tensor b) =
   Vec6.fold_coords a.Tensor.shape ~init:0. ~f:(fun acc coord ->
-      let i = (Vec6.offset a.Tensor.shape coord :> int) in
+      let i = Vec6.offset a.Tensor.shape coord in
       let c = Vec6.get coord Axis.C in
       Float.max acc
         (Float.abs

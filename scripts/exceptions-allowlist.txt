@@ -20,4 +20,4 @@ lib/expr_internal/builder.ml|Supply_exhausted|invariant
 # every call for no case a caller can handle.
 lib/machine_rivet_riscv32/rv32_asm.ml|Refused|invariant
 lib/native4d/lower_region.ml|Abort|local-control
-lib/native_interp/native_interp_tensor.ml|Range_overflow|local-control
+lib/pt2/pt2_tensor.ml|Overflow|local-control

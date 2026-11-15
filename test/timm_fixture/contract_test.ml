@@ -23,13 +23,10 @@ let raw values =
   Bytes.to_string b
 
 let tensor values =
-  {
-    Pt2_tensor.dtype = Pt2_dtype.Float32;
-    sizes = [ List.length values ];
-    strides = [ 1 ];
-    storage_offset = 0;
-    data = Pt2_storage.of_string (raw values);
-  }
+  Pt2_tensor.of_ints Pt2_dtype.Float32
+    ~sizes:[ List.length values ]
+    ~strides:[ 1 ] ~storage_offset:0
+    (Pt2_storage.of_string (raw values))
 
 let descriptor values =
   {
@@ -155,18 +152,14 @@ let () =
   reject (F.Descriptor.check (descriptor [ 1.; -0. ]) (tensor [ 1.; 0. ]));
   reject (F.Descriptor.check (descriptor [ nan ]) (tensor [ nan ]));
   let strided =
-    {
-      (tensor [ 9.; 1.; 9.; 2.; 9. ]) with
-      sizes = [ 2 ];
-      strides = [ 2 ];
-      storage_offset = 1;
-    }
+    Pt2_tensor.of_ints Pt2_dtype.Float32 ~sizes:[ 2 ] ~strides:[ 2 ]
+      ~storage_offset:1 (tensor [ 9.; 1.; 9.; 2.; 9. ]).data
   in
   accept (F.Descriptor.check (descriptor [ 1.; 2. ]) strided);
   reject
     (F.Descriptor.check
        (descriptor [ 1.; 2. ])
-       { strided with strides = [ 20 ] });
+       { strided with strides = [ Pt2_tensor.Stride.of_int 20 ] });
   let bindings = [ binding "z" "second"; binding "a" "first" ] in
   let c =
     case [ ("first", reference "a-key"); ("second", reference "z-key") ]

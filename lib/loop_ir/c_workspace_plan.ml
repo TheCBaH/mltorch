@@ -42,12 +42,33 @@ let add a b =
 
 module Scratch = struct
   type fill = Zero | Value of float
-  type carve = { position : int; offset : int64; bytes : int64; fill : fill }
+
+  module Position = struct
+    include
+      Core.Tagged_int.Make
+        (struct
+          let prefix = "buffer"
+        end)
+        ()
+
+    let indexed l = List.mapi (fun i x -> (of_int i, x)) l
+  end
+
+  type carve = {
+    position : Position.t;
+    offset : int64;
+    bytes : int64;
+    fill : fill;
+  }
+
   type t = { local_bytes : int64; carves : carve list; bytes : int64 }
 end
 
 let sig_bytes (sg : Tensor_sig.t) =
-  let cell = Int64.of_int (Payload.packed_cell_bytes sg.Tensor_sig.fmt) in
+  let cell =
+    Core.Storage_units.Element_bytes.to_int64
+      (Payload.packed_cell_bytes sg.Tensor_sig.fmt)
+  in
   match
     Vec6.numel_bounded ~limit:(Int64.shift_left 1L 40) sg.Tensor_sig.shape
   with
@@ -91,8 +112,7 @@ let scratch (inv : Loop_bundle.invocation) ~local_doubles =
               next )
         | None, (Loop_buffer.Input | Loop_buffer.Output) -> Err.return (acc, off))
       ([], start)
-      (List.mapi
-         (fun i x -> (i, x))
+      (Scratch.Position.indexed
          (List.combine inv.Loop_bundle.program.Loop_program.buffers
             inv.Loop_bundle.edges))
   in

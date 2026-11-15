@@ -51,7 +51,12 @@ let make ~(aten : Aten_model.t) ~(native : Native_model.t)
     ~(payload_digest : string -> (Digest.Payload.t, string) result) :
     (t, string) result =
   let capture = native.capture in
-  let emitted i = Option.value ~default:[] (List.assoc_opt i capture.emitted) in
+  let emitted i =
+    Option.value ~default:[]
+      (List.assoc_opt
+         (Pt2_native_graph.Node_origin.Index.of_int i)
+         capture.emitted)
+  in
   (* exporter name -> Native edge *)
   let native_of_name = capture.sources @ List.concat_map snd capture.bound in
   let native_edge name = List.assoc_opt name native_of_name in

@@ -23,7 +23,7 @@ let read (Tensor t) (coord : Vec6.coord) =
     invalid_arg
       (Format.asprintf "Tensor.read: coord %a out of bounds for shape %a"
          Vec6.pp_coord coord Vec6.pp_shape t.shape);
-  let i = (Vec6.offset t.shape coord :> int) in
+  let i = Vec6.offset t.shape coord in
   Payload.get_float t.payload ~c:(channel coord) ~i
 
 (* [read] for a binary32 working type: a quantized cell dequantizes with
@@ -33,7 +33,7 @@ let read32 (Tensor t) (coord : Vec6.coord) =
     invalid_arg
       (Format.asprintf "Tensor.read32: coord %a out of bounds for shape %a"
          Vec6.pp_coord coord Vec6.pp_shape t.shape);
-  let i = (Vec6.offset t.shape coord :> int) in
+  let i = Vec6.offset t.shape coord in
   Payload.get_float32 t.payload ~c:(channel coord) ~i
 
 (* Strict read at 6 explicit indices, one per axis — the primitive ops reach
@@ -53,7 +53,7 @@ let read_at6 (Tensor tr as packed) ~(n : Dim.index Dim.t) ~(t : Dim.index Dim.t)
     ~(d : Dim.index Dim.t) ~(h : Dim.index Dim.t) ~(w : Dim.index Dim.t)
     ~(c : Dim.index Dim.t) =
   let i = Vec6.offset_of tr.shape ~n ~t ~d ~h ~w ~c in
-  if i >= 0 then Payload.get_float tr.payload ~c ~i
+  if Dim.is_offset i then Payload.get_float tr.payload ~c ~i
   else
     read packed
       (Vec6.coord
@@ -153,7 +153,7 @@ let create (shape : Vec6.shape) =
   Tensor { shape; payload }
 
 let set_float (Tensor t) coord value =
-  let i = (Vec6.offset t.shape coord :> int) in
+  let i = Vec6.offset t.shape coord in
   Payload.set_float t.payload ~c:(channel coord) ~i value
 
 (* Build a fresh dense float32 tensor by running [f] over every output coord. *)
@@ -173,14 +173,14 @@ let materialize_fmt (Payload.Fmt fmt) (shape : Vec6.shape)
       let data = Bigarray.(Array1.create float32 c_layout n) in
       let payload = { Payload.fmt; quant = Payload.No_quant; data } in
       Vec6.iter shape (fun c ->
-          let i = (Vec6.offset shape c :> int) in
+          let i = Vec6.offset shape c in
           Payload.set_float payload ~c:(channel c) ~i (f c));
       Tensor { shape; payload }
   | Payload.F64 ->
       let data = Bigarray.(Array1.create float64 c_layout n) in
       let payload = { Payload.fmt; quant = Payload.No_quant; data } in
       Vec6.iter shape (fun c ->
-          let i = (Vec6.offset shape c :> int) in
+          let i = Vec6.offset shape c in
           Payload.set_float payload ~c:(channel c) ~i (f c));
       Tensor { shape; payload }
   | _ -> invalid_arg "Tensor.materialize_fmt: unsupported factory format"
@@ -604,8 +604,10 @@ let jsont ?(max_elts : int option) () : packed Jsont.t =
       | _ ->
           Payload.enc_data_union ~max_elts ~numel ~iter_floats:(fun yield ->
               Vec6.iter t.shape (fun c ->
-                  let i = (Vec6.offset t.shape c :> int) in
-                  yield i (Payload.get_float t.payload ~c:(channel c) ~i)))
+                  let i = Vec6.offset t.shape c in
+                  yield
+                    (i :> int)
+                    (Payload.get_float t.payload ~c:(channel c) ~i)))
     in
     let quant_json =
       match t.payload.Payload.quant with
@@ -709,10 +711,10 @@ let pp_with_digits ~digits fmt (Tensor t) =
      Vec6.iter t.shape (fun c ->
          if !count >= k then raise Exit;
          if !count > 0 then Format.fprintf fmt ", ";
-         let i = (Vec6.offset t.shape c :> int) in
+         let i = Vec6.offset t.shape c in
          (match t.payload.Payload.fmt with
-         | Payload.I32 -> Format.fprintf fmt "%ld" t.payload.data.{i}
-         | Payload.I64 -> Format.fprintf fmt "%Ld" t.payload.data.{i}
+         | Payload.I32 -> Format.fprintf fmt "%ld" t.payload.data.{(i :> int)}
+         | Payload.I64 -> Format.fprintf fmt "%Ld" t.payload.data.{(i :> int)}
          | _ ->
              Format.fprintf fmt "%.*g" digits
                (Payload.get_float t.payload ~c:(channel c) ~i));

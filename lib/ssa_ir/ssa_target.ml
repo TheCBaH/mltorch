@@ -363,13 +363,13 @@ let all = [ neon128; scalar; wasm128; wasm128_relaxed; zve32f128 ]
 let profitable t body =
   let vector =
     List.fold_left
-      (fun acc (op, n) -> acc +. (float_of_int n *. t.cost op))
+      (fun acc (op, n) -> acc +. (Int64.to_float n *. t.cost op))
       0. body
   in
   let scalar =
     List.fold_left
       (fun acc (op, n) ->
-        acc +. (float_of_int n *. scalar_cost ~precision:t.precision op))
+        acc +. (Int64.to_float n *. scalar_cost ~precision:t.precision op))
       0. body
   in
   vector < float_of_int (Ssa_type.Lanes.to_int t.lanes) *. scalar

@@ -91,10 +91,10 @@ let%expect_test "channel_count reports granularity" =
   in
   Format.printf "per_channel=%s per_tensor=%s@."
     (match Quant.channel_count p with
-    | Some n -> string_of_int n
+    | Some n -> string_of_int (Core.Dim.to_int n)
     | None -> "none")
     (match Quant.channel_count (Quant.per_tensor ~scale:0.5 ~zero_point:0.) with
-    | Some n -> string_of_int n
+    | Some n -> string_of_int (Core.Dim.to_int n)
     | None -> "none");
   [%expect {| per_channel=3 per_tensor=none |}]
 

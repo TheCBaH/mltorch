@@ -173,18 +173,17 @@ let exec env op =
         (if Cond.holds c (E.flags env f ~mask:(Cond.reads c)) then get x
          else get y);
       ]
-  | Dup_elem (arr, x) -> [ vec (Array.make (Arr.lanes arr) (bits env x)) ]
-  | Dup_half (k, x) -> [ vec (Array.sub (lanes env x) (2 * k) 2) ]
-  | Dup_mask (arr, x) -> [ vec (Array.make (Arr.lanes arr) (bits env x)) ]
-  | Dup_lane (_, k, x) -> [ b (lanes env x).(k) ]
+  | Dup_elem (arr, x) ->
+      [ vec (Array.make (Mir_type.Lanes.to_int (Arr.lanes arr)) (bits env x)) ]
+  | Dup_half (first, x) ->
+      [ vec (Array.sub (lanes env x) (Mir_type.Lane.to_int first) 2) ]
+  | Dup_mask (arr, x) ->
+      [ vec (Array.make (Mir_type.Lanes.to_int (Arr.lanes arr)) (bits env x)) ]
+  | Dup_lane (_, k, x) -> [ b (lanes env x).(Mir_type.Lane.to_int k) ]
   | Dup_w x -> [ vec (Array.make 4 (norm Sz.W (bits env x))) ]
   | Ext { signed; from; src } ->
-      let k = Mir_width.bits from in
       let x = Int64.logand (bits env src) (Mir_width.mask from) in
-      let x =
-        if signed then Int64.shift_right (Int64.shift_left x (64 - k)) (64 - k)
-        else x
-      in
+      let x = if signed then Mir_width.signed from x else x in
       [ b (norm Sz.W x) ]
   | Cset (c, f) ->
       [
@@ -239,17 +238,18 @@ let exec env op =
       [ vec l ]
   | Ins_lane (_, k, x, y) ->
       let l = Array.copy (lanes env x) in
-      l.(k) <- bits env y;
+      l.(Mir_type.Lane.to_int k) <- bits env y;
       [ vec l ]
   | Ld1_lane (fsz, k, x, base) ->
       let l = Array.copy (lanes env x) in
-      l.(k) <- E.load env (E.ptr env base) ~bytes:(lane_bytes fsz) ~align:1L;
+      l.(Mir_type.Lane.to_int k) <-
+        E.load env (E.ptr env base) ~bytes:(lane_bytes fsz) ~align:1L;
       [ vec l ]
   | Ld1r (arr, base) ->
       let x =
         E.load env (E.ptr env base) ~bytes:(lane_bytes (Arr.fsz arr)) ~align:1L
       in
-      [ vec (Array.make (Arr.lanes arr) x) ]
+      [ vec (Array.make (Mir_type.Lanes.to_int (Arr.lanes arr)) x) ]
   | Ldr_ivec (t, base, k) ->
       let w = Option.get (A64_op.int_register t) in
       let size = Mir_width.bytes w in
@@ -266,7 +266,9 @@ let exec env op =
       let size = lane_bytes (Arr.fsz arr) in
       [
         vec
-          (Array.init (Arr.lanes arr) (fun j ->
+          (Array.init
+             (Mir_type.Lanes.to_int (Arr.lanes arr))
+             (fun j ->
                E.load env
                  (addr env base (Int64.add k (Int64.mul (Int64.of_int j) size)))
                  ~bytes:size ~align:1L));
@@ -325,7 +327,7 @@ let exec env op =
   | Shift_imm (o, sz, x, k) -> [ b (shift_imm sz o (bits env x) k) ]
   | St1_lane (fsz, k, x, base) ->
       E.store env (E.ptr env base) ~bytes:(lane_bytes fsz) ~align:1L
-        (lanes env x).(k);
+        (lanes env x).(Mir_type.Lane.to_int k);
       []
   | Str (m, base, k, x) ->
       let size = Msz.bytes m in
@@ -451,7 +453,11 @@ let exec env op =
       [
         vec
           (Array.init 4 (fun j ->
-               let x = Int64.logand l.(first + j) (Mir_width.mask from) in
+               let x =
+                 Int64.logand
+                   l.(Mir_type.Lane.to_int first + j)
+                   (Mir_width.mask from)
+               in
                if signed then
                  Mir_width.normalize Mir_width.W32 (Mir_width.signed from x)
                else x));

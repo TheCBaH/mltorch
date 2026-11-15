@@ -374,7 +374,9 @@ let gemm dir p (g : G.t) =
   let t, (o : Coral_soc_run.outcome) =
     execute ~matrix:(G.Engine.matrix g.engine) dir p ~name:(G.name g)
       ~items:(G.items g) ~slots:(G.slots g) ~inputs:(G.inputs p g)
-      ~timings:(Some G.Slot.timings) ~dst:G.Slot.c ~expected:(G.expected g)
+      ~timings:(Some (G.Slot.timings :> int))
+      ~dst:(G.Slot.c :> int)
+      ~expected:(G.expected g)
   in
   Fmt.pr
     "%s: C as expected, %Ld cycles, %.1f ops/cycle; %d waiting for %s, %d for \
@@ -459,8 +461,8 @@ let () =
         (* An RVV block's lanes are a panel of a wider W. *)
         let geometry =
           match G.Engine.lanes engine with
-          | Some panel when panel < width ->
-              G.Geometry.Resident_a { panel = Core.Dim.extent panel }
+          | Some panel when (panel :> int) < width ->
+              G.Geometry.Resident_a { panel }
           | Some _ | None -> Resident_b
         in
         direct ~peak:(mode = "peak") dir p

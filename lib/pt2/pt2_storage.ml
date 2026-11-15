@@ -10,7 +10,6 @@ external swap64 : int64 -> int64 = "%bswap_int64"
 external set64u : t -> int -> int64 -> unit = "%caml_bigstring_set64u"
 
 let empty = Bigarray.Array1.create Bigarray.char Bigarray.c_layout 0
-let length = Bigarray.Array1.dim
 
 let of_string s =
   let n = String.length s in
@@ -36,3 +35,38 @@ let get_int32_le b i =
 let get_int64_le b i =
   let v = get64 b i in
   if Sys.big_endian then swap64 v else v
+
+(* A byte offset past [max_int] cannot index a bigarray on this backend, and
+   narrowing it silently would wrap: refuse it as the out-of-range read it is. *)
+let narrow off =
+  let v = Core.Storage_units.Byte_offset.to_int64 off in
+  if Int64.compare v (Int64.of_int max_int) > 0 then
+    invalid_arg "Pt2_storage: byte offset out of range"
+  else Int64.to_int v
+
+let length b =
+  let length_bytes b =
+    Core.Storage_units.Byte_size.of_int64 (Int64.of_int (Bigarray.Array1.dim b))
+  in
+  match length_bytes b with Ok s -> s | Error _ -> assert false
+
+(* A cell is an element index; [cell * width] must not wrap, so the cell is
+   bounded by the quotient before it is scaled. *)
+let scaled cell width =
+  if cell < 0 || cell > max_int / width then
+    invalid_arg "Pt2_storage: cell out of range"
+  else cell * width
+
+let cell_count b element_bytes =
+  Bigarray.Array1.dim b
+  / Int64.to_int (Core.Storage_units.Element_bytes.to_int64 element_bytes)
+
+let to_string b =
+  String.init (Bigarray.Array1.dim b) (fun i -> Bigarray.Array1.unsafe_get b i)
+
+let cell_uint8 b ~cell = get_uint8 b cell
+let cell_int32_le b ~cell = get_int32_le b (scaled cell 4)
+let cell_int64_le b ~cell = get_int64_le b (scaled cell 8)
+let get_uint8 b off = get_uint8 b (narrow off)
+let get_int32_le b off = get_int32_le b (narrow off)
+let get_int64_le b off = get_int64_le b (narrow off)

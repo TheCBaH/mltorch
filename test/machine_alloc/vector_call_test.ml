@@ -67,7 +67,7 @@ module Pool = struct
 
   (* only registers whose upper half a call clobbers *)
   let allocatable = function
-    | Mir_target.Bank.Fpr -> [ 8; 9; 10 ]
+    | Mir_target.Bank.Fpr -> A64_reg.Num_seq.of_ints [ 8; 9; 10 ]
     | bank -> allocatable bank
 end
 

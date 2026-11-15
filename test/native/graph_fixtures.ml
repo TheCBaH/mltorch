@@ -281,7 +281,8 @@ let sink_permute_pad () =
       let* a = permute rotate_hwc x in
       pad
         {
-          Pad.Pad.pads = [ (Axis.W, { Pad.Pad.before = 1; after = 1 }) ];
+          Pad.Pad.pads =
+            [ (Axis.W, { Pad.Pad.before = Dim.delta 1; after = Dim.delta 1 }) ];
           mode = Pad.Pad.Constant 0.;
         }
         a)

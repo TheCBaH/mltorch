@@ -7,3 +7,7 @@ module Param : Core.Tagged_int.S
 
 module Site : Core.Tagged_int.S
 (** A failure site's position in the table a decoder reads a record against. *)
+
+module Name : Core.Tagged_int.S
+(** The ordinal in a generated variable's name ([v3], [t7]): a value's and a
+    temporary's own sequence, neither a failure site nor a parameter. *)

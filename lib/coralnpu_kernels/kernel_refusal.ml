@@ -19,7 +19,10 @@ type t =
   | Offset_past_31_bits
   | Operand_past_dma_transfer
   | Paired_requirement
-  | Panels_over_budget of { needed : int; available : int }
+  | Panels_over_budget of {
+      needed : Coral_transfer.Transfer_units.Bytes.t;
+      available : Coral_transfer.Transfer_units.Bytes.t;
+    }
   | Past_31_bits of string
   | Precision_not_paired_bf16
   | Register_or_immediate
@@ -61,7 +64,9 @@ let pp fmt = function
       Fmt.string fmt
         "the paired requirement: only the matrix engine rounds pairs"
   | Panels_over_budget { needed; available } ->
-      Fmt.pf fmt "the panels need %d bytes, %d available" needed available
+      Fmt.pf fmt "the panels need %a bytes, %a available"
+        Coral_transfer.Transfer_units.Bytes.pp needed
+        Coral_transfer.Transfer_units.Bytes.pp available
   | Past_31_bits what -> Fmt.pf fmt "%s past 31 bits" what
   | Precision_not_paired_bf16 ->
       Fmt.string fmt "a precision other than bfloat16 with paired sums"

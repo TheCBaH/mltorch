@@ -30,10 +30,25 @@ module Feature = struct
 end
 
 (* A width in bits: a register view's, a value's shape, a unit's. *)
-module Bits =
+module Bits = Mir_width.Bits
+
+(* A register's number within its bank: x5, f5 and v5 are each number 5. The
+   allocation contract names a pool, a view and a position in a sequence by
+   it; a target's own register constructors take the same type. *)
+module Reg_num =
   Core.Tagged_int.Make
     (struct
-      let prefix = "b"
+      let prefix = "r"
+    end)
+    ()
+
+(* Which scratch operand register of an instruction: the reference
+   allocator reloads its k-th distinct operand into the k-th. A target places
+   the sequence at a register number of its own. *)
+module Scratch_slot =
+  Core.Tagged_int.Make
+    (struct
+      let prefix = "scratch"
     end)
     ()
 
@@ -56,8 +71,55 @@ end
 module Span = struct
   type t = One | Two | Four | Eight
 
-  let count = function One -> 1 | Two -> 2 | Four -> 4 | Eight -> 8
+  (* How many consecutive units the group covers. *)
+  module Count =
+    Core.Tagged_int.Make
+      (struct
+        let prefix = "units"
+      end)
+      ()
+
+  let count = function
+    | One -> Count.of_int 1
+    | Two -> Count.of_int 2
+    | Four -> Count.of_int 4
+    | Eight -> Count.of_int 8
+
   let name = function One -> "m1" | Two -> "m2" | Four -> "m4" | Eight -> "m8"
+
+  (* The span a value [bits] wide needs of units [unit] wide: one for
+     anything not wider than a unit. *)
+  let of_width ~(unit : Bits.t) (bits : Bits.t) =
+    match (bits :> int) / (unit :> int) with
+    | 0 | 1 -> One
+    | 2 -> Two
+    | 4 -> Four
+    | 8 -> Eight
+    | _ -> invalid_arg "Mir_target.Span.of_width: no such register group"
+
+  (* The register numbers a group of this span based at [base] covers, lowest
+     first, and whether [base] may start one (a multiple of the span). *)
+  let members t (base : Reg_num.t) =
+    List.init (count t :> int) (fun i -> Reg_num.of_int ((base :> int) + i))
+
+  let aligned t (base : Reg_num.t) = (base :> int) mod (count t :> int) = 0
+
+  (* The lanes of a vector of [lanes] lanes that one member of the group
+     holds. *)
+  let share t (lanes : Mir_type.Lanes.t) =
+    Mir_type.Lanes.of_int ((lanes :> int) / (count t :> int))
+
+  (* The width of a group of this span of units each [unit] wide. *)
+  let bits ~(unit : Bits.t) t = Bits.of_int ((unit :> int) * (count t :> int))
+
+  (* Whether a group of this span based at unit [base] has [u] among its
+     members, and whether it does with [u] above [base]. *)
+  let covers t ~(base : Mir_id.Unit.t) (u : Mir_id.Unit.t) =
+    let b = (base :> int) and u = (u :> int) in
+    b <= u && u < b + (count t :> int)
+
+  let covers_above t ~(base : Mir_id.Unit.t) (u : Mir_id.Unit.t) =
+    (base :> int) < (u :> int) && covers t ~base u
 end
 
 (* A physical register view: [bits] bits of a register unit starting at bit
@@ -84,7 +146,7 @@ module View = struct
     let rec go u k =
       if k = 0 then [] else u :: go (Mir_id.Unit.succ u) (k - 1)
     in
-    go v.unit (Span.count v.span)
+    go v.unit (Span.count v.span :> int)
 
   (* Whether two views share any bit: a common unit, and, between two
      single-unit views, intersecting bit ranges (a group covers its members
@@ -147,17 +209,44 @@ let lp64_shape ~(flags_bits : Bits.t) (ty : Mir_type.t) =
 (* A register-allocation constraint on an instruction's operands, by position
    among its value uses or results. *)
 module Constraint = struct
+  (* A position among an instruction's value uses, and one among its results:
+     two numberings, so neither passes for the other. *)
+  module Use_position =
+    Core.Tagged_int.Make
+      (struct
+        let prefix = "use"
+      end)
+      ()
+
+  module Result_position =
+    Core.Tagged_int.Make
+      (struct
+        let prefix = "result"
+      end)
+      ()
+
+  (* Whether a position names an element of the instruction's uses or
+     results, and that element. *)
+  let has_use uses (p : Use_position.t) =
+    (p :> int) >= 0 && (p :> int) < List.length uses
+
+  let has_result results (p : Result_position.t) =
+    (p :> int) >= 0 && (p :> int) < List.length results
+
+  let nth_use uses (p : Use_position.t) = List.nth uses (p :> int)
+  let nth_result results (p : Result_position.t) = List.nth results (p :> int)
+
   type t =
-    | Early_clobber of int
+    | Early_clobber of Result_position.t
         (** result [k] is written before every use is read: it may share no
             location with a use *)
-    | Fixed_result of { result : int; view : View.t }
-    | Fixed_use of { use : int; view : View.t }
+    | Fixed_result of { result : Result_position.t; view : View.t }
+    | Fixed_use of { use : Use_position.t; view : View.t }
     | Scratch of View.t
         (** the form's own sequence overwrites the view while it reads its uses
             and writes its results: no use or result may share it. The view is
             among the form's clobbers too. *)
-    | Tied of { result : int; use : int }
+    | Tied of { result : Result_position.t; use : Use_position.t }
         (** a destructive form: result [k] occupies use [j]'s location; the
             virtual values stay distinct *)
 end

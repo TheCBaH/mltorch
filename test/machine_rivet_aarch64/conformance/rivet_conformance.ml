@@ -68,16 +68,16 @@ let io_bytes = 128
 (* io words: 0-2 inputs, 3 NZCV, 4 destination seed, 5-8 the buffer, 10-11 a
    vector destination seed; out 12-13 the destination, 14 NZCV. *)
 let view_of_input k = function
-  | G Sz.X -> A64_reg.x (k + 1)
-  | G Sz.W -> A64_reg.w (k + 1)
-  | F Fsz.D -> A64_reg.d (k + 1)
-  | F Fsz.S -> A64_reg.s (k + 1)
+  | G Sz.X -> A64_reg.x (A64_reg.Num.of_int (k + 1))
+  | G Sz.W -> A64_reg.w (A64_reg.Num.of_int (k + 1))
+  | F Fsz.D -> A64_reg.d (A64_reg.Num.of_int (k + 1))
+  | F Fsz.S -> A64_reg.s (A64_reg.Num.of_int (k + 1))
 
 let result_view = function
-  | G Sz.X -> A64_reg.x 0
-  | G Sz.W -> A64_reg.w 0
-  | F Fsz.D -> A64_reg.d 0
-  | F Fsz.S -> A64_reg.s 0
+  | G Sz.X -> A64_reg.x (A64_reg.Num.of_int 0)
+  | G Sz.W -> A64_reg.w (A64_reg.Num.of_int 0)
+  | F Fsz.D -> A64_reg.d (A64_reg.Num.of_int 0)
+  | F Fsz.S -> A64_reg.s (A64_reg.Num.of_int 0)
 
 let probe_module ?mutation (f : Form.t) =
   Err.Escape.with_escape @@ fun esc ->
@@ -98,7 +98,7 @@ let probe_module ?mutation (f : Form.t) =
   let loc_of (v : Mir_value.t) =
     match Mir_id.Value.to_int v.Mir_value.id with
     | 9 -> Loc.Reg A64_reg.nzcv
-    | 8 -> Loc.Reg (A64_reg.x 4)
+    | 8 -> Loc.Reg (A64_reg.x (A64_reg.Num.of_int 4))
     | i -> Loc.Reg (view_of_input i (List.nth f.Form.inputs i))
   in
   let prologue =
@@ -150,7 +150,9 @@ let probe_module ?mutation (f : Form.t) =
         let tied =
           List.find_map
             (function
-              | Mir_target.Constraint.Tied { result = 0; use } -> Some use
+              | Mir_target.Constraint.Tied { result; use }
+                when (result :> int) = 0 ->
+                  Some (use :> int)
               | _ -> None)
             (A64_op.constraints op)
         in
@@ -255,10 +257,10 @@ let lane_width = function
   | VF.V a -> ( match a with Arr.S2 | Arr.S4 -> 32 | Arr.D2 -> 64)
   | VF.M a -> ( match a with Arr.D2 -> 64 | _ -> 32)
   | VF.Sc _ | VF.Gp _ -> 64
-  | VF.I (w, _) -> Mir_width.bits w
+  | VF.I (w, _) -> (Mir_width.bits w :> int)
 
 let lane_count = function
-  | VF.V a | VF.M a -> Arr.lanes a
+  | VF.V a | VF.M a -> Mir_type.Lanes.to_int (Arr.lanes a)
   | VF.Sc _ | VF.Gp _ -> 1
   | VF.I (_, n) -> n
 
@@ -287,12 +289,12 @@ let pack_lanes kind (l : int64 array) =
 
 let vloc_of_kind kind n =
   match kind with
-  | VF.V Arr.S2 -> Loc.Reg (A64_reg.d n)
-  | VF.V _ | VF.M _ | VF.I _ -> Loc.Reg (A64_reg.q n)
-  | VF.Sc Fsz.D -> Loc.Reg (A64_reg.d n)
-  | VF.Sc Fsz.S -> Loc.Reg (A64_reg.s n)
-  | VF.Gp Sz.X -> Loc.Reg (A64_reg.x n)
-  | VF.Gp Sz.W -> Loc.Reg (A64_reg.w n)
+  | VF.V Arr.S2 -> Loc.Reg (A64_reg.d (A64_reg.Num.of_int n))
+  | VF.V _ | VF.M _ | VF.I _ -> Loc.Reg (A64_reg.q (A64_reg.Num.of_int n))
+  | VF.Sc Fsz.D -> Loc.Reg (A64_reg.d (A64_reg.Num.of_int n))
+  | VF.Sc Fsz.S -> Loc.Reg (A64_reg.s (A64_reg.Num.of_int n))
+  | VF.Gp Sz.X -> Loc.Reg (A64_reg.x (A64_reg.Num.of_int n))
+  | VF.Gp Sz.W -> Loc.Reg (A64_reg.w (A64_reg.Num.of_int n))
 
 let vec_probe ?mutation (f : VF.t) =
   Err.Escape.with_escape @@ fun esc ->
@@ -313,7 +315,7 @@ let vec_probe ?mutation (f : VF.t) =
   let op = f.VF.make vs base_v in
   let loc_of (v : Mir_value.t) =
     match Mir_id.Value.to_int v.Mir_value.id with
-    | 8 -> Loc.Reg (A64_reg.x 4)
+    | 8 -> Loc.Reg (A64_reg.x (A64_reg.Num.of_int 4))
     | i -> vloc_of_kind (List.nth f.VF.inputs i) (i + 1)
   in
   let uses = List.map loc_of (A64_op.uses op) in
@@ -538,8 +540,8 @@ let run_vector_forms map_mutation =
                             let pmem =
                               Array.init 64 (fun i ->
                                   Option.value ~default:0
-                                    (Mir_memory.read_bytes memory key ~offset:0L
-                                       ~n:64).(i))
+                                    (Mir_memory.read_byte memory key
+                                       ~offset:(Int64.of_int i)))
                             in
                             let result_ok =
                               match f.VF.result with

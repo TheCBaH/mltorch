@@ -62,12 +62,12 @@ module Make (T : Mir_sel.TARGET) = struct
   type key = Frame of int64 | Slot of Mir_id.Slot.t | Unit of Mir_id.Unit.t
 
   (* What a location holds: a virtual value written at a width (bits) over
-     [units] consecutive register units from its key (1 but for a register
+     the [span] of register units from its key (one but for a register
      group), or, for a register, an address — the entry stack pointer plus
      [k]. *)
   type holder =
     | Address of int64
-    | Value of { value : Mir_value.t; width : int64; units : int }
+    | Value of { value : Mir_value.t; width : int64; span : Mir_target.Span.t }
 
   module K = Map.Make (struct
     type t = key
@@ -79,20 +79,15 @@ module Make (T : Mir_sel.TARGET) = struct
      is kept. *)
   let unit_of (v : Mir_target.View.t) = Unit v.Mir_target.View.unit
 
-  let span_units (v : Mir_target.View.t) =
-    Mir_target.Span.count v.Mir_target.View.span
-
   (* Forgets every register holder that covers unit [u]: its own, and a
      group's based below it. *)
   let kill_unit st (u : Mir_id.Unit.t) =
-    let u = Mir_id.Unit.to_int u in
     K.filter
       (fun key h ->
         match (key, h) with
-        | Unit j, Value { units; _ } ->
-            let j = Mir_id.Unit.to_int j in
-            not (j <= u && u < j + units)
-        | Unit j, Address _ -> Mir_id.Unit.to_int j <> u
+        | Unit j, Value { span; _ } ->
+            not (Mir_target.Span.covers span ~base:j u)
+        | Unit j, Address _ -> not (Mir_id.Unit.equal j u)
         | _ -> true)
       st
 
@@ -147,17 +142,16 @@ module Make (T : Mir_sel.TARGET) = struct
     match K.find_opt k st with
     | Some (Value h)
       when v.Mir_target.View.span = Mir_target.Span.One
-           && h.units = 1
+           && h.span = Mir_target.Span.One
            && Int64.compare (Int64.of_int (v.Mir_target.View.lo :> int)) h.width
               >= 0
            && not
                 (K.exists
                    (fun key h ->
                      match (key, h) with
-                     | Unit j, Value { units; _ } ->
-                         let j = Mir_id.Unit.to_int j in
-                         let u = Mir_id.Unit.to_int v.Mir_target.View.unit in
-                         j < u && u < j + units
+                     | Unit j, Value { span; _ } ->
+                         Mir_target.Span.covers_above span ~base:j
+                           v.Mir_target.View.unit
                      | _ -> false)
                    st) ->
         st
@@ -174,8 +168,12 @@ module Make (T : Mir_sel.TARGET) = struct
   let set st l v =
     match key_of st l with
     | Some k ->
-        let units = match l with Loc.Reg r -> span_units r | _ -> 1 in
-        K.add k (Value { value = v; width = width_of l; units }) (kill st l)
+        let span =
+          match l with
+          | Loc.Reg r -> r.Mir_target.View.span
+          | _ -> Mir_target.Span.One
+        in
+        K.add k (Value { value = v; width = width_of l; span }) (kill st l)
     | None -> kill st l
 
   let meet a b =
@@ -242,11 +240,12 @@ module Make (T : Mir_sel.TARGET) = struct
           | _ -> fail ~block (Problem.Rematerialized i.Mir_instr.id)
         in
         (* the selected edge a physical edge carries, and its target *)
-        let selected_edge (from : Mir_id.Block.t) index =
+        let selected_edge (from : Mir_id.Block.t)
+            (index : Mir_phys.Edge_ref.Position.t) =
           let edges =
             Mir_sel.Terminator.edges (selected from).Mir_block.terminator
           in
-          match List.nth_opt edges index with
+          match List.nth_opt edges (index :> int) with
           | Some e -> e
           | None -> fail ~block:from Problem.Successor
         in
@@ -323,9 +322,10 @@ module Make (T : Mir_sel.TARGET) = struct
                 | ( Mir_sel.Terminator.Branch { test; _ },
                     Mir_phys.Term.Branch { test = t; then_; else_; _ } ) ->
                     if test <> t then fail ~block Problem.Successor;
-                    reach 0 then_;
-                    reach 1 else_
-                | Mir_sel.Terminator.Jump _, Mir_phys.Term.Jump t -> reach 0 t
+                    reach (Mir_phys.Edge_ref.Position.of_int 0) then_;
+                    reach (Mir_phys.Edge_ref.Position.of_int 1) else_
+                | Mir_sel.Terminator.Jump _, Mir_phys.Term.Jump t ->
+                    reach (Mir_phys.Edge_ref.Position.of_int 0) t
                 | Mir_sel.Terminator.Return _, Mir_phys.Term.Return _ -> ()
                 | _ -> fail ~block Problem.Successor))
           pf.Mir_phys.Func.blocks;
@@ -472,7 +472,8 @@ module Make (T : Mir_sel.TARGET) = struct
                       let tb = physical t in
                       let incoming =
                         enter ~checking:false ~from:b.Mir_phys.Block.id
-                          (edge_of b index) tb out
+                          (edge_of b (Mir_phys.Edge_ref.Position.of_int index))
+                          tb out
                       in
                       let next =
                         if Mir_id.Block.equal t pf.Mir_phys.Func.entry then None
@@ -502,7 +503,8 @@ module Make (T : Mir_sel.TARGET) = struct
                 List.iteri
                   (fun index t ->
                     ignore
-                      (enter ~checking:true ~from:block (edge_of b index)
+                      (enter ~checking:true ~from:block
+                         (edge_of b (Mir_phys.Edge_ref.Position.of_int index))
                          (physical t) out))
                   (Mir_phys.Term.successors b.Mir_phys.Block.terminator);
                 match b.Mir_phys.Block.terminator with

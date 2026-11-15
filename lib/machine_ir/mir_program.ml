@@ -33,5 +33,16 @@ let find_helper t id =
     (fun (h : Mir_helper.t) -> Mir_id.Helper.equal h.Mir_helper.id id)
     t.helpers
 
+(* The first block id no function of [t] uses. Id 0 is never handed out. *)
+let next_block t =
+  List.fold_left
+    (fun next (f : (_, _) Mir_func.t) ->
+      List.fold_left
+        (fun next (b : (_, _) Mir_block.t) ->
+          Mir_id.Block.Next.after b.Mir_block.id next)
+        next f.Mir_func.blocks)
+    (Mir_id.Block.Next.after (Mir_id.Block.of_int 0) Mir_id.Block.Next.first)
+    t.funcs
+
 (* The generic stage's instantiation. *)
 type generic = (Mir_op.t, Mir_terminator.t) t

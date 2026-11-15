@@ -17,10 +17,10 @@ module Make (T : Mir_sel.TARGET) = struct
   (* The bank and width a value of this type occupies. *)
   let shape = T.shape
 
-  let in_memory bits (l : Loc.t) =
+  let in_memory (bits : Mir_target.Bits.t) (l : Loc.t) =
     match l with
     | Loc.Slot { bytes; _ } | Loc.Mem { bytes; _ } ->
-        Int64.equal bytes (Int64.of_int (bits / 8))
+        Int64.equal bytes (Int64.of_int ((bits :> int) / 8))
     | Loc.Reg _ -> false
 
   let fits (v : Mir_value.t) (l : Loc.t) =
@@ -28,7 +28,7 @@ module Make (T : Mir_sel.TARGET) = struct
     | Some (bank, bits), Loc.Reg view ->
         view.Mir_target.View.bank = bank && view.Mir_target.View.bits = bits
     | Some (Mir_target.Bank.Flags, _), (Loc.Slot _ | Loc.Mem _) -> false
-    | Some (_, bits), (Loc.Slot _ | Loc.Mem _) -> in_memory (bits :> int) l
+    | Some (_, bits), (Loc.Slot _ | Loc.Mem _) -> in_memory bits l
     | None, _ -> false
 
   (* Whether running an instruction again recreates its one result: it reads
@@ -213,7 +213,8 @@ module Make (T : Mir_sel.TARGET) = struct
                             | Mir_target.Constraint.Early_clobber k ->
                                 if
                                   List.exists
-                                    (Loc.overlap (List.nth defs k))
+                                    (Loc.overlap
+                                       (Mir_target.Constraint.nth_result defs k))
                                     uses
                                 then
                                   reject ~block ~instr:instr_id
@@ -222,7 +223,9 @@ module Make (T : Mir_sel.TARGET) = struct
                                 { result; view } ->
                                 if
                                   not
-                                    (Loc.equal (List.nth defs result)
+                                    (Loc.equal
+                                       (Mir_target.Constraint.nth_result defs
+                                          result)
                                        (Loc.Reg view))
                                 then
                                   reject ~block ~instr:instr_id
@@ -238,14 +241,16 @@ module Make (T : Mir_sel.TARGET) = struct
                             | Mir_target.Constraint.Fixed_use { use; view } ->
                                 if
                                   not
-                                    (Loc.equal (List.nth uses use)
+                                    (Loc.equal
+                                       (Mir_target.Constraint.nth_use uses use)
                                        (Loc.Reg view))
                                 then
                                   reject ~block ~instr:instr_id
                                     "a fixed use elsewhere"
                             | Mir_target.Constraint.Tied { result; use } -> (
                                 match
-                                  (List.nth defs result, List.nth uses use)
+                                  ( Mir_target.Constraint.nth_result defs result,
+                                    Mir_target.Constraint.nth_use uses use )
                                 with
                                 | Loc.Reg d, Loc.Reg u
                                   when Mir_target.View.same_register d u ->

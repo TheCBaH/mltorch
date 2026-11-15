@@ -39,6 +39,13 @@ type error =
 
 val pp_error : Format.formatter -> [< error ] -> unit
 
+module Pool_offset : Core.Tagged_int.S
+(** A JavaScript typed-array index into a pool, bounded to 32 bits: where an
+    edge starts. *)
+
+module Pool_numel : Core.Tagged_int.S
+(** How many elements an edge, or a whole pool, holds. *)
+
 type t = {
   program : Js_ast.Program.t;
   distinct_kernels : int;
@@ -65,7 +72,10 @@ val build :
 val locate :
   Loop_bundle.t ->
   Tensor_id.t ->
-  ( Storage_script.Arena_id.t * Alloc_script.Kind.t * int * int,
+  ( Storage_script.Arena_id.t
+    * Alloc_script.Kind.t
+    * Pool_offset.t
+    * Pool_numel.t,
     [> error ] )
   Err.t
 (** An arena-backed edge's arena, pool kind, element offset and element count --
@@ -79,5 +89,5 @@ val pool_numel :
   Loop_bundle.t ->
   Storage_script.Arena_id.t ->
   Alloc_script.Kind.t ->
-  (int, [> error ]) Err.t
+  (Pool_numel.t, [> error ]) Err.t
 (** A pool's element count, bounded to a 32-bit index. *)

@@ -82,12 +82,18 @@ let%expect_test "x86-64 forms and malformed variants" =
   (* BT defines CF only *)
   run
     (program [ a; b; x ]
-       [ ([ f ], Bt (Sz.Q, a, 3)); ([ p ], Setcc_zx (Cond.B, f)) ]
+       [
+         ([ f ], Bt (Sz.Q, a, Machine_ir.Mir_target.Bits.of_int 3));
+         ([ p ], Setcc_zx (Cond.B, f));
+       ]
        [ p ])
     [ Mir_datum.Bits 8L; Mir_datum.Bits 0L; Mir_datum.f64 0. ];
   run
     (program [ a; b; x ]
-       [ ([ f ], Bt (Sz.Q, a, 3)); ([ p ], Setcc_zx (Cond.L, f)) ]
+       [
+         ([ f ], Bt (Sz.Q, a, Machine_ir.Mir_target.Bits.of_int 3));
+         ([ p ], Setcc_zx (Cond.L, f));
+       ]
        [ p ])
     [];
   (* IDIV: the quotient and remainder of 7 / -2 *)

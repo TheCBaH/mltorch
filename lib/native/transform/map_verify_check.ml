@@ -397,16 +397,16 @@ and counterexample ~probe ~lhs ~rhs =
     Ground_expr.Cell.Set.union (Ground_expr.cells lhs) (Ground_expr.cells rhs)
   in
   let rec draw n =
-    if n >= probe then None
+    if not (Ground_expr.Valuation.Draw.before n ~limit:probe) then None
     else
       let v = Ground_expr.Valuation.draw n cells in
       if
         Core.Float_bits.equal_exact (Ground_expr.eval lhs v)
           (Ground_expr.eval rhs v)
-      then draw (n + 1)
+      then draw (Ground_expr.Valuation.Draw.next n)
       else Some v
   in
-  draw 0
+  draw Ground_expr.Valuation.Draw.first
 
 (* A grounding failure is a verdict ABOUT this cluster, not an error for the
    caller, so it is converted here rather than short-circuiting [run]. *)

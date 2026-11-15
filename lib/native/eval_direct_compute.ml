@@ -95,13 +95,12 @@ module Make (Direct : Direct.S) = struct
             | None ->
                 finish dst
                   (Tensor.write_i64 dst (fun coord ->
-                       Int64.of_float
-                         (Factory.Arange.value params (Dim.to_int coord.Vec6.c))))
+                       Int64.of_float (Factory.Arange.value params coord.Vec6.c)))
             )
         | _ ->
             finish dst
               (Tensor.write_float dst (fun coord ->
-                   Factory.Arange.value params (Dim.to_int coord.Vec6.c))))
+                   Factory.Arange.value params coord.Vec6.c)))
     (* Dtype-preserving Reshape: the default arm below reaches
      [Reshape.Reshape.Compute(Direct).pixel], whose final [S.load] reads
      through [Payload.get_float] regardless of the source format -- exact

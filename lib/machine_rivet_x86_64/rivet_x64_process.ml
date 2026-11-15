@@ -17,6 +17,7 @@ module N = Asm_core.Normalized_ast
 module D = Asm_core.Directive
 module Fam = X86_family_encode
 module Table = Machine_rivet_common.Rivet_table
+module U = Core.Storage_units
 
 let ( let* ) = Result.bind
 let block = "harness_block"
@@ -72,25 +73,37 @@ module Abi = struct
     else [ "a helper was entered with a misaligned stack" ]
 end
 
-type layout = { slots : (Table.slot * int) list; total : int }
+type layout = {
+  slots : (Table.slot * U.Byte_offset.t) list;
+  total : U.Byte_size.t;
+}
 
-(* The status word, the ABI probe's record, then each slot at 16-byte alignment
-   (or its own, if more). *)
-let probe_record = 8
-let first_slot = 128
+(* The status word at 0, the ABI probe's record from 8, then each slot at
+   [first_slot], 16-byte aligned (or its own alignment, if more). *)
+let first_slot = Err.or_raise ~pp_error:U.pp_error (U.Byte_offset.of_int64 128L)
+let line = Err.or_raise ~pp_error:U.pp_error (U.Byte_alignment.of_int64 16L)
 
 let layout slots =
-  let align_up n a = (n + a - 1) / a * a in
-  let at = ref first_slot in
-  let placed =
-    List.map
-      (fun (s : Table.slot) ->
-        let off = align_up !at (max 16 (Int64.to_int s.Table.align)) in
-        at := off + Int64.to_int s.Table.size;
-        (s, off))
+  let u r = Result.map_error (Fmt.str "%a" U.pp_error) (Err.payload r) in
+  let place (at, placed) (s : Table.slot) =
+    let* align = u (U.Byte_alignment.of_int64 s.Table.align) in
+    let* size = u (U.Byte_size.of_int64 s.Table.size) in
+    let* off =
+      u (U.Byte_offset.align_up at (U.Byte_alignment.max line align))
+    in
+    let* next = u (U.Byte_offset.advance off size) in
+    Ok (next, (s, off) :: placed)
+  in
+  let* at, placed =
+    List.fold_left
+      (fun acc s ->
+        let* acc = acc in
+        place acc s)
+      (Ok (first_slot, []))
       slots
   in
-  { slots = placed; total = align_up !at 16 }
+  let* end_ = u (U.Byte_offset.align_up at line) in
+  Ok { slots = List.rev placed; total = U.Byte_offset.to_size end_ }
 
 let harness ?(probe = false) ~helpers { slots; total } =
   Err.Escape.with_escape @@ fun esc ->
@@ -134,7 +147,7 @@ let harness ?(probe = false) ~helpers { slots; total } =
       dir (D.Align { boundary = 16 });
       dir (D.Global { name = block });
       lbl block;
-      dir (D.Zero { length = total });
+      dir (D.Zero { length = Int64.to_int (U.Byte_size.to_int64 total) });
       dir (D.Align { boundary = 8 });
       dir (D.Global { name = table });
       lbl table;
@@ -148,7 +161,7 @@ let harness ?(probe = false) ~helpers { slots; total } =
                    Asm_core.Expr.Binary
                      ( Asm_core.Expr.Add,
                        Asm_core.Expr.Symbol block,
-                       const (Int64.of_int off) ))
+                       const (U.Byte_offset.to_int64 off) ))
                  slots;
            });
     ]
@@ -225,7 +238,7 @@ let harness ?(probe = false) ~helpers { slots; total } =
         i "movl" [ F.imm 1L; reg "eax" ];
         i "movl" [ F.imm 1L; reg "edi" ];
         i "leaq" [ rip block; reg "rsi" ];
-        i "movl" [ F.imm (Int64.of_int total); reg "edx" ];
+        i "movl" [ F.imm (U.Byte_size.to_int64 total); reg "edx" ];
         i "syscall" [];
         i "movl" [ F.imm 60L; reg "eax" ];
         i "xorl" [ reg "edi"; reg "edi" ];
@@ -271,7 +284,7 @@ let prepare ?(runtime = Machine_rivet_common.Rivet_runtime.Dependency_free)
       (Machine_rivet_common.Rivet_runtime.admit runtime artifact)
   in
   let slots = Table.of_artifact artifact in
-  let lay = layout slots in
+  let* lay = layout slots in
   let* modul =
     Result.map_error
       (render Rivet_x64_refusal.pp)
@@ -320,7 +333,8 @@ let with_block (p : prepared) ~bound =
                 (fun ((slot : Table.slot), off) ->
                   match (slot.Table.section, bound slot.Table.region) with
                   | Art.Section.Bound, Some bytes ->
-                      Bytes.blit_string bytes 0 b (at + off)
+                      Bytes.blit_string bytes 0 b
+                        (at + Int64.to_int (U.Byte_offset.to_int64 off))
                         (min (String.length bytes)
                            (Int64.to_int slot.Table.size))
                   | _ -> ())
@@ -386,10 +400,10 @@ let execute ?(timeout = 120) elf =
           Error (Fmt.str "the process was stopped by signal %d" n))
 
 let decode ?(probe = false) lay out =
-  if String.length out <> lay.total then
+  if String.length out <> Int64.to_int (U.Byte_size.to_int64 lay.total) then
     Error
-      (Fmt.str "the process wrote %d bytes, expected %d" (String.length out)
-         lay.total)
+      (Fmt.str "the process wrote %d bytes, expected %a" (String.length out)
+         U.Byte_size.pp lay.total)
   else
     let word k = String.get_int64_le out k in
     Ok
@@ -413,7 +427,10 @@ let decode ?(probe = false) lay out =
         regions =
           List.map
             (fun ((s : Table.slot), off) ->
-              (s.Table.region, String.sub out off (Int64.to_int s.Table.size)))
+              ( s.Table.region,
+                String.sub out
+                  (Int64.to_int (U.Byte_offset.to_int64 off))
+                  (Int64.to_int s.Table.size) ))
             lay.slots;
       }
 

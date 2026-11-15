@@ -186,7 +186,11 @@ let lstm_layout_source ~batch_first =
      let* h0 = input ~shape:state_shape () in
      let* c0 = input ~shape:state_shape () in
      lstm
-       { Lstm.Lstm.hidden_size = 2; input_size = 2; batch_first }
+       {
+         Lstm.Lstm.hidden_size = Dim.extent 2;
+         input_size = Dim.extent 2;
+         batch_first;
+       }
        ~input:x
        ~layers:
          [

@@ -32,7 +32,7 @@ let lmul_of = function
 let items ~lmul =
   let loop = Label.named "loop" in
   let vl = 4 * lmul in
-  let x = Z.Vexpr.input 0 in
+  let x = Z.Vexpr.input (Z.Vexpr.Input.of_int 0) in
   let input = vreg lmul in
   let free =
     List.filter_map
@@ -41,7 +41,7 @@ let items ~lmul =
       (List.init 32 Fun.id)
   in
   match
-    Z.Vexpr.emit ~lmul ~scratch:Gpr.t0 ~free
+    Z.Vexpr.emit ~lmul:(lmul_of lmul) ~scratch:Gpr.t0 ~free
       ~inputs:[| (input, `Consumed) |]
       (M.exp x)
   with

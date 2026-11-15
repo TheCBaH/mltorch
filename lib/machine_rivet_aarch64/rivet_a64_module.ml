@@ -87,16 +87,14 @@ let relocation_index artifact =
   List.iter
     (fun (r : Art.Relocation.t) ->
       Hashtbl.add t
-        ( Mir_id.Func.to_int r.Art.Relocation.func,
-          Mir_id.Block.to_int r.Art.Relocation.block,
-          Option.map Mir_id.Instr.to_int r.Art.Relocation.instr )
+        (r.Art.Relocation.func, r.Art.Relocation.block, r.Art.Relocation.instr)
         r)
     (Art.relocations artifact);
   t
 
 let instrs_of_func ?mutation ~table_slot esc relocations
     (f : (A64_op.t, A64_op.test) Mir_phys.Func.t) =
-  let fid = Mir_id.Func.to_int f.Mir_phys.Func.id in
+  let fid = f.Mir_phys.Func.id in
   let blocks = f.Mir_phys.Func.blocks in
   let next =
     let rec go = function
@@ -117,7 +115,7 @@ let instrs_of_func ?mutation ~table_slot esc relocations
   entry_jump
   @ List.concat_map
       (fun ((b : (_, _) Mir_phys.Block.t), following) ->
-        let bid = Mir_id.Block.to_int b.Mir_phys.Block.id in
+        let bid = b.Mir_phys.Block.id in
         let env instr =
           {
             F.mutation;
@@ -140,9 +138,7 @@ let instrs_of_func ?mutation ~table_slot esc relocations
             | Mir_phys.Instr.Exec { instr; uses; defs } -> (
                 match instr.Mir_instr.op with
                 | Mir_sel.Op.Machine op ->
-                    F.items
-                      (env (Some (Mir_id.Instr.to_int instr.Mir_instr.id)))
-                      op ~uses ~defs
+                    F.items (env (Some instr.Mir_instr.id)) op ~uses ~defs
                 | Mir_sel.Op.Event _ -> []
                 | Mir_sel.Op.Undef _ -> [])
             | Mir_phys.Instr.Late { op; uses; defs } ->
@@ -150,9 +146,7 @@ let instrs_of_func ?mutation ~table_slot esc relocations
             | Mir_phys.Instr.Remat { instr; defs } -> (
                 match instr.Mir_instr.op with
                 | Mir_sel.Op.Machine op ->
-                    F.items
-                      (env (Some (Mir_id.Instr.to_int instr.Mir_instr.id)))
-                      op ~uses:[] ~defs
+                    F.items (env (Some instr.Mir_instr.id)) op ~uses:[] ~defs
                 | Mir_sel.Op.Event _ | Mir_sel.Op.Undef _ -> [])
             | Mir_phys.Instr.Move { dst; src; _ } ->
                 List.map
@@ -179,11 +173,7 @@ let instrs_of_func ?mutation ~table_slot esc relocations
           | Mir_phys.Term.Return _ -> true
           | _ -> false
         in
-        let split = Rivet_cfi.epilogue_start b.Mir_phys.Block.body in
-        let before = List.filteri (fun k _ -> k < split) b.Mir_phys.Block.body
-        and epilogue =
-          List.filteri (fun k _ -> k >= split) b.Mir_phys.Block.body
-        in
+        let before, epilogue = Rivet_cfi.split_epilogue b.Mir_phys.Block.body in
         let cfi_state name = dir (D.Cfi { name; argument = "" }) in
         let saved = Rivet_cfi.cfa cfi in
         let body_items = List.concat_map items_of before in

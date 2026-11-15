@@ -7,7 +7,17 @@ module Hardsigmoid = struct
     type cfg = { shape : Walk_core.Shape.t }
 
     let initial =
-      { shape = { Walk_core.Shape.n = 1; t = 1; d = 1; h = 4; w = 4; c = 3 } }
+      {
+        shape =
+          {
+            Walk_core.Shape.n = Dim.one;
+            t = Dim.one;
+            d = Dim.one;
+            h = Dim.extent 4;
+            w = Dim.extent 4;
+            c = Dim.extent 3;
+          };
+      }
 
     let cascade c = c
     let shape (c : cfg) = Walk_shape.vec6 c.shape
@@ -29,7 +39,17 @@ module Hardswish = struct
     type cfg = { shape : Walk_core.Shape.t }
 
     let initial =
-      { shape = { Walk_core.Shape.n = 1; t = 1; d = 1; h = 4; w = 4; c = 3 } }
+      {
+        shape =
+          {
+            Walk_core.Shape.n = Dim.one;
+            t = Dim.one;
+            d = Dim.one;
+            h = Dim.extent 4;
+            w = Dim.extent 4;
+            c = Dim.extent 3;
+          };
+      }
 
     let cascade c = c
     let shape (c : cfg) = Walk_shape.vec6 c.shape
@@ -63,7 +83,15 @@ module Hardtanh = struct
 
     let initial =
       {
-        shape = { Walk_core.Shape.n = 1; t = 1; d = 1; h = 4; w = 4; c = 3 };
+        shape =
+          {
+            Walk_core.Shape.n = Dim.one;
+            t = Dim.one;
+            d = Dim.one;
+            h = Dim.extent 4;
+            w = Dim.extent 4;
+            c = Dim.extent 3;
+          };
         bounds = { min_val = 0.; max_val = 6. };
       }
 
@@ -92,7 +120,15 @@ module Leaky_relu = struct
 
     let initial =
       {
-        shape = { Walk_core.Shape.n = 1; t = 1; d = 1; h = 4; w = 4; c = 3 };
+        shape =
+          {
+            Walk_core.Shape.n = Dim.one;
+            t = Dim.one;
+            d = Dim.one;
+            h = Dim.extent 4;
+            w = Dim.extent 4;
+            c = Dim.extent 3;
+          };
         params = { negative_slope = 0.01 };
       }
 
@@ -123,7 +159,17 @@ module Relu = struct
     type cfg = { shape : Walk_core.Shape.t }
 
     let initial =
-      { shape = { Walk_core.Shape.n = 1; t = 1; d = 1; h = 4; w = 4; c = 3 } }
+      {
+        shape =
+          {
+            Walk_core.Shape.n = Dim.one;
+            t = Dim.one;
+            d = Dim.one;
+            h = Dim.extent 4;
+            w = Dim.extent 4;
+            c = Dim.extent 3;
+          };
+      }
 
     let cascade c = c
     let shape (c : cfg) = Walk_shape.vec6 c.shape
@@ -145,7 +191,17 @@ module Sigmoid = struct
     type cfg = { shape : Walk_core.Shape.t }
 
     let initial =
-      { shape = { Walk_core.Shape.n = 1; t = 1; d = 1; h = 4; w = 4; c = 3 } }
+      {
+        shape =
+          {
+            Walk_core.Shape.n = Dim.one;
+            t = Dim.one;
+            d = Dim.one;
+            h = Dim.extent 4;
+            w = Dim.extent 4;
+            c = Dim.extent 3;
+          };
+      }
 
     let cascade c = c
     let shape (c : cfg) = Walk_shape.vec6 c.shape
@@ -167,7 +223,17 @@ module Tanh = struct
     type cfg = { shape : Walk_core.Shape.t }
 
     let initial =
-      { shape = { Walk_core.Shape.n = 1; t = 1; d = 1; h = 4; w = 4; c = 3 } }
+      {
+        shape =
+          {
+            Walk_core.Shape.n = Dim.one;
+            t = Dim.one;
+            d = Dim.one;
+            h = Dim.extent 4;
+            w = Dim.extent 4;
+            c = Dim.extent 3;
+          };
+      }
 
     let cascade c = c
     let shape (c : cfg) = Walk_shape.vec6 c.shape
@@ -189,7 +255,17 @@ module Silu = struct
     type cfg = { shape : Walk_core.Shape.t }
 
     let initial =
-      { shape = { Walk_core.Shape.n = 1; t = 1; d = 1; h = 4; w = 4; c = 3 } }
+      {
+        shape =
+          {
+            Walk_core.Shape.n = Dim.one;
+            t = Dim.one;
+            d = Dim.one;
+            h = Dim.extent 4;
+            w = Dim.extent 4;
+            c = Dim.extent 3;
+          };
+      }
 
     let cascade c = c
     let shape (c : cfg) = Walk_shape.vec6 c.shape
@@ -216,7 +292,15 @@ module Gelu = struct
 
     let initial =
       {
-        shape = { Walk_core.Shape.n = 1; t = 1; d = 1; h = 4; w = 4; c = 3 };
+        shape =
+          {
+            Walk_core.Shape.n = Dim.one;
+            t = Dim.one;
+            d = Dim.one;
+            h = Dim.extent 4;
+            w = Dim.extent 4;
+            c = Dim.extent 3;
+          };
         approximate = Exact;
       }
 

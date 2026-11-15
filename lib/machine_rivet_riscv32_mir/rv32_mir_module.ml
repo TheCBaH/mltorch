@@ -26,50 +26,49 @@ let relocation_index artifact =
   List.iter
     (fun (r : Art.Relocation.t) ->
       Hashtbl.add t
-        ( Mir_id.Func.to_int r.Art.Relocation.func,
-          Mir_id.Block.to_int r.Art.Relocation.block,
-          Option.map Mir_id.Instr.to_int r.Art.Relocation.instr )
+        (r.Art.Relocation.func, r.Art.Relocation.block, r.Art.Relocation.instr)
         r)
     (Art.relocations artifact);
   t
 
 (* A B-type branch reaches [-4096, 4094] bytes; the margin keeps a promotion
    from pushing a neighbour out of reach within the same round. *)
-let reach = 4000
+let reach = Item.Size.of_int 4000
 
 (* The items with every conditional branch resolved, short or long. *)
 let lay_out items =
   let long = Hashtbl.create 16 in
   let rec round () =
     let at = Hashtbl.create 64 in
-    let pos = ref 0 in
+    let pos = ref Item.Size_math.zero in
     List.iteri
       (fun k it ->
         (match it with Item.Label l -> Hashtbl.replace at l !pos | _ -> ());
         pos :=
-          !pos
-          +
-          match it with
-          | Item.Branch _ when Hashtbl.mem long k -> 8
-          | it -> Item.bytes it)
+          Item.Size_math.add !pos
+            (match it with
+            | Item.Branch _ when Hashtbl.mem long k -> Item.Size.of_int 8
+            | it -> Item.bytes it))
       items;
-    let pos = ref 0 and changed = ref false in
+    let pos = ref Item.Size_math.zero and changed = ref false in
     List.iteri
       (fun k it ->
         (match it with
         | Item.Branch { label; _ } when not (Hashtbl.mem long k) -> (
             match Hashtbl.find_opt at label with
-            | Some target when abs (target - !pos) <= reach -> ()
+            | Some target
+              when Item.Size.compare (Item.Size_math.distance target !pos) reach
+                   <= 0 ->
+                ()
             | _ ->
                 Hashtbl.replace long k ();
                 changed := true)
         | _ -> ());
         pos :=
-          !pos
-          +
-          match it with
-          | Item.Branch _ when Hashtbl.mem long k -> 8
-          | it -> Item.bytes it)
+          Item.Size_math.add !pos
+            (match it with
+            | Item.Branch _ when Hashtbl.mem long k -> Item.Size.of_int 8
+            | it -> Item.bytes it))
       items;
     if !changed then round ()
   in
@@ -137,7 +136,7 @@ let configurations ?mutation (items : (F.Vconfig.t option * bool) list) =
 
 let func_items env relocations (f : (Rv32_op.t, Rv32_op.test) Mir_phys.Func.t) =
   let outer = env in
-  let fid = Mir_id.Func.to_int f.Mir_phys.Func.id in
+  let fid = f.Mir_phys.Func.id in
   let blocks = f.Mir_phys.Func.blocks in
   let rec pairs = function
     | a :: (b :: _ as rest) -> (a, Some b) :: pairs rest
@@ -154,7 +153,7 @@ let func_items env relocations (f : (Rv32_op.t, Rv32_op.test) Mir_phys.Func.t) =
   entry_jump
   @ List.concat_map
       (fun ((b : (_, _) Mir_phys.Block.t), following) ->
-        let bid = Mir_id.Block.to_int b.Mir_phys.Block.id in
+        let bid = b.Mir_phys.Block.id in
         let env instr =
           {
             env with
@@ -173,18 +172,14 @@ let func_items env relocations (f : (Rv32_op.t, Rv32_op.test) Mir_phys.Func.t) =
           | Mir_phys.Instr.Exec { instr; uses; defs } -> (
               match instr.Mir_instr.op with
               | Mir_sel.Op.Machine op ->
-                  F.items
-                    (env (Some (Mir_id.Instr.to_int instr.Mir_instr.id)))
-                    op ~uses ~defs
+                  F.items (env (Some instr.Mir_instr.id)) op ~uses ~defs
               | Mir_sel.Op.Event _ | Mir_sel.Op.Undef _ -> [])
           | Mir_phys.Instr.Late { op; uses; defs } ->
               F.items (env None) op ~uses ~defs
           | Mir_phys.Instr.Remat { instr; defs } -> (
               match instr.Mir_instr.op with
               | Mir_sel.Op.Machine op ->
-                  F.items
-                    (env (Some (Mir_id.Instr.to_int instr.Mir_instr.id)))
-                    op ~uses:[] ~defs
+                  F.items (env (Some instr.Mir_instr.id)) op ~uses:[] ~defs
               | Mir_sel.Op.Event _ | Mir_sel.Op.Undef _ -> [])
           | Mir_phys.Instr.Move { dst; src; _ }
           | Mir_phys.Instr.Save { dst; src } ->

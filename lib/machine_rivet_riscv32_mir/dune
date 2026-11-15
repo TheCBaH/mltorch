@@ -8,6 +8,7 @@
  (name machine_rivet_riscv32_mir)
  (libraries
   contraction
+  core
   coralnpu_kernels
   err_trace
   fmt

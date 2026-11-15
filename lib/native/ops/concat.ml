@@ -117,13 +117,14 @@ module Concat = struct
        coordinate lands in exactly one segment, so it is the right answer
        whenever every earlier test failed, and skipping it also keeps the
        staged Symbolic term one [select] shorter per operand. *)
-    let rec select_segment axis out = function
+    let rec select_segment axis out :
+        (Dim.fence Dim.t * Dim.extent Dim.t * S.input) list -> S.t = function
       | [] -> invalid_arg "Concat.Compute.pixel: no operands"
       | [ (offset, extent, input) ] ->
           let j =
             S.index_add
               (S.of_index (Vec6.get out axis))
-              (S.index_const (-offset))
+              (S.index_const (-(offset :> int)))
           in
           let src = clamp_into ~extent j in
           S.load input (Vec6.set out axis src)
@@ -131,7 +132,7 @@ module Concat = struct
           let j =
             S.index_add
               (S.of_index (Vec6.get out axis))
-              (S.index_const (-offset))
+              (S.index_const (-(offset :> int)))
           in
           let src = clamp_into ~extent j in
           let inside = S.index_eq j (S.of_index src) in
@@ -146,8 +147,9 @@ module Concat = struct
         List.fold_left
           (fun (offset, acc) ((shape, input) : Vec6.shape * S.input) ->
             let extent = Vec6.get shape axis in
-            (offset + (extent :> int), (offset, extent, input) :: acc))
-          (0, []) xs
+            (Dim.fence_after offset extent, (offset, extent, input) :: acc))
+          (Dim.fence 0, [])
+          xs
       in
       select_segment axis out (List.rev segments)
   end
@@ -268,18 +270,21 @@ module Stack = struct
        always 1, so "which operand" IS [out]'s coordinate there): an equality
        test rather than [Concat]'s general clamped range, since there is no
        within-segment offset left to compute. *)
-    let rec select_by_index (p : params) coord out k = function
+    let rec select_by_index (p : params) coord out (k : Dim.index Dim.t) =
+      function
       | [] -> invalid_arg "Stack.Compute.pixel: no operands"
       | [ input ] -> S.load input coord
       | input :: rest ->
           let inside =
-            S.index_eq (S.of_index (Vec6.get out p.axis)) (S.index_const k)
+            S.index_eq
+              (S.of_index (Vec6.get out p.axis))
+              (S.index_const (k :> int))
           in
           S.select inside (S.load input coord)
-            (select_by_index p coord out (k + 1) rest)
+            (select_by_index p coord out (Dim.succ k) rest)
 
     let pixel (p : params) ~(xs : S.input list)
         (out : Semantics.position S.index Vec6.t) : S.t =
-      select_by_index p (source_coord p out) out 0 xs
+      select_by_index p (source_coord p out) out (Dim.index 0) xs
   end
 end

@@ -5,6 +5,7 @@
  (name machine_rivet_riscv32_test)
  (libraries
   elf
+  core
   err_trace
   fmt
   machine_rivet_riscv32

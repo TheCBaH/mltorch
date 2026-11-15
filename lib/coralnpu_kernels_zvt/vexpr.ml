@@ -5,6 +5,13 @@ module Imm = R.Rv32_kernel_imm
 module Gpr = R.Rv32_kernel_reg.Gpr
 module Vreg = R.Rv32_kernel_reg.Vreg
 
+module Input =
+  Core.Tagged_int.Make
+    (struct
+      let prefix = "in"
+    end)
+    ()
+
 type bin = Add | Div | Mul | Sub
 type cmp = Eq | Lt
 
@@ -13,7 +20,7 @@ type t = { id : int; desc : desc }
 and desc =
   | Const of float
   | Bin of bin * t * t
-  | Input of int
+  | Input of Input.t
   | Select of cmp * t * t * t * t
 
 (* Node ids come from a process-wide counter, not domain-safe: expressions are
@@ -101,7 +108,9 @@ let li ~scratch bits =
   | Ok is -> List.map Item.insn is
   | Error _ -> invalid_arg "Vexpr: a constant"
 
-let emit ~lmul ~scratch ~free ~inputs root =
+let emit ~(lmul : Machine_rivet_riscv32.Rv32_kernel_vtype.Lmul.t) ~scratch ~free
+    ~inputs root =
+  let lmul = Machine_rivet_riscv32.Rv32_kernel_vtype.Lmul.factor lmul in
   try
     match
       Err.payload
@@ -159,7 +168,7 @@ let emit ~lmul ~scratch ~free ~inputs root =
             | None ->
                 let r =
                   match n.desc with
-                  | Input k -> fst inputs.(k)
+                  | Input k -> fst inputs.((k :> int))
                   | Const _ -> assert false
                   | Bin (op, a, b) -> (
                       match operands [ a; b ] with

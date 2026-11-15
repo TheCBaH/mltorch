@@ -10,7 +10,17 @@ module Bin = struct
     type cfg = { shape : Walk_core.Shape.t }
 
     let initial =
-      { shape = { Walk_core.Shape.n = 1; t = 1; d = 1; h = 4; w = 4; c = 3 } }
+      {
+        shape =
+          {
+            Walk_core.Shape.n = Dim.one;
+            t = Dim.one;
+            d = Dim.one;
+            h = Dim.extent 4;
+            w = Dim.extent 4;
+            c = Dim.extent 3;
+          };
+      }
 
     let cascade c = c
     let shape (c : cfg) = Walk_shape.vec6 c.shape
@@ -41,7 +51,15 @@ module Scalar_bin = struct
 
     let initial =
       {
-        shape = { Walk_core.Shape.n = 1; t = 1; d = 1; h = 4; w = 4; c = 3 };
+        shape =
+          {
+            Walk_core.Shape.n = Dim.one;
+            t = Dim.one;
+            d = Dim.one;
+            h = Dim.extent 4;
+            w = Dim.extent 4;
+            c = Dim.extent 3;
+          };
         scalar = 3.;
       }
 

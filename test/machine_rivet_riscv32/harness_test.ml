@@ -21,9 +21,9 @@ let slots (p : Precision.t) =
   let size = p.bytes * count in
   H.
     [
-      { size; align = 8; placement = Placement.In };
-      { size; align = 8; placement = Placement.Bss };
-      { size; align = 8; placement = Placement.Out };
+      Harness_slot.make ~size ~align:8 Placement.In;
+      Harness_slot.make ~size ~align:8 Placement.Bss;
+      Harness_slot.make ~size ~align:8 Placement.Out;
     ]
 
 (* [mir_entry(table)]: table[0] input, table[1] workspace, table[2] output. *)

@@ -7,8 +7,10 @@
    them in that same sequence, an extension of the base convention's two. *)
 
 open Machine_ir
+module Num = Rv32_reg.Num
+module Num_seq = Rv32_reg.Num_seq
 
-let view bank ~(bits : Mir_target.Bits.t) k =
+let view_at bank ~(bits : Mir_target.Bits.t) k =
   let width = (bits :> int) in
   match (bank, width) with
   | Mir_target.Bank.Gpr, 32 -> Rv32_reg.x k
@@ -23,34 +25,37 @@ let view bank ~(bits : Mir_target.Bits.t) k =
   | Mir_target.Bank.Flags, _ -> Rv32_reg.flags
   | _ -> invalid_arg "Rv32_regs: no view of that shape"
 
+let view = view_at
+
 (* t0-t2 are x5-x7, t3-t5 x28-x30; ft0-ft5 are f0-f5. *)
+
 let use_scratch bank ~bits k =
-  view bank ~bits
+  view_at bank ~bits
     (match bank with
-    | Mir_target.Bank.Fpr -> k
-    | Mir_target.Bank.Vector -> 1 + k
-    | _ -> 5 + k)
+    | Mir_target.Bank.Fpr -> Num_seq.at Num_seq.zero k
+    | Mir_target.Bank.Vector -> Num_seq.at (Num.of_int 1) k
+    | _ -> Num_seq.at (Num.of_int 5) k)
 
 let result_scratch bank ~bits =
-  view bank ~bits
+  view_at bank ~bits
     (match bank with
-    | Mir_target.Bank.Fpr -> 3
-    | Mir_target.Bank.Vector -> 4
-    | _ -> 28)
+    | Mir_target.Bank.Fpr -> Num.of_int 3
+    | Mir_target.Bank.Vector -> Num.of_int 4
+    | _ -> Num.of_int 28)
 
 let copy_scratch bank ~bits =
-  view bank ~bits
+  view_at bank ~bits
     (match bank with
-    | Mir_target.Bank.Fpr -> 4
-    | Mir_target.Bank.Vector -> 5
-    | _ -> 29)
+    | Mir_target.Bank.Fpr -> Num.of_int 4
+    | Mir_target.Bank.Vector -> Num.of_int 5
+    | _ -> Num.of_int 29)
 
 let cycle_scratch bank ~bits =
-  view bank ~bits
+  view_at bank ~bits
     (match bank with
-    | Mir_target.Bank.Fpr -> 5
-    | Mir_target.Bank.Vector -> 6
-    | _ -> 30)
+    | Mir_target.Bank.Fpr -> Num.of_int 5
+    | Mir_target.Bank.Vector -> Num.of_int 6
+    | _ -> Num.of_int 30)
 
 let args tys = Rv32_op.sequence tys
 let results tys = Rv32_op.sequence tys
@@ -59,17 +64,24 @@ let results tys = Rv32_op.sequence tys
    registers first (a value not live across a call pays nothing to keep), then
    callee-saved ones; never a reserved register nor the parallel copy's
    scratch (t4, t5, ft4, ft5). *)
-let allocatable = function
+let pool = function
   | Mir_target.Bank.Gpr ->
-      Rv32_reg.range 10 17 @ [ 5; 6; 7; 28 ] @ [ 8; 9 ] @ Rv32_reg.range 18 26
+      Num_seq.range 10 17
+      @ Num_seq.of_ints [ 5; 6; 7; 28; 8; 9 ]
+      @ Num_seq.range 18 26
   | Mir_target.Bank.Fpr ->
-      Rv32_reg.range 10 17 @ [ 0; 1; 2; 3; 6; 7 ] @ Rv32_reg.range 28 31
-      @ [ 8; 9 ] @ Rv32_reg.range 18 27
+      Num_seq.range 10 17
+      @ Num_seq.of_ints [ 0; 1; 2; 3; 6; 7 ]
+      @ Num_seq.range 28 31
+      @ Num_seq.of_ints [ 8; 9 ]
+      @ Num_seq.range 18 27
   | Mir_target.Bank.Vector ->
       (* v0 first, like any register: the forms that need it in passing admit
          no operand there, so the allocator moves around them *)
-      [ 0; 1; 2; 3; 4 ] @ Rv32_reg.range 7 31
+      Num_seq.range 0 4 @ Num_seq.range 7 31
   | Mir_target.Bank.Control | Mir_target.Bank.Flags -> []
+
+let allocatable = pool
 
 (* The pool of the grouped (LMUL 4) vector choice: sixteen-lane values in
    aligned groups of four as well as four-lane ones in single registers. A
@@ -89,21 +101,21 @@ module Grouped = struct
   let copy_scratch bank ~(bits : Mir_target.Bits.t) =
     let width = (bits :> int) in
     match (bank, width) with
-    | Mir_target.Bank.Vector, 512 -> group 24
+    | Mir_target.Bank.Vector, 512 -> group (Num.of_int 24)
     | _ -> copy_scratch bank ~bits
 
   let cycle_scratch bank ~(bits : Mir_target.Bits.t) =
     let width = (bits :> int) in
     match (bank, width) with
-    | Mir_target.Bank.Vector, 512 -> group 28
+    | Mir_target.Bank.Vector, 512 -> group (Num.of_int 28)
     | _ -> cycle_scratch bank ~bits
 
   let args = args
   let results = results
 
   let allocatable = function
-    | Mir_target.Bank.Vector -> [ 0; 1; 2; 3; 4 ] @ Rv32_reg.range 7 23
-    | b -> allocatable b
+    | Mir_target.Bank.Vector -> Num_seq.range 0 4 @ Num_seq.range 7 23
+    | b -> pool b
 end
 
 (* The pool of the eight-register choice (LMUL 8): thirty-two-lane values in
@@ -125,19 +137,19 @@ module Grouped8 = struct
   let copy_scratch bank ~(bits : Mir_target.Bits.t) =
     let width = (bits :> int) in
     match (bank, width) with
-    | Mir_target.Bank.Vector, 1024 -> group 24
+    | Mir_target.Bank.Vector, 1024 -> group (Num.of_int 24)
     | _ -> copy_scratch bank ~bits
 
   let cycle_scratch bank ~(bits : Mir_target.Bits.t) =
     let width = (bits :> int) in
     match (bank, width) with
-    | Mir_target.Bank.Vector, 1024 -> group 0
+    | Mir_target.Bank.Vector, 1024 -> group (Num.of_int 0)
     | _ -> cycle_scratch bank ~bits
 
   let args = args
   let results = results
 
   let allocatable = function
-    | Mir_target.Bank.Vector -> Rv32_reg.range 8 23
-    | b -> allocatable b
+    | Mir_target.Bank.Vector -> Num_seq.range 8 23
+    | b -> pool b
 end

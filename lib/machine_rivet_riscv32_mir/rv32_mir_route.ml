@@ -26,6 +26,7 @@ module Art = Machine_model.Mir_artifact
 module Route = Machine_model.Mir_model_route
 module Table = Machine_rivet_common.Rivet_table
 module H = Machine_rivet_riscv32.Rv32_harness
+module U = Core.Storage_units
 module Profile = Machine_rivet_riscv32.Rv32_profile
 
 let ( let* ) = Result.bind
@@ -113,20 +114,21 @@ let publish ?select_mutation ?scan_mutation ?(registers = Registers.Single)
    in the output file, so its bytes go in and come back; any other region is
    zero-filled memory of the ELF. *)
 let harness_slots ~record artifact =
-  List.map
-    (fun (s : Table.slot) ->
+  let checked r = Result.map_error (Fmt.str "%a" U.pp_error) (Err.payload r) in
+  List.fold_right
+    (fun (s : Table.slot) acc ->
+      let* acc = acc in
       let placement =
         match s.Table.section with
         | Art.Section.Bound -> H.Placement.Out
         | _ when Mir_id.Region.equal s.Table.region record -> H.Placement.Out
         | _ -> H.Placement.Bss
       in
-      {
-        H.size = Int64.to_int s.Table.size;
-        align = Int64.to_int s.Table.align;
-        placement;
-      })
+      let* size = checked (U.Byte_size.of_int64 s.Table.size) in
+      let* align = checked (U.Byte_alignment.of_int64 s.Table.align) in
+      Ok ({ H.size; align; placement } :: acc))
     (Rv32_mir_module.slots artifact)
+    (Ok [])
 
 (* The contractions an artifact calls, each a function generated beside it. *)
 let generated artifact =
@@ -231,8 +233,9 @@ let prepare ?mutation ?kernel_mutation { artifact; record } =
       (Err.payload (Rv32_mir_module.of_artifact ?mutation artifact))
   in
   let* helpers = helper_modules ?kernel_mutation artifact in
-  H.prepare ~profile:(profile artifact) ~entry:Table.entry ~kernel:(m :: helpers)
-    (harness_slots ~record artifact)
+  let* slots = harness_slots ~record artifact in
+  H.prepare ~profile:(profile artifact) ~entry:Table.entry
+    ~kernel:(m :: helpers) slots
 
 let regions_program (p : (_, _) Mir_phys.Program.t) =
   {
@@ -246,16 +249,18 @@ let regions_program (p : (_, _) Mir_phys.Program.t) =
     revision = Mir_id.Revision.of_int 0;
   }
 
-let region_bytes memory binding (region : Mir_id.Region.t) size =
+let region_bytes memory binding (region : Mir_id.Region.t)
+    (size : U.Byte_size.t) =
   match Mir_interp.Binding.instance binding region with
   | None -> Error "a region with no memory instance"
   | Some key ->
       Ok
         ( key,
-          String.init size (fun i ->
+          String.init
+            (Int64.to_int (U.Byte_size.to_int64 size))
+            (fun i ->
               match
-                (Mir_memory.read_bytes memory key ~offset:(Int64.of_int i) ~n:1).(
-                0)
+                Mir_memory.read_byte memory key ~offset:(Int64.of_int i)
               with
               | Some b -> Char.chr b
               | None -> '\000') )
@@ -272,7 +277,7 @@ let run_once ?cpu (prepared : H.prepared) ~published memory binding =
         | Art.Section.Bound ->
             let* _, bytes =
               region_bytes memory binding s.Table.region
-                (Int64.to_int s.Table.size)
+                (Machine_rivet_common.Rivet_storage.region_bytes s)
             in
             Ok (Some bytes :: acc)
         | _ -> Ok (None :: acc))

@@ -11,7 +11,17 @@ module Zeros = struct
     type cfg = { shape : Walk_core.Shape.t }
 
     let initial =
-      { shape = { Walk_core.Shape.n = 1; t = 1; d = 1; h = 4; w = 4; c = 3 } }
+      {
+        shape =
+          {
+            Walk_core.Shape.n = Dim.one;
+            t = Dim.one;
+            d = Dim.one;
+            h = Dim.extent 4;
+            w = Dim.extent 4;
+            c = Dim.extent 3;
+          };
+      }
 
     let cascade c = c
     let shape (c : cfg) = Walk_shape.vec6 c.shape
@@ -34,7 +44,17 @@ module Eye = struct
     type cfg = { shape : Walk_core.Shape.t }
 
     let initial =
-      { shape = { Walk_core.Shape.n = 1; t = 1; d = 1; h = 4; w = 4; c = 3 } }
+      {
+        shape =
+          {
+            Walk_core.Shape.n = Dim.one;
+            t = Dim.one;
+            d = Dim.one;
+            h = Dim.extent 4;
+            w = Dim.extent 4;
+            c = Dim.extent 3;
+          };
+      }
 
     let cascade c = c
     let shape (c : cfg) = Walk_shape.vec6 c.shape
@@ -64,19 +84,22 @@ module Arange = struct
      2^53 for the exact arm -- so this functor only owns the shared count
      axis, not [params] construction itself. *)
   module Walk (L : Walk_core.Limits.S) = struct
-    type cfg = { count : int }
+    type cfg = { count : Dim.extent Dim.t }
 
-    let initial = { count = 4 }
+    let initial = { count = Dim.extent 4 }
     let cascade c = c
     let count (c : cfg) = c.count
 
     let axes =
       Walk_core.Walk.
         [
-          int_axis "count" ~lo:1 ~hi:L.limits.Walk_core.Limits.max_channels
+          range_axis
+            (module Extent)
+            "count" ~lo:Extent.one
+            ~hi:(Extent.of_int L.limits.Walk_core.Limits.max_channels)
             (fun _ v -> { count = v });
         ]
 
-    let pp fmt (c : cfg) = Fmt.pf fmt "count=%d" c.count
+    let pp fmt (c : cfg) = Fmt.pf fmt "count=%d" (c.count :> int)
   end
 end

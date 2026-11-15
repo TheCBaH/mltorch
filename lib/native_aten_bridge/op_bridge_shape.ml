@@ -81,7 +81,10 @@ let dispatch ~(aten_env : aten_env) (node : Node.t) :
          (* No [Err.map_error]: [params_of_aten] already fails with this
             module's own [`Bad_pad_list] row, so the detection origin is the
             check that found the fault rather than this call site. *)
-         let* params = Pad.Pad.params_of_aten ~rank ~pad ~mode ~value in
+         let* params =
+           Pad.Pad.params_of_aten ~rank ~pad:(List.map Dim.delta pad) ~mode
+             ~value
+         in
          let* x = native_of_aten "self" aten_x in
          build_g ~name:"pad" [ x ] (function
            | [ x_id ] ->

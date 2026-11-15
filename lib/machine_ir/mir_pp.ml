@@ -5,11 +5,30 @@
    terminators through the same naming. *)
 
 module Names = struct
-  type t = { blocks : int Mir_id.Block.Map.t; values : int Mir_id.Value.Map.t }
+  (* The printed number of a block, and of a value: each space is its own
+     domain, counted from zero in traversal order. *)
+  module Block_name =
+    Core.Tagged_int.Make
+      (struct
+        let prefix = "bb"
+      end)
+      ()
+
+  module Value_name =
+    Core.Tagged_int.Make
+      (struct
+        let prefix = "v"
+      end)
+      ()
+
+  type t = {
+    blocks : Block_name.t Mir_id.Block.Map.t;
+    values : Value_name.t Mir_id.Value.Map.t;
+  }
 
   let block t fmt b =
     match Mir_id.Block.Map.find_opt b t.blocks with
-    | Some n -> Fmt.pf fmt "bb%d" n
+    | Some n -> Fmt.pf fmt "bb%d" (Block_name.to_int n)
     | None -> Fmt.pf fmt "?%a" Mir_id.Block.pp b
 
   let value t fmt (v : Mir_value.t) =
@@ -17,7 +36,7 @@ module Names = struct
       if Mir_type.equal v.Mir_value.ty Mir_type.Order then "!" else "%"
     in
     match Mir_id.Value.Map.find_opt v.Mir_value.id t.values with
-    | Some n -> Fmt.pf fmt "%s%d" sigil n
+    | Some n -> Fmt.pf fmt "%s%d" sigil (Value_name.to_int n)
     | None -> Fmt.pf fmt "%s?%a" sigil Mir_id.Value.pp v.Mir_value.id
 
   let values t fmt vs = Fmt.(list ~sep:(any ", ") (value t)) fmt vs
@@ -50,15 +69,16 @@ let names ~edges (f : ('op, 'term) Mir_func.t) =
   let bmap, _ =
     List.fold_left
       (fun (m, n) (b : ('op, 'term) Mir_block.t) ->
-        (Mir_id.Block.Map.add b.Mir_block.id n m, n + 1))
-      (Mir_id.Block.Map.empty, 0)
+        (Mir_id.Block.Map.add b.Mir_block.id n m, Names.Block_name.succ n))
+      (Mir_id.Block.Map.empty, Names.Block_name.of_int 0)
       blocks
   in
-  let vmap = ref Mir_id.Value.Map.empty and next = ref 0 in
+  let vmap = ref Mir_id.Value.Map.empty
+  and next = ref (Names.Value_name.of_int 0) in
   let name (v : Mir_value.t) =
     if not (Mir_id.Value.Map.mem v.Mir_value.id !vmap) then (
       vmap := Mir_id.Value.Map.add v.Mir_value.id !next !vmap;
-      incr next)
+      next := Names.Value_name.succ !next)
   in
   List.iter
     (fun (b : ('op, 'term) Mir_block.t) ->
@@ -176,7 +196,8 @@ let pp_view fmt (v : Mir_view.t) =
 
 let pp_helper fmt (h : Mir_helper.t) =
   Fmt.pf fmt "%a: %s v%d (%a) -> (%a) %s" Mir_id.Helper.pp h.Mir_helper.id
-    h.Mir_helper.name h.Mir_helper.version
+    h.Mir_helper.name
+    (h.Mir_helper.version :> int)
     Fmt.(list ~sep:(any ", ") Mir_type.pp)
     h.Mir_helper.params
     Fmt.(list ~sep:(any ", ") Mir_type.pp)

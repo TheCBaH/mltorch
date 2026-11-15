@@ -78,12 +78,8 @@ let shape4 ~id shape =
   | Ok s -> Err.return s
   | Error _ -> Err.fail (`Non_four_dimensional_tensor (id, shape))
 
-let unit_conv_params ~in_channels : Ops4.Conv_params.t =
-  {
-    h = Conv.Conv2d.unit_window;
-    w = Conv.Conv2d.unit_window;
-    in_channels = Dim.extent in_channels;
-  }
+let unit_conv_params ~(in_channels : Dim.extent Dim.t) : Ops4.Conv_params.t =
+  { h = Conv.Conv2d.unit_window; w = Conv.Conv2d.unit_window; in_channels }
 
 (* ---- one source node ------------------------------------------------------ *)
 
@@ -530,8 +526,7 @@ let lower_node ~view acc (n : node) =
         (Op.Conv2d
            {
              Ops4.Conv_payload.params =
-               unit_conv_params
-                 ~in_channels:(Dim.to_int params.Linear.Linear.in_features);
+               unit_conv_params ~in_channels:params.Linear.Linear.in_features;
              x = op_of x;
              weight = op_of weight;
              bias = Option.map op_of bias;

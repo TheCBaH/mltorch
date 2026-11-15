@@ -122,7 +122,7 @@ val in_bounds : shape -> coord -> bool
    specifically. Components are already-validated [Dim.index Dim.t] (the
    caller's producer already went through [Dim.index] — see direct.ml), so
    only the upper bound is checked here. Returns the dense linear offset, or
-   [-1] (never a valid offset) if the point isn't fully inside [shape]. *)
+   [Dim.no_offset] if the point isn't fully inside [shape]. *)
 val offset_of :
   shape ->
   n:Dim.index Dim.t ->
@@ -131,7 +131,7 @@ val offset_of :
   h:Dim.index Dim.t ->
   w:Dim.index Dim.t ->
   c:Dim.index Dim.t ->
-  int
+  Dim.offset Dim.t
 
 val iter : shape -> (coord -> unit) -> unit (* C innermost *)
 val fold_coords : shape -> init:'acc -> f:('acc -> coord -> 'acc) -> 'acc

@@ -1,9 +1,14 @@
 open Graph_ir
 
-type error = [ `Failed of int * Loop_interp.error | `Missing of Tensor_id.t ]
+type error =
+  [ `Failed of Loop_bundle.Position.t * Loop_interp.error
+  | `Missing of Tensor_id.t ]
 
 let pp_error ppf : [< error ] -> unit = function
-  | `Failed (i, e) -> Fmt.pf ppf "invocation %d: %a" i Loop_interp.pp_error e
+  | `Failed (i, e) ->
+      Fmt.pf ppf "invocation %d: %a"
+        (i : Loop_bundle.Position.t :> int)
+        Loop_interp.pp_error e
   | `Missing id -> Fmt.pf ppf "no value for %a" Tensor_id.pp id
 
 let synthetic_tensor (s : Loop_bundle.synthetic) =
@@ -84,7 +89,7 @@ let run ?(precision = Loop_numerics.Precision.F32) ?accumulate
           let* () = acc in
           invoke position inv)
         (Ok ())
-        (List.mapi (fun i inv -> (i, inv)) b.Loop_bundle.invocations)
+        (Loop_bundle.Position.indexed b.Loop_bundle.invocations)
     in
     List.fold_left
       (fun acc id ->

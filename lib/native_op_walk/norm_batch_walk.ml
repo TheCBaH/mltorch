@@ -14,7 +14,15 @@ module BatchNorm = struct
 
     let initial =
       {
-        shape = { Walk_core.Shape.n = 2; t = 1; d = 1; h = 4; w = 4; c = 4 };
+        shape =
+          {
+            Walk_core.Shape.n = Dim.extent 2;
+            t = Dim.one;
+            d = Dim.one;
+            h = Dim.extent 4;
+            w = Dim.extent 4;
+            c = Dim.extent 4;
+          };
         eps = 1e-5;
       }
 
@@ -49,7 +57,15 @@ module BatchNormNoStats = struct
 
     let initial =
       {
-        shape = { Walk_core.Shape.n = 2; t = 1; d = 1; h = 3; w = 2; c = 4 };
+        shape =
+          {
+            Walk_core.Shape.n = Dim.extent 2;
+            t = Dim.one;
+            d = Dim.one;
+            h = Dim.extent 3;
+            w = Dim.extent 2;
+            c = Dim.extent 4;
+          };
         eps = 1e-5;
         weight = true;
         bias = true;

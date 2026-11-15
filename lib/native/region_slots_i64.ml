@@ -38,7 +38,8 @@ let reader t (values : int64 array) =
     match offset t id with
     | Some range -> (
         match Slot.at range pos with
-        | Some i when i < Array.length values -> Some values.(i)
+        | Some i when (i :> int) < Array.length values ->
+            Some values.((i :> int))
         | _ -> None)
     | None -> None
   in

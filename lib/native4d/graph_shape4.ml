@@ -46,12 +46,13 @@ let four_all (r : (Vec6.shape list, [< error ]) Err.t) =
 
 (* Grouping is a constructor here, not a parameter, so the Native params these
    build are the only place a [groups] value exists at all. *)
-let conv2d_params (p : Ops4.Conv_params.t) ~groups : Conv.Conv2d.params =
+let conv2d_params (p : Ops4.Conv_params.t) ~(groups : Op_config.Pos.t) :
+    Conv.Conv2d.params =
   {
     h = p.Ops4.Conv_params.h;
     w = p.Ops4.Conv_params.w;
     in_channels = p.Ops4.Conv_params.in_channels;
-    groups = Op_config.Pos.of_int groups;
+    groups;
   }
 
 (* Unlike [conv2d_params] above, [groups] here is [Grouped_conv2d]'s own field
@@ -317,12 +318,14 @@ let output_shape (op : Op.t)
       one
         (four
            (Conv.Conv2d.output_shape ~x_shape ~weight_shape
-              (conv2d_params params ~groups:1)))
+              (conv2d_params params ~groups:(Op_config.Pos.of_int 1))))
   | Depthwise_conv2d { Ops4.Conv_payload.params; x; weight; _ } ->
       let* x_shape = shape x in
       let* weight_shape = shape weight in
       (* One group per input channel: the grouping the constructor names. *)
-      let groups = Dim.to_int params.Ops4.Conv_params.in_channels in
+      let groups =
+        Dim_arith.Extent.to_pos params.Ops4.Conv_params.in_channels
+      in
       one
         (four
            (Conv.Conv2d.output_shape ~x_shape ~weight_shape

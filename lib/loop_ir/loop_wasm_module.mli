@@ -5,12 +5,12 @@
 type t = {
   module_ : Wasm.Module.t;
       (** defines the smallest memory that covers the static region *)
-  local_base : int;
+  local_base : Loop_wasm_layout.Address.t;
       (** the [local] pointer to pass: where the kernel's local arrays live *)
-  mark_base : int option;
+  mark_base : Loop_wasm_layout.Address.t option;
       (** where a counting build keeps one [i32] per [Loop_mark.all], in that
           order; [None] for the default build, which emits nothing for a mark *)
-  heap_base : int;
+  heap_base : Loop_wasm_layout.Address.t;
       (** 16-aligned end of the module's own bytes, local arrays included: a
           host places buffers at or above it *)
   sites : Loop_failure.t array;
@@ -37,7 +37,9 @@ type kernel = {
 val lower_with :
   ?numerics:Loop_numerics.t ->
   ?count_marks:bool ->
-  (mark_base:int option -> table_alloc:(bytes:int -> int) -> (kernel, 'e) Err.t) ->
+  (mark_base:Loop_wasm_layout.Address.t option ->
+  table_alloc:(bytes:int64 -> Loop_wasm_layout.Address.t) ->
+  (kernel, 'e) Err.t) ->
   (t, 'e) Err.t
 (** {!lower} for a kernel some other emitter makes: [produce] gets the mark base
     and the constant-table allocator the module's layout fixes, and its kernel

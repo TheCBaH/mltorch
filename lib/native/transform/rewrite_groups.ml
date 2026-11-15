@@ -26,6 +26,11 @@ let rebuild_groups (root : Group.t) ~removed ~placements ~position =
   in
   (* An emptied group carries no information, so it is pruned; the root always
      survives even if the graph ends up with no nodes at all. *)
+  let position id =
+    match position id with
+    | Some p -> (p : Graph_view.Position.t :> int)
+    | None -> max_int
+  in
   let rec rebuild ~is_root (grp : Group.t) =
     let items =
       List.filter_map

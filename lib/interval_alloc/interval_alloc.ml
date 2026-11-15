@@ -113,18 +113,20 @@ let solve_best ?(budget = default_budget) (script : _ Script.t) =
 let improve_at ?at ~iterations ~seed (script : _ Script.t) solution =
   let* witness = check script solution in
   let* lb = lower_bound script in
-  let n = Ia_script.blocks script in
   let offsets = Array.of_list (List.map snd (Ia_solution.placements witness)) in
   (* Checked: every block ends inside the pool. *)
   let ends =
     Array.mapi
       (fun i o ->
-        Ia_script.invariant (Byte_offset.advance o script.Ia_script.sizes.(i)))
+        Ia_script.invariant
+          (Byte_offset.advance o
+             (Ia_script.size script (Ia_script.Index.of_int i))))
       offsets
   in
-  let order = Array.init n Fun.id in
+  let order = Array.copy (Ia_script.indices script) in
   Array.stable_sort
-    (fun a b -> Byte_offset.compare offsets.(a) offsets.(b))
+    (fun a b ->
+      Byte_offset.compare (Ia_script.get offsets a) (Ia_script.get offsets b))
     order;
   let* results =
     Ia_search.improve_at ?at Ia_decode.Mode.First_fit ~checkpoints:iterations

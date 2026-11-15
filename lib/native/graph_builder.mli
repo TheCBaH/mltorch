@@ -326,6 +326,11 @@ val linear :
   unit ->
   Tensor_id.t t
 
+(* The [params] of an [lstm] from sizes read off an untrusted model; a size
+   below one is rejected, as written, with [Shape_error.Lstm.Non_positive_dim]. *)
+val lstm_params_of_sizes :
+  hidden_size:int -> input_size:int -> batch_first:bool -> Lstm.Lstm.params t
+
 (* lstm returns three edges: (output, h_n, c_n). *)
 val lstm :
   ?name:string ->

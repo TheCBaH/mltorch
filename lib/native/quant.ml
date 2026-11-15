@@ -72,7 +72,7 @@ let per_channel ~scale ~zero_point =
              { scale = Array.copy scale; zero_point = Array.copy zero_point })
 
 let channel_count = function
-  | Per_channel { scale; _ } -> Some (Array.length scale)
+  | Per_channel { scale; _ } -> Some (Dim.fence (Array.length scale))
   | Per_tensor _ -> None
 
 let equal a b =

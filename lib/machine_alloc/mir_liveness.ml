@@ -78,8 +78,9 @@ module Make (T : Mir_sel.TARGET) = struct
   module Interval = struct
     type t = {
       value : Mir_value.t;
-      ranges : (int * int) list;  (** half-open, ascending, disjoint *)
-      uses : int list;  (** ascending use positions *)
+      ranges : (Mir_point.t * Mir_point.t) list;
+          (** half-open, ascending, disjoint *)
+      uses : Mir_point.t list;  (** ascending use points *)
     }
   end
 
@@ -99,9 +100,9 @@ module Make (T : Mir_sel.TARGET) = struct
       (snd
          (List.fold_left
             (fun (pos, acc) (b : block) ->
-              let n = (2 * List.length b.Mir_block.body) + 2 in
-              (pos + n, (b.Mir_block.id, (pos, pos + n)) :: acc))
-            (0, []) order))
+              let stop = Mir_point.block_end pos b.Mir_block.body in
+              (stop, (b.Mir_block.id, (pos, stop)) :: acc))
+            (Mir_point.zero, []) order))
 
   (* Linear order, positions and intervals. *)
   let intervals (f : func) =
@@ -120,12 +121,10 @@ module Make (T : Mir_sel.TARGET) = struct
     let _ =
       List.fold_left
         (fun pos (b : block) ->
-          let n = (2 * List.length b.Mir_block.body) + 2 in
-          Hashtbl.replace span
-            (Mir_id.Block.to_int b.Mir_block.id)
-            (pos, pos + n);
-          pos + n)
-        0 order
+          let stop = Mir_point.block_end pos b.Mir_block.body in
+          Hashtbl.replace span (Mir_id.Block.to_int b.Mir_block.id) (pos, stop);
+          stop)
+        Mir_point.zero order
     in
     let span_of id = Hashtbl.find span (Mir_id.Block.to_int id) in
     let ranges = Hashtbl.create 64
@@ -135,7 +134,7 @@ module Make (T : Mir_sel.TARGET) = struct
       Hashtbl.replace values (Mir_id.Value.to_int v.Mir_value.id) v
     in
     let add_range (v : Mir_value.t) a b =
-      if a < b then (
+      if Mir_point.compare a b < 0 then (
         note v;
         let k = Mir_id.Value.to_int v.Mir_value.id in
         Hashtbl.replace ranges k
@@ -150,14 +149,20 @@ module Make (T : Mir_sel.TARGET) = struct
       let rs =
         List.filter_map
           (fun (x, y) ->
-            if x = from then if y > a then Some (a, y) else None else Some (x, y))
+            if Mir_point.equal x from then
+              if Mir_point.compare y a > 0 then Some (a, y) else None
+            else Some (x, y))
           rs
       in
-      if List.exists (fun (x, y) -> x <= a && a < y) rs then
-        Hashtbl.replace ranges k rs
+      if
+        List.exists
+          (fun (x, y) ->
+            Mir_point.compare x a <= 0 && Mir_point.compare a y < 0)
+          rs
+      then Hashtbl.replace ranges k rs
       else (
         Hashtbl.replace ranges k rs;
-        add_range v a (a + 1))
+        add_range v a (Mir_point.succ a))
     in
     let add_use (v : Mir_value.t) p =
       note v;
@@ -195,29 +200,29 @@ module Make (T : Mir_sel.TARGET) = struct
           (fun id ->
             Option.iter (fun v -> add_range v from to_) (find_value id))
           live;
-        List.iter (fun v -> if storage v then add_use v (to_ - 1)) (term_uses b);
+        let last = Mir_point.pred to_ in
+        List.iter (fun v -> if storage v then add_use v last) (term_uses b);
         List.iter
           (fun (e : Mir_edge.t) ->
             List.iter
-              (fun v -> if storage v then add_use v (to_ - 1))
+              (fun v -> if storage v then add_use v last)
               e.Mir_edge.args)
           (edges b);
         (* backwards: a result shortens its range to its definition; an
            operand extends a range from the block's start to its use *)
-        List.iteri
-          (fun k (i : S.Stage.op Mir_instr.t) ->
-            let pos = from + 2 + (2 * (List.length b.Mir_block.body - 1 - k)) in
+        List.iter
+          (fun (pos, (i : S.Stage.op Mir_instr.t)) ->
             List.iter
-              (fun r -> if storage r then shorten ~from r (pos + 1))
+              (fun r -> if storage r then shorten ~from r (Mir_point.succ pos))
               i.Mir_instr.results;
             List.iter
               (fun v ->
                 if storage v then (
                   (* live through the read at [pos] *)
-                  add_range v from (pos + 1);
+                  add_range v from (Mir_point.succ pos);
                   add_use v pos))
               (instr_uses i))
-          (List.rev b.Mir_block.body);
+          (List.rev (Mir_point.reads from b.Mir_block.body));
         List.iter
           (fun p -> if storage p then shorten ~from p from)
           b.Mir_block.params;
@@ -226,7 +231,7 @@ module Make (T : Mir_sel.TARGET) = struct
           (fun (p : block) ->
             let _, pt = span_of p.Mir_block.id in
             if
-              pt > to_
+              Mir_point.compare pt to_ > 0
               && List.exists
                    (fun (e : Mir_edge.t) ->
                      Mir_id.Block.equal e.Mir_edge.target b.Mir_block.id)
@@ -246,7 +251,8 @@ module Make (T : Mir_sel.TARGET) = struct
           List.fold_left
             (fun acc (a, b) ->
               match acc with
-              | (c, d) :: rest when a <= d -> (c, max b d) :: rest
+              | (c, d) :: rest when Mir_point.compare a d <= 0 ->
+                  (c, Mir_point.max b d) :: rest
               | _ -> (a, b) :: acc)
             [] rs
           |> List.rev
@@ -255,7 +261,7 @@ module Make (T : Mir_sel.TARGET) = struct
           Interval.value = Hashtbl.find values k;
           ranges = merged;
           uses =
-            List.sort_uniq compare
+            List.sort_uniq Mir_point.compare
               (Option.value ~default:[] (Hashtbl.find_opt uses k));
         }
         :: acc)

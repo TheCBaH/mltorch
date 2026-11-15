@@ -8,7 +8,7 @@ module Decision = struct
     trips : int64;
     work : int64;
     executions : int64;
-    ops : (Ssa_target.Op.t * int) list;
+    ops : (Ssa_target.Op.t * int64) list;
     outcome : outcome;
   }
 end
@@ -61,7 +61,7 @@ let attempt ~policy ~elements ~(target : Ssa_target.t) info t
         let cx =
           make_ctx ~esc ~t ~program:info.program ~kinds ~consts:info.consts
             ~lanes ~trips:(fun id ->
-              Option.value ~default:16
+              Option.value ~default:16L
                 (Ssa_id.Region.Tbl.find_opt info.loop_trips id))
         in
         let body, () =

@@ -72,6 +72,15 @@ module Valuation : sig
   val of_list : (Cell.t * float) list -> t
   val pp : Format.formatter -> t -> unit
 
+  (* The ordinal of a draw in a retry sequence. *)
+  module Draw : sig
+    type t
+
+    val first : t
+    val next : t -> t
+    val before : t -> limit:int -> bool
+  end
+
   (* Draw [n] over the given cells. Deterministic in [(cell, n)] alone — no RNG
      state, so the same draw is reproducible from a printed verdict and does not
      depend on the order cells are visited.
@@ -80,7 +89,7 @@ module Valuation : sig
      looking for are permutation and indexing mistakes, and a ramp separates
      every cell of a tensor where a constant would not. Later draws are
      pseudo-random and non-zero, so a [Div] does not degenerate. *)
-  val draw : int -> Cell.Set.t -> t
+  val draw : Draw.t -> Cell.Set.t -> t
 end
 
 module Arena : sig

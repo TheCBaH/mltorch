@@ -534,7 +534,11 @@ module Rank_mismatch : sig
 end
 
 module Storage_range : sig
-  type t = { lo : int64; hi : int64; data_bytes : int }
+  type t = {
+    lo : int64;
+    hi : int64;
+    data_bytes : Core.Storage_units.Byte_size.t;
+  }
 end
 
 type tensor_bridge =
@@ -606,8 +610,12 @@ val lower_archive : Pt2_archive.t -> (Pt2_native_graph.t, error) Err.t
    position in the exporter graph. *)
 module Capture : sig
   type t = {
-    emitted : (int * Graph_ir.Node_id.t list) list;
-    bound : (int * (string * Graph_ir.Tensor_id.t) list) list;
+    emitted :
+      (Pt2_native_graph.Node_origin.Index.t * Graph_ir.Node_id.t list) list;
+    bound :
+      (Pt2_native_graph.Node_origin.Index.t
+      * (string * Graph_ir.Tensor_id.t) list)
+      list;
         (** The exporter result names each node's lowering bound, with the
             Native edge each name now denotes. *)
     sources : (string * Graph_ir.Tensor_id.t) list;

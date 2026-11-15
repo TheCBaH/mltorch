@@ -11,12 +11,13 @@ type result =
 
 type t = {
   name : string;
-  version : int;
+  version : Mir_helper.Version.t;
   run : Mir_memory.t -> Mir_datum.t list -> result;
 }
 
 let find models (h : Mir_helper.t) =
   List.find_opt
     (fun m ->
-      String.equal m.name h.Mir_helper.name && m.version = h.Mir_helper.version)
+      String.equal m.name h.Mir_helper.name
+      && Mir_helper.Version.equal m.version h.Mir_helper.version)
     models

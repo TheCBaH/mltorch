@@ -4,6 +4,9 @@ module P = C_payload_layout
 module Proc = Loop_c_exec.Proc
 module Io = Loop_c_exec.Payload_io
 
+(* The number the runner takes on its command line. *)
+let address a = Int64.to_int (Loop_wasm_layout.Address.to_int64 a)
+
 type error =
   [ `Generate of Loop_bundle_wasm.error
   | `Missing_constant of Tensor_id.t
@@ -125,10 +128,10 @@ let run_r ?(poison = false) ?(repeat = 0) p ~bind =
           ~dir:p.dir ~module_file:p.module_file ~weights:p.weights ~inputs
           ~template:p.template ~outputs
           {
-            Wasm_node.weights = pl.Loop_bundle_wasm.Placement.weights;
-            inputs = pl.Loop_bundle_wasm.Placement.inputs;
-            workspace = pl.Loop_bundle_wasm.Placement.workspace;
-            outputs = pl.Loop_bundle_wasm.Placement.outputs;
+            Wasm_node.weights = address pl.Loop_bundle_wasm.Placement.weights;
+            inputs = address pl.Loop_bundle_wasm.Placement.inputs;
+            workspace = address pl.Loop_bundle_wasm.Placement.workspace;
+            outputs = address pl.Loop_bundle_wasm.Placement.outputs;
             workspace_bytes = C_workspace_plan.bytes ws;
             outputs_bytes = p.w.Loop_bundle_wasm.outputs.P.length;
           }

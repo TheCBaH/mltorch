@@ -18,7 +18,8 @@ module Ilp32f = struct
 
   type loaded = {
     lowered : Riscv32_encode.fixup_kind Asm_core.Lowered_ast.module_ list;
-    mutable elf : (int * H.prepared) option;  (** by region size *)
+    mutable elf : (Core.Storage_units.Byte_size.t * H.prepared) option;
+        (** by region size *)
   }
 
   type error = string
@@ -81,10 +82,15 @@ module Ilp32f = struct
      depends on. *)
   let prepared l size =
     match l.elf with
-    | Some (n, p) when n = size -> Ok p
+    | Some (n, p) when Core.Storage_units.Byte_size.equal n size -> Ok p
     | _ ->
-        let slots = [ { H.size; align = 4096; placement = H.Placement.Out } ] in
-        let lay = H.layout slots in
+        let* align =
+          Result.map_error
+            (render Core.Storage_units.pp_error)
+            (Err.payload (Core.Storage_units.Byte_alignment.of_int64 4096L))
+        in
+        let slots = [ { H.size; align; placement = H.Placement.Out } ] in
+        let* lay = H.layout slots in
         let* harness =
           Result.bind
             (Result.map_error (Fmt.str "no form for %s")
@@ -106,9 +112,14 @@ module Ilp32f = struct
         Ok p
 
   let call l ~io =
-    let size = Bigarray.Array1.dim io in
+    let dim = Bigarray.Array1.dim io in
+    let* size =
+      Result.map_error
+        (render Core.Storage_units.pp_error)
+        (Err.payload (Core.Storage_units.Byte_size.of_int64 (Int64.of_int dim)))
+    in
     let* p = prepared l size in
-    let region = String.init size (fun i -> Bigarray.Array1.get io i) in
+    let region = String.init dim (fun i -> Bigarray.Array1.get io i) in
     let* { H.status; outputs } =
       H.run p ~bound:(fun k ->
           let k = (k : Core.Table_slot.t :> int) in

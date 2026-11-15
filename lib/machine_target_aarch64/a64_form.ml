@@ -9,7 +9,10 @@ open Machine_ir
 module Sz = struct
   type t = W | X
 
-  let bits = function W -> 32 | X -> 64
+  let bits = function
+    | W -> Mir_target.Bits.of_int 32
+    | X -> Mir_target.Bits.of_int 64
+
   let name = function W -> "w" | X -> "x"
 end
 
@@ -123,14 +126,17 @@ module Arr = struct
   type t = D2 | S2 | S4
 
   let fsz = function D2 -> Fsz.D | S2 | S4 -> Fsz.S
-  let lanes = function D2 | S2 -> 2 | S4 -> 4
+
+  let lanes = function
+    | D2 | S2 -> Mir_type.Lanes.of_int 2
+    | S4 -> Mir_type.Lanes.of_int 4
 
   let ty t =
     Mir_type.Vec
       ( (match fsz t with
         | Fsz.D -> Mir_type.Elem.F64
         | Fsz.S -> Mir_type.Elem.F32),
-        Mir_type.Lanes.of_int (lanes t) )
+        lanes t )
 
   let name = function D2 -> "2d" | S2 -> "2s" | S4 -> "4s"
 
@@ -173,12 +179,14 @@ type t =
   | Csel of Sz.t * Cond.t * v * v * v  (** flags, then, else *)
   | Cset of Cond.t * v  (** CSINC Wd, WZR, WZR, invert(cond): 0 or 1 *)
   | Dup_elem of Arr.t * v  (** DUP Vd.T, Vn.Ts[0]: every lane the scalar *)
-  | Dup_half of int * v
-      (** DUP Dd, Vn.D[k]: half [k] of a 4S vector as a 2S vector *)
+  | Dup_half of Mir_type.Lane.t * v
+      (** DUP Dd, Vn.D[k]: the half starting at lane [first] (so
+          [k = first / 2]) of a 4S vector as a 2S vector *)
   | Dup_mask of Arr.t * v
       (** DUP Vd.T, Wn/Xn: a general register of all ones or zero to every lane,
           which makes the mask *)
-  | Dup_lane of Fsz.t * int * v  (** DUP Sd/Dd, Vn.Ts[k]: a lane as a scalar *)
+  | Dup_lane of Fsz.t * Mir_type.Lane.t * v
+      (** DUP Sd/Dd, Vn.Ts[k]: a lane as a scalar *)
   | Dup_w of v  (** DUP Vd.4S, Wn: four int32 lanes the W *)
   | Ext of { signed : bool; from : Mir_width.t; src : v }
       (** SXTB, SXTH, UXTB, UXTH: a W register from a byte or halfword *)
@@ -197,9 +205,9 @@ type t =
   | Ins_half of v * v
       (** INS Vd.D[1], Vn.D[0]: the 2S vector as the upper half, tied to the 4S
           vector *)
-  | Ins_lane of Fsz.t * int * v * v
+  | Ins_lane of Fsz.t * Mir_type.Lane.t * v * v
       (** INS Vd.Ts[k], Vn.Ts[0]: tied to the vector *)
-  | Ld1_lane of Fsz.t * int * v * v
+  | Ld1_lane of Fsz.t * Mir_type.Lane.t * v * v
       (** LD1 \{Vt.Ts\}[k], [Xn]: one lane from memory, tied to the vector *)
   | Ld1r of Arr.t * v  (** LD1R \{Vt.T\}, [Xn]: one element to every lane *)
   | Ldr of Msz.t * v * int64
@@ -228,7 +236,8 @@ type t =
       (** SCVTF Vd.4S, Vn.4S: four int32 lanes to binary32, one rounding each *)
   | Sdiv of Sz.t * v * v  (** truncating; [x / 0 = 0], [min / -1 = min] *)
   | Shift_imm of Shift.t * Sz.t * v * int
-  | St1_lane of Fsz.t * int * v * v  (** ST1 \{Vt.Ts\}[k], [Xn]: vector, base *)
+  | St1_lane of Fsz.t * Mir_type.Lane.t * v * v
+      (** ST1 \{Vt.Ts\}[k], [Xn]: vector, base *)
   | Str of Msz.t * v * int64 * v  (** base, imm, value *)
   | Str_idx of Msz.t * v * v * v
       (** [base, Wm, SXTW #log2 size]: base, index, value *)
@@ -268,7 +277,12 @@ type t =
   | Vwiden of v
       (** FMOV Dd, Dn: a 2S vector as the lower half of a 4S, upper half zero *)
   | Wtrunc of v  (** W from the low half of an X *)
-  | Xtl_w of { signed : bool; from : Mir_width.t; first : int; src : v }
+  | Xtl_w of {
+      signed : bool;
+      from : Mir_width.t;
+      first : Mir_type.Lane.t;
+      src : v;
+    }
       (** lanes [first .. first + 3] of an [i8x16] or [i16x8] register extended
           to four int32 lanes: SXTL or UXTL (2) to [.8h] (from bytes), then to
           [.4s] *)
@@ -367,14 +381,26 @@ let ordered = function
 let constraints = function
   | Bl { args; results; _ } ->
       List.mapi
-        (fun use view -> Mir_target.Constraint.Fixed_use { use; view })
+        (fun use view ->
+          Mir_target.Constraint.Fixed_use
+            { use = Mir_target.Constraint.Use_position.of_int use; view })
         (A64_regs.args (List.map (fun (a : v) -> a.Mir_value.ty) args))
       @ List.mapi
           (fun result view ->
-            Mir_target.Constraint.Fixed_result { result; view })
+            Mir_target.Constraint.Fixed_result
+              {
+                result = Mir_target.Constraint.Result_position.of_int result;
+                view;
+              })
           (A64_regs.results (results @ [ Mir_type.i32 ]))
   | Ins_half _ | Ins_lane _ | Ld1_lane _ | Movk _ | Vbit _ | Vfmla _ ->
-      [ Mir_target.Constraint.Tied { result = 0; use = 0 } ]
+      [
+        Mir_target.Constraint.Tied
+          {
+            result = Mir_target.Constraint.Result_position.of_int 0;
+            use = Mir_target.Constraint.Use_position.of_int 0;
+          };
+      ]
   | _ -> []
 
 (* Every admitted form writes a W, X, S or D view and zeroes the rest of the
@@ -393,17 +419,19 @@ let unit_bits = function
    link register, v0-v7 and v16-v31 whole, the upper 64 bits of v8-v15, and
    NZCV. *)
 let call_clobbers =
-  List.map A64_reg.x (A64_reg.range 0 18 @ [ 30 ])
-  @ List.map A64_reg.q (A64_reg.range 0 7 @ A64_reg.range 16 31)
+  let module N = A64_reg.Num in
+  let module Ns = A64_reg.Num_seq in
+  List.map A64_reg.x (Ns.range 0 18 @ Ns.of_ints [ 30 ])
+  @ List.map A64_reg.q (Ns.range 0 7 @ Ns.range 16 31)
   @ List.map
       (fun k ->
         {
           (A64_reg.q k) with
-          Mir_target.View.name = Printf.sprintf "v%d.d[1]" k;
+          Mir_target.View.name = Printf.sprintf "v%d.d[1]" (N.to_int k);
           lo = Machine_ir.Mir_target.Bits.of_int 64;
           bits = Machine_ir.Mir_target.Bits.of_int 64;
         })
-      (A64_reg.range 8 15)
+      (Ns.range 8 15)
   @ [ A64_reg.nzcv ]
 
 let clobbers = function Bl _ -> call_clobbers | _ -> []
@@ -451,7 +479,8 @@ let op_features = function
 
 (* Whether [v] is an AArch64 bitmask immediate of [bits] bits: a repetition of
    a rotated run of ones that is neither empty nor full. *)
-let bitmask_immediate ~bits v =
+let bitmask_immediate ~(bits : Mir_target.Bits.t) v =
+  let bits = (bits :> int) in
   let mask = if bits = 64 then -1L else Int64.pred (Int64.shift_left 1L bits) in
   let v = Int64.logand v mask in
   (not (Int64.equal v 0L || Int64.equal v mask))

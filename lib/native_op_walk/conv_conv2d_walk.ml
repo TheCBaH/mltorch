@@ -16,25 +16,45 @@ module Conv2d = struct
        ("filters") and groups are scalars. A functor over the global Limits. *)
     type cfg = {
       shape : Walk_core.Shape.t;
-      out_channels : int;
-      kernel : Walk_core.Walk.hw;
-      stride : Walk_core.Walk.hw;
-      pad : Walk_core.Walk.hw;
-      dilation : Walk_core.Walk.hw;
-      groups : int;
+      out_channels : Dim.extent Dim.t;
+      kernel : Dim.extent Dim.t Walk_core.Walk.hw;
+      stride : Op_config.Pos.t Walk_core.Walk.hw;
+      pad : Op_config.Nonneg.t Walk_core.Walk.hw;
+      dilation : Op_config.Pos.t Walk_core.Walk.hw;
+      groups : Dim.extent Dim.t;
     }
 
     let l = L.limits
 
     let initial =
       {
-        shape = { Walk_core.Shape.n = 1; t = 1; d = 1; h = 8; w = 8; c = 4 };
-        out_channels = 8;
-        kernel = { Walk_core.Walk.h = 3; w = 3 };
-        stride = { Walk_core.Walk.h = 1; w = 1 };
-        pad = { Walk_core.Walk.h = 1; w = 1 };
-        dilation = { Walk_core.Walk.h = 1; w = 1 };
-        groups = 1;
+        shape =
+          {
+            Walk_core.Shape.n = Dim.one;
+            t = Dim.one;
+            d = Dim.one;
+            h = Dim.extent 8;
+            w = Dim.extent 8;
+            c = Dim.extent 4;
+          };
+        out_channels = Dim.extent 8;
+        kernel = { Walk_core.Walk.h = Dim.extent 3; w = Dim.extent 3 };
+        stride =
+          {
+            Walk_core.Walk.h = Op_config.Pos.of_int 1;
+            w = Op_config.Pos.of_int 1;
+          };
+        pad =
+          {
+            Walk_core.Walk.h = Op_config.Nonneg.of_int 1;
+            w = Op_config.Nonneg.of_int 1;
+          };
+        dilation =
+          {
+            Walk_core.Walk.h = Op_config.Pos.of_int 1;
+            w = Op_config.Pos.of_int 1;
+          };
+        groups = Dim.one;
       }
 
     let cascade c =
@@ -63,13 +83,7 @@ module Conv2d = struct
       }
 
     let mk_window ~kernel ~stride ~pad ~dilation : axis_window =
-      {
-        kernel = Dim.extent kernel;
-        stride = Op_config.Pos.of_int stride;
-        pad_before = Op_config.Nonneg.of_int pad;
-        pad_after = Op_config.Nonneg.of_int pad;
-        dilation = Op_config.Pos.of_int dilation;
-      }
+      { kernel; stride; pad_before = pad; pad_after = pad; dilation }
 
     let params (c : cfg) : params =
       let { Walk_core.Walk.h = kh; w = kw } = c.kernel in
@@ -79,19 +93,20 @@ module Conv2d = struct
       {
         h = mk_window ~kernel:kh ~stride:sh ~pad:ph ~dilation:dh;
         w = mk_window ~kernel:kw ~stride:sw ~pad:pw ~dilation:dw;
-        in_channels = Dim.extent c.shape.Walk_core.Shape.c;
-        groups = Op_config.Pos.of_int c.groups;
+        in_channels = c.shape.Walk_core.Shape.c;
+        groups = Op_config.Pos.of_int (c.groups :> int);
       }
 
     let x_shape (c : cfg) = Walk_shape.vec6 c.shape
 
     let weight_shape (c : cfg) =
       let { Walk_core.Walk.h = kh; w = kw } = c.kernel in
-      Vec6.shape ~n:c.out_channels ~t:1 ~d:1 ~h:kh ~w:kw
-        ~c:(c.shape.Walk_core.Shape.c / c.groups)
+      Vec6.make ~n:c.out_channels ~t:Dim.one ~d:Dim.one ~h:kh ~w:kw
+        ~c:(Option.get (Dim.div_exact c.shape.Walk_core.Shape.c ~by:c.groups))
 
     let bias_shape (c : cfg) =
-      Vec6.shape ~n:1 ~t:1 ~d:1 ~h:1 ~w:1 ~c:c.out_channels
+      Vec6.make ~n:Dim.one ~t:Dim.one ~d:Dim.one ~h:Dim.one ~w:Dim.one
+        ~c:c.out_channels
 
     let axes =
       Walk_core.Walk.
@@ -99,16 +114,33 @@ module Conv2d = struct
           shape_axis "input" l
             ~get:(fun c -> c.shape)
             ~set:(fun c s -> { c with shape = s });
-          int_axis "out_channels" ~lo:1 ~hi:l.max_channels (fun c v ->
-              { c with out_channels = v });
-          hw_axis "kernel" ~lo:1 ~hi:l.max_kernel (fun c v ->
-              { c with kernel = v });
-          hw_axis "stride" ~lo:1 ~hi:l.max_stride (fun c v ->
-              { c with stride = v });
-          hw_axis "pad" ~lo:0 ~hi:l.max_pad (fun c v -> { c with pad = v });
-          hw_axis "dilation" ~lo:1 ~hi:l.max_dilation (fun c v ->
-              { c with dilation = v });
-          int_axis "groups" ~lo:1 ~hi:4 (fun c v -> { c with groups = v });
+          range_axis
+            (module Extent)
+            "out_channels" ~lo:Extent.one
+            ~hi:(Extent.of_int l.max_channels)
+            (fun c v -> { c with out_channels = v });
+          hw_axis
+            (module Extent)
+            "kernel" ~lo:Extent.one
+            ~hi:(Extent.of_int l.max_kernel)
+            (fun c v -> { c with kernel = v });
+          hw_axis
+            (module Pos)
+            "stride" ~lo:(Pos.of_int 1) ~hi:(Pos.of_int l.max_stride)
+            (fun c v -> { c with stride = v });
+          hw_axis
+            (module Nonneg)
+            "pad" ~lo:(Nonneg.of_int 0) ~hi:(Nonneg.of_int l.max_pad)
+            (fun c v -> { c with pad = v });
+          hw_axis
+            (module Pos)
+            "dilation" ~lo:(Pos.of_int 1)
+            ~hi:(Pos.of_int l.max_dilation)
+            (fun c v -> { c with dilation = v });
+          range_axis
+            (module Extent)
+            "groups" ~lo:Extent.one ~hi:(Extent.of_int 4)
+            (fun c v -> { c with groups = v });
         ]
 
     let pp fmt (c : cfg) =
@@ -117,9 +149,11 @@ module Conv2d = struct
       let { Walk_core.Walk.h = ph; w = pw } = c.pad in
       let { Walk_core.Walk.h = dh; w = dw } = c.dilation in
       Format.fprintf fmt
-        "{shape=%a kernel=%dx%d stride=%dx%d pad=%dx%d dilation=%dx%d \
-         groups=%d out_c=%d}"
-        Walk_core.Shape.pp c.shape kh kw sh sw ph pw dh dw c.groups
+        "{shape=%a kernel=%ax%a stride=%ax%a pad=%ax%a dilation=%ax%a \
+         groups=%a out_c=%a}"
+        Walk_core.Shape.pp c.shape Dim.pp kh Dim.pp kw Op_config.Pos.pp sh
+        Op_config.Pos.pp sw Op_config.Nonneg.pp ph Op_config.Nonneg.pp pw
+        Op_config.Pos.pp dh Op_config.Pos.pp dw Dim.pp c.groups Dim.pp
         c.out_channels
   end
 end

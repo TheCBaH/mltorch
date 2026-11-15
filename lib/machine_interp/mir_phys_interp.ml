@@ -80,44 +80,58 @@ module Make (T : Mir_sel_interp.SEMANTICS) = struct
     traffic : Traffic.t;
   }
 
-  let mask bits =
+  (* The low [bits] bits set; every bit from 64 up. *)
+  let mask (bits : Mir_target.Bits.t) =
+    let bits = (bits :> int) in
     if bits >= 64 then -1L
     else if bits <= 0 then 0L
     else Int64.pred (Int64.shift_left 1L bits)
 
+  (* The mask of a unit's bits above the low word: [bits - 64] of them. *)
+  let high_mask (bits : Mir_target.Bits.t) =
+    if (bits :> int) > 64 then
+      mask (Mir_target.Bits.of_int ((bits :> int) - 64))
+    else 0L
+
   (* Bits [lo, lo + bits) of a 128-bit unit as (low word, high word) masks. *)
-  let range_masks lo bits =
+  let range_masks ~(lo : Mir_target.Bits.t) (bits : Mir_target.Bits.t) =
+    let lo = (lo :> int) and bits = (bits :> int) in
     let in_word base =
       let a = max lo base and b = min (lo + bits) (base + 64) in
-      if a >= b then 0L else Int64.shift_left (mask (b - a)) (a - base)
+      if a >= b then 0L
+      else Int64.shift_left (mask (Mir_target.Bits.of_int (b - a))) (a - base)
     in
     (in_word 0, in_word 64)
+
+  (* One lane's width in a vector of [n] equal lanes in [bits] bits. *)
+  let lane_bits (bits : Mir_target.Bits.t) (n : Mir_type.Lanes.t) =
+    Mir_target.Bits.of_int ((bits :> int) / (n :> int))
 
   (* A vector's lanes packed into (low word, high word) at [bits / lanes]
      bits each, lane 0 lowest, and back. *)
   let pack (l : int64 array) bits =
-    let w = bits / Array.length l in
+    let w = lane_bits bits (Mir_type.Lanes.of_int (Array.length l)) in
     let lo = ref 0L and hi = ref 0L in
     Array.iteri
       (fun k x ->
-        let pos = k * w in
+        let pos = k * (w :> int) in
         let x = Int64.logand x (mask w) in
         if pos < 64 then lo := Int64.logor !lo (Int64.shift_left x pos)
         else hi := Int64.logor !hi (Int64.shift_left x (pos - 64)))
       l;
     (!lo, !hi)
 
-  let unpack lo hi bits n =
-    let w = bits / n in
-    Array.init n (fun k ->
-        let pos = k * w in
+  let unpack lo hi bits (n : Mir_type.Lanes.t) =
+    let w = lane_bits bits n in
+    Array.init
+      (n :> int)
+      (fun k ->
+        let pos = k * (w :> int) in
         let word, shift = if pos < 64 then (lo, pos) else (hi, pos - 64) in
         Int64.logand (Int64.shift_right_logical word shift) (mask w))
 
   let lanes_of (ty : Mir_type.t) =
-    match ty with
-    | Mir_type.Vec (_, n) | Mir_type.Mask n -> Some (Mir_type.Lanes.to_int n)
-    | _ -> None
+    match ty with Mir_type.Vec (_, n) | Mir_type.Mask n -> Some n | _ -> None
 
   type regs = { units : (Mir_id.Unit.t, content) Hashtbl.t }
 
@@ -139,9 +153,7 @@ module Make (T : Mir_sel_interp.SEMANTICS) = struct
           Mir_target.View.unit = u;
           span = Mir_target.Span.One;
           lo = Machine_ir.Mir_target.Bits.of_int 0;
-          bits =
-            Machine_ir.Mir_target.Bits.of_int
-              (T.unit_bits v.Mir_target.View.bank :> int);
+          bits = T.unit_bits v.Mir_target.View.bank;
         })
       (Mir_target.View.units v)
 
@@ -149,27 +161,10 @@ module Make (T : Mir_sel_interp.SEMANTICS) = struct
   let seed regs (v : Mir_target.View.t) ~lo ~hi =
     let bits = T.unit_bits v.Mir_target.View.bank in
     Hashtbl.replace regs.units (unit_key v)
-      (Data
-         {
-           lo;
-           hi;
-           valid_lo = mask (min 64 (bits :> int));
-           valid_hi =
-             (if bits > Machine_ir.Mir_target.Bits.of_int 64 then
-                mask ((bits :> int) - 64)
-              else 0L);
-         })
+      (Data { lo; hi; valid_lo = mask bits; valid_hi = high_mask bits })
 
   let peek regs (v : Mir_target.View.t) =
     Hashtbl.find_opt regs.units (unit_key v)
-
-  let slot_of = function
-    | Mir_event.Emitter -> 0
-    | Mir_event.Key -> 1
-    | Mir_event.Local -> 2
-    | Mir_event.Reduction -> 3
-    | Mir_event.Scan -> 4
-    | Mir_event.Scan_update -> 5
 
   let stack_bytes = 0x10_0000L
 
@@ -221,7 +216,7 @@ module Make (T : Mir_sel_interp.SEMANTICS) = struct
       Mir_layout.Data_model.pointer_bytes p.Mir_phys.Program.data_model
     in
     let pointer_bits = Int64.to_int pointer_bytes * 8 in
-    let events = Array.make 6 0L in
+    let events = Mir_event.Counter.create () in
     let steps = ref 0L and fuel = ref fuel in
     let traffic = ref Traffic.zero in
     let count f = traffic := f !traffic in
@@ -332,7 +327,7 @@ module Make (T : Mir_sel_interp.SEMANTICS) = struct
             | None -> defect D.Invalid_program
             | Some n ->
                 let ms = members v in
-                let each = n / List.length ms in
+                let each = Mir_target.Span.share v.Mir_target.View.span n in
                 Mir_datum.Lanes
                   (Array.concat
                      (List.map
@@ -350,11 +345,13 @@ module Make (T : Mir_sel_interp.SEMANTICS) = struct
             then defect D.Invalid_program;
             match (lanes, Hashtbl.find_opt regs.units (unit_key v)) with
             | Some n, Some (Data { lo; hi; valid_lo; valid_hi }) ->
-                let ml, mh = range_masks 0 (bits :> int) in
+                let ml, mh =
+                  range_masks ~lo:(Machine_ir.Mir_target.Bits.of_int 0) bits
+                in
                 if
                   Int64.equal (Int64.logand valid_lo ml) ml
                   && Int64.equal (Int64.logand valid_hi mh) mh
-                then Mir_datum.Lanes (unpack lo hi (bits :> int) n)
+                then Mir_datum.Lanes (unpack lo hi bits n)
                 else defect D.Uninitialized
             | Some _, (Some (Cond _ | Pointer _) | None) ->
                 defect D.Uninitialized
@@ -367,7 +364,7 @@ module Make (T : Mir_sel_interp.SEMANTICS) = struct
                     if (bits :> int) = pointer_bits then Mir_datum.Ptr q
                     else defect D.Invalid_program
                 | Some (Data { lo; valid_lo; _ }) ->
-                    let m = mask (bits :> int) in
+                    let m = mask bits in
                     if Int64.equal (Int64.logand valid_lo m) m then
                       Mir_datum.Bits (Int64.logand lo m)
                     else defect D.Uninitialized)
@@ -387,12 +384,7 @@ module Make (T : Mir_sel_interp.SEMANTICS) = struct
           else
             let key = unit_key v and bits = v.Mir_target.View.bits in
             let ub = T.unit_bits v.Mir_target.View.bank in
-            let full = mask (min 64 (ub :> int))
-            and full_hi =
-              if ub > Machine_ir.Mir_target.Bits.of_int 64 then
-                mask ((ub :> int) - 64)
-              else 0L
-            in
+            let full = mask ub and full_hi = high_mask ub in
             match d with
             | Mir_datum.Flags { bits = b; defined } ->
                 Hashtbl.replace regs.units key (Cond { bits = b; defined })
@@ -403,13 +395,13 @@ module Make (T : Mir_sel_interp.SEMANTICS) = struct
             | Mir_datum.Lanes l when bits > Machine_ir.Mir_target.Bits.of_int 64
               ->
                 (* a whole register-wide vector *)
-                let lo, hi = pack l (bits :> int) in
+                let lo, hi = pack l bits in
                 Hashtbl.replace regs.units key
                   (Data { lo; hi; valid_lo = full; valid_hi = full_hi })
             | Mir_datum.Lanes l ->
-                write_view v rule (Mir_datum.Bits (fst (pack l (bits :> int))))
+                write_view v rule (Mir_datum.Bits (fst (pack l bits)))
             | Mir_datum.Bits b -> (
-                let m = mask (bits :> int) in
+                let m = mask bits in
                 let b = Int64.logand b m in
                 match (rule : Mir_target.Write.t) with
                 | Mir_target.Write.Zero_upper ->
@@ -449,9 +441,7 @@ module Make (T : Mir_sel_interp.SEMANTICS) = struct
           else
             let key = unit_key v in
             let ml, mh =
-              range_masks
-                (v.Mir_target.View.lo :> int)
-                (v.Mir_target.View.bits :> int)
+              range_masks ~lo:v.Mir_target.View.lo v.Mir_target.View.bits
             in
             match Hashtbl.find_opt regs.units key with
             | Some (Data d) ->
@@ -512,7 +502,7 @@ module Make (T : Mir_sel_interp.SEMANTICS) = struct
             when Option.is_some lanes && Int64.compare bytes 16L > 0 ->
               (* a register group's vector in frame memory, a lane at a time *)
               let q = frame_pointer base offset bytes in
-              let n = Option.get lanes in
+              let n = (Option.get lanes :> int) in
               let w = Int64.div bytes (Int64.of_int n) in
               Mir_datum.Lanes
                 (Array.init n (fun k ->
@@ -539,7 +529,7 @@ module Make (T : Mir_sel_interp.SEMANTICS) = struct
               in
               Mir_datum.Lanes
                 (unpack (word 0) (word 1)
-                   (Int64.to_int bytes * 8)
+                   (Machine_ir.Mir_target.Bits.of_int (Int64.to_int bytes * 8))
                    (Option.get lanes))
           | Loc.Mem { base; offset; bytes } -> (
               let q = frame_pointer base offset bytes in
@@ -585,7 +575,10 @@ module Make (T : Mir_sel_interp.SEMANTICS) = struct
               forget_overlapping (Mir_memory.address memory q) bytes;
               let lo, hi =
                 match d with
-                | Mir_datum.Lanes l -> pack l (Int64.to_int bytes * 8)
+                | Mir_datum.Lanes l ->
+                    pack l
+                      (Machine_ir.Mir_target.Bits.of_int
+                         (Int64.to_int bytes * 8))
                 | _ -> (0L, 0L)
               in
               List.iteri
@@ -745,9 +738,7 @@ module Make (T : Mir_sel_interp.SEMANTICS) = struct
         in
         let same_preserved (v : Mir_target.View.t) before =
           let ml, mh =
-            range_masks
-              (v.Mir_target.View.lo :> int)
-              (v.Mir_target.View.bits :> int)
+            range_masks ~lo:v.Mir_target.View.lo v.Mir_target.View.bits
           in
           match (before, Hashtbl.find_opt regs.units (unit_key v)) with
           | Data a, Some (Data b) ->
@@ -784,7 +775,7 @@ module Make (T : Mir_sel_interp.SEMANTICS) = struct
               let t =
                 Int64.logand
                   (Int64.logor 0x5245_7400_0000_0000L !activations)
-                  (mask (l.Mir_target.View.bits :> int))
+                  (mask l.Mir_target.View.bits)
               in
               write_view l Mir_target.Write.Zero_upper (Mir_datum.Bits t);
               Some (l, t)
@@ -876,9 +867,7 @@ module Make (T : Mir_sel_interp.SEMANTICS) = struct
                         Traffic.instructions = Int64.succ t.Traffic.instructions;
                       });
                   match instr.Mir_instr.op with
-                  | Mir_sel.Op.Event (e, n) ->
-                      let k = slot_of e in
-                      events.(k) <- Int64.add events.(k) n
+                  | Mir_sel.Op.Event (e, n) -> Mir_event.Counter.add events e n
                   | Mir_sel.Op.Machine op -> exec op uses defs
                   | Mir_sel.Op.Undef v -> (
                       match view v with
@@ -912,9 +901,7 @@ module Make (T : Mir_sel_interp.SEMANTICS) = struct
                   match Hashtbl.find_opt regs.units (unit_key l) with
                   | Some (Data { lo; valid_lo; _ })
                     when Int64.equal valid_lo
-                           (mask
-                              (min 64
-                                 (T.unit_bits l.Mir_target.View.bank :> int)))
+                           (mask (T.unit_bits l.Mir_target.View.bank))
                          && Int64.equal lo t ->
                       ()
                   | _ -> defect D.Return_address)
@@ -938,7 +925,7 @@ module Make (T : Mir_sel_interp.SEMANTICS) = struct
     in
     {
       outcome;
-      events = List.map (fun e -> (e, events.(slot_of e))) Mir_event.all;
+      events = Mir_event.Counter.totals events;
       steps = !steps;
       traffic = { !traffic with Traffic.ops = profile runs };
     }

@@ -4,12 +4,20 @@
 
 module B = Mir_id.Block
 
+(* A block's place in reverse postorder. *)
+module Rank =
+  Core.Tagged_int.Make
+    (struct
+      let prefix = "rpo"
+    end)
+    ()
+
 type t = {
   entry : B.t;
   succs : B.t list B.Map.t;
   preds : B.t list B.Map.t;
   rpo : B.t list;
-  rank : int B.Map.t;
+  rank : Rank.t B.Map.t;
   idom : B.t B.Map.t;
 }
 
@@ -51,15 +59,18 @@ let make ~entry (blocks : (B.t * B.t list) list) =
   let rpo = reverse_postorder ~entry succs in
   let rank =
     List.fold_left
-      (fun (m, i) b -> (B.Map.add b i m, i + 1))
-      (B.Map.empty, 0) rpo
+      (fun (m, next) b ->
+        let r, next = Rank.Next.alloc next in
+        (B.Map.add b r m, next))
+      (B.Map.empty, Rank.Next.first)
+      rpo
     |> fst
   in
   let idom = ref (B.Map.singleton entry entry) in
   let r b = B.Map.find b rank in
   let rec intersect a b =
     if B.equal a b then a
-    else if r a > r b then intersect (B.Map.find a !idom) b
+    else if Rank.compare (r a) (r b) > 0 then intersect (B.Map.find a !idom) b
     else intersect a (B.Map.find b !idom)
   in
   let changed = ref true in

@@ -6,7 +6,11 @@ let to_string (Tensor.Tensor t) =
   let p = t.Tensor.payload in
   let data = p.Payload.data in
   let n = Bigarray.Array1.dim data in
-  let size = Payload.cell_bytes p.Payload.fmt in
+  let size =
+    Int64.to_int
+      (Core.Storage_units.Element_bytes.to_int64
+         (Payload.cell_bytes p.Payload.fmt))
+  in
   let b = Bytes.make (n * size) '\000' in
   let ints set v =
     for i = 0 to n - 1 do
@@ -32,7 +36,11 @@ let to_string (Tensor.Tensor t) =
 let fill (Tensor.Tensor t) (bytes : int option array) =
   let p = t.Tensor.payload in
   let data = p.Payload.data in
-  let size = Payload.cell_bytes p.Payload.fmt in
+  let size =
+    Int64.to_int
+      (Core.Storage_units.Element_bytes.to_int64
+         (Payload.cell_bytes p.Payload.fmt))
+  in
   let rec undefined k =
     if k >= Array.length bytes then None
     else if Option.is_none bytes.(k) then Some k

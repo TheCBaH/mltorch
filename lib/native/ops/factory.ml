@@ -212,7 +212,7 @@ module Arange = struct
             let count = if Int64.equal r 0L then q else Int64.add q 1L in
             if Int64.compare count Kernel.Limits.Hard.extent >= 0 then
               fault `Over_limit
-            else Err.return (Int64.to_int count)
+            else Err.return (Dim.extent (Int64.to_int count))
 
   let length (p : params) =
     match p.exact with
@@ -235,14 +235,15 @@ module Arange = struct
           if count <= 0. then fault `Empty
           else if count >= Int64.to_float Kernel.Limits.Hard.extent then
             fault `Over_limit
-          else Err.return (int_of_float count)
+          else Err.return (Dim.extent (int_of_float count))
 
   let output_shape p =
     let open Err.Syntax in
     let+ count = length p in
-    Vec6.shape ~n:1 ~t:1 ~d:1 ~h:1 ~w:1 ~c:count
+    Vec6.shape ~n:1 ~t:1 ~d:1 ~h:1 ~w:1 ~c:(count :> int)
 
-  let value (p : params) i = p.start +. (float_of_int i *. p.step)
+  let value (p : params) (i : Dim.index Dim.t) =
+    p.start +. (float_of_int (i :> int) *. p.step)
 
   module Overflow = struct
     type t = { start : int64; step : int64; i : int }

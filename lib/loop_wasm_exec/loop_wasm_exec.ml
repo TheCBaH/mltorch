@@ -71,15 +71,14 @@ let exec_lowered ~(lowered : Loop_wasm.t) ~count_marks
         :> (Tensor.packed Tensor_id.Map.t, error) result)
     in
     let offsets, total = C.layout p in
-    let heap_base = lowered.Loop_wasm.heap_base in
-    let bytes = Int64.add (Int64.of_int heap_base) (Int64.of_int total) in
+    let heap_base =
+      Loop_wasm_layout.Address.to_int64 lowered.Loop_wasm.heap_base
+    in
+    let bytes = Int64.add heap_base (Int64.of_int total) in
     if Int64.compare bytes max_bytes > 0 then
       Error (`Wasm_host "the buffers exceed the 2 GiB memory policy")
     else
-      let pages =
-        max 1 (Int64.to_int (Int64.div (Int64.add bytes 65535L) 65536L))
-      in
-      let m = Loop_wasm.with_pages lowered ~pages in
+      let m = Loop_wasm.with_heap lowered ~bytes:(Int64.of_int total) in
       let* wasm =
         Result.map_error
           (fun (`Wasm_invalid i) -> `Wasm_invalid i)
@@ -117,11 +116,15 @@ let exec_lowered ~(lowered : Loop_wasm.t) ~count_marks
                 module_file;
                 blob;
                 result_file;
-                string_of_int heap_base;
+                Int64.to_string heap_base;
                 string_of_int total;
-                string_of_int lowered.Loop_wasm.local_base;
+                Int64.to_string
+                  (Loop_wasm_layout.Address.to_int64
+                     lowered.Loop_wasm.local_base);
                 string_of_int
-                  (Option.value lowered.Loop_wasm.mark_base ~default:(-1));
+                  (match lowered.Loop_wasm.mark_base with
+                  | Some a -> Int64.to_int (Loop_wasm_layout.Address.to_int64 a)
+                  | None -> -1);
               ]
             @ List.map string_of_int offsets
           in

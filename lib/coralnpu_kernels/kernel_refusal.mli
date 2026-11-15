@@ -27,8 +27,10 @@ type t =
   | Operand_past_dma_transfer  (** an operand past one DMA transfer *)
   | Paired_requirement
       (** the paired requirement: only the matrix engine rounds pairs *)
-  | Panels_over_budget of { needed : int; available : int }
-      (** the panels need more bytes than the budget leaves *)
+  | Panels_over_budget of {
+      needed : Coral_transfer.Transfer_units.Bytes.t;
+      available : Coral_transfer.Transfer_units.Bytes.t;
+    }  (** the panels need more bytes than the budget leaves *)
   | Past_31_bits of string  (** the named quantity past 31 bits *)
   | Precision_not_paired_bf16
       (** a precision other than bfloat16 with paired sums *)

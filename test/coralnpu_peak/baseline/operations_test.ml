@@ -11,11 +11,11 @@ let%expect_test "every operation and what its accumulator holds" =
         (K.Vv_op.widening op) (K.Vv_op.floating op) (K.Vv_op.one op)
         (K.Vv_op.sum op);
       List.iter
-        (fun sew ->
+        (fun (sew : K.Vtype.Sew.t) ->
           match K.Vv_op.accumulator op ~sew with
-          | Some e -> Fmt.pr " e%d->%s" sew (K.Elem.name e)
+          | Some e -> Fmt.pr " e%a->%s" K.Vtype.Sew.pp_bits sew (K.Elem.name e)
           | None -> ())
-        [ 8; 16; 32 ];
+        K.Vtype.Sew.[ E8; E16; E32 ];
       Fmt.pr "@.")
     K.Vv_op.all;
   [%expect

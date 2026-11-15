@@ -8,7 +8,7 @@
 open Graph_ir
 
 type error =
-  [ `Failed of int * Loop_interp.error
+  [ `Failed of Loop_bundle.Position.t * Loop_interp.error
     (** the failing invocation's position in the schedule *)
   | `Missing of Tensor_id.t  (** a constant or input the caller did not bind *)
   ]

@@ -208,14 +208,21 @@ let synthetic dir =
         with
         | Error _ -> Error ("unreadable metadata " ^ name)
         | Ok t ->
-            let size = Pt2_dtype.element_size t.Pt2_tensor.dtype in
+            let size =
+              Int64.to_int (Pt2_dtype.element_size t.Pt2_tensor.dtype)
+            in
             let cells =
-              if List.exists (fun n -> n = 0) t.Pt2_tensor.sizes then 0
+              let sizes = List.map Pt2_tensor.Size.to_int t.Pt2_tensor.sizes in
+              if List.exists (fun n -> n = 0) sizes then 0
               else
                 List.fold_left2
                   (fun a n st -> a + ((n - 1) * st))
-                  (t.Pt2_tensor.storage_offset + 1)
-                  t.Pt2_tensor.sizes t.Pt2_tensor.strides
+                  (Int64.to_int
+                     (Core.Storage_units.Element_offset.to_int64
+                        t.Pt2_tensor.storage_offset)
+                  + 1)
+                  sizes
+                  (List.map Pt2_tensor.Stride.to_int t.Pt2_tensor.strides)
             in
             let b = Bytes.make (cells * size) '\000' in
             (match t.Pt2_tensor.dtype with

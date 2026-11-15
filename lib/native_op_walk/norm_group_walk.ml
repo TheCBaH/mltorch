@@ -24,7 +24,15 @@ module GroupNorm = struct
 
     let initial =
       {
-        shape = { Walk_core.Shape.n = 1; t = 1; d = 1; h = 3; w = 3; c = 6 };
+        shape =
+          {
+            Walk_core.Shape.n = Dim.one;
+            t = Dim.one;
+            d = Dim.one;
+            h = Dim.extent 3;
+            w = Dim.extent 3;
+            c = Dim.extent 6;
+          };
         divisor = 1;
         eps = 1e-5;
         weight = true;

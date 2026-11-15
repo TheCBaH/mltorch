@@ -135,7 +135,7 @@ let%expect_test "malformed programs are rejected" =
           {
             Mir_helper.id = Mir_id.Helper.of_int 0;
             name = "exp";
-            version = 1;
+            version = Mir_helper.Version.of_int 1;
             params = [ Mir_type.Order ];
             results = [ Mir_type.F64 ];
             effects = Mir_helper.Effect.Pure;

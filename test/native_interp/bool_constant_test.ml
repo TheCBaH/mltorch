@@ -8,14 +8,9 @@ let bool_tensor bytes =
     Pt2_storage.of_string
       (String.init (List.length bytes) (fun i -> Char.chr (List.nth bytes i)))
   in
-  Pt2_tensor.
-    {
-      dtype = Pt2_dtype.Bool;
-      sizes = [ List.length bytes ];
-      strides = [ 1 ];
-      storage_offset = 0;
-      data;
-    }
+  Pt2_tensor.of_ints Pt2_dtype.Bool
+    ~sizes:[ List.length bytes ]
+    ~strides:[ 1 ] ~storage_offset:0 data
 
 let%expect_test
     "a Bool archive tensor keeps its format and reads bytes as logic" =

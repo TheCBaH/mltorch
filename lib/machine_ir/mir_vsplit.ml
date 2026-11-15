@@ -65,13 +65,13 @@ let program ?mutation ~register_bytes (g : Mir_verify.Generic.t) =
     let next_value, next_instr = Mir_select.watermarks f in
     let next_value = ref next_value and next_instr = ref next_instr in
     let fresh ty =
-      let id = Mir_id.Value.of_int !next_value in
-      incr next_value;
+      let id, next = Mir_id.Value.Next.alloc !next_value in
+      next_value := next;
       { Mir_value.id; ty }
     in
     let instr_id () =
-      let id = Mir_id.Instr.of_int !next_instr in
-      incr next_instr;
+      let id, next = Mir_id.Instr.Next.alloc !next_instr in
+      next_instr := next;
       id
     in
     (* every vector value's slices, made before any use is rewritten *)
@@ -560,7 +560,7 @@ let widening_slices (f : (Mir_op.t, Mir_terminator.t) Mir_func.t) =
                       (function
                         | Mir_op.Iext (_, Mir_width.W32, _) -> true | _ -> false)
                       (Hashtbl.find_all readers (key r)) ->
-              Hashtbl.replace slices (key r) (Mir_type.Lane.to_int first, a)
+              Hashtbl.replace slices (key r) (first, a)
           | _ -> ())
         b.Mir_block.body)
     f.Mir_func.blocks;

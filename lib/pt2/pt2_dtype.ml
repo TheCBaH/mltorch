@@ -9,15 +9,17 @@ type error =
   [ `Unknown_storage_class of string
   | `Unsupported_scalar_type of Pytorch_types.ScalarType.t ]
 
+(* Bytes per element, [int64] like every byte count in the JS-reachable
+   libraries. *)
 let element_size = function
-  | Bool -> 1
-  | Float32 -> 4
-  | Float64 -> 8
-  | Int16 -> 2
-  | Int32 -> 4
-  | Int64 -> 8
-  | Int8 -> 1
-  | UInt8 -> 1
+  | Bool -> 1L
+  | Float32 -> 4L
+  | Float64 -> 8L
+  | Int16 -> 2L
+  | Int32 -> 4L
+  | Int64 -> 8L
+  | Int8 -> 1L
+  | UInt8 -> 1L
 
 (* From the schema's [ScalarType] enum (as decoded from model.json / weight
    configs). Raises on a dtype this reader does not yet handle. *)

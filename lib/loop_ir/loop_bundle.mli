@@ -33,6 +33,14 @@ module Output : sig
   }
 end
 
+(** The place of an invocation in the schedule: what a failure record names. *)
+module Position : sig
+  include Core.Tagged_int.S
+
+  val indexed : 'a list -> (t * 'a) list
+  (** [xs] paired with their positions, in order. *)
+end
+
 type invocation = {
   node : Node_id.t;
   outputs : Output.t list;

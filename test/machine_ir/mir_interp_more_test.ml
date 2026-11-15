@@ -142,7 +142,7 @@ let%expect_test "distinct outcomes: failure, defect, unsupported, fuel" =
     {
       Mir_helper.id = Mir_id.Helper.of_int 0;
       name = "exp";
-      version = 1;
+      version = Mir_helper.Version.of_int 1;
       params = [ Mir_type.F64 ];
       results = [ Mir_type.F64 ];
       effects = Mir_helper.Effect.Pure;
@@ -177,7 +177,7 @@ let%expect_test "distinct outcomes: failure, defect, unsupported, fuel" =
   let model =
     {
       Mir_helper_model.name = "exp";
-      version = 1;
+      version = Mir_helper.Version.of_int 1;
       run =
         (fun _ -> function
           | [ Mir_datum.Bits b ] ->

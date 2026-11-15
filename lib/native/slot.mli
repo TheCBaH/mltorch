@@ -16,6 +16,7 @@ type +'role t = private int
 type extent
 type count
 type offset
+type position
 
 val extent : int -> extent t (* raises [Invalid_argument] if negative *)
 
@@ -32,6 +33,13 @@ val trace_count : steps:extent t -> width:extent t -> count t
     each: [(steps + 1) * width] slots. [Scan_limits]' hard ceilings bound both
     factors well below the 32-bit range before an [Expr.Scan.t] exists. *)
 
+val trace_rows : steps:extent t -> extent t
+(** A scan trace holds its initial row and one row per step. *)
+
+val scan_state : extent t -> int
+(** The live state of an inline scan of this width: two rolling rows of cells,
+    counted against [Scan_limits.max_state]. *)
+
 val advance : offset t -> count t -> offset t
 (** The offset just past a range that starts at the first. *)
 
@@ -42,14 +50,21 @@ module Range : sig
   type nonrec t = { offset : offset t; count : count t }
 end
 
-val at : Range.t -> int -> int option
-(** The array index of the [pos]-th slot of the range, [None] outside it. [pos]
-    is the position an expression asked for, which may be anything. *)
+val at : Range.t -> int -> position t option
+(** The array position of the [pos]-th slot of the range, [None] outside it.
+    [pos] is as an expression asked for it, which may be anything. *)
 
-val trace_at : offset t -> width:extent t -> row:int -> lane:int -> int
-(** The array index of a trace's cell, row-major: [offset + row * width + lane].
-    The caller has bounds-checked [row] and [lane] against the trace's own steps
-    and width. *)
+val trace_at :
+  offset t ->
+  steps:extent t ->
+  width:extent t ->
+  row:int ->
+  lane:int ->
+  (position t, [> `Lane | `Row ]) result
+(** The array position of a trace's cell, row-major:
+    [offset + row * width + lane]. [row] is checked against [steps] (the trace
+    holds [steps + 1] rows) and [lane] against [width], row first. Both are as
+    an expression asked for them. *)
 
 val equal : 'role t -> 'role t -> bool
 val pp : Format.formatter -> 'role t -> unit

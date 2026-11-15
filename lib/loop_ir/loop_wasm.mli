@@ -26,12 +26,12 @@ val pp_error : Format.formatter -> [< error ] -> unit
 type t = Loop_wasm_module.t = {
   module_ : Wasm.Module.t;
       (** defines the smallest memory that covers the static region *)
-  local_base : int;
+  local_base : Loop_wasm_layout.Address.t;
       (** the [local] pointer to pass: where the kernel's local arrays live *)
-  mark_base : int option;
+  mark_base : Loop_wasm_layout.Address.t option;
       (** where a counting build keeps one [i32] per [Loop_mark.all], in that
           order; [None] for the default build, which emits nothing for a mark *)
-  heap_base : int;
+  heap_base : Loop_wasm_layout.Address.t;
       (** 16-aligned end of the module's own bytes, local arrays included: a
           host places buffers at or above it *)
   sites : Loop_failure.t array;
@@ -44,8 +44,8 @@ type t = Loop_wasm_module.t = {
 val function_name : string
 (** ["loop_kernel"]. *)
 
-val error_address : int
-(** The byte address of the failure record: [0]. *)
+val error_address : Loop_wasm_layout.Address.t
+(** The byte address of the failure record: zero. *)
 
 val lower :
   ?vector:Loop_target.t ->
@@ -84,14 +84,15 @@ val kernel :
   ?vector:Loop_target.t ->
   ?numerics:Loop_numerics.t ->
   ?precision:Loop_numerics.Precision.t ->
-  ?mark_base:int ->
-  table_alloc:(bytes:int -> int) ->
+  ?mark_base:Loop_wasm_layout.Address.t ->
+  table_alloc:(bytes:int64 -> Loop_wasm_layout.Address.t) ->
   Loop_program.t ->
   (kernel, [> error ]) Err.t
 
-val with_pages : t -> pages:int -> Wasm.Module.t
-(** The module with [pages] initial memory pages; [Invalid_argument] below the
-    static region's need. *)
+val with_heap : t -> bytes:int64 -> Wasm.Module.t
+(** The module with initial memory for its static region and [bytes] of host
+    buffers after [heap_base], whole pages and at least one. [Invalid_argument]
+    when the total is beyond 2 GiB. *)
 
 val encode : t -> (string, Wasm_check.error) Err.t
 (** [Wasm_encode.module_] of [module_]. *)

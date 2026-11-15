@@ -6,12 +6,22 @@ type scalar = F32 | F64 | I64 | Index | Pred
 
 (* The lane count of a vector or mask. A domain of its own: no extent, position
    or id can be passed for it. *)
-module Lanes =
-  Core.Tagged_int.Make
-    (struct
-      let prefix = "x"
-    end)
-    ()
+module Lanes = struct
+  include
+    Core.Tagged_int.Make
+      (struct
+        let prefix = "x"
+      end)
+      ()
+
+  (* The first [n] items of a list and the rest: one register's lanes. *)
+  (* The count as the decimal text a generated source embeds. *)
+  let decimal n = string_of_int (to_int n)
+
+  let split n l =
+    let n = to_int n in
+    (List.filteri (fun i _ -> i < n) l, List.filteri (fun i _ -> i >= n) l)
+end
 
 (* A width in bits: a scalar's, or a vector register's. *)
 module Bits =
@@ -21,18 +31,56 @@ module Bits =
     end)
     ()
 
+(* One register of a vector held in several: its position among them. A lane's
+   register and a register's first lane are the two directions of one
+   division by the lanes a register holds. *)
+module Chunk = struct
+  include
+    Core.Tagged_int.Make
+      (struct
+        let prefix = "chunk"
+      end)
+      ()
+
+  (* The registers [lanes] lanes take at [per] lanes each, in order. A count
+     that is not a multiple leaves the last register partial and unnamed: the
+     caller refuses it first. *)
+  let all lanes ~per = List.init (Lanes.to_int lanes / Lanes.to_int per) of_int
+  let map lanes ~per f = List.map f (all lanes ~per)
+end
+
 (* One lane's position within a vector: a different domain from the count of
    lanes, so an extract's lane cannot be passed for a width. *)
-module Lane =
-  Core.Tagged_int.Make
-    (struct
-      let prefix = "lane"
-    end)
-    ()
+module Lane = struct
+  include
+    Core.Tagged_int.Make
+      (struct
+        let prefix = "lane"
+      end)
+      ()
+
+  let zero = of_int 0
+
+  (* Every position of a vector of [lanes] lanes, in order. *)
+  let all lanes = List.init (Lanes.to_int lanes) of_int
+
+  (* The position [by] lanes past [k]. *)
+  let add k ~by = of_int (to_int k + to_int by)
+
+  (* The register holding lane [k], and its position inside that register. *)
+  let chunk k ~per = Chunk.of_int (to_int k / Lanes.to_int per)
+  let slot k ~per = of_int (to_int k mod Lanes.to_int per)
+
+  (* The first lane of register [c]. *)
+  let first c ~per = of_int (Chunk.to_int c * Lanes.to_int per)
+
+  (* The element offset of lane [k] at [stride] elements between lanes. *)
+  let offset k ~stride = Int64.mul (Int64.of_int (to_int k)) stride
+end
 
 (* The widest vector the IR names. A logical width, not a register: a target
    maps it onto however many registers it takes. *)
-let max_lanes = 64
+let max_lanes = Lanes.of_int 64
 
 (* [Effect] is a compile-time sequencing token with no machine representation. *)
 type t =

@@ -13,7 +13,7 @@ let base = 0x10000L
    ([gemm_...] through RVV, [tgemm_...] through Zvt) with no operands. *)
 type case =
   | Elementwise of string * int * int * string
-  | Gemm of K.Gemm.Input.t * int option
+  | Gemm of K.Gemm.Input.t * Core.Dim.extent Core.Dim.t option
       (** and its width, if not the default *)
   | Tile of string * string
   | Tile_gemm of Peak_zvt.Tile_gemm.Input.t * Peak_zvt.Tile_gemm.Geometry.t
@@ -43,16 +43,16 @@ let cases =
     Gemm (I32, None);
     Gemm (F32, None);
     Gemm (Bf16, None);
-    Gemm (I8, Some 48);
-    Gemm (I8, Some 128);
-    Gemm (I16, Some 24);
-    Gemm (I16, Some 64);
-    Gemm (I32, Some 24);
-    Gemm (I32, Some 64);
-    Gemm (F32, Some 24);
-    Gemm (F32, Some 64);
-    Gemm (Bf16, Some 24);
-    Gemm (Bf16, Some 64);
+    Gemm (I8, Some (Core.Dim.extent 48));
+    Gemm (I8, Some (Core.Dim.extent 128));
+    Gemm (I16, Some (Core.Dim.extent 24));
+    Gemm (I16, Some (Core.Dim.extent 64));
+    Gemm (I32, Some (Core.Dim.extent 24));
+    Gemm (I32, Some (Core.Dim.extent 64));
+    Gemm (F32, Some (Core.Dim.extent 24));
+    Gemm (F32, Some (Core.Dim.extent 64));
+    Gemm (Bf16, Some (Core.Dim.extent 24));
+    Gemm (Bf16, Some (Core.Dim.extent 64));
     Tile ("tile_f32", "vtfmm.tvv");
     Tile ("tile_bf16", "vtfmm.alt.tvv");
     Tile ("tile_i8u", "vtmmu.tvv");
@@ -61,21 +61,24 @@ let cases =
     Tile_gemm (Bf16, Engine);
     Tile_gemm (F32, Engine);
     Tile_gemm (I8, Rvv { width = None });
-    Tile_gemm (I8, Rvv { width = Some 48 });
-    Tile_gemm (I8, Rvv { width = Some 128 });
+    Tile_gemm (I8, Rvv { width = Some (Core.Dim.extent 48) });
+    Tile_gemm (I8, Rvv { width = Some (Core.Dim.extent 128) });
     Tile_gemm (Bf16, Rvv { width = None });
-    Tile_gemm (Bf16, Rvv { width = Some 24 });
-    Tile_gemm (Bf16, Rvv { width = Some 64 });
+    Tile_gemm (Bf16, Rvv { width = Some (Core.Dim.extent 24) });
+    Tile_gemm (Bf16, Rvv { width = Some (Core.Dim.extent 64) });
     Tile_gemm (F32, Rvv { width = None });
-    Tile_gemm (F32, Rvv { width = Some 24 });
-    Tile_gemm (F32, Rvv { width = Some 64 });
+    Tile_gemm (F32, Rvv { width = Some (Core.Dim.extent 24) });
+    Tile_gemm (F32, Rvv { width = Some (Core.Dim.extent 64) });
   ]
 
 let name = function
   | Elementwise (n, _, _, _) | Tile (n, _) -> n
   | Gemm (g, w) ->
       "gemm_" ^ K.Gemm.Input.name g
-      ^ Option.fold ~none:"" ~some:(Printf.sprintf "_w%d") w
+      ^ Option.fold ~none:""
+          ~some:(fun (w : Core.Dim.extent Core.Dim.t) ->
+            Printf.sprintf "_w%d" (w :> int))
+          w
   | Tile_gemm (t, g) -> (
       "tgemm_"
       ^ Peak_zvt.Tile_gemm.Input.name t
@@ -83,7 +86,11 @@ let name = function
       match g with
       | Engine -> ""
       | Rvv { width } ->
-          "_rvv" ^ Option.fold ~none:"" ~some:(Printf.sprintf "_w%d") width)
+          "_rvv"
+          ^ Option.fold ~none:""
+              ~some:(fun (w : Core.Dim.extent Core.Dim.t) ->
+                Printf.sprintf "_w%d" (w :> int))
+              width)
 
 let kernel = function
   | Elementwise (_, sew, lmul, instr) -> (

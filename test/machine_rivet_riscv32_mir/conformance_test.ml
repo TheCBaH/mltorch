@@ -18,7 +18,10 @@ module Loc = Mir_phys.Loc
 
 type reg = G of int | Fr of int
 
-let view = function G k -> Rv32_reg.x k | Fr k -> Rv32_reg.f k
+let view = function
+  | G k -> Rv32_reg.x (Rv32_reg.Num.of_int k)
+  | Fr k -> Rv32_reg.f (Rv32_reg.Num.of_int k)
+
 let rname r = (view r).Mir_target.View.name
 let a k = G (10 + k)
 let fa k = Fr (10 + k)
@@ -389,9 +392,7 @@ let expected ~(sem : E.t -> O.t -> Machine_interp.Mir_datum.t list) i j words =
     if i.memory then
       Some
         (String.init area_bytes (fun n ->
-             match
-               (Mem.read_bytes memory key ~offset:(Int64.of_int n) ~n:1).(0)
-             with
+             match Mem.read_byte memory key ~offset:(Int64.of_int n) with
              | Some b -> Char.chr b
              | None -> '\000'))
     else None
@@ -481,7 +482,8 @@ let run ~items ~inputs ~outputs vectors =
   | Error what -> Error ("no form for " ^ what)
   | Ok m -> (
       let slot size placement =
-        { H.size = max 4 size; align = 16; placement }
+        Machine_rivet_riscv32_test.Harness_slot.make ~size:(max 4 size)
+          ~align:16 placement
       in
       let slots =
         [

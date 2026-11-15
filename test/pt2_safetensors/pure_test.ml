@@ -23,8 +23,8 @@ let show label result =
       | Ok t ->
           let data = t.Pt2_tensor.data in
           Format.printf "%-18s ok %a first=%ld last=%ld@." label Pt2_tensor.pp t
-            (Pt2_storage.get_int32_le data 0)
-            (Pt2_storage.get_int32_le data 20))
+            (Pt2_storage.cell_int32_le data ~cell:0)
+            (Pt2_storage.cell_int32_le data ~cell:5))
   | Error e ->
       Format.printf "%-18s %a@." label Pt2_safetensors.pp_error
         (Err.Error.kind e)

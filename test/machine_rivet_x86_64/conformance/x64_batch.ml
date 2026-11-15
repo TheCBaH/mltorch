@@ -60,7 +60,8 @@ let place_uses (f : X64_forms.t) op =
   let fixed =
     List.filter_map
       (function
-        | Mir_target.Constraint.Fixed_use { use; view } -> Some (use, view)
+        | Mir_target.Constraint.Fixed_use { use; view } ->
+            Some ((use :> int), view)
         | _ -> None)
       (X64_op.constraints op)
   in
@@ -83,18 +84,18 @@ let place_uses (f : X64_forms.t) op =
                 (Loc.Reg v, `Gpr (Mir_id.Unit.to_int v.Mir_target.View.unit))
             | None ->
                 let k = take gp in
-                (Loc.Reg (X64_reg.q k), `Gpr k))
+                (Loc.Reg (X64_reg.q (X64_reg.Num.of_int k)), `Gpr k))
         | Val ty -> (
             if is_xmm ty then
               let k = take xp in
-              (Loc.Reg (X64_reg.xmm k), `Xmm k)
+              (Loc.Reg (X64_reg.xmm (X64_reg.Num.of_int k)), `Xmm k)
             else
               match List.assoc_opt i fixed with
               | Some v ->
                   (Loc.Reg v, `Gpr (Mir_id.Unit.to_int v.Mir_target.View.unit))
               | None ->
                   let k = take gp in
-                  (Loc.Reg (X64_reg.q k), `Gpr k)))
+                  (Loc.Reg (X64_reg.q (X64_reg.Num.of_int k)), `Gpr k)))
       f.roles
   in
   { locs = List.map fst placed; kinds = List.map snd placed }
@@ -102,7 +103,9 @@ let place_uses (f : X64_forms.t) op =
 let tied_use op =
   List.find_map
     (function
-      | Mir_target.Constraint.Tied { result = 0; use } -> Some use | _ -> None)
+      | Mir_target.Constraint.Tied { result; use } when (result :> int) = 0 ->
+          Some (use :> int)
+      | _ -> None)
     (X64_op.constraints op)
 
 (* The result registers: flags, the tied use's, a fixed one, or the scratch
@@ -112,7 +115,7 @@ let place_defs op tys (u : placed) =
     List.filter_map
       (function
         | Mir_target.Constraint.Fixed_result { result; view } ->
-            Some (result, view)
+            Some ((result :> int), view)
         | _ -> None)
       (X64_op.constraints op)
   in
@@ -130,8 +133,11 @@ let place_defs op tys (u : placed) =
                 | 0, Some use -> (List.nth u.locs use, List.nth u.kinds use)
                 | _ ->
                     if is_xmm ty then
-                      (Loc.Reg (X64_reg.xmm dest_xmm), `Xmm dest_xmm)
-                    else (Loc.Reg (X64_reg.q dest_gpr), `Gpr dest_gpr))))
+                      ( Loc.Reg (X64_reg.xmm (X64_reg.Num.of_int dest_xmm)),
+                        `Xmm dest_xmm )
+                    else
+                      ( Loc.Reg (X64_reg.q (X64_reg.Num.of_int dest_gpr)),
+                        `Gpr dest_gpr ))))
       tys
   in
   { locs = List.map fst defs; kinds = List.map snd defs }
@@ -190,7 +196,7 @@ let build_inner ?mutation (f : X64_forms.t) (vs : vector list) =
              List.exists
                (function
                  | Mir_target.Constraint.Fixed_result { result; _ } ->
-                     result = j
+                     (result :> int) = j
                  | _ -> false)
                (X64_op.constraints op)
            in

@@ -46,7 +46,9 @@ let rec stmt nm ~limits ~depth (s : Loop_stmt.t) : string list =
               ^ Printf.sprintf "if %s %s"
                   (outside_int32_in nm.dialect n.value)
                   (fail_record F.Kind.Index_overflow
-                     [ string_of_int n.op; n.lhs; n.rhs ]))
+                     [
+                       string_of_int (F.Overflow_op.to_wire n.op); n.lhs; n.rhs;
+                     ]))
             (overflow_nodes nm i)
       | _, Loop_failure.Index_overflow _ ->
           invalid_arg
@@ -97,9 +99,9 @@ let rec stmt nm ~limits ~depth (s : Loop_stmt.t) : string list =
         "Loop_c: a structured sum is expanded at the entry point \
          (Loop_sum.program)"
   | Loop_stmt.Release_scan_state width ->
-      line (Printf.sprintf "scan_live -= %d;" (2 * width))
+      line (Printf.sprintf "scan_live -= %d;" (Slot.scan_state width))
   | Loop_stmt.Reserve_scan_state width ->
-      let live = 2 * width in
+      let live = Slot.scan_state width in
       let max_state = Expr.Scan_limits.max_state limits in
       line
         (Printf.sprintf "if (scan_live + %d > %s) %s" live (int_lit max_state)
@@ -258,7 +260,7 @@ let kernel ?(dialect = Loop_c_dialect.Gnu) ?vector
           dialect;
           f32 = precision = Loop_numerics.Precision.F32;
           sites = F.sites p;
-          next_site = 0;
+          next_site = Loop_failure.Site.Next.first;
           used = [];
           local_doubles = 0L;
         }
@@ -283,7 +285,7 @@ let kernel ?(dialect = Loop_c_dialect.Gnu) ?vector
                      Loop_vector_check.pp_error e));
             nodes nm ~limits ~depth:1 vp.Loop_vector.body
       in
-      if nm.next_site <> Array.length nm.sites then
+      if not (Loop_failure.all_claimed nm.sites nm.next_site) then
         invalid_arg "Loop_c: a failure site was not written";
       let floats, int64s, indices, meter = declarations p in
       let fty = float_type nm in

@@ -42,7 +42,7 @@ let pp_error fmt = function
         Ssa_type.Lanes.pp second
   | Lanes_out_of_range l ->
       Fmt.pf fmt "%a lanes is outside 1..%d" Ssa_type.Lanes.pp l
-        Ssa_type.max_lanes
+        (Ssa_type.Lanes.to_int Ssa_type.max_lanes)
   | Not_lanewise op ->
       Fmt.pf fmt "%s cannot be applied lane by lane" (Ssa_op.name op)
   | Operand_not_vector { position; found } ->
@@ -115,7 +115,7 @@ let positive_divisor k =
 
 let lanes_valid l =
   let n = Ssa_type.Lanes.to_int l in
-  if n >= 1 && n <= Ssa_type.max_lanes then Ok ()
+  if n >= 1 && n <= Ssa_type.Lanes.to_int Ssa_type.max_lanes then Ok ()
   else Error (Lanes_out_of_range l)
 
 (* The vector type of a scalar element, if a vector can hold it. *)

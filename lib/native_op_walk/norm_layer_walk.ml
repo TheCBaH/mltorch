@@ -27,7 +27,15 @@ module LayerNorm = struct
 
     let initial =
       {
-        shape = { Walk_core.Shape.n = 1; t = 1; d = 1; h = 4; w = 3; c = 5 };
+        shape =
+          {
+            Walk_core.Shape.n = Dim.one;
+            t = Dim.one;
+            d = Dim.one;
+            h = Dim.extent 4;
+            w = Dim.extent 3;
+            c = Dim.extent 5;
+          };
         k = 1;
         eps = 1e-5;
         weight = true;

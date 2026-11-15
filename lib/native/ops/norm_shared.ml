@@ -73,4 +73,6 @@ let normalized_count ~(x_shape : Vec6.shape) ~(dims : Axis.t list) =
    the precondition holds by construction -- but it IS a precondition, and this
    function must not be called anywhere the bound has not been established. *)
 let normalized_count_unchecked ~(x_shape : Vec6.shape) ~(dims : Axis.t list) =
-  List.fold_left (fun acc d -> acc * (Vec6.get x_shape d :> int)) 1 dims
+  List.fold_left
+    (fun acc d -> Dim.(acc *@ Vec6.get x_shape d))
+    Dim.one_count dims

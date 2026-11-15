@@ -14,7 +14,7 @@ let rec index st : Loop_index.t -> I.t list = function
   | Loop_index.Clamp_low a ->
       let a = index st a in
       let t = fresh st Wasm_type.I32 in
-      a @ [ I.Local_tee t; i32 0; get t; i32 0; n Wasm_op.I32_gt_s; I.Select ]
+      a @ [ tee t; i32 0; get t; i32 0; n Wasm_op.I32_gt_s; I.Select ]
   | Loop_index.Const k -> [ int_const st k ]
   | Loop_index.Floor_div_pos (a, d) ->
       let a = index st a in
@@ -46,7 +46,7 @@ and select2 st a b cmp =
    is formed in [i64] from operands that already passed their own check, so
    neither the value nor the check can wrap. *)
 type overflow_node = {
-  op : int;
+  op : F.Overflow_op.t;
   value : I.t list;
   lhs : I.t list;
   rhs : I.t list;
@@ -60,12 +60,24 @@ let overflow_nodes st i =
         let acc = go (go acc a) b in
         let lhs = wide (index st a) in
         let rhs = wide (index st b) in
-        { op = 0; value = lhs @ rhs @ [ n Wasm_op.I64_add ]; lhs; rhs } :: acc
+        {
+          op = F.Overflow_op.Add;
+          value = lhs @ rhs @ [ n Wasm_op.I64_add ];
+          lhs;
+          rhs;
+        }
+        :: acc
     | Loop_index.Scale (k, a) ->
         let acc = go acc a in
         let lhs = [ I.I64_const (Int64.of_int k) ] in
         let rhs = wide (index st a) in
-        { op = 1; value = lhs @ rhs @ [ n Wasm_op.I64_mul ]; lhs; rhs } :: acc
+        {
+          op = F.Overflow_op.Mul;
+          value = lhs @ rhs @ [ n Wasm_op.I64_mul ];
+          lhs;
+          rhs;
+        }
+        :: acc
     | Loop_index.Ceil_div_pos (a, _)
     | Loop_index.Clamp_low a
     | Loop_index.Floor_div_pos (a, _) ->
@@ -100,10 +112,9 @@ let addr_index (b : Loop_buffer.t) = function
    in a positive [int32]; the check that the cell is in range is a [Fail_if]. *)
 let cell_address st b addr =
   let off = index st (addr_index b addr) in
-  let log2 = cell_log2 b in
   [ get (buffer_param st b) ]
   @ off
-  @ (if log2 = 0 then [] else [ i32 log2; n Wasm_op.I32_shl ])
+  @ Width.scale (cell_width b)
   @ [ n Wasm_op.I32_add ]
 
 let quant_of (b : Loop_buffer.t) =
@@ -113,7 +124,7 @@ let quant_of (b : Loop_buffer.t) =
 
 let load_cell st (b : Loop_buffer.t) addr =
   let at = cell_address st b addr in
-  let load l = at @ [ I.Load (l, arg (Wasm.Load.natural_align l) 0) ] in
+  let load l = at @ [ I.Load (l, Width.of_load l) ] in
   match fmt_of b with
   | "bf16" ->
       load Wasm.Load.I32_load16_u
@@ -181,42 +192,40 @@ let load_cell st (b : Loop_buffer.t) addr =
             | Flat _ ->
                 invalid_arg "Loop_wasm: a flat load of a per-channel buffer"
           in
-          let scales, zeros =
-            Hashtbl.find st.tables (Tensor_id.to_int b.Loop_buffer.id)
-          in
+          let scales, zeros = Hashtbl.find st.tables b.Loop_buffer.id in
           let table base =
-            [ i32 base ]
+            [ Layout.Address.const base ]
             @ index st (Expr.Coord.get c Expr.Axis.C)
+            @ Width.scale (array_width st)
             @ [
-                i32 (if st.f32 then 2 else 3);
-                n Wasm_op.I32_shl;
                 n Wasm_op.I32_add;
-                (if st.f32 then I.Load (Wasm.Load.F32_load, arg 2 0)
-                 else I.Load (Wasm.Load.F64_load, arg 3 0));
+                (if st.f32 then I.Load (Wasm.Load.F32_load, arg Width.W4)
+                 else I.Load (Wasm.Load.F64_load, arg Width.W8));
               ]
           in
           load l @ [ convert ] @ table zeros @ [ sub ] @ table scales @ [ mul ])
   | f -> invalid_arg ("Loop_wasm: no decode for format " ^ f)
 
 let load_i64 st b addr =
-  cell_address st b addr @ [ I.Load (Wasm.Load.I64_load, arg 3 0) ]
+  cell_address st b addr @ [ I.Load (Wasm.Load.I64_load, arg Width.W8) ]
 
 let array_address st a i =
-  let off = Hashtbl.find st.arrays (Loop_array.to_int a) in
-  [ get 0; i32 off; n Wasm_op.I32_add ]
+  let off = Hashtbl.find st.arrays a in
+  [ get Layout.Local.base; Layout.Local_offset.const off; n Wasm_op.I32_add ]
   @ index st i
-  @ [ i32 (array_log2 st); n Wasm_op.I32_shl; n Wasm_op.I32_add ]
+  @ Width.scale (array_width st)
+  @ [ n Wasm_op.I32_add ]
 
 let array_store st =
-  if st.f32 then I.Store (Wasm.Store.F32_store, arg 2 0)
-  else I.Store (Wasm.Store.F64_store, arg 3 0)
+  if st.f32 then I.Store (Wasm.Store.F32_store, arg Width.W4)
+  else I.Store (Wasm.Store.F64_store, arg Width.W8)
 
 let rec num st : float Loop_expr.t -> I.t list = function
   | Loop_expr.Array_get (a, i) ->
       array_address st a i
       @ [
-          (if st.f32 then I.Load (Wasm.Load.F32_load, arg 2 0)
-           else I.Load (Wasm.Load.F64_load, arg 3 0));
+          (if st.f32 then I.Load (Wasm.Load.F32_load, arg Width.W4)
+           else I.Load (Wasm.Load.F64_load, arg Width.W8));
         ]
   | Loop_expr.Binary (op, a, b) ->
       let a = num st a in

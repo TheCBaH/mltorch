@@ -32,9 +32,9 @@ let after t ~reg (i : _ Mir_phys.Instr.t) =
       [ d ".cfi_restore" (reg r) ]
   | _ -> []
 
-(* The index from which the rest of a block's operations tear the frame down: a
-   trailing run of restores and positive stack steps. *)
-let epilogue_start body =
+(* A block's operations split where the rest of them tear the frame down: the
+   epilogue is the trailing run of restores and positive stack steps. *)
+let split_epilogue body =
   let n = List.length body in
   let arr = Array.of_list body in
   let rec go k =
@@ -45,4 +45,6 @@ let epilogue_start body =
       | Mir_phys.Instr.Save { dst = Loc.Reg _; src = Loc.Mem _ } -> go (k - 1)
       | _ -> k
   in
-  go n
+  let split = go n in
+  ( List.filteri (fun k _ -> k < split) body,
+    List.filteri (fun k _ -> k >= split) body )

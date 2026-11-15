@@ -10,7 +10,9 @@ let quant (q : Quant.t) : Ssa_format.quant =
       let scale, zero_point = Quant.params q ~c:(Dim.index 0) in
       Ssa_format.Per_tensor { scale; zero_point }
   | Some n ->
-      let params = Array.init n (fun i -> Quant.params q ~c:(Dim.index i)) in
+      let params =
+        Array.init (Dim.to_int n) (fun i -> Quant.params q ~c:(Dim.index i))
+      in
       Ssa_format.Per_channel
         { scale = Array.map fst params; zero_point = Array.map snd params }
 

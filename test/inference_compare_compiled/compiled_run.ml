@@ -9,14 +9,7 @@ module L = Codecs.Logical_value
 
 let hashers = Inference_compare_sha256.registry
 let algorithm = Inference_compare_sha256.algorithm
-
-let with_batch (tensor : Pt2_tensor.t) =
-  let stride = Pt2_tensor.numel tensor in
-  {
-    tensor with
-    Pt2_tensor.sizes = 1 :: tensor.sizes;
-    strides = stride :: tensor.strides;
-  }
+let with_batch = Pt2_tensor.batched
 
 let donor : Side.t =
   match Sys.getenv_opt "DONOR" with Some "right" -> Right | _ -> Left

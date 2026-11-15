@@ -125,7 +125,9 @@ let invocation_text ?dialect ws ~position ~kernel (inv : Loop_bundle.invocation)
     Err.List.fold_left
       (fun (args, inits) (i, ((buf : Loop_buffer.t), edge), ty) ->
         match
-          List.find_opt (fun c -> c.W.Scratch.position = i) sc.W.Scratch.carves
+          List.find_opt
+            (fun c -> W.Scratch.Position.equal c.W.Scratch.position i)
+            sc.W.Scratch.carves
         with
         | Some c ->
             let p = scratch_ptr ty scratch_at c in
@@ -151,7 +153,7 @@ let invocation_text ?dialect ws ~position ~kernel (inv : Loop_bundle.invocation)
                 match loc with
                 | W.Workspace off ->
                     let cell =
-                      Int64.of_int
+                      Core.Storage_units.Element_bytes.to_int64
                         (Payload.packed_cell_bytes
                            buf.Loop_buffer.sg.Tensor_sig.fmt)
                     in
@@ -174,20 +176,28 @@ let invocation_text ?dialect ws ~position ~kernel (inv : Loop_bundle.invocation)
                 (* a scratch buffer always has a carve *)
                 Err.fail (`Edge_unplaced edge)))
       ([], [])
-      (List.mapi
-         (fun i (x, ty) -> (i, x, ty))
-         (List.combine (List.combine buffers inv.Loop_bundle.edges) types))
+      (List.map
+         (fun (i, x, ty) -> (i, x, ty))
+         (List.map2
+            (fun (i, x) ty -> (i, x, ty))
+            (W.Scratch.Position.indexed
+               (List.combine buffers inv.Loop_bundle.edges))
+            types))
   in
   let local = "(double *)(ws + " ^ Int64.to_string scratch_at ^ ")" in
   Err.return
     (String.concat "\n"
-       ([ Printf.sprintf "  { /* invocation %d */" position ]
+       ([
+          Printf.sprintf "  { /* invocation %d */"
+            (position : Loop_bundle.Position.t :> int);
+        ]
        @ List.rev inits
        @ [
            Printf.sprintf "    if (%s(error, %s%s)) {" (Kernels.name kernel)
              local
              (String.concat "" (List.map (fun a -> ", " ^ a) (List.rev args)));
-           Printf.sprintf "      error->invocation = %d;" position;
+           Printf.sprintf "      error->invocation = %d;"
+             (position : Loop_bundle.Position.t :> int);
            "      return 1;";
            "    }";
            "  }";
@@ -244,7 +254,7 @@ let build ?(dialect = Loop_c_dialect.Gnu) ?vector
     Err.List.map
       (fun (position, (inv, kernel, sc)) ->
         invocation_text ~dialect ws ~position ~kernel inv sc)
-      (List.mapi (fun i x -> (i, x)) compiled)
+      (Loop_bundle.Position.indexed compiled)
   in
   let* copies =
     Err.List.map

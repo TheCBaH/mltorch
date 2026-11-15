@@ -51,18 +51,22 @@ let%expect_test "direct4: pad4, constant and reflect" =
   Format.printf "in  [H=2 W=3]: %a@." pp_values (values (seq shape));
   (* One column of fill on each side of W, none on H: rows [9 0 1 2 9] and
      [9 3 4 5 9]. *)
-  pad (Pad.Pad.Constant 9.) [ (Axis4.W, { Pad.Pad.before = 1; after = 1 }) ];
+  pad (Pad.Pad.Constant 9.)
+    [ (Axis4.W, { Pad.Pad.before = Dim.delta 1; after = Dim.delta 1 }) ];
   (* Mirror about the boundary element, which is NOT repeated: row [0 1 2]
      extended left by one is [1 0 1 2], and by two on the right is [.. 1 0]. *)
-  pad Pad.Pad.Reflect [ (Axis4.W, { Pad.Pad.before = 1; after = 2 }) ];
+  pad Pad.Pad.Reflect
+    [ (Axis4.W, { Pad.Pad.before = Dim.delta 1; after = Dim.delta 2 }) ];
   (* H is the OUTER axis here, so a mirror on it moves whole rows: [0 1 2] and
      [3 4 5] become [3 4 5], [0 1 2], [3 4 5]. A pad that silently used W would
      print the same extents as a W-mirror only if H and W matched, which is why
      this fixture is 2x3. *)
-  pad Pad.Pad.Reflect [ (Axis4.H, { Pad.Pad.before = 1; after = 0 }) ];
+  pad Pad.Pad.Reflect
+    [ (Axis4.H, { Pad.Pad.before = Dim.delta 1; after = Dim.delta 0 }) ];
   (* Cropping: a negative entry removes the last row, and nothing is
      synthesized, so no fill value can appear. *)
-  pad (Pad.Pad.Constant 9.) [ (Axis4.H, { Pad.Pad.before = 0; after = -1 }) ];
+  pad (Pad.Pad.Constant 9.)
+    [ (Axis4.H, { Pad.Pad.before = Dim.delta 0; after = Dim.delta (-1) }) ];
   [%expect
     {|
     in  [H=2 W=3]: [0 1 2 3 4 5]

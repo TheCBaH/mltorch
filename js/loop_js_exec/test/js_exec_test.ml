@@ -185,7 +185,7 @@ let%expect_test
   same "scan meter: state over limit"
     (failing
        ~scan_limits:(limits ~max_state:4 ~max_updates:100L)
-       [ Loop_stmt.Reset_meter; Loop_stmt.Reserve_scan_state 3 ]);
+       [ Loop_stmt.Reset_meter; Loop_stmt.Reserve_scan_state (Slot.extent 3) ]);
   [%expect
     {|
     gather: gather index -5 out of range [-3, 2]

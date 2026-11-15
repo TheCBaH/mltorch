@@ -471,10 +471,10 @@ and stmt ctx env : Loop_stmt.t -> env = function
       B.meter_charge ctx.b;
       env
   | Loop_stmt.Release_scan_state width ->
-      B.meter_release ctx.b ~width:(Int64.of_int width);
+      B.meter_release ctx.b ~width:(Int64.of_int (width :> int));
       env
   | Loop_stmt.Reserve_scan_state width ->
-      B.meter_reserve ctx.b ~width:(Int64.of_int width);
+      B.meter_reserve ctx.b ~width:(Int64.of_int (width :> int));
       env
   | Loop_stmt.Reset_meter ->
       B.meter_reset ctx.b;

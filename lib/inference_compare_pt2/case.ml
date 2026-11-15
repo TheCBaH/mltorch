@@ -11,10 +11,7 @@ type t = {
 }
 
 let ( let* ) = Result.bind
-
-let to_bytes (l : F.Logical.t) =
-  String.init (Pt2_storage.length l.data) (fun i ->
-      Char.chr (Pt2_storage.get_uint8 l.data i))
+let to_bytes (l : F.Logical.t) = Pt2_storage.to_string l.data
 
 let logical (t : Pt2_tensor.t) =
   match F.Logical.of_pt2 t with

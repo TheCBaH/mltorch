@@ -54,7 +54,7 @@ val fast : Contraction.t -> bool
 module Stage : sig
   type t =
     | Always  (** copied into a panel of the function's own *)
-    | Outside of { base : int; bytes : int }
+    | Outside of { base : int64; bytes : Coral_transfer.Transfer_units.Bytes.t }
         (** copied unless it lies in the DTCM [bytes] from [base], which the
             function checks at run time *)
 end

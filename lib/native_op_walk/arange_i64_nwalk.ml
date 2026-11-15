@@ -17,7 +17,7 @@ module M = struct
 
   let build pcg c =
     let count = W.count c in
-    let stop = Int64.add base (Int64.of_int count) in
+    let stop = Int64.add base (Int64.of_int (count :> int)) in
     let exact = { Factory.Arange.Exact.start = base; stop; step = 1L } in
     let params =
       {

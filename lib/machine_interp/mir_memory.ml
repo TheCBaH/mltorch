@@ -9,13 +9,15 @@
 open Machine_ir
 
 let page_bits = 12
-let page_size = 1 lsl page_bits
 
 module Page = struct
   type t = { data : Bytes.t; init : Bytes.t  (** 1 per defined byte *) }
 
   let create () =
-    { data = Bytes.make page_size '\000'; init = Bytes.make page_size '\000' }
+    {
+      data = Bytes.make (1 lsl page_bits) '\000';
+      init = Bytes.make (1 lsl page_bits) '\000';
+    }
 end
 
 (* A region instance within one memory: its own domain, never a region id. *)
@@ -114,7 +116,7 @@ let page (i : Instance.t) n =
 
 let locate off =
   ( Int64.shift_right_logical off page_bits,
-    Int64.to_int (Int64.logand off (Int64.of_int (page_size - 1))) )
+    Int64.to_int (Int64.logand off (Int64.of_int ((1 lsl page_bits) - 1))) )
 
 let set_byte i off b =
   let n, k = locate off in
@@ -225,7 +227,18 @@ let store t p ~bytes ~align bits =
       done;
       Ok ()
 
+(* The defined byte at [offset], [None] for an undefined one. *)
+let read_byte t key ~offset = get_byte (instance t key) offset
+
 (* The defined bytes of [n] bytes from [offset], [None] for an undefined one. *)
-let read_bytes t key ~offset ~n =
+let read_bytes t key ~offset ~(n : Core.Storage_units.Byte_size.t) =
   let i = instance t key in
-  Array.init n (fun k -> get_byte i (Int64.add offset (Int64.of_int k)))
+  Array.init
+    (Int64.to_int (Core.Storage_units.Byte_size.to_int64 n))
+    (fun k -> get_byte i (Int64.add offset (Int64.of_int k)))
+
+(* Every byte of the region instance. *)
+let read_region t key =
+  let i = instance t key in
+  Array.init (Int64.to_int i.Instance.size) (fun k ->
+      get_byte i (Int64.of_int k))

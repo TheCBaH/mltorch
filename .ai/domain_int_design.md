@@ -21,7 +21,17 @@ are their own singletons. Region scratch slots have their own phantom family, `S
 slot offset cannot be mistaken for a tensor's `Dim.offset`. The ATen boundary is typed: `Rank.t`, and `Aten_int` (`Dim`, `Index`,
 `Size`, `Step` — signed, as written) enter `Aten_shape`, which is the only place they are
 resolved (slice bounds into fences, a select index into a `Dim.index`); the importers'
-error payloads report them as written. Window and im2col products are bounded once (`Window_axis.product`, `Dim_arith.Extent.scale`); a ranked class is a `Dim.index`. Extends
+error payloads report them as written. Window and im2col products are bounded once (`Window_axis.product`, `Dim_arith.Extent.scale`); a ranked class is a `Dim.index`. The random-walk
+machinery is typed the same way: `Walk_core.Shape.t` holds extents, `Walk.range_axis`/`hw_axis` draw a value
+of a stated domain (`Extent`, `Pos`, `Nonneg`, or any module with `of_int`/`to_int`), `Walk.hw` is
+`Core.Geometry.Hw.t`, and `Window_math` takes the guarded geometry types, so a pad cannot be passed for a
+kernel; the ATen recipes, whose configs are the ints written into ATen arguments, enter and leave those
+types once, in `Recipe_window`. `Payload.cell_bytes` is a `Storage_units.Element_bytes`. `Pad.entry` holds
+signed `Dim.delta` amounts; `Lstm.params` holds extents, `Lstm.Num_layers` is the importer's layer count,
+and `Lstm.output_shape` bounds `4 * hidden_size` (which covers every width derived from it) before any
+shape is built, so a 32-bit `int` cannot wrap there; `Index_pair` keeps frame positions and the trailing
+count behind an abstract `Frame`. A size read off an untrusted model that fails the extent check is still
+reported as written (`Lstm.params_of_sizes`). Extends
 `native_tensor_design.md` §1a, which introduced `Dim` for tensor sizes and positions,
 to every integer that names an entity. Reads with `js_backends_design.md` (the 32-bit
 `int` rule) and `error_handling_design.md` (payloads carry data, not prose).
@@ -86,6 +96,12 @@ them does with the number. The audit of the exempt entries, by family:
   `Mir_type.Lanes.t` already exist and are unwrapped (`lanes_of`, `lane_ok`,
   `lanes_per_register`, `registers_of_lanes`). The Loop vector record that holds
   `lanes` and `parts` beside its literal bounds is `todo-domain` as a whole.
+  The SSA side no longer unwraps: `Ssa_type` carries `Chunk` (a register's
+  position among a vector's) and the operations that move between the domains
+  (`Lane.chunk`, `Lane.slot`, `Lane.first`, `Lane.add`, `Lane.offset`,
+  `Lane.all`, `Chunk.map`), and the SSA emitters' name and failure-site counters
+  are `Ssa_emit_id.Name.Next` and `Site.Next`. Its module has an `.mli` so the
+  `Core.Tagged_int.S` includes stay opaque to the gate.
 - **Block rows, unroll factor, parts, block keys** (7 entries, was `tally` or
   `budget`): a row count is a domain, not a limit. The same `rows` was `budget` in
   `Ssa_opt_rows.program` and `tally` in `analyze` two declarations later; a
@@ -97,6 +113,22 @@ them does with the number. The audit of the exempt entries, by family:
   its own counters, not a field it reads from an external format; the Loop and SSA
   emitters now carry the same label (`todo-domain`) for each. The scan meter's pair
   of locals (`budget`) is two of them.
+  Typed since: `Loop_wasm_layout.Local` is the one local-index type of both
+  emitters (with its `Next` counter, so the next free local is not a count plus an
+  offset); the per-kind tables are keyed by the id's own type (`Loop_var.t`,
+  `Loop_temp.t`, `Tensor_id.t`), not its number; a failure site is
+  `Loop_failure.Site` (claimed in walk order by `Loop_failure.claim_site`, so the
+  Loop C and Wasm emitters cannot drift); a linked function index is
+  `Loop_wasm_runtime.Func`, a kernel's place among linked functions
+  `Loop_wasm_link.Kernel`; the module's `local_base`, `mark_base`, `heap_base`
+  and the bundle `Placement` are `Address.t`; the C emitter's name ordinals are
+  `Loop_c_base.Ordinal`. An invocation's place in the schedule is
+  `Loop_bundle.Position` and a scratch carve's buffer is
+  `C_workspace_plan.Scratch.Position`. The Wasm instruction set's own immediates
+  (`Local_get of int`, lane-index bounds, export kinds) are the binary format
+  and stay `wire`. Scan live state is `Slot.scan_state` of a typed `Slot.extent`.
+  What stays `todo-domain` is the frozen vectorizer and its targets (lanes,
+  parts, row blocks), which leave with the Loop retirement.
 - **Linear-memory addresses and placements** (9 entries, was `wire`): an address and
   a byte count are both `int` in `table_alloc:(bytes:int -> int)`, and the
   placement record holds five same-typed fields (`weights`, `inputs`,
@@ -104,6 +136,14 @@ them does with the number. The audit of the exempt entries, by family:
   offset inside the failure record and the Wasm module's own `Data.offset` and
   memory limits stay `wire`: those are the layout the host or the binary format
   fixes, not a number the emitter chooses.
+  Typed since: `Loop_wasm_layout` (shared by the Loop and SSA Wasm emitters)
+  holds `Width` (a cell width or access alignment, replacing log2 `int`s and
+  `arg align offset`), `Address` (an absolute address) and `Local_offset` (a
+  byte offset in the local region), each bounded below 2^31 at construction;
+  `table_alloc` is `bytes:int64 -> Address.t`; `Loop_wasm_failure.Slot` is the
+  failure-record slot ordinal; `Loop_wasm.with_heap` replaces a page count with
+  the byte count it was computed from. The wasm local-index counters
+  (`get`, `set`, `fresh`, `buffer_param`) and the placement record stay open.
 - **Output and invocation ordinals, positional index pairs, register number** (10
   entries, was `wire`, `budget`, `tally` or `cell`): the output ordinal of a run
   is `todo-domain` in `coral_run` and was `wire` in `Rv32_harness.outcome.outputs`
@@ -119,6 +159,38 @@ them does with the number. The audit of the exempt entries, by family:
   wherever it is declared: the SSA and Loop emitters' `get`, `set`, `fresh`,
   `buffer_param` and `reserve_local` agree, and so do `site`, `buffer_index` and
   `error_address`.
+
+- **Machine IR and the native routes** (was `todo-domain`, or `wire` for what an
+  emitter chooses). Typed since: a width in bits is `Mir_width.Bits` (what
+  `Mir_width.bits` returns; `Mir_target.Bits` is the same type, now defined below
+  `Mir_width`); a helper descriptor's revision is `Mir_helper.Version`; a word of the
+  failure record is `Mir_failure.Word_slot` (its byte offset `word_offset`) and a position
+  in a failure's payload `Payload_index`, since the record layout is the emitter's choice,
+  not a field of an external format. The RV32 harness and the x86-64 process lay out
+  regions with `Core.Storage_units` (`Byte_size`, `Byte_alignment`, `Byte_offset`); a
+  tensor's bytes and a table region's bytes are `Byte_size` (`Rivet_storage`); a table
+  slot is `Core.Table_slot` in every route (x86-64 now matches AArch64 and RV32); a
+  kernel's place in the schedule is `Loop_bundle.Position`. `Mir_memory.read_bytes` takes
+  a `Byte_size`, and the one-byte and whole-region reads have their own functions.
+  Labels corrected: a process exit status is `wire`; a register number handed straight to
+  Rivet's operand constructors is `wire`; a count reported in a verdict is `tally`; a
+  limit on invocations run (`run_prefix ~count`) is `budget`, as `Mir_model`'s is; a
+  literal factor on a size (`scale`) is `expr-literal`, as `Dim.scale` is. A name suffix
+  is built by the caller, so an ordinal need not appear in a signature.
+- **Native, walk_core and pt2** (6 entries, were `tally`, `arity` or `wire`):
+  `Quant.channel_count` is the extent the per-channel arrays must match;
+  `Ground_expr.Valuation.draw`'s argument is the ordinal of a draw in a retry
+  sequence; `Pt2_storage`'s `length` and offset arguments are a byte size and a
+  byte offset. `Tensor.read_at_raw` and its siblings take the evaluator's
+  `int Expr.Coord.t` callback and stay `expr-literal`. `Pt2_tensor`'s `sizes`,
+  `strides` and `storage_offset` are `Size.t`, `Stride.t` (signed) and
+  `Storage_units.Element_offset.t`, all `int64`-backed: a checkpoint's metadata is
+  never narrowed until `Pt2_tensor.Cells.of_tensor` has proved, in `int64` and
+  at both ends of the range, that every cell the layout reads lies in the
+  storage. The per-element loops (`Cells.iter`, `Cells.cell_at`) then run in
+  plain `int` cells, which cannot wrap on a 32-bit backend; `Pt2_storage`'s
+  `cell_*` readers take such a proven cell. `Pt2_tensor.numel` is an
+  `Element_count` and `Pt2_storage.length` a `Byte_size`.
 
 ## 2. Taxonomy
 
@@ -300,6 +372,15 @@ Types alone do not stop the next `int`. Three layers:
    `todo-domain` (`Vtype.Sew` and `Vtype.Lmul` exist and are bypassed), and so are
    lane arguments.
 
+   The Coral kernel generators now type their byte sizes as
+   `Transfer_units.Bytes` (the DMA geometry's row and block sizes, the SDPA
+   panels and budget, a slot's size, the block shape), their row counts as
+   `Transfer_units.Rows`, their widths and depths as `Dim.extent`, and the DMA
+   table's word index as a private `Slot.t`. What stays `todo-domain` there is
+   blocked on the instruction-immediate and scale arithmetic of `Gemm.shape`,
+   `Peak_zvt.plan` and the Zvt tile loads, and on step and chunk counts that
+   have no count role yet.
+
    The eight `machine_rivet_*` libraries entered last, adding 163 `todo-domain`
    entries: the register-allocation intervals and positions the routes re-export,
    value ids unwrapped as keys, byte offsets and sizes in the data blocks and the
@@ -348,16 +429,13 @@ Types alone do not stop the next `int`. Three layers:
    multi-gigabyte placement to trigger, so neither is reachable by a model that
    builds today.
 
-   `pt2` entered last of the JS-reachable libraries, adding 3 `todo-domain`
-   entries: `Pt2_tensor.product`, `numel` and `contiguous_strides`, which do
-   extent and stride arithmetic on raw `int`s that `pt2_aten` later wraps in
-   `Dim`. Judgement calls: the decoded tensor record, the pickle rebuild
-   descriptor and the zip end-of-central-directory fields are `wire` (the archive's
+   `pt2` entered last of the JS-reachable libraries with `todo-domain` entries
+   for `Pt2_tensor`'s arithmetic and `Pt2_storage`'s byte accessors; they are
+   now typed (see the pt2 paragraph in section 1). Judgement calls: the zip end-of-central-directory fields are `wire` (the archive's
    own representation), the zip `Limits` and their fields are `budget`, and the
-   counts and paths a rejection reports are `as-written`. No 32-bit hazard was
-   found: every decoded size is bounded when decoded, and `product` folds in
-   `int64` and narrows only to the runtime's own `int` range, so on js_of_ocaml
-   it bounds to 32 bits.
+   counts and paths a rejection reports are `as-written`. Sizes and strides now
+   stay `int64` from the pickle to the layout proof, so no decoded value is
+   narrowed before it is bounded.
 
    **Scope widened to the optimization path and the language.** `ssa_ir`, `ssa_lower`,
    `machine_alloc`, `machine_ir`, `machine_lower`, `machine_check`, `machine_interp`,
@@ -465,3 +543,27 @@ coercions), which is to be confirmed by the timed inference run rather than assu
    own dimensionless algebra is undecided.
 4. Test code: a `Test_util` of typed builders versus per-file `of_int` calls. Tests
    were not part of the survey.
+
+The RV32 and AArch64 targets type their register numbers as `Mir_target.Reg_num`
+(`Core.Tagged_int`, aliased `Rv32_reg.Num` and `A64_reg.Num`, beside a `Num_seq` of
+literal sequences), AArch64 widths as `Mir_target.Bits` and arrangement lane counts as
+`Mir_type.Lanes`, and the RV32 outliner's block positions and code byte counts as
+`Position` and `Item.Size`. The register-allocation contract uses the same
+`Reg_num` (`view`, `allocatable`, `Where.In`) and a `Scratch_slot` for the reference
+allocator's k-th operand register (`use_scratch`); a constraint's operand positions are
+`Constraint.Use_position` and `Constraint.Result_position`, read through `has_use`,
+`nth_use` and their result twins. Register-group arithmetic is `Mir_target.Span`
+(`of_width`, `members`, `aligned`, `share`), and the physical interpreter takes `Bits`
+and `Lanes` throughout. `Mir_vsplit.widening_slices` returns `Mir_type.Lane.t`. x86-64
+keeps architectural `int` numbers inside its own `Regs` and converts at the contract.
+
+## Machine IR and targets: typed so far
+
+Lane payloads of the AArch64 and RV32 vector forms are `Mir_type.Lane.t` (and
+`Lanes.t` for a register's element count); the encoder converts to the
+instruction field. A register group's extent is `Mir_target.Span.Count.t`, with
+`Span.covers`/`bits` instead of unwrapped arithmetic. Table slots are
+`Core.Table_slot.t` through `Rivet_table`, the hosts and the form environments;
+relocation keys are the typed ids. Still bare: `Mir_width.bits` (widths need
+`Bits` below `Mir_width`), the Rv32 harness layout, and the Coral GEMM
+shape/tiling and `Peak_zvt` plan/tile immediates.

@@ -17,7 +17,7 @@ module M = struct
     let params =
       {
         Factory.Arange.start = 0.;
-        stop = float_of_int count;
+        stop = float_of_int (count :> int);
         step = 1.;
         fmt = Payload.(Fmt F32);
         exact = None;

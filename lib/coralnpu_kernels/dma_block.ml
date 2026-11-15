@@ -12,10 +12,10 @@ module Shape = struct
   type t = {
     accumulate : bool;
     b : Gpr.t;
-    b_row : int;
-    c_row : int;
-    depth : int;
-    lanes : int;
+    b_row : Coral_transfer.Transfer_units.Bytes.t;
+    c_row : Coral_transfer.Transfer_units.Bytes.t;
+    depth : Core.Dim.extent Core.Dim.t;
+    lanes : Core.Dim.extent Core.Dim.t;
   }
 end
 
@@ -24,9 +24,9 @@ end
 let accumulators (s : Shape.t) ~eew vs =
   if s.accumulate then
     List.concat_map
-      (fun v -> [ vle eew v Gpr.a6; addi Gpr.a6 Gpr.a6 s.c_row ])
+      (fun v -> [ vle eew v Gpr.a6; addi Gpr.a6 Gpr.a6 (s.c_row :> int) ])
       vs
-    @ [ addi Gpr.a6 Gpr.a6 (-List.length vs * s.c_row) ]
+    @ [ addi Gpr.a6 Gpr.a6 (-List.length vs * (s.c_row :> int)) ]
   else List.map vmv_v_i vs
 
 (* INT8 x INT8 -> INT16: two rows of 64 lanes. Writes [a0]-[a6], [t0],
@@ -35,19 +35,19 @@ let i8 (s : Shape.t) =
   let open Gpr in
   let v0 = Vreg.v0 and v4 = Vreg.v4 and v16 = Vreg.v16 and v24 = Vreg.v24 in
   let mac acc scalar src = Item.insn (Vwmacc_vx { acc; scalar; src }) in
-  let rows2 = 2 * s.b_row in
+  let rows2 = 2 * (s.b_row :> int) in
   [
-    li t0 s.lanes;
+    li t0 (s.lanes :> int);
     mv a2 s.b;
-    addi a3 a2 s.b_row;
-    li a0 (s.depth / 4);
-    vset_item ~avl:t0 8 4;
+    addi a3 a2 (s.b_row :> int);
+    li a0 ((s.depth :> int) / 4);
+    vset_item ~avl:t0 E8 M4;
     vle E8 v0 a2;
     lw a4 a1 0;
-    vset_item ~avl:t0 16 8;
+    vset_item ~avl:t0 E16 M8;
   ]
   @ accumulators s ~eew:E16 [ v16; v24 ]
-  @ [ vset_item ~avl:t0 8 4 ]
+  @ [ vset_item ~avl:t0 E8 M4 ]
   @ body_items
       [
         lw a5 a1 4;
@@ -79,7 +79,10 @@ let i8 (s : Shape.t) =
         bnez a0 body_label;
       ]
   @ [
-      vset_item ~avl:t0 16 8; vse E16 v16 a6; addi a6 a6 s.c_row; vse E16 v24 a6;
+      vset_item ~avl:t0 E16 M8;
+      vse E16 v16 a6;
+      addi a6 a6 (s.c_row :> int);
+      vse E16 v24 a6;
     ]
 
 (* BF16 x BF16 -> FP32: three rows of 32 lanes, A by [flh] a k step ahead, B
@@ -91,21 +94,21 @@ let bf16 (s : Shape.t) =
   let v0 = Vreg.v0 and v4 = Vreg.v4 and v8 = Vreg.v8 in
   let v16 = Vreg.v16 and v24 = Vreg.v24 in
   let mac acc scalar src = Item.insn (Vfwmaccbf16_vf { acc; scalar; src }) in
-  let rows2 = 2 * s.b_row in
+  let rows2 = 2 * (s.b_row :> int) in
   [
-    li t0 s.lanes;
+    li t0 (s.lanes :> int);
     mv a2 s.b;
-    addi a3 a2 s.b_row;
-    li a0 (s.depth / 2);
-    vset_item ~avl:t0 16 4;
+    addi a3 a2 (s.b_row :> int);
+    li a0 ((s.depth :> int) / 2);
+    vset_item ~avl:t0 E16 M4;
     vle E16 v0 a2;
     flh fa0 a1 0;
     flh fa1 a1 2;
     flh fa2 a1 4;
-    vset_item ~avl:t0 32 8;
+    vset_item ~avl:t0 E32 M8;
   ]
   @ accumulators s ~eew:E32 [ v8; v16; v24 ]
-  @ [ vset_item ~avl:t0 16 4 ]
+  @ [ vset_item ~avl:t0 E16 M4 ]
   @ body_items
       [
         flh fa3 a1 6;
@@ -128,9 +131,9 @@ let bf16 (s : Shape.t) =
         addi a0 a0 (-1);
         bnez a0 body_label;
       ]
-  @ [ vset_item ~avl:t0 32 8 ]
+  @ [ vset_item ~avl:t0 E32 M8 ]
   @ List.concat_map
-      (fun v -> [ vse E32 v a6; addi a6 a6 s.c_row ])
+      (fun v -> [ vse E32 v a6; addi a6 a6 (s.c_row :> int) ])
       [ v8; v16; v24 ]
 
 (* FP32: three rows of 32 lanes, A by [flw] a k step ahead, B rows into v0.
@@ -145,30 +148,35 @@ let f32 (s : Shape.t) =
   in
   let macs (r0, r1, r2) = [ mac v8 r0 v0; mac v16 r1 v0; mac v24 r2 v0 ] in
   let cur = (fa4, fa5, fa6) and next = (ft1, ft2, ft3) in
-  [ li t0 s.lanes; vset_item ~avl:t0 32 8 ]
+  [ li t0 (s.lanes :> int); vset_item ~avl:t0 E32 M8 ]
   @ accumulators s ~eew:E32 [ v8; v16; v24 ]
-  @ [ mv a2 s.b; li a0 (s.depth / 2) ]
+  @ [ mv a2 s.b; li a0 ((s.depth :> int) / 2) ]
   @ loads cur 0
   @ body_items
       (loads next 12
       @ [ vle E32 v0 a2 ]
       @ macs cur
-      @ [ addi a2 a2 s.b_row; addi a1 a1 24 ]
+      @ [ addi a2 a2 (s.b_row :> int); addi a1 a1 24 ]
       @ loads cur 0
       @ [ vle E32 v0 a2 ]
       @ macs next
-      @ [ addi a2 a2 s.b_row; addi a0 a0 (-1); bnez a0 body_label ])
+      @ [ addi a2 a2 (s.b_row :> int); addi a0 a0 (-1); bnez a0 body_label ])
   @ List.concat_map
-      (fun v -> [ vse E32 v a6; addi a6 a6 s.c_row ])
+      (fun v -> [ vse E32 v a6; addi a6 a6 (s.c_row :> int) ])
       [ v8; v16; v24 ]
 
 (* A block's [rows] rows of [depth] [bytes]-byte elements, row-major from
    [src], packed into [s11] as a block reads them: each row's elements [rows]
    apart, by [vle] and a strided [vsse] at m8, VLMAX at a time. [src] is left
    at the packed block. Writes [a2], [t0]-[t3], [t5], [t6], v0. *)
-let repack ~bytes ~rows ~depth ~src =
+let repack ~(bytes : Coral_transfer.Transfer_units.Bytes.t)
+    ~(rows : Coral_transfer.Transfer_units.Rows.t)
+    ~(depth : Core.Dim.extent Core.Dim.t) ~src =
   let open Err.Syntax in
   let open Gpr in
+  let bytes = (bytes :> int)
+  and rows = (rows :> int)
+  and depth = (depth :> int) in
   let eew = sew_of_bits (8 * bytes) in
   (* VLEN 128 at m8 *)
   let vl = 128 / bytes in
@@ -177,7 +185,7 @@ let repack ~bytes ~rows ~depth ~src =
   let row = Label.named "repack_row" and trip = Label.named "repack_trip" in
   let* step = Insn.load_imm t2 (vl * rows * bytes) in
   Ok
-    ([ vset_item (8 * bytes) 8; li t5 (rows * bytes) ]
+    ([ vset_item eew M8; li t5 (rows * bytes) ]
     @ List.map Item.insn step
     @ [
         mv a2 s11;

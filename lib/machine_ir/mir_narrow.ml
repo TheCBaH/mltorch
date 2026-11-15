@@ -30,20 +30,14 @@ let func ?mutation (f : (Mir_op.t, Mir_terminator.t) Mir_func.t) =
         b.Mir_block.body)
     f.Mir_func.blocks;
   let emit out (origin : Mir_origin.t) op =
-    let r =
-      { Mir_value.id = Mir_id.Value.of_int !next_value; ty = Mir_type.i32 }
-    in
-    incr next_value;
+    let id, next = Mir_id.Value.Next.alloc !next_value in
+    next_value := next;
+    let r = { Mir_value.id; ty = Mir_type.i32 } in
+    let instr_id, next = Mir_id.Instr.Next.alloc !next_instr in
+    next_instr := next;
     out :=
-      {
-        Mir_instr.id = Mir_id.Instr.of_int !next_instr;
-        results = [ r ];
-        op;
-        order = None;
-        origin;
-      }
+      { Mir_instr.id = instr_id; results = [ r ]; op; order = None; origin }
       :: !out;
-    incr next_instr;
     r
   in
   (* an i64 operand at 32 bits *)

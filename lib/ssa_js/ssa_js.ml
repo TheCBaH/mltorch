@@ -662,10 +662,10 @@ let program ?buffers ?sites (p : Ssa_program.t) =
       esc;
       names = Ssa_ir.Ssa_id.Value.Tbl.create 64;
       decls = [];
-      next_name = 0;
-      next_temp = 0;
+      next_name = Ssa_ir.Ssa_emit_id.Name.Next.first;
+      next_temp = Ssa_ir.Ssa_emit_id.Name.Next.first;
       sites = [];
-      site_count = 0;
+      site_count = Ssa_ir.Ssa_emit_id.Site.Next.first;
       tables = [];
       locals = Ssa_ir.Ssa_id.Value.Tbl.create 8;
       buffers;

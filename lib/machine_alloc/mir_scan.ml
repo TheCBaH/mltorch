@@ -9,10 +9,13 @@ module type POOL = sig
   include Mir_ref_alloc.REGISTERS
 
   val view :
-    Mir_target.Bank.t -> bits:Mir_target.Bits.t -> int -> Mir_target.View.t
+    Mir_target.Bank.t ->
+    bits:Mir_target.Bits.t ->
+    Mir_target.Reg_num.t ->
+    Mir_target.View.t
   (** register [k] of a bank at a width *)
 
-  val allocatable : Mir_target.Bank.t -> int list
+  val allocatable : Mir_target.Bank.t -> Mir_target.Reg_num.t list
   (** the registers allocation may assign, in preference order *)
 end
 
@@ -48,16 +51,17 @@ module Make (T : Mir_sel.TARGET) (R : POOL) = struct
     | None -> invalid_arg "Mir_linear_scan: a value with no shape"
 
   module Where = struct
-    type t = In of int | Spilled | Unassigned
+    type t = In of Mir_target.Reg_num.t | Spilled | Unassigned
   end
 
   (* One allocated piece of a value's interval. *)
   module Piece = struct
     type t = {
       value : Mir_value.t;
-      mutable ranges : (int * int) list;  (** half-open, ascending *)
-      mutable uses : int list;  (** ascending *)
-      mutable needs : int list;
+      mutable ranges : (Mir_point.t * Mir_point.t) list;
+          (** half-open, ascending *)
+      mutable uses : Mir_point.t list;  (** ascending *)
+      mutable needs : Mir_point.t list;
           (** ascending: where it must be in a register — a read by an
               instruction or a branch, or its own definition *)
       mutable where : Where.t;
@@ -65,26 +69,33 @@ module Make (T : Mir_sel.TARGET) (R : POOL) = struct
 
     let start p = fst (List.hd p.ranges)
     let stop p = snd (List.hd (List.rev p.ranges))
-    let covers p x = List.exists (fun (a, b) -> a <= x && x < b) p.ranges
 
-    (* The first position at or after [x] both pieces cover. *)
+    let covers p x =
+      let open Mir_point.Infix in
+      List.exists (fun (a, b) -> a <= x && x < b) p.ranges
+
+    (* The first point at or after [from] both pieces cover. *)
     let intersection p q ~from =
+      let open Mir_point.Infix in
       List.fold_left
         (fun acc (a, b) ->
           List.fold_left
             (fun acc (c, d) ->
-              let lo = max (max a c) from and hi = min b d in
+              let lo = Mir_point.max (Mir_point.max a c) from
+              and hi = Mir_point.min b d in
               if lo < hi then
                 match acc with Some m when m <= lo -> acc | _ -> Some lo
               else acc)
             acc q.ranges)
         None p.ranges
 
-    let next_use p ~from = List.find_opt (fun u -> u >= from) p.uses
+    let next_use p ~from =
+      List.find_opt (fun u -> Mir_point.compare u from >= 0) p.uses
 
-    (* Splits at [s] (even): [p] keeps what lies before, the result holds the
-       rest, unassigned. *)
+    (* Splits at [s] (a read point): [p] keeps what lies before, the result
+       holds the rest, unassigned. *)
     let split p s =
+      let open Mir_point.Infix in
       let before, after =
         List.fold_right
           (fun (a, b) (bf, af) ->
@@ -112,30 +123,34 @@ module Make (T : Mir_sel.TARGET) (R : POOL) = struct
   module Fixed = struct
     type t = {
       view : Mir_target.View.t;
-      lo : int;
-      hi : int;
+      lo : Mir_point.t;
+      hi : Mir_point.t;
       own : Mir_value.t list;
           (** the instruction's results, written after it: never blocked *)
     }
   end
 
-  (* The even position a split for a use at [u] happens at: before the
+  (* The read point a split for a use at [u] happens at: before the
      instruction reading it, or before the last instruction of a block whose
      terminator reads it (the block's start, if it has none). *)
-  let split_for u = if u land 1 = 0 then u else u - 1
+  let split_for = Mir_point.read_at_or_before
 
   (* Whether what [p] holds from [at] on must be in a register at once: a
      need no split at or after [at] can come before. *)
   let must (p : Piece.t) ~at =
+    let open Mir_point.Infix in
     List.exists (fun r -> r >= at && split_for r <= at) p.Piece.needs
 
-  type st = { mutation : Mutation.t option; mutable next_block : int }
+  type st = {
+    mutation : Mutation.t option;
+    mutable next_block : Mir_id.Block.Next.t;
+  }
 
   let mutated st m = st.mutation = Some m
 
   (* --- linear scan, one bank at a time ----------------------------------- *)
 
-  let scan st ~bank ~fixed ~depth ~starts ~split_cost ~loops ~uses_of ~prefer
+  let scan st ~bank ~fixed ~weight ~starts ~split_cost ~loops ~uses_of ~prefer
       (pieces : Piece.t list) =
     let bank_pool = R.allocatable bank in
     let view_of (p : Piece.t) k =
@@ -145,47 +160,48 @@ module Make (T : Mir_sel.TARGET) (R : POOL) = struct
        than a unit (a register group of [c] units), a base that is a
        multiple of [c] whose [c] registers are all allocatable *)
     let candidates (p : Piece.t) =
-      let c = (snd (shape p.Piece.value) :> int) / (T.unit_bits bank :> int) in
-      if c <= 1 then bank_pool
-      else
-        List.filter
-          (fun k ->
-            k mod c = 0
-            && List.for_all
-                 (fun i -> List.mem (k + i) bank_pool)
-                 (List.init c Fun.id))
-          bank_pool
+      match
+        Mir_target.Span.of_width ~unit:(T.unit_bits bank)
+          (snd (shape p.Piece.value))
+      with
+      | Mir_target.Span.One -> bank_pool
+      | span ->
+          List.filter
+            (fun k ->
+              Mir_target.Span.aligned span k
+              && List.for_all
+                   (fun m -> List.mem m bank_pool)
+                   (Mir_target.Span.members span k))
+            bank_pool
     in
-    let weight u = 10. ** float_of_int (depth u) in
     (* how soon [p] is read from [pos], per loop weight: its next use, or —
        when it has none ahead but lives across the back edge of the innermost
        loop holding [pos] — its first use in that loop, on the next trip *)
     let urgency (p : Piece.t) ~pos =
+      let open Mir_point.Infix in
       match Piece.next_use p ~from:pos with
-      | Some u -> float_of_int (u - pos) /. weight u
+      | Some u -> Mir_point.distance ~from:pos ~to_:u /. weight u
       | None -> (
           match List.find_opt (fun (a, b) -> a <= pos && pos < b) loops with
-          | Some (a, b) when Piece.covers p (b - 1) -> (
+          | Some (a, b) when Piece.covers p (Mir_point.pred b) -> (
               match
                 List.find_opt
                   (fun u -> u >= a && u < pos)
                   (uses_of p.Piece.value)
               with
-              | Some u -> float_of_int (b - pos + (u - a)) /. weight u
+              | Some u ->
+                  (Mir_point.distance ~from:pos ~to_:b
+                  +. Mir_point.distance ~from:a ~to_:u)
+                  /. weight u
               | None -> infinity)
           | _ -> infinity)
     in
+    let by_start a b = Mir_point.compare (Piece.start a) (Piece.start b) in
     let all = ref [] in
-    let unhandled =
-      ref
-        (List.sort (fun a b -> compare (Piece.start a) (Piece.start b)) pieces)
-    in
+    let unhandled = ref (List.sort by_start pieces) in
     let push p =
       if p.Piece.ranges <> [] then
-        unhandled :=
-          List.merge
-            (fun a b -> compare (Piece.start a) (Piece.start b))
-            [ p ] !unhandled
+        unhandled := List.merge by_start [ p ] !unhandled
     in
     let active = ref [] and inactive = ref [] in
     let reg_of (p : Piece.t) =
@@ -201,7 +217,7 @@ module Make (T : Mir_sel.TARGET) (R : POOL) = struct
             && not
                  (mutated st Mutation.Call_interval
                  && f.Fixed.own <> []
-                 && f.Fixed.lo land 1 = 1)
+                 && Mir_point.is_write f.Fixed.lo)
           then
             match
               Piece.intersection cur
@@ -275,9 +291,9 @@ module Make (T : Mir_sel.TARGET) (R : POOL) = struct
               in
               let f = fixed_block cur k in
               match (i, f) with
-              | Some a, Some b -> min a b
+              | Some a, Some b -> Mir_point.min a b
               | Some a, None | None, Some a -> a
-              | None, None -> max_int
+              | None, None -> Mir_point.never
           in
           (* the value's own last register, else that of the value it is
              tied to, whose piece ends where this one starts *)
@@ -351,7 +367,7 @@ module Make (T : Mir_sel.TARGET) (R : POOL) = struct
                     !active
                 in
                 match fixed_block cur k with
-                | Some x when x <= pos + 1 -> None
+                | Some x when x <= Mir_point.succ pos -> None
                 | _ when needed && not (mutated st Mutation.Needed_eviction) ->
                     None
                 | _ -> Some (List.fold_left min infinity uses)
@@ -378,11 +394,11 @@ module Make (T : Mir_sel.TARGET) (R : POOL) = struct
                     let here = split_for pos in
                     let last =
                       List.fold_left
-                        (fun m u -> if u < pos then max m u else m)
-                        (Piece.start p - 1)
+                        (fun m u -> if u < pos then Mir_point.max m u else m)
+                        (Mir_point.pred (Piece.start p))
                         (p.Piece.uses @ p.Piece.needs)
                     in
-                    let after = (last lor 1) + 1 in
+                    let after = Mir_point.after_instruction last in
                     List.fold_left
                       (fun (best, cost) b ->
                         if b > last && b < here then
@@ -431,12 +447,15 @@ module Make (T : Mir_sel.TARGET) (R : POOL) = struct
                     match fixed_block cur k with
                     | Some x when split_for x > pos -> [ split_for x ]
                     | _ -> []
-                  and needed = if s < own then [ (pos lor 1) + 1 ] else [] in
+                  and needed =
+                    if s < own then [ Mir_point.after_instruction pos ] else []
+                  in
                   (match blocked @ needed with
                   | [] -> ()
                   | cuts ->
                       let q =
-                        Piece.split cur (List.fold_left min max_int cuts)
+                        Piece.split cur
+                          (List.fold_left Mir_point.min Mir_point.never cuts)
                       in
                       push q);
                   assign k

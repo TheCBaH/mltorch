@@ -214,10 +214,7 @@ let semantic esc (cx : Mir_check.context)
                 | _ -> (None, None)
               in
               match (w, c) with
-              | Some w, Some c
-                when Int64.compare c 0L >= 0
-                     && Int64.compare c (Int64.of_int (Mir_width.bits w)) < 0 ->
-                  ()
+              | Some w, Some c when Mir_width.shift_count_ok w c -> ()
               | _ -> reject P.Shift_count)
           | Mir_op.Idiv (_, x, y) -> (
               match x.Mir_value.ty with

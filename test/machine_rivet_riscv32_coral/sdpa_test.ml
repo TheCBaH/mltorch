@@ -349,8 +349,9 @@ let dtcm =
         r.Coral_profile.Region.role = Coral_profile.Role.Dtcm)
       profile.Coral_profile.regions
   in
-  ( Int64.to_int r.Coral_profile.Region.base,
-    Int64.to_int r.Coral_profile.Region.size )
+  ( r.Coral_profile.Region.base,
+    Coral_transfer.Transfer_units.Bytes.of_int
+      (Int64.to_int r.Coral_profile.Region.size) )
 
 (* Each defect must turn a case red; the unmutated run of the same case is
    bitwise. *)

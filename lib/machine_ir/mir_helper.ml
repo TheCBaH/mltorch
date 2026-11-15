@@ -11,10 +11,19 @@ module Effect = struct
     | Reads_writes -> "reads_writes"
 end
 
+(* The revision of a helper's descriptor: a model binds to a helper by name
+   and this, so a changed descriptor is a different helper. *)
+module Version =
+  Core.Tagged_int.Make
+    (struct
+      let prefix = "version"
+    end)
+    ()
+
 type t = {
   id : Mir_id.Helper.t;
   name : string;
-  version : int;
+  version : Version.t;
   params : Mir_type.t list;
   results : Mir_type.t list;
   effects : Effect.t;

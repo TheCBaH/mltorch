@@ -225,8 +225,9 @@ let image ?mutation ?kernel_mutation ?home ?(engine = true) ?engine_mutation
         match r.Coral_profile.Region.role with
         | Coral_profile.Role.Dtcm ->
             Some
-              ( Int64.to_int r.Coral_profile.Region.base,
-                Int64.to_int r.Coral_profile.Region.size )
+              ( r.Coral_profile.Region.base,
+                Coral_transfer.Transfer_units.Bytes.of_int
+                  (Int64.to_int r.Coral_profile.Region.size) )
         | _ -> None)
       profile.Coral_profile.regions
   in
@@ -356,7 +357,10 @@ let image ?mutation ?kernel_mutation ?home ?(engine = true) ?engine_mutation
             | Ok l -> String.length l.Coral_overlay.Linked.text
             | Error _ -> 0
           in
-          let slot = List.fold_left (fun n o -> max n (text o)) 0 attentions in
+          let slot =
+            O.Item.Size.of_int
+              (List.fold_left (fun n o -> max n (text o)) 0 attentions)
+          in
           O.of_artifact ?mutation ~avoid:(List.map fst !attended)
             ~choose:(O.fill ~slot) artifact
     in
@@ -479,7 +483,7 @@ let run_once ?(on_run = fun _ -> ()) ?(on_elf = fun _ -> ()) ?route_mutation
         | Art.Section.Bound ->
             let* _, bytes =
               Q.region_bytes memory binding s.Table.region
-                (Int64.to_int s.Table.size)
+                (Machine_rivet_common.Rivet_storage.region_bytes s)
             in
             Ok (Some bytes :: acc)
         | _ -> Ok (None :: acc))

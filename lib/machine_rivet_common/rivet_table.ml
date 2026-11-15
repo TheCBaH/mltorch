@@ -35,16 +35,28 @@ let of_artifact artifact =
         (Mir_id.Region.to_int a.region)
         (Mir_id.Region.to_int b.region))
 
-let slot_of_symbol slots name =
+let slot_of_symbol slots name : Core.Table_slot.t option =
   let rec go k = function
     | [] -> None
     | s :: rest ->
-        if String.equal s.symbol name then Some k else go (k + 1) rest
+        if String.equal s.symbol name then Some (Core.Table_slot.of_int k)
+        else go (k + 1) rest
   in
   go 0 slots
 
 (* The entry every table-bound image exports. *)
 let entry = "mir_entry"
 
+module Byte_size = Core.Storage_units.Byte_size
+
+(* A slot holds one 64-bit address. *)
+let word =
+  Err.or_raise ~pp_error:Core.Storage_units.pp_error (Byte_size.of_int64 8L)
+
 (* Bytes of the table a caller supplies. *)
-let bytes slots = 8 * List.length slots
+let bytes slots =
+  List.fold_left
+    (fun acc _ ->
+      Err.or_raise ~pp_error:Core.Storage_units.pp_error
+        (Byte_size.add acc word))
+    Byte_size.zero slots

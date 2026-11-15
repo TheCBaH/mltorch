@@ -204,7 +204,11 @@ let samples : Op.t list =
     Lstm
       {
         Lstm.Lstm.params =
-          { hidden_size = 2; input_size = 3; batch_first = false };
+          {
+            hidden_size = Dim.extent 2;
+            input_size = Dim.extent 3;
+            batch_first = false;
+          };
         layers =
           [
             {
@@ -244,8 +248,8 @@ let samples : Op.t list =
           {
             pads =
               [
-                (H, { Pad.Pad.before = 1; after = 2 });
-                (W, { before = -1; after = 3 });
+                (H, { Pad.Pad.before = Dim.delta 1; after = Dim.delta 2 });
+                (W, { before = Dim.delta (-1); after = Dim.delta 3 });
               ];
             mode = Pad.Pad.Constant 0.1;
           };

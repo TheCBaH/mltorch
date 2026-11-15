@@ -5,14 +5,23 @@
    ({!Attention_block.name}), so a model, a realization and an artifact all
    recover it from the declaration alone. *)
 
-let version = 1
+let version = Mir_helper.Version.of_int 1
 
 (* Helper ids from 1024 up, past the contractions'. *)
-let first_id = 1024
+let first_id = Mir_id.Helper.of_int 1024
+
+(* An attention's position among the declared attentions, in lowering order. *)
+module Index =
+  Core.Tagged_int.Make
+    (struct
+      let prefix = "attention"
+    end)
+    ()
 
 let descriptor ~index (d : Attention_block.t) =
   {
-    Mir_helper.id = Mir_id.Helper.of_int (first_id + index);
+    Mir_helper.id =
+      Mir_id.Helper.of_int (Mir_id.Helper.to_int first_id + Index.to_int index);
     name = Attention_block.name d;
     version;
     params =
@@ -26,6 +35,6 @@ let descriptor ~index (d : Attention_block.t) =
 
 (* The descriptor a helper declaration stands for, if it is an attention. *)
 let of_helper (h : Mir_helper.t) =
-  if h.Mir_helper.version = version then
+  if Mir_helper.Version.equal h.Mir_helper.version version then
     Attention_block.of_name h.Mir_helper.name
   else None

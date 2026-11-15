@@ -11,3 +11,10 @@ module Site =
       let prefix = "site"
     end)
     ()
+
+module Name =
+  Core.Tagged_int.Make
+    (struct
+      let prefix = "name"
+    end)
+    ()

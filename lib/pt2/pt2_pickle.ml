@@ -10,17 +10,17 @@ module V = Opickle.Value
 type rebuild = {
   storage_key : string;
   dtype : Pt2_dtype.t;
-  storage_offset : int;
-  sizes : int list;
-  strides : int list;
+  storage_offset : Core.Storage_units.Element_offset.t;
+  sizes : Pt2_tensor.Size.t list;
+  strides : Pt2_tensor.Stride.t list;
 }
 
 type error =
   [ `Duplicate_tensor_map_key of string
   | `Expected_int of string
   | `Expected_tensor_map
-  | `Int_out_of_range of string * int64
   | `Malformed_pickle of string
+  | `Negative_value of string * int64
   | `No_tensor_found
   | Pt2_dtype.error
   | `Tensor_map_key_not_string
@@ -33,10 +33,9 @@ let pp_error ppf : error -> unit = function
       Fmt.pf ppf "tensor map contains duplicate key %S" key
   | `Expected_int what -> Fmt.pf ppf "expected int for %s" what
   | `Expected_tensor_map -> Fmt.string ppf "pickle did not yield a tensor map"
-  | `Int_out_of_range (what, i) ->
-      Fmt.pf ppf "%s is %Ld, outside the representable int range [%d, %d]" what
-        i min_int max_int
   | `Malformed_pickle msg -> Fmt.pf ppf "pickle decode failed: %s" msg
+  | `Negative_value (what, i) ->
+      Fmt.pf ppf "%s is %Ld, which is negative" what i
   | `No_tensor_found -> Fmt.string ppf "pickle did not yield a tensor"
   | #Pt2_dtype.error as e -> Pt2_dtype.pp_error ppf e
   | `Tensor_map_key_not_string ->
@@ -48,22 +47,34 @@ let pp_error ppf : error -> unit = function
   | `Unexpected_storage_persistent_id ->
       Fmt.string ppf "unexpected storage persistent id"
 
-(* A distinct tag from [`Expected_int]: the value here IS an integer, it just
-   does not fit this backend's [int]. Under js_of_ocaml that is 32 bits, so a
-   size or stride outside [min_int, max_int] would wrap silently -- and the
-   wrap is two-sided, because pickle integers are signed. Reporting "expected
-   an int" would send a reader hunting a type error in the pickle instead of a
-   width limit. See [[js_backends_design]]. *)
-let int_of what = function
-  | V.Int i ->
-      if
-        Int64.compare i (Int64.of_int min_int) < 0
-        || Int64.compare i (Int64.of_int max_int) > 0
-      then Err.fail (`Int_out_of_range (what, i))
-      else Err.return (Int64.to_int i)
+(* The pickle's integers are signed 64-bit and stay [int64] here: a size or
+   offset past this backend's [int] (32 bits under js_of_ocaml) is a legal
+   value, and narrowing it is [Pt2_tensor.Cells]'s decision, made after a
+   bound. A negative size or offset is [`Negative_value], distinct from
+   [`Expected_int]: the value IS an integer, just outside the field's domain.
+   See [[js_backends_design]]. *)
+let int64_of what = function
+  | V.Int i -> Err.return i
   | _ -> Err.fail (`Expected_int what)
 
-let ints_of what a = Err.List.map (int_of what) (Array.to_list a)
+let size_of what v =
+  let open Err.Syntax in
+  let* i = int64_of what v in
+  Pt2_tensor.Size.of_int64 i
+
+let sizes_of what a = Err.List.map (size_of what) (Array.to_list a)
+
+let strides_of what a =
+  Err.List.map
+    (fun v -> Err.map (fun i -> Pt2_tensor.Stride.of_int64 i) (int64_of what v))
+    (Array.to_list a)
+
+let offset_of what v =
+  let open Err.Syntax in
+  let* i = int64_of what v in
+  match Core.Storage_units.Element_offset.of_int64 i with
+  | Ok o -> Err.return o
+  | Error _ -> Err.fail (`Negative_value (what, i))
 
 (* A storage persistent id is ('storage', <TypeStorage>, key, device, numel). *)
 let storage_of_persid = function
@@ -81,9 +92,9 @@ let rebuild_of_args = function
       | V.Persistent pid, offset, V.Tuple size, V.Tuple stride ->
           let open Err.Syntax in
           let* dtype, storage_key = storage_of_persid pid in
-          let* storage_offset = int_of "storage_offset" offset in
-          let* sizes = ints_of "size" size in
-          let+ strides = ints_of "stride" stride in
+          let* storage_offset = offset_of "storage_offset" offset in
+          let* sizes = sizes_of "size" size in
+          let+ strides = strides_of "stride" stride in
           { storage_key; dtype; storage_offset; sizes; strides }
       | _ -> Err.fail `Unexpected_rebuild_args)
   | _ -> Err.fail `Unexpected_rebuild_args

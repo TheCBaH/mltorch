@@ -9,7 +9,9 @@ open Machine_ir
 let status memory key ~sites =
   let bytes =
     Mir_memory.read_bytes memory key ~offset:0L
-      ~n:(Int64.to_int Mir_failure.record_bytes)
+      ~n:
+        (Err.or_raise ~pp_error:Core.Storage_units.pp_error
+           (Core.Storage_units.Byte_size.of_int64 Mir_failure.record_bytes))
   in
   let word off n =
     let rec go k acc =
@@ -23,7 +25,9 @@ let status memory key ~sites =
     go (n - 1) 0L
   in
   let words =
-    List.init Mir_failure.record_words (fun k -> word (8 + (8 * k)) 8)
+    List.map
+      (fun k -> word (Int64.to_int (Mir_failure.word_offset k)) 8)
+      Mir_failure.word_slots
   in
   match (word 0 4, word 4 4, List.for_all Option.is_some words) with
   | Some kind, Some invocation, true -> (

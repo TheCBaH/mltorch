@@ -13,7 +13,15 @@ module Mean = struct
 
     let initial =
       {
-        shape = { Walk_core.Shape.n = 2; t = 1; d = 1; h = 4; w = 4; c = 4 };
+        shape =
+          {
+            Walk_core.Shape.n = Dim.extent 2;
+            t = Dim.one;
+            d = Dim.one;
+            h = Dim.extent 4;
+            w = Dim.extent 4;
+            c = Dim.extent 4;
+          };
         dims = [ Axis.H; Axis.W ];
         keepdim = false;
       }
@@ -56,7 +64,15 @@ module Sum = struct
 
     let initial =
       {
-        shape = { Walk_core.Shape.n = 2; t = 1; d = 1; h = 4; w = 4; c = 4 };
+        shape =
+          {
+            Walk_core.Shape.n = Dim.extent 2;
+            t = Dim.one;
+            d = Dim.one;
+            h = Dim.extent 4;
+            w = Dim.extent 4;
+            c = Dim.extent 4;
+          };
         dims = [ Axis.H; Axis.W ];
         keepdim = false;
       }
@@ -99,7 +115,15 @@ module Amax = struct
 
     let initial =
       {
-        shape = { Walk_core.Shape.n = 2; t = 1; d = 1; h = 4; w = 4; c = 4 };
+        shape =
+          {
+            Walk_core.Shape.n = Dim.extent 2;
+            t = Dim.one;
+            d = Dim.one;
+            h = Dim.extent 4;
+            w = Dim.extent 4;
+            c = Dim.extent 4;
+          };
         dims = [ Axis.H; Axis.W ];
         keepdim = false;
       }
@@ -142,7 +166,15 @@ module MaxDim = struct
 
     let initial =
       {
-        shape = { Walk_core.Shape.n = 2; t = 1; d = 1; h = 4; w = 4; c = 4 };
+        shape =
+          {
+            Walk_core.Shape.n = Dim.extent 2;
+            t = Dim.one;
+            d = Dim.one;
+            h = Dim.extent 4;
+            w = Dim.extent 4;
+            c = Dim.extent 4;
+          };
         axis = Axis.C;
         keepdim = false;
       }
@@ -176,7 +208,15 @@ module Vector_norm = struct
 
     let initial =
       {
-        shape = { Walk_core.Shape.n = 2; t = 1; d = 1; h = 4; w = 4; c = 4 };
+        shape =
+          {
+            Walk_core.Shape.n = Dim.extent 2;
+            t = Dim.one;
+            d = Dim.one;
+            h = Dim.extent 4;
+            w = Dim.extent 4;
+            c = Dim.extent 4;
+          };
         dims = [ Axis.H; Axis.W ];
         keepdim = false;
       }
@@ -221,7 +261,15 @@ module Softmax = struct
 
     let initial =
       {
-        shape = { Walk_core.Shape.n = 2; t = 1; d = 1; h = 4; w = 4; c = 4 };
+        shape =
+          {
+            Walk_core.Shape.n = Dim.extent 2;
+            t = Dim.one;
+            d = Dim.one;
+            h = Dim.extent 4;
+            w = Dim.extent 4;
+            c = Dim.extent 4;
+          };
         axis = Axis.C;
       }
 
@@ -255,7 +303,15 @@ module Cumsum = struct
 
     let initial =
       {
-        shape = { Walk_core.Shape.n = 2; t = 1; d = 1; h = 4; w = 4; c = 4 };
+        shape =
+          {
+            Walk_core.Shape.n = Dim.extent 2;
+            t = Dim.one;
+            d = Dim.one;
+            h = Dim.extent 4;
+            w = Dim.extent 4;
+            c = Dim.extent 4;
+          };
         axis = Axis.C;
       }
 

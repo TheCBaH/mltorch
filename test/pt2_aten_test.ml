@@ -6,7 +6,7 @@ let int64_tensor ~sizes ~strides ~storage_offset values =
   let data = Bytes.create (8 * Array.length values) in
   Array.iteri (fun i value -> Bytes.set_int64_le data (8 * i) value) values;
   let data = Pt2_storage.of_string (Bytes.to_string data) in
-  Pt2_tensor.{ dtype = Pt2_dtype.Int64; sizes; strides; storage_offset; data }
+  Pt2_tensor.of_ints Pt2_dtype.Int64 ~sizes ~strides ~storage_offset data
 
 let%expect_test "int64 bridge preserves signed strided storage" =
   let source =

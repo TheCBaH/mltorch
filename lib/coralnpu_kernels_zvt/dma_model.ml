@@ -87,9 +87,9 @@ let predict ?(r = measured) (t : G.t) =
     match t.geometry with
     | Resident_a _ -> f (String.length a)
     | Resident_b | Row_major_a -> f (String.length b)
-    | Split_k _ -> f (G.chunk_bytes t)
+    | Split_k _ -> f (G.chunk_bytes t :> int)
   in
-  let piece = f (G.piece t) and n = G.steps t in
+  let piece = f (G.piece t :> int) and n = (G.steps t :> int) in
   (* With K split, a step also brings a block's partial sums back and a share
      of the next chunk of B, each a further descriptor. *)
   let split =
@@ -97,27 +97,30 @@ let predict ?(r = measured) (t : G.t) =
     | Split_k _ -> true
     | Resident_a _ | Resident_b | Row_major_a -> false
   in
-  let c_in = if split then f (G.c_block t) else 0. in
+  let c_in = if split then f (G.c_block t :> int) else 0. in
   let share i =
-    if split && (i / (t.blocks :> int)) + 1 < G.chunks t then
-      f (G.chunk_bytes t) /. f (t.blocks :> int)
+    if split && (i / (t.blocks :> int)) + 1 < (G.chunks t :> int) then
+      f (G.chunk_bytes t :> int) /. f (t.blocks :> int)
     else 0.
   in
   (* C's bytes a step by the core's stores, and by the DMA, a descriptor a
      row when A is resident. *)
-  let c = f (G.c_step t) in
+  let c = f (G.c_step t :> int) in
   let c_core =
     c *. f (G.Out.by_core ~rows:(G.rows t) t.out :> int) /. f (G.rows t :> int)
   in
   let c_dma = c -. c_core in
-  let extra = f (max 0 (G.c_descriptors t - 1)) *. r.descriptor in
+  let extra = f (max 0 ((G.c_descriptors t :> int) - 1)) *. r.descriptor in
   let step_ops = f (G.ops t / n) in
   let prologue =
     match t.prologue with
     | Dma -> r.dma_start +. ((resident +. piece +. c_in) /. r.dma)
     | Shared ->
         let by_core =
-          f (int_of_float resident * 3 / 4 / G.core_trip * G.core_trip)
+          f
+            (int_of_float resident * 3 / 4
+            / (G.core_trip :> int)
+            * (G.core_trip :> int))
         in
         beside r
           ~phases:[ (by_core /. r.core_copy, r.dma_beside_copy) ]
@@ -128,7 +131,9 @@ let predict ?(r = measured) (t : G.t) =
   let repack =
     match t.geometry with
     | Row_major_a ->
-        let e = f (Coralnpu_kernels.Peak_kernels.Elem.bytes (G.shape t).src) in
+        let e =
+          f (Coralnpu_kernels.Peak_kernels.Elem.size (G.shape t).src :> int)
+        in
         let stride = f (G.rows t :> int) *. e in
         let rate =
           Float.min r.repack_peak (r.repack_beat *. Float.max 1. (16. /. stride))
@@ -165,38 +170,48 @@ let predict ?(r = measured) (t : G.t) =
 let dtcm t =
   List.fold_left
     (fun n (s : L.Slot.t) ->
-      match s.home with Dtcm -> n + Int64.to_int s.size | Any | Ram -> n)
-    0 (G.slots t)
+      match s.home with
+      | Dtcm -> G.B.add n (G.B.of_int (Int64.to_int s.size))
+      | Any | Ram -> n)
+    G.B.zero (G.slots t)
 
 (* Why a problem has no variant. *)
 module Refusal = struct
   type t =
-    | Nothing_fits of { budget : int; least : int }
+    | Nothing_fits of { budget : G.B.t; least : G.B.t }
         (** every variant needs more DTCM than [budget]; the least [least] *)
-    | Rows of { m : int; rows : int }  (** M not a multiple of a block's rows *)
+    | Rows of {
+        m : Coral_transfer.Transfer_units.Rows.t;
+        rows : Coral_transfer.Transfer_units.Rows.t;
+      }  (** M not a multiple of a block's rows *)
 
   let pp ppf = function
     | Nothing_fits { budget; least } ->
-        Fmt.pf ppf "no variant fits %d bytes of DTCM; the least needs %d" budget
-          least
+        Fmt.pf ppf "no variant fits %a bytes of DTCM; the least needs %a" G.B.pp
+          budget G.B.pp least
     | Rows { m; rows } ->
-        Fmt.pf ppf "M = %d is not a multiple of the block's %d rows" m rows
+        Fmt.pf ppf "M = %a is not a multiple of the block's %a rows"
+          Coral_transfer.Transfer_units.Rows.pp m
+          Coral_transfer.Transfer_units.Rows.pp rows
 end
 
 (* Every implemented variant of a problem, M x W x K on an engine with A
    packed ([a_row_major]: as it arrives, row-major, so the core packs each
    block in DTCM and only resident B's pipeline applies), that fits [budget]
    bytes of DTCM, fastest first by the model; or why there is none. *)
-let variants ?(a_row_major = false) ~budget ~engine ~m ~width ~depth () =
+let variants ?(a_row_major = false) ~(budget : G.B.t) ~engine
+    ~(m : Coral_transfer.Transfer_units.Rows.t)
+    ~(width : Core.Dim.extent Core.Dim.t) ~(depth : Core.Dim.extent Core.Dim.t)
+    () =
   let rows = G.Engine.rows engine in
+  let m_rows = m in
+  let m = (m :> int) and width = (width :> int) and depth = (depth :> int) in
   let packed_geometries =
     match G.Engine.lanes engine with
-    | Some n ->
+    | Some panel ->
+        let n = (panel :> int) in
         (if width = n then [ G.Geometry.Resident_b ] else [])
-        @
-        if width mod n = 0 then
-          [ G.Geometry.Resident_a { panel = Core.Dim.extent n } ]
-        else []
+        @ if width mod n = 0 then [ G.Geometry.Resident_a { panel } ] else []
     | None ->
         G.Geometry.Resident_b
         :: List.filter_map
@@ -233,7 +248,7 @@ let variants ?(a_row_major = false) ~budget ~engine ~m ~width ~depth () =
       (function
         | G.Geometry.Split_k _ -> (
             match G.Engine.lanes engine with
-            | Some n -> n = width
+            | Some n -> (n :> int) = width
             | None -> true)
         | Resident_a _ | Resident_b | Row_major_a -> true)
       geometries
@@ -248,7 +263,8 @@ let variants ?(a_row_major = false) ~budget ~engine ~m ~width ~depth () =
         geometries
     else geometries
   in
-  if m mod (rows :> int) <> 0 then Error (Refusal.Rows { m; rows :> int })
+  if not (Coral_transfer.Transfer_units.Rows.is_multiple ~of_:rows m_rows) then
+    Error (Refusal.Rows { m = m_rows; rows })
   else
     let all =
       List.concat_map
@@ -270,13 +286,16 @@ let variants ?(a_row_major = false) ~budget ~engine ~m ~width ~depth () =
             G.Prologue.[ Dma; Shared ])
         geometries
     in
-    match List.filter (fun t -> dtcm t <= budget) all with
+    match List.filter (fun t -> G.B.compare (dtcm t) budget <= 0) all with
     | [] ->
         Error
           (Refusal.Nothing_fits
              {
                budget;
-               least = List.fold_left (fun n t -> min n (dtcm t)) max_int all;
+               least =
+                 (match List.sort G.B.compare (List.map dtcm all) with
+                 | least :: _ -> least
+                 | [] -> G.B.zero);
              })
     | fit ->
         Ok

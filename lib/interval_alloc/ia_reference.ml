@@ -53,19 +53,42 @@ end
 
 (* An undo record: a raised offset (with its end), or an edge pushed on a
    successor list. *)
-type trail = Edge of int | Offset of int * Byte_offset.t * Byte_offset.t
+type trail =
+  | Edge of Script.Index.t
+  | Offset of Script.Index.t * Byte_offset.t * Byte_offset.t
+
+(* How much of the trail was recorded before a frame's branch. *)
+module Mark =
+  Core.Tagged_int.Make
+    (struct
+      let prefix = "m"
+    end)
+    ()
+
+(* Which of a pair's two orientations a frame tries next: the larger block
+   below, then above, then neither is left. *)
+module Orientation = struct
+  type t = Larger_below | Larger_above | Exhausted
+end
 
 (* One branching pair and which of its two orientations to try next. *)
-type frame = { a : int; b : int; mutable next : int; mark : int }
+type frame = {
+  a : Script.Index.t;
+  b : Script.Index.t;
+  mutable next : Orientation.t;
+  mark : Mark.t;
+}
 
 let feasible (limits : Limits.t) (work : Work.t) (script : _ Script.t) ~ceiling
     =
-  let n = Script.blocks script in
+  let get = Script.get and set = Script.set in
   let sizes = script.Script.sizes and alignments = script.Script.alignments in
   let positive =
-    List.filter (fun i -> not (Script.empty script i)) (List.init n Fun.id)
+    List.filter
+      (fun i -> not (Script.empty script i))
+      (Array.to_list (Script.indices script))
   in
-  if List.exists (fun i -> Byte_size.compare sizes.(i) ceiling > 0) positive
+  if List.exists (fun i -> Byte_size.compare (get sizes i) ceiling > 0) positive
   then Ok Answer.Infeasible
   else
     let pairs =
@@ -79,37 +102,39 @@ let feasible (limits : Limits.t) (work : Work.t) (script : _ Script.t) ~ceiling
       |> Array.of_list
     in
     (* Every block starts at zero, which any alignment admits. *)
-    let lb = Array.make n Byte_offset.zero
+    let lb = Script.table script Byte_offset.zero
     and ends = Array.map Byte_offset.of_size sizes
-    and succ = Array.make n [] in
+    and succ = Script.table script [] in
     let trail = Stack.create () and queue = Queue.create () in
-    let undo_to mark =
-      while Stack.length trail > mark do
+    let undo_to (mark : Mark.t) =
+      while Stack.length trail > (mark :> int) do
         match Stack.pop trail with
-        | Edge u -> succ.(u) <- List.tl succ.(u)
+        | Edge u -> set succ u (List.tl (get succ u))
         | Offset (x, v, e) ->
-            lb.(x) <- v;
-            ends.(x) <- e
+            set lb x v;
+            set ends x e
       done
     in
     (* Raise [x]'s offset to the least aligned one at or above [v]; false
        when that cannot fit, or when it reaches [source], which closes a cycle
        through the new edge. An offset past [int64] does not fit either. *)
     let raise_to ~source x v =
-      Byte_offset.compare v lb.(x) <= 0
+      Byte_offset.compare v (get lb x) <= 0
       || x <> source
          &&
          match
            Result.bind
-             (Byte_offset.align_up v alignments.(x))
+             (Byte_offset.align_up v (get alignments x))
              (fun o ->
-               Result.map (fun hi -> (o, hi)) (Byte_offset.advance o sizes.(x)))
+               Result.map
+                 (fun hi -> (o, hi))
+                 (Byte_offset.advance o (get sizes x)))
          with
          | Ok (o, hi)
            when Byte_size.compare (Byte_offset.to_size hi) ceiling <= 0 ->
-             Stack.push (Offset (x, lb.(x), ends.(x))) trail;
-             lb.(x) <- o;
-             ends.(x) <- hi;
+             Stack.push (Offset (x, get lb x, get ends x)) trail;
+             set lb x o;
+             set ends x hi;
              Queue.add x queue;
              true
          | Ok _ | Error _ -> false
@@ -117,20 +142,22 @@ let feasible (limits : Limits.t) (work : Work.t) (script : _ Script.t) ~ceiling
     (* [u] below [v], then longest paths to a fixpoint. *)
     let add_edge u v =
       Stack.push (Edge u) trail;
-      succ.(u) <- v :: succ.(u);
+      set succ u (v :: get succ u);
       Queue.clear queue;
       let rec drain () =
         match Queue.take_opt queue with
         | None -> true
         | Some x ->
-            List.for_all (fun y -> raise_to ~source:u y ends.(x)) succ.(x)
+            List.for_all
+              (fun y -> raise_to ~source:u y (get ends x))
+              (get succ x)
             && drain ()
       in
-      raise_to ~source:u v ends.(u) && drain ()
+      raise_to ~source:u v (get ends u) && drain ()
     in
     let overlap a b =
-      Byte_offset.compare lb.(a) ends.(b) < 0
-      && Byte_offset.compare lb.(b) ends.(a) < 0
+      Byte_offset.compare (get lb a) (get ends b) < 0
+      && Byte_offset.compare (get lb b) (get ends a) < 0
     in
     (* The overlapping pair reaching highest: the one closest to breaking the
        ceiling, so a dead end shows up early. Ties keep pair order. *)
@@ -139,7 +166,7 @@ let feasible (limits : Limits.t) (work : Work.t) (script : _ Script.t) ~ceiling
       Array.iter
         (fun (a, b) ->
           if overlap a b then
-            let top = Byte_offset.max ends.(a) ends.(b) in
+            let top = Byte_offset.max (get ends a) (get ends b) in
             match !best with
             | Some (t, _) when Byte_offset.compare t top >= 0 -> ()
             | _ -> best := Some (top, (a, b)))
@@ -156,7 +183,14 @@ let feasible (limits : Limits.t) (work : Work.t) (script : _ Script.t) ~ceiling
         | Some _ when Int64.compare !depth limits.Limits.max_depth >= 0 ->
             depth_cut := true
         | Some (a, b) ->
-            Stack.push { a; b; next = 0; mark = Stack.length trail } frames;
+            Stack.push
+              {
+                a;
+                b;
+                next = Orientation.Larger_below;
+                mark = Mark.of_int (Stack.length trail);
+              }
+              frames;
             depth := Int64.succ !depth
       end
       else
@@ -164,7 +198,7 @@ let feasible (limits : Limits.t) (work : Work.t) (script : _ Script.t) ~ceiling
         | None -> outcome := Some `Exhausted
         | Some f ->
             undo_to f.mark;
-            if f.next >= 2 then begin
+            if f.next = Orientation.Exhausted then begin
               ignore (Stack.pop frames);
               depth := Int64.pred !depth
             end
@@ -174,11 +208,17 @@ let feasible (limits : Limits.t) (work : Work.t) (script : _ Script.t) ~ceiling
               (* The larger block goes below first; a tie keeps allocation
                  order. *)
               let lo, hi =
-                if Byte_size.compare sizes.(f.b) sizes.(f.a) > 0 then (f.b, f.a)
+                if Byte_size.compare (get sizes f.b) (get sizes f.a) > 0 then
+                  (f.b, f.a)
                 else (f.a, f.b)
               in
-              let u, v = if f.next = 0 then (lo, hi) else (hi, lo) in
-              f.next <- f.next + 1;
+              let u, v =
+                if f.next = Orientation.Larger_below then (lo, hi) else (hi, lo)
+              in
+              f.next <-
+                (if f.next = Orientation.Larger_below then
+                   Orientation.Larger_above
+                 else Orientation.Exhausted);
               work.Work.states <- Int64.succ work.Work.states;
               work.Work.max_depth <- Int64.max work.Work.max_depth !depth;
               if add_edge u v then descend := true
@@ -188,12 +228,15 @@ let feasible (limits : Limits.t) (work : Work.t) (script : _ Script.t) ~ceiling
     | Some `Found ->
         let pool =
           List.fold_left
-            (fun pool i -> Byte_size.max pool (Byte_offset.to_size ends.(i)))
+            (fun pool i ->
+              Byte_size.max pool (Byte_offset.to_size (get ends i)))
             Byte_size.zero positive
         in
         let candidate =
           Ia_solution.Unsafe.make ~pool
-            (List.init n (fun i -> (script.Script.keys.(i), lb.(i))))
+            (List.map
+               (fun i -> (Script.key script i, get lb i))
+               (Array.to_list (Script.indices script)))
         in
         Result.map
           (fun w -> Answer.Feasible w)
@@ -279,24 +322,28 @@ let bisect ~live_bound ~upper:initial_upper ~incumbent ~pool ~query =
    at zero, placements in allocation order. Only for a checked solution, which
    places every key exactly once. *)
 let normalize (script : _ Script.t) solution =
-  let n = Script.blocks script in
-  let sizes = script.Script.sizes and keys = script.Script.keys in
-  let offsets = Array.make n Byte_offset.zero in
+  let get = Script.get and set = Script.set in
+  let offsets = Script.table script Byte_offset.zero in
   List.iter
     (fun (k, offset) ->
-      match Script.find_index script.Script.equal keys n k with
-      | Some i -> if not (Script.empty script i) then offsets.(i) <- offset
+      match Script.find script k with
+      | Some i -> if not (Script.empty script i) then set offsets i offset
       | None -> assert false)
     (Ia_solution.placements solution);
   (* Checked: every block ends inside the pool. *)
   let pool = ref Byte_size.zero in
-  Array.iteri
-    (fun i offset ->
-      let hi = Script.invariant (Byte_offset.advance offset sizes.(i)) in
+  Array.iter
+    (fun i ->
+      let hi =
+        Script.invariant
+          (Byte_offset.advance (get offsets i) (Script.size script i))
+      in
       pool := Byte_size.max !pool (Byte_offset.to_size hi))
-    offsets;
+    (Script.indices script);
   Ia_solution.Unsafe.make ~pool:!pool
-    (List.init n (fun i -> (keys.(i), offsets.(i))))
+    (List.map
+       (fun i -> (Script.key script i, get offsets i))
+       (Array.to_list (Script.indices script)))
 
 let minimum limits script ~incumbent =
   let ( let* ) = Result.bind in

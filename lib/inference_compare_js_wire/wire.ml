@@ -54,7 +54,11 @@ let tensor b (Tensor.Tensor t as packed) =
   List.iter (fun a -> u32 b (Vec6.get t.Tensor.shape a :> int)) axes;
   let p = t.Tensor.payload in
   let n = Bigarray.Array1.dim p.Payload.data in
-  let w = Payload.cell_bytes p.Payload.fmt in
+  let w =
+    Int64.to_int
+      (Core.Storage_units.Element_bytes.to_int64
+         (Payload.cell_bytes p.Payload.fmt))
+  in
   Buffer.add_int64_le b (Int64.of_int (n * w));
   let cell : type e b q. (e, b, q) Payload.fmt -> e -> unit =
    fun fmt v ->

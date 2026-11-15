@@ -35,7 +35,13 @@ let measure ?limits ?(states_live = true) ~label ~batch ~seq ~input_size
   let wih_shape = mat_shape ~rows:(4 * hidden_size) ~cols:input_size in
   let whh_shape = mat_shape ~rows:(4 * hidden_size) ~cols:hidden_size in
   let bias_shape = vec_shape ~n:(4 * hidden_size) in
-  let params : Lstm.Lstm.params = { hidden_size; input_size; batch_first } in
+  let params : Lstm.Lstm.params =
+    {
+      hidden_size = Dim.extent hidden_size;
+      input_size = Dim.extent input_size;
+      batch_first;
+    }
+  in
   let body =
     Graph_builder.(
       let* input_id = input ~shape:seq_shape ~name:"input" () in

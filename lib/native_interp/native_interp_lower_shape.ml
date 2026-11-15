@@ -208,7 +208,8 @@ let dispatch ~ctx ~env (node : Node.t) =
            in
            let params =
              Err.Escape.or_throw esc
-               (Pad.Pad.params_of_aten ~rank ~pad:(ints_arg esc node "pad")
+               (Pad.Pad.params_of_aten ~rank
+                  ~pad:(List.map Dim.delta (ints_arg esc node "pad"))
                   ~mode:(string_arg esc ~default:"constant" node "mode")
                   ~value:(float_opt_arg_opt esc node "value"))
            in

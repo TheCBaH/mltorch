@@ -71,7 +71,9 @@ module Dims_keepdim = struct
      Sound only because [output_shape] already ran [reduced_count] on this
      node -- see [Norm.normalized_count_unchecked]'s identical precondition. *)
   let reduced_count_unchecked ~(x_shape : Vec6.shape) (p : t) =
-    List.fold_left (fun acc d -> acc * (Vec6.get x_shape d :> int)) 1 p.dims
+    List.fold_left
+      (fun acc d -> Dim.(acc *@ Vec6.get x_shape d))
+      Dim.one_count p.dims
 
   (* Output = surviving input extents packed onto their output axes;
      reduced axes (and, for keepdim=false, the vacated outer axes) are
@@ -179,7 +181,7 @@ module Mean = struct
       in
       let total = reduce p.dims [] in
       let count = Dims_keepdim.reduced_count_unchecked ~x_shape p in
-      S.div total (S.const (float_of_int count))
+      S.div total (S.const (float_of_int (count :> int)))
   end
 end
 

@@ -35,16 +35,18 @@ module type Op = sig
   val build : Pcg.t -> cfg -> subject * Pcg.t
 end
 
-(* Reduce a raw [Pcg.next] draw to an index in [0, m). The remainder is taken in
+(* Reduce a raw [Pcg.next] draw to a position in [0, m). The remainder is taken in
    [Int64] because the draw spans [0, 2^32), which is not a non-negative [int] on
    a 32-bit-[int] runtime such as js_of_ocaml; the result is < m, so narrowing it
    afterwards is always safe. Identical to the former [n mod m] natively. *)
-let index_of pcg_out ~m = Int64.to_int (Int64.rem pcg_out (Int64.of_int m))
+let index_of pcg_out ~(m : Core.Dim.extent Core.Dim.t) :
+    Core.Dim.index Core.Dim.t =
+  Core.Dim.index (Int64.to_int (Int64.rem pcg_out (Int64.of_int (m :> int))))
 
 (* Pick one element from a non-empty list using one [Pcg.next] step. *)
 let pick pcg lst =
   let n, pcg = Pcg.next pcg in
-  (List.nth lst (index_of n ~m:(List.length lst)), pcg)
+  (List.nth lst (index_of n ~m:(Core.Dim.extent (List.length lst)) :> int), pcg)
 
 (* A field axis: pick a candidate value with the PCG and set it via [setter].
    No validity filtering -- the engine applies [cascade] after the mutation.
@@ -61,36 +63,61 @@ let field_axis name candidates setter =
         (setter cfg v, pcg));
   }
 
-(* Draw an int in [lo, hi] from the PCG (one step). *)
-let int_in pcg ~lo ~hi =
-  let hi = max lo hi in
-  let n, pcg = Pcg.next pcg in
-  (lo + index_of n ~m:(hi - lo + 1), pcg)
+(* What a numeric axis draws: the guarded type of the value it sets. A kernel is
+   an extent, a stride is [Pos], a pad is [Nonneg]; the axis takes the domain so
+   a draw cannot be set into a field of another. *)
+module type Domain = sig
+  type t
 
-(* A numeric axis over a whole range [lo, hi] -- any int, not an enumerated set.
-   The natural lower bound is the value's domain (1 for kernel/stride, 0 for
-   pad); the upper bound comes from the global Limits. *)
-let int_axis name ~lo ~hi setter =
+  val of_int : int -> t
+  val to_int : t -> int
+end
+
+module Extent = struct
+  type t = Core.Dim.extent Core.Dim.t
+
+  let of_int = Core.Dim.extent
+  let to_int (e : t) = Core.Dim.to_int e
+  let one : t = Core.Dim.one
+end
+
+module Nonneg = Core.Geometry.Nonneg
+module Pos = Core.Geometry.Pos
+
+(* Draw a value in [lo, hi] from the PCG (one step). *)
+let value_in (type a) (module D : Domain with type t = a) pcg ~(lo : a)
+    ~(hi : a) : a * Pcg.t =
+  let lo = D.to_int lo in
+  let hi = max lo (D.to_int hi) in
+  let n, pcg = Pcg.next pcg in
+  (D.of_int (lo + (index_of n ~m:(Core.Dim.extent (hi - lo + 1)) :> int)), pcg)
+
+(* A numeric axis over a whole range [lo, hi] -- any value of the domain, not an
+   enumerated set. The natural lower bound is the value's domain (1 for
+   kernel/stride, 0 for pad); the upper bound comes from the global Limits. *)
+let range_axis (type a) (module D : Domain with type t = a) name ~(lo : a)
+    ~(hi : a) setter =
   {
     name;
     mutate =
       (fun pcg cfg ->
-        let v, pcg = int_in pcg ~lo ~hi in
+        let v, pcg = value_in (module D) pcg ~lo ~hi in
         (setter cfg v, pcg));
   }
 
-type hw = { h : int; w : int }
+type 'a hw = 'a Core.Geometry.Hw.t = { h : 'a; w : 'a }
 (** A compound H/W value (kernel/stride/pad/dilation) carried as one entry. *)
 
 (* A compound H/W axis: draws h and w each in [lo, hi], setting both fields in
    one step via [setter]. *)
-let hw_axis name ~lo ~hi setter =
+let hw_axis (type a) (module D : Domain with type t = a) name ~(lo : a)
+    ~(hi : a) setter =
   {
     name;
     mutate =
       (fun pcg cfg ->
-        let h, pcg = int_in pcg ~lo ~hi in
-        let w, pcg = int_in pcg ~lo ~hi in
+        let h, pcg = value_in (module D) pcg ~lo ~hi in
+        let w, pcg = value_in (module D) pcg ~lo ~hi in
         (setter cfg { h; w }, pcg));
   }
 
@@ -105,7 +132,11 @@ let shape_axis name (limits : Limits.t) ~get ~set =
       (fun pcg cfg ->
         let shape = get cfg in
         let axis, pcg = pick pcg choices in
-        let v, pcg = int_in pcg ~lo:1 ~hi:(Shape.cap limits axis) in
+        let v, pcg =
+          value_in
+            (module Extent)
+            pcg ~lo:Extent.one ~hi:(Shape.cap limits axis)
+        in
         (set cfg (Shape.resize limits shape ~axis v), pcg));
   }
 

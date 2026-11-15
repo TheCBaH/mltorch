@@ -128,23 +128,27 @@ let pk_of st (t : Mir_type.t) =
 let is_mask (v : Mir_value.t) =
   match v.Mir_value.ty with Mir_type.Mask _ -> true | _ -> false
 
-(* [n] ordered forms in a row, chained on the order [o] threads. *)
+(* One ordered form per lane of [n], in a row, chained on the order [o]
+   threads. *)
 let chained st (o : Mir_order.t option) n f =
   let o = Option.get o in
   let input = ref o.Mir_order.input in
+  let n = (n : Mir_type.Lanes.t :> int) in
   for k = 0 to n - 1 do
     let output =
       if k = n - 1 then o.Mir_order.output else fresh st Mir_type.Order
     in
-    f k { Mir_order.input = !input; output };
+    f (Mir_type.Lane.of_int k) { Mir_order.input = !input; output };
     input := output
   done
 
 (* Lane [k] of [a] replaced by the scalar [x], on SSE2 alone: [x] to every lane,
    then SHUFPS/SHUFPD to pick lanes from it and from [a]. *)
 let insert st ?result p k a x =
+  let k = (k : Mir_type.Lane.t :> int) in
   let k =
-    if mutated st Mutation.Insert_next_lane then (k + 1) mod Pk.lanes p else k
+    if mutated st Mutation.Insert_next_lane then (k + 1) mod (Pk.lanes p :> int)
+    else k
   in
   let ty = Pk.ty p in
   let xs = emit st ty (Pshufd_splat (p, x)) in
@@ -197,7 +201,10 @@ let vector st (i : Mir_op.t Mir_instr.t) =
   (* lane [k] of a strided access: the address plus [k] strides *)
   let lane_addr addr stride k =
     let a = address st addr in
-    let disp = Int64.add a.Addr.disp (Int64.mul (Int64.of_int k) stride) in
+    let disp =
+      Int64.add a.Addr.disp
+        (Int64.mul (Int64.of_int (k : Mir_type.Lane.t :> int)) stride)
+    in
     if disp32 disp then { a with Addr.disp } else unsupported ()
   in
   match i.Mir_instr.op with
@@ -212,8 +219,12 @@ let vector st (i : Mir_op.t Mir_instr.t) =
          pack keeps it exactly *)
       let low (h : Mir_value.t) =
         let s = Hashtbl.find st.narrowing_halves h.Mir_value.id in
-        let up = emit st X64_op.int32x4 (Pshift (Shift.Shl, 16, s)) in
-        emit st X64_op.int32x4 (Pshift (Shift.Sar, 16, up))
+        let up =
+          emit st X64_op.int32x4
+            (Pshift (Shift.Shl, Mir_target.Bits.of_int 16, s))
+        in
+        emit st X64_op.int32x4
+          (Pshift (Shift.Sar, Mir_target.Bits.of_int 16, up))
       in
       let i16x8 = (r ()).Mir_value.ty in
       let lo = emit st i16x8 (Movap_cast (i16x8, low a)) in
@@ -357,8 +368,7 @@ let vector st (i : Mir_op.t Mir_instr.t) =
       half b;
       let low = emit st (Pk.ty Pk.Ps) (Movq_widen a) in
       def (Movlhps (low, b))
-  | Mir_op.Vextract (lane, a) ->
-      def (Pshufd_lane (Pk.fsz (pk a), Mir_type.Lane.to_int lane, a))
+  | Mir_op.Vextract (lane, a) -> def (Pshufd_lane (Pk.fsz (pk a), lane, a))
   | Mir_op.Vload { Mir_op.Vaccess.addr; stride; elem = Mir_type.Elem.Int w; _ }
     -> (
       (* a whole register of integer lanes, contiguous *)
@@ -391,10 +401,13 @@ let vector st (i : Mir_op.t Mir_instr.t) =
     when Mir_op.Iarith.is_shift o
          && Mir_type.equal a.Mir_value.ty X64_op.int32x4
          && Hashtbl.mem st.shift_counts c.Mir_value.id -> (
-      let k = Int64.to_int (Hashtbl.find st.shift_counts c.Mir_value.id) in
+      let k =
+        Mir_target.Bits.of_int
+          (Int64.to_int (Hashtbl.find st.shift_counts c.Mir_value.id))
+      in
       match o with
       | Mir_op.Iarith.Shl -> def (Pshift (Shift.Shl, k, a))
-      | _ when k = 0 -> def (Movap_cast (X64_op.int32x4, a))
+      | _ when (k :> int) = 0 -> def (Movap_cast (X64_op.int32x4, a))
       | Mir_op.Iarith.Shr_s -> def (Pshift (Shift.Sar, k, a))
       | _ -> def (Pshift (Shift.Shr, k, a)))
   | Mir_op.Iarith
@@ -454,7 +467,8 @@ let vector st (i : Mir_op.t Mir_instr.t) =
                 | None -> emit st (Pk.ty p) (Pshufd_splat (p, x))
                 | Some v ->
                     let result =
-                      if k = Pk.lanes p - 1 then Some (r ()) else None
+                      if (k :> int) = (Pk.lanes p :> int) - 1 then Some (r ())
+                      else None
                     in
                     insert st ?result p k v x))
   | Mir_op.Vslice (first, count, a)
@@ -465,7 +479,7 @@ let vector st (i : Mir_op.t Mir_instr.t) =
       | _ -> unsupported ())
   | Mir_op.Vinsert (lane, a, x) ->
       let result = r () in
-      ignore (insert st ~result (pk a) (Mir_type.Lane.to_int lane) a x)
+      ignore (insert st ~result (pk a) lane a x)
   | Mir_op.Vsplat (_, p) when is_mask (r ()) ->
       (* a predicate is 0 or 1: all ones where it is set, then to every lane *)
       let mp = pk (r ()) in
@@ -641,7 +655,9 @@ let instr st (i : Mir_op.t Mir_instr.t) =
         let sz = sz_of st (ty a) in
         let shift k =
           match Mir_select.const_of st.b c with
-          | Some n -> def (Shift_imm (k, sz, a, Int64.to_int n))
+          | Some n ->
+              def
+                (Shift_imm (k, sz, a, Mir_target.Bits.of_int (Int64.to_int n)))
           | None -> unsupported ()
         in
         let alu o =

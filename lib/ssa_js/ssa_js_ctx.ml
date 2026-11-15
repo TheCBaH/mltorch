@@ -52,10 +52,10 @@ type t = {
   esc : error Err.Escape.t;
   names : Js_ident.t Ssa_ir.Ssa_id.Value.Tbl.t;
   mutable decls : (Js_ident.t * A.expr) list;
-  mutable next_name : int;
-  mutable next_temp : int;
+  mutable next_name : Ssa_ir.Ssa_emit_id.Name.Next.t;
+  mutable next_temp : Ssa_ir.Ssa_emit_id.Name.Next.t;
   mutable sites : LF.t list;
-  mutable site_count : int;
+  mutable site_count : Ssa_ir.Ssa_emit_id.Site.Next.t;
   mutable tables : A.Stmt.t list;
   locals : (int64 * Expr.Local_var.t option) Ssa_ir.Ssa_id.Value.Tbl.t;
   buffers : Ssa_buffer.t list;
@@ -119,8 +119,9 @@ let define cx (v : Ssa_value.t) =
   match init_of cx v.Ssa_value.ty with
   | None -> None
   | Some init ->
-      let n = id (Printf.sprintf "v%d" cx.next_name) in
-      cx.next_name <- cx.next_name + 1;
+      let ordinal, next = Ssa_ir.Ssa_emit_id.Name.Next.alloc cx.next_name in
+      cx.next_name <- next;
+      let n = id (Printf.sprintf "v%d" (ordinal :> int)) in
       Ssa_ir.Ssa_id.Value.Tbl.replace cx.names v.Ssa_value.id n;
       cx.decls <- (n, init) :: cx.decls;
       Some n
@@ -133,17 +134,18 @@ let ident cx (v : Ssa_value.t) =
 let var cx v = A.Var (ident cx v)
 
 let temp cx =
-  let n = id (Printf.sprintf "t%d" cx.next_temp) in
-  cx.next_temp <- cx.next_temp + 1;
+  let ordinal, next = Ssa_ir.Ssa_emit_id.Name.Next.alloc cx.next_temp in
+  cx.next_temp <- next;
+  let n = id (Printf.sprintf "t%d" (ordinal :> int)) in
   n
 
 let site cx f =
   match cx.site_table with
   | None ->
-      let k = cx.site_count in
+      let k, next = Ssa_ir.Ssa_emit_id.Site.Next.alloc cx.site_count in
       cx.sites <- f :: cx.sites;
-      cx.site_count <- k + 1;
-      Ssa_ir.Ssa_emit_id.Site.of_int k
+      cx.site_count <- next;
+      k
   | Some table ->
       (* a check the table has no entry for is one its own lowering proved can
          never fire: its index is one past the table, a defect to a decoder *)

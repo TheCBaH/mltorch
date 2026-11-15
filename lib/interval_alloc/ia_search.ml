@@ -24,15 +24,53 @@ end
 (* An LCG on [int64]: identical on every backend. *)
 let next s = Int64.add (Int64.mul s 6364136223846793005L) 1442695040888963407L
 
-let below s bound =
-  Int64.to_int (Int64.rem (Int64.shift_right_logical s 33) (Int64.of_int bound))
+(* A place in an order of blocks, which is not a block's own index. *)
+module Slot =
+  Core.Tagged_int.Make
+    (struct
+      let prefix = "#"
+    end)
+    ()
 
-(* Move the block at position [src] to position [dst] (both in the order). *)
+let slot_get order (slot : Slot.t) = order.((slot :> int))
+let slot_set order (slot : Slot.t) b = order.((slot :> int)) <- b
+
+let swap order a b =
+  let t = slot_get order a in
+  slot_set order a (slot_get order b);
+  slot_set order b t
+
+(* Move the block at slot [src] to slot [dst]. *)
 let move order src dst =
-  let b = order.(src) in
-  if dst < src then Array.blit order dst order (dst + 1) (src - dst)
-  else Array.blit order (src + 1) order src (dst - src);
-  order.(dst) <- b
+  let b = slot_get order src in
+  let src = (src : Slot.t :> int) and dst' = (dst : Slot.t :> int) in
+  if dst' < src then Array.blit order dst' order (dst' + 1) (src - dst')
+  else Array.blit order (src + 1) order src (dst' - src);
+  slot_set order dst b
+
+(* Draws from the generator state [s], each typed by what it picks. The bound
+   of a draw is the length of what it picks from, so it never leaves here. *)
+module Draw : sig
+  val before : int64 -> Slot.t -> Slot.t
+  (** A slot below a slot other than the first. *)
+
+  val element : int64 -> 'a array -> 'a
+  (** One of a non-empty array. *)
+
+  val one_in_four : int64 -> bool
+
+  val slot : int64 -> 'a array -> Slot.t
+  (** A slot of an order, which is non-empty. *)
+end = struct
+  let below s bound =
+    Int64.to_int
+      (Int64.rem (Int64.shift_right_logical s 33) (Int64.of_int bound))
+
+  let before s (slot : Slot.t) = Slot.of_int (below s (slot :> int))
+  let element s a = a.(below s (Array.length a))
+  let one_in_four s = below s 4 = 0
+  let slot s order = Slot.of_int (below s (Array.length order))
+end
 
 (* Blocks whose top edge sets the pool. *)
 let peak_positions script order (placed : Ia_decode.Placed.t) =
@@ -42,9 +80,9 @@ let peak_positions script order (placed : Ia_decode.Placed.t) =
       if
         (not (Script.empty script b))
         && Byte_size.equal
-             (Byte_offset.to_size placed.Ia_decode.Placed.ends.(b))
+             (Byte_offset.to_size (Script.get placed.Ia_decode.Placed.ends b))
              placed.pool
-      then acc := pos :: !acc)
+      then acc := Slot.of_int pos :: !acc)
     order;
   Array.of_list (List.rev !acc)
 
@@ -60,7 +98,7 @@ let improve_at ?(at = ignore) mode ~checkpoints ~seed script ~lower_bound order
     List.sort_uniq Int64.compare (List.map (Int64.max 0L) checkpoints)
   in
   let last = List.fold_left Int64.max 0L checkpoints in
-  let n = Script.blocks script in
+  let n = Array.length (Script.indices script) in
   let best = ref (Array.copy order, start) in
   let rng = ref seed and used = ref 0L in
   let pending = ref checkpoints and recorded = ref [] in
@@ -97,20 +135,20 @@ let improve_at ?(at = ignore) mode ~checkpoints ~seed script ~lower_bound order
       rng := next !rng;
       let peaks = peak_positions script cur cur_placed in
       let src =
-        if Array.length peaks = 0 then below !rng n
-        else peaks.(below !rng (Array.length peaks))
+        if Array.length peaks = 0 then Draw.slot !rng cand
+        else Draw.element !rng peaks
       in
       rng := next !rng;
       (* A peak block moves earlier, so it is placed before what boxed it in. *)
-      let dst = if src = 0 then 0 else below !rng src in
+      let dst =
+        if Slot.equal src (Slot.of_int 0) then src else Draw.before !rng src
+      in
       rng := next !rng;
-      if below !rng 4 = 0 then begin
-        let a = below !rng n in
+      if Draw.one_in_four !rng then begin
+        let a = Draw.slot !rng cand in
         rng := next !rng;
-        let b = below !rng n in
-        let t = cand.(a) in
-        cand.(a) <- cand.(b);
-        cand.(b) <- t
+        let b = Draw.slot !rng cand in
+        swap cand a b
       end
       else move cand src dst;
       let* placed = Ia_decode.offsets mode script cand in

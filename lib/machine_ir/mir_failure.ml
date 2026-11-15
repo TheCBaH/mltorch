@@ -129,11 +129,31 @@ let kind_word = function
   | Scan_projection _ -> 10l
   | Unbound_local _ -> 11l
 
-let record_words = 12
+(* A word of the failure record, counted from its first (byte 8). *)
+module Word_slot =
+  Core.Tagged_int.Make
+    (struct
+      let prefix = "word"
+    end)
+    ()
+
+let word_slots = List.init 12 Word_slot.of_int
+
+(* A word's byte offset in the record. *)
+let word_offset k =
+  Int64.add 8L (Int64.mul 8L (Int64.of_int (Word_slot.to_int k)))
+
+(* A position in a failure's payload. *)
+module Payload_index =
+  Core.Tagged_int.Make
+    (struct
+      let prefix = "payload"
+    end)
+    ()
+
 let record_bytes = 104L
 let record_kind_offset = 0L
 let record_invocation_offset = 4L
-let record_word_offset k = Int64.add 8L (Int64.mul 8L (Int64.of_int k))
 
 (* An entry of a bundle's failure-site table, as far as a record decodes it:
    the kind and local variable, never the expressions a source check holds. *)
@@ -193,48 +213,51 @@ let axis_word a = Int64.of_int (Expr.Axis.to_int a)
    Every word not listed is zero. [words] and selection's record stores both
    read this, so the two cannot drift. *)
 module Word = struct
-  type t = Const of int64 | Payload of int | Site
+  type t = Const of int64 | Payload of Payload_index.t | Site
 end
 
-let layout = function
+let layout =
+  let s = Word_slot.of_int and p = Payload_index.of_int in
+  function
   | Coord_out_of_range { Coord.source; axis } ->
       [
-        (0, Word.Const (Int64.of_int (Expr.Source.to_int source)));
-        (1, Word.Const (axis_word axis));
-        (2, Word.Payload (Expr.Axis.to_int axis));
+        (s 0, Word.Const (Int64.of_int (Expr.Source.to_int source)));
+        (s 1, Word.Const (axis_word axis));
+        (s 2, Word.Payload (p (Expr.Axis.to_int axis)));
       ]
-      @ List.init 6 (fun k -> (3 + k, Word.Payload k))
-  | Gather_index_out_of_range -> [ (0, Word.Payload 0); (1, Word.Payload 1) ]
-  | I64_from_float_out_of_range -> [ (0, Word.Payload 0) ]
+      @ List.init 6 (fun k -> (s (3 + k), Word.Payload (p k)))
+  | Gather_index_out_of_range ->
+      [ (s 0, Word.Payload (p 0)); (s 1, Word.Payload (p 1)) ]
+  | I64_from_float_out_of_range -> [ (s 0, Word.Payload (p 0)) ]
   | Index_overflow op ->
       [
-        ( 0,
+        ( s 0,
           Word.Const
             (match op with Overflow_op.Add -> 0L | Overflow_op.Mul -> 1L) );
-        (1, Word.Payload 0);
-        (2, Word.Payload 1);
+        (s 1, Word.Payload (p 0));
+        (s 2, Word.Payload (p 1));
       ]
   | Scan_meter m ->
       [
-        ( 0,
+        ( s 0,
           Word.Const
             (match m with
             | Meter.State_over_limit -> 0L
             | Meter.Updates_exhausted -> 1L) );
-        (1, Word.Payload 0);
+        (s 1, Word.Payload (p 0));
       ]
   | Scan_projection { Scan.which; var } ->
       [
-        ( 0,
+        ( s 0,
           Word.Const
             (match which with Scan_axis.Lane -> 0L | Scan_axis.Row -> 1L) );
-        (1, Word.Const (if Option.is_some var then 1L else 0L));
-        (2, Word.Payload 0);
-        (3, Word.Payload 1);
-        (4, Word.Payload 2);
-        (5, Word.Site);
+        (s 1, Word.Const (if Option.is_some var then 1L else 0L));
+        (s 2, Word.Payload (p 0));
+        (s 3, Word.Payload (p 1));
+        (s 4, Word.Payload (p 2));
+        (s 5, Word.Site);
       ]
-  | Unbound_local _ -> [ (0, Word.Site) ]
+  | Unbound_local _ -> [ (s 0, Word.Site) ]
   | I64_division_by_zero | I64_division_overflow | I64_from_float_infinite
   | I64_from_float_nan ->
       []
@@ -244,13 +267,13 @@ let layout = function
 let words failure ~(payload : int64 list) ~(site : Mir_id.Site.t option) =
   if List.length payload <> List.length (payload_types failure) then
     invalid_arg "Mir_failure.words: payload does not match the kind";
-  let v = Array.make record_words 0L in
+  let v = Array.make (List.length word_slots) 0L in
   List.iter
     (fun (k, w) ->
-      v.(k) <-
+      v.((k : Word_slot.t :> int)) <-
         (match w with
         | Word.Const c -> c
-        | Word.Payload i -> List.nth payload i
+        | Word.Payload i -> List.nth payload (i :> int)
         | Word.Site -> (
             match site with
             | Some s -> Int64.of_int (Mir_id.Site.to_int s)
@@ -313,7 +336,7 @@ let decode ~(table : Site_entry.t array) ~kind ~(v : int64 array) =
       Some (Expr.Source.create (Int64.to_int w))
     else None
   in
-  if Array.length v <> record_words then Error Decode_error.Malformed
+  if Array.length v <> List.length word_slots then Error Decode_error.Malformed
   else
     match kind with
     | 0l -> (

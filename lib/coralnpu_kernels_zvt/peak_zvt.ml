@@ -3,6 +3,7 @@
    Built like {!Peak_kernels}' own, whose helpers they use. *)
 
 open Coralnpu_kernels.Peak_kernels
+module Units = Coral_transfer.Transfer_units
 
 (* {1 One tile multiply}
 
@@ -16,9 +17,10 @@ open Coralnpu_kernels.Peak_kernels
 module Tile = struct
   type shape = {
     mtwiden : int;  (** the accumulator's width over the inputs', as a code *)
-    tk : int;  (** slices of A and B an instruction reduces over *)
+    tk : Core.Dim.extent Core.Dim.t;
+        (** slices of A and B an instruction reduces over *)
     vtype : int;  (** with [altfmt] (bit 8) for BF16 *)
-    lmul : int;
+    lmul : Vtype.Lmul.t;
     a : int;  (** every element of A, as bits *)
     b : int;
     acc : Elem.t;
@@ -32,9 +34,9 @@ module Tile = struct
     | Vtfmm ->
         {
           mtwiden = 1;
-          tk = 1;
+          tk = Core.Dim.extent 1;
           vtype = 0xD2;
-          lmul = 4;
+          lmul = M4;
           a = 0x3f80_0000;
           b = 0x3f80_0000;
           acc = F32;
@@ -43,9 +45,9 @@ module Tile = struct
     | Vtfmm_alt ->
         {
           mtwiden = 2;
-          tk = 2;
+          tk = Core.Dim.extent 2;
           vtype = 0x1C9;
-          lmul = 2;
+          lmul = M2;
           a = 0x3f80;
           b = 0x3f80;
           acc = F32;
@@ -54,9 +56,9 @@ module Tile = struct
     | Vtmms ->
         {
           mtwiden = 3;
-          tk = 4;
+          tk = Core.Dim.extent 4;
           vtype = 0xC0;
-          lmul = 1;
+          lmul = M1;
           a = 0xFF;
           b = 1;
           acc = I32;
@@ -65,20 +67,20 @@ module Tile = struct
     | Vtmmu ->
         {
           mtwiden = 3;
-          tk = 4;
+          tk = Core.Dim.extent 4;
           vtype = 0xC0;
-          lmul = 1;
+          lmul = M1;
           a = 0xFF;
           b = 1;
           acc = I32;
           sum = 4 * 255;
         }
 
-  let elements = 16
+  let elements = Core.Dim.extent 16
   let tiles = Reg.Mtreg.[ mt0; mt4; mt8; mt12 ]
 
   (* [mtype]: the tile's rows [tm], [tk] and [mtwiden]. *)
-  let mtype ~tk ~mtwiden = (elements lsl 10) lor (tk lsl 5) lor mtwiden
+  let mtype ~tk ~mtwiden = ((elements :> int) lsl 10) lor (tk lsl 5) lor mtwiden
 
   (* [msetmtype mtype, vtype], then [msettn] for 16 columns, through
      [t1], [t2] and [t3]. *)
@@ -90,7 +92,7 @@ module Tile = struct
       (List.map Item.insn (mt @ vt)
       @ [
           Item.insn (Msetmtype { mtype = Gpr.t1; vtype = Gpr.t2 });
-          li Gpr.t3 elements;
+          li Gpr.t3 (elements :> int);
           Item.insn (Msettn { dst = Gpr.zero; avl = Gpr.t3 });
         ])
 
@@ -98,10 +100,13 @@ module Tile = struct
      elements each, which leaves [base] past the last row: a slice is the tile
      number at bit 27 and the row below it. A stride too far for an [addi]
      goes through [t2]. [from] rows are skipped first. *)
-  let store ?(prefix = "peak") ?(from = 0) ~base ~stride ~rows k mt =
+  let store ?(from = Units.Rows.of_int 0) ~base ~(stride : Units.Bytes.t)
+      ~(rows : Units.Rows.t) ~label:row mt =
     let open Err.Syntax in
-    let row = Label.named (Printf.sprintf "%s_store%d" prefix k) in
-    let* slice = Insn.load_imm Gpr.t3 ((Reg.Mtreg.index mt lsl 27) + from) in
+    let stride = (stride :> int) in
+    let* slice =
+      Insn.load_imm Gpr.t3 ((Reg.Mtreg.index mt lsl 27) + (from :> int))
+    in
     let* set_stride, step =
       if Imm.Imm12.(in_range (of_int stride)) then Ok ([], addi base base stride)
       else
@@ -112,7 +117,7 @@ module Tile = struct
     Ok
       (List.map Item.insn slice @ set_stride
       @ [
-          li Gpr.t4 rows;
+          li Gpr.t4 (rows :> int);
           Item.label row;
           Item.insn (Vtse { eew = Vtype.Sew.E32; slice = Gpr.t3; base });
           step;
@@ -123,10 +128,13 @@ module Tile = struct
 
   (* Rows [from, from + rows) of tile [mt] loaded from [base], as {!store}
      stores them. *)
-  let load ?(prefix = "peak") ~from ~base ~stride ~rows k mt =
+  let load ~(from : Units.Rows.t) ~base ~(stride : Units.Bytes.t)
+      ~(rows : Units.Rows.t) ~label:row mt =
     let open Err.Syntax in
-    let row = Label.named (Printf.sprintf "%s_load%d" prefix k) in
-    let* slice = Insn.load_imm Gpr.t3 ((Reg.Mtreg.index mt lsl 27) + from) in
+    let stride = (stride :> int) in
+    let* slice =
+      Insn.load_imm Gpr.t3 ((Reg.Mtreg.index mt lsl 27) + (from :> int))
+    in
     let* set_stride, step =
       if Imm.Imm12.(in_range (of_int stride)) then Ok ([], addi base base stride)
       else
@@ -137,7 +145,7 @@ module Tile = struct
     Ok
       (List.map Item.insn slice @ set_stride
       @ [
-          li Gpr.t4 rows;
+          li Gpr.t4 (rows :> int);
           Item.label row;
           Item.insn (Vtle { eew = Vtype.Sew.E32; slice = Gpr.t3; base });
           step;
@@ -150,15 +158,18 @@ module Tile = struct
     let s = shape op in
     let slices first =
       Err.List.map
-        (fun k -> Reg.Vreg.of_index (first + (2 * k * s.lmul)))
-        (List.init s.tk Fun.id)
+        (fun k ->
+          Reg.Vreg.of_index (first + (2 * k * Vtype.Lmul.factor s.lmul)))
+        (List.init (s.tk :> int) Fun.id)
     in
     let items () =
       let open Err.Syntax in
       let* a = slices 8 in
       let* b = slices 16 in
       let* config =
-        configure ~mtype:(mtype ~tk:s.tk ~mtwiden:s.mtwiden) ~vtype:s.vtype
+        configure
+          ~mtype:(mtype ~tk:(s.tk :> int) ~mtwiden:s.mtwiden)
+          ~vtype:s.vtype
       in
       let* moves = configure ~mtype:(mtype ~tk:1 ~mtwiden:1) ~vtype:0xD2 in
       let* set_a = Insn.load_imm Gpr.t1 s.a in
@@ -166,7 +177,11 @@ module Tile = struct
       let* stores =
         Err.List.map
           (fun (k, mt) ->
-            store ~base:Gpr.a6 ~stride:(4 * elements) ~rows:elements k mt)
+            store ~base:Gpr.a6
+              ~stride:(Units.Bytes.times_extent elements (Elem.size F32))
+              ~rows:(Units.Rows.of_int (elements :> int))
+              ~label:(Label.named (Printf.sprintf "peak_store%d" k))
+              mt)
           (List.mapi (fun k mt -> (k, mt)) tiles)
       in
       let fill r v = Item.insn (Vmv_v_x { dst = v; src = r }) in
@@ -188,14 +203,17 @@ module Tile = struct
         @ moves @ List.concat stores
         @ [ li Gpr.a0 0; Item.insn Ret ])
     in
-    let size = List.length tiles * elements * elements * 4 in
+    let size = List.length tiles * (elements :> int) * (elements :> int) * 4 in
     let expected = Bytes.create size in
     for i = 0 to (size / 4) - 1 do
-      Elem.set s.acc expected (4 * i) (iterations * s.sum)
+      Elem.set s.acc expected i (iterations * s.sum)
     done;
     {
       items;
-      slots = [ slot L.Placement.Out size ];
+      slots =
+        [
+          slot L.Placement.Out (Coral_transfer.Transfer_units.Bytes.of_int size);
+        ];
       inputs = [];
       expected = Bytes.to_string expected;
       shape = Printf.sprintf "%d iterations of:" iterations;
@@ -243,7 +261,7 @@ module Tile_gemm = struct
      A, B and C in DTCM; or the RVV kernel's, with its width if given.
      Alphabetical. *)
   module Geometry = struct
-    type t = Engine | Rvv of { width : int option }
+    type t = Engine | Rvv of { width : Core.Dim.extent Core.Dim.t option }
   end
 
   let tile = Tile.elements
@@ -252,67 +270,87 @@ module Tile_gemm = struct
     s : Gemm.shape;  (** M = [s.rows], one block *)
     op : Insn.Tile_op.t;
     t : Tile.shape;
-    tile_rows : int;  (** of a block: 1 or 2 *)
-    blocks : int;
-    tm : int;
-    columns : int;  (** tile columns *)
-    last : int;  (** the last tile column's width *)
+    tile_rows : Core.Dim.extent Core.Dim.t;  (** of a block: 1 or 2 *)
+    blocks : Core.Dim.extent Core.Dim.t;
+    tm : Core.Dim.extent Core.Dim.t;
+    columns : Core.Dim.extent Core.Dim.t;  (** tile columns *)
+    last : Core.Dim.extent Core.Dim.t;  (** the last tile column's width *)
   }
 
   let plan op (t : Tile.shape) (s : Gemm.shape) =
-    let m = s.rows in
+    let ext = Core.Dim.extent in
+    let m = (s.rows :> int) and tl = (tile :> int) in
     let tile_rows, blocks, tm =
-      if m <= tile then (1, 1, m)
-      else if m mod (2 * tile) = 0 then (2, m / (2 * tile), tile)
+      if m <= tl then (1, 1, m)
+      else if m mod (2 * tl) = 0 then (2, m / (2 * tl), tl)
       else
         invalid_arg
           (Printf.sprintf
              "Peak_zvt.Tile_gemm: M = %d is not up to 16 or a multiple of 32" m)
     in
-    if s.depth mod (2 * t.tk) <> 0 then
+    let tk = (t.tk :> int) in
+    if (s.depth :> int) mod (2 * tk) <> 0 then
       invalid_arg
         (Printf.sprintf "Peak_zvt.Tile_gemm: K = %d is not a multiple of %d"
-           s.depth (2 * t.tk));
-    let columns = (s.width + tile - 1) / tile in
+           (s.depth :> int)
+           (2 * tk));
+    let width = (s.width :> int) in
+    let columns = (width + tl - 1) / tl in
     {
       s;
       op;
       t;
-      tile_rows;
-      blocks;
-      tm;
-      columns;
-      last = s.width - ((columns - 1) * tile);
+      tile_rows = ext tile_rows;
+      blocks = ext blocks;
+      tm = ext tm;
+      columns = ext columns;
+      last = ext (width - ((columns - 1) * tl));
     }
 
   (* The tile columns of each pass, two at a time. *)
   let passes p =
+    let columns = (p.columns :> int) in
     List.init
-      ((p.columns + 1) / 2)
-      (fun k -> List.filter (fun c -> c < p.columns) [ 2 * k; (2 * k) + 1 ])
+      ((columns + 1) / 2)
+      (fun k ->
+        List.filter_map
+          (fun c -> if c < columns then Some (Core.Dim.index c) else None)
+          [ 2 * k; (2 * k) + 1 ])
 
-  let accumulator r c = List.nth Tile.tiles ((2 * r) + c)
+  let accumulator (r : Core.Dim.index Core.Dim.t)
+      (c : Core.Dim.index Core.Dim.t) =
+    List.nth Tile.tiles ((2 * (r :> int)) + (c :> int))
+
+  (* The last tile column of the plan. *)
+  let last_column p = Core.Dim.index ((p.columns :> int) - 1)
 
   (* One k step of [n] tiles' slices into the buffer at [base] from [ptr]:
-     both tiles' in two 64-byte loads, one tile's a slice at a time. *)
-  let loads ?pitch p ~n ~base ptr =
+     both tiles' in two 64-byte loads, one tile's a slice at a time. [pitch] is
+     the bytes from one load to the next. *)
+  let loads ?(pitch : Units.Bytes.t option) p ~(n : Core.Dim.extent Core.Dim.t)
+      ~(base : Reg.Vreg.t) ptr =
     let open Err.Syntax in
-    let e = Elem.bytes p.s.src in
+    let e = (Elem.size p.s.src :> int) in
+    let two = Core.Dim.equal n (Core.Dim.extent 2) in
     let load eew v =
       [
         vle eew v ptr;
         addi ptr ptr
           (match pitch with
-          | Some x -> x
-          | None -> if n = 2 then 64 else tile * e);
+          | Some x -> (x :> int)
+          | None -> if two then 64 else (tile :> int) * e);
       ]
     in
+    let first = Reg.Vreg.index base in
     let regs =
-      if n = 2 then [ base; base + 4 ]
-      else List.init p.t.tk (fun j -> base + (2 * j * p.t.lmul))
+      if two then [ first; first + 4 ]
+      else
+        List.init
+          (p.t.tk :> int)
+          (fun j -> first + (2 * j * Vtype.Lmul.factor p.t.lmul))
     in
     let eew =
-      if n = 2 then Vtype.Sew.E32
+      if two then Vtype.Sew.E32
       else
         match p.s.src with
         | I8 -> Vtype.Sew.E8
@@ -324,24 +362,32 @@ module Tile_gemm = struct
 
   (* The tile multiplies of one step, a column at a time: [tn] is narrowed
      ([t1]) for a partial last column and restored ([t3], 16) for the loads. *)
-  let multiplies p cols ~a ~b =
+  let multiplies p cols ~(a : Reg.Vreg.t) ~(b : Reg.Vreg.t) =
     let open Err.Syntax in
+    let lmul = Vtype.Lmul.factor p.t.lmul in
     let* per_column =
       Err.List.map
         (fun (k, c) ->
-          let* bv = Reg.Vreg.of_index (b + (k * p.t.lmul)) in
+          let* bv = Reg.Vreg.of_index (Reg.Vreg.index b + (k * lmul)) in
           let* mults =
             Err.List.map
               (fun r ->
-                let* av = Reg.Vreg.of_index (a + (r * p.t.lmul)) in
+                let* av = Reg.Vreg.of_index (Reg.Vreg.index a + (r * lmul)) in
                 Ok
                   (Item.insn
-                     (Vtmm { op = p.op; acc = accumulator r k; a = av; b = bv })))
-              (List.init p.tile_rows Fun.id)
+                     (Vtmm
+                        {
+                          op = p.op;
+                          acc =
+                            accumulator (Core.Dim.index r) (Core.Dim.index k);
+                          a = av;
+                          b = bv;
+                        })))
+              (List.init (p.tile_rows :> int) Fun.id)
           in
           let msettn avl = Item.insn (Msettn { dst = Gpr.zero; avl }) in
           Ok
-            (if c = p.columns - 1 && p.last < tile then
+            (if Core.Dim.equal c (last_column p) && p.last < tile then
                (msettn Gpr.t1 :: mults) @ [ msettn Gpr.t3 ]
              else mults))
         (List.mapi (fun k c -> (k, c)) cols)
@@ -350,9 +396,16 @@ module Tile_gemm = struct
 
   (* Bytes of A's block of rows, and of a row of C. *)
   let a_block p =
-    p.s.depth / p.t.tk * p.tile_rows * tile * p.t.tk * Elem.bytes p.s.src
+    let tk = (p.t.tk :> int) in
+    Units.Bytes.of_int
+      ((p.s.depth :> int)
+      / tk
+      * (p.tile_rows :> int)
+      * (tile :> int)
+      * tk
+      * (Elem.size p.s.src :> int))
 
-  let c_row p = p.s.width * Elem.bytes p.s.dst
+  let c_row p = Units.Bytes.times_extent p.s.width (Elem.size p.s.dst)
 
   (* One block of rows: every pass over A's block at [a3] and B at [a7], C's
      rows stored from [a4], [c_row p] apart; [a3] and [a4] are left as they
@@ -365,70 +418,92 @@ module Tile_gemm = struct
      the next, 64 packed (32 for a single tile), and [b_pass] the bytes from a
      pass's B to the next, so that operands k-major in memory are read in
      place. *)
-  let block_items ?(prefix = "peak") ?a_pitch ?b_pitch ?b_pass ?split ?c_row:row
-      ?(accumulate = false) p =
+  let block_items ?(prefix = "peak") ?(a_pitch : Units.Bytes.t option)
+      ?(b_pitch : Units.Bytes.t option) ?(b_pass : Units.Bytes.t option)
+      ?(split : (Units.Rows.t * Gpr.t) option)
+      ?c_row:(row : Units.Bytes.t option) ?(accumulate = false) p =
     let open Err.Syntax in
     let open Gpr in
-    let src = Elem.bytes p.s.src and dst = Elem.bytes p.s.dst in
-    let k_steps = p.s.depth / p.t.tk in
-    let c_row = Option.value row ~default:(c_row p) in
+    let src = (Elem.size p.s.src :> int) and dst = (Elem.size p.s.dst :> int) in
+    let tl = (tile :> int) and tk = (p.t.tk :> int) and tm = (p.tm :> int) in
+    let rows_of n = Units.Rows.of_int n in
+    let k_steps = (p.s.depth :> int) / tk in
+    let c_row = (Option.value row ~default:(c_row p) :> int) in
     let* config =
       Tile.configure
-        ~mtype:((p.tm lsl 10) lor (p.t.tk lsl 5) lor p.t.mtwiden)
+        ~mtype:((tm lsl 10) lor (tk lsl 5) lor p.t.mtwiden)
         ~vtype:p.t.vtype
     in
     let* moves =
       Tile.configure ~mtype:(Tile.mtype ~tk:1 ~mtwiden:1) ~vtype:0xD2
     in
-    let partial = if p.last < tile then [ li t1 p.last ] else [] in
+    let partial = if p.last < tile then [ li t1 (p.last :> int) ] else [] in
     let stores_seen = ref 0 and loads_seen = ref 0 in
     let* pass_items =
       Err.List.map
         (fun (index, cols) ->
-          let n = List.length cols in
+          let n = Core.Dim.extent (List.length cols) in
           let b_offset =
             match b_pass with
-            | Some bytes -> index * bytes
-            | None -> index * 2 * k_steps * tile * p.t.tk * src
+            | Some bytes -> index * (bytes :> int)
+            | None -> index * 2 * k_steps * tl * tk * src
           in
           (* column by column, so a partial last column's [tn] comes last *)
           let tiles =
             List.concat
               (List.mapi
-                 (fun k c -> List.init p.tile_rows (fun r -> (r, k, c)))
+                 (fun k c ->
+                   List.init
+                     (p.tile_rows :> int)
+                     (fun r -> (Core.Dim.index r, Core.Dim.index k, c)))
                  cols)
           in
-          let* first_a = loads ?pitch:a_pitch p ~n:p.tile_rows ~base:8 a1 in
-          let* first_b = loads ?pitch:b_pitch p ~n ~base:16 a2 in
-          let* second_a = loads ?pitch:a_pitch p ~n:p.tile_rows ~base:0 a1 in
-          let* second_b = loads ?pitch:b_pitch p ~n ~base:24 a2 in
-          let* current = multiplies p cols ~a:8 ~b:16 in
-          let* next = multiplies p cols ~a:0 ~b:24 in
+          let* first_a =
+            loads ?pitch:a_pitch p ~n:p.tile_rows ~base:Reg.Vreg.v8 a1
+          in
+          let* first_b = loads ?pitch:b_pitch p ~n ~base:Reg.Vreg.v16 a2 in
+          let* second_a =
+            loads ?pitch:a_pitch p ~n:p.tile_rows ~base:Reg.Vreg.v0 a1
+          in
+          let* second_b = loads ?pitch:b_pitch p ~n ~base:Reg.Vreg.v24 a2 in
+          let* current = multiplies p cols ~a:Reg.Vreg.v8 ~b:Reg.Vreg.v16 in
+          let* next = multiplies p cols ~a:Reg.Vreg.v0 ~b:Reg.Vreg.v24 in
           let* b_at = Insn.load_imm t2 b_offset in
           (* Rows [from, from + rows) of a tile to or from [base]'s C. *)
-          let part ?(load = false) (r, k, c) ~base ~from ~rows =
-            if rows = 0 then Ok []
+          let part ?(load = false) (r, k, c) ~base ~(from : Units.Rows.t)
+              ~(rows : Units.Rows.t) =
+            if (rows :> int) = 0 then Ok []
             else
               let* at =
                 Insn.load_imm t5
-                  ((((r * tile) + from) * c_row) + (c * tile * dst))
+                  (((((r : Core.Dim.index Core.Dim.t) :> int) * tl)
+                   + (from :> int))
+                   * c_row
+                  + ((c : Core.Dim.index Core.Dim.t :> int) * tl * dst))
               in
               let seen = if load then loads_seen else stores_seen in
               let k' = !seen in
               incr seen;
               let* move =
                 if load then
-                  Tile.load ~prefix ~from ~base:t5 ~stride:c_row ~rows k'
+                  Tile.load ~from ~base:t5 ~stride:(Units.Bytes.of_int c_row)
+                    ~rows
+                    ~label:(Label.named (Printf.sprintf "%s_load%d" prefix k'))
                     (accumulator r k)
                 else
-                  Tile.store ~prefix ~from ~base:t5 ~stride:c_row ~rows k'
+                  Tile.store ~from ~base:t5 ~stride:(Units.Bytes.of_int c_row)
+                    ~rows
+                    ~label:(Label.named (Printf.sprintf "%s_store%d" prefix k'))
                     (accumulator r k)
               in
               Ok (List.map Item.insn at @ [ add t5 t5 base ] @ move)
           in
           let narrow c =
-            if c = p.columns - 1 && p.last < tile then
-              [ li t1 p.last; Item.insn (Msettn { dst = zero; avl = t1 }) ]
+            if Core.Dim.equal c (last_column p) && p.last < tile then
+              [
+                li t1 (p.last :> int);
+                Item.insn (Msettn { dst = zero; avl = t1 });
+              ]
             else []
           in
           let* starts =
@@ -437,7 +512,8 @@ module Tile_gemm = struct
                 Err.List.map
                   (fun (r, k, c) ->
                     let* load =
-                      part ~load:true (r, k, c) ~base:a4 ~from:0 ~rows:p.tm
+                      part ~load:true (r, k, c) ~base:a4 ~from:(rows_of 0)
+                        ~rows:(rows_of tm)
                     in
                     Ok (narrow c @ load))
                   tiles
@@ -453,18 +529,23 @@ module Tile_gemm = struct
           in
           let* stores =
             Err.List.map
-              (fun (r, k, c) ->
+              (fun ((r : Core.Dim.index Core.Dim.t), k, c) ->
                 let first =
                   match split with
-                  | None -> p.tm
-                  | Some (n, _) -> max 0 (min p.tm (n - (r * tile)))
+                  | None -> tm
+                  | Some (n, _) ->
+                      max 0 (min tm ((n :> int) - ((r :> int) * tl)))
                 in
-                let* core = part (r, k, c) ~base:a4 ~from:0 ~rows:first in
+                let* core =
+                  part (r, k, c) ~base:a4 ~from:(rows_of 0)
+                    ~rows:(rows_of first)
+                in
                 let* rest =
                   match split with
                   | None -> Ok []
                   | Some (_, ring) ->
-                      part (r, k, c) ~base:ring ~from:first ~rows:(p.tm - first)
+                      part (r, k, c) ~base:ring ~from:(rows_of first)
+                        ~rows:(rows_of (tm - first))
                 in
                 Ok (narrow c @ core @ rest))
               tiles
@@ -493,11 +574,17 @@ module Tile_gemm = struct
     let open Gpr in
     let block = Label.named "peak_block" in
     let* blocks = block_items p in
-    let* next_a = Insn.load_imm t2 (a_block p) in
-    let* next_c = Insn.load_imm t2 (2 * tile * c_row p) in
+    let* next_a = Insn.load_imm t2 (a_block p :> int) in
+    let* next_c = Insn.load_imm t2 (2 * (tile :> int) * (c_row p :> int)) in
     Ok
       (start_items
-      @ [ lw a3 a0 0; lw a7 a0 4; lw a4 a0 8; li a5 p.blocks; Item.label block ]
+      @ [
+          lw a3 a0 0;
+          lw a7 a0 4;
+          lw a4 a0 8;
+          li a5 (p.blocks :> int);
+          Item.label block;
+        ]
       @ blocks @ List.map Item.insn next_a
       @ [ add a3 a3 t2 ]
       @ List.map Item.insn next_c
@@ -507,15 +594,17 @@ module Tile_gemm = struct
   (* A and B packed per tile, k-major, zero beyond M and W, each with a step
      past its end for the loop's load ahead. *)
   let inputs p =
-    let s = p.s and e = Elem.bytes p.s.src in
+    let s = p.s and e = (Elem.size p.s.src :> int) in
+    let tl = (tile :> int) and depth = (s.depth :> int) in
+    let rows = (s.rows :> int) and width = (s.width :> int) in
     let pack ~outer ~inner value =
-      let b = Bytes.make ((outer * s.depth * inner * tile * e) + 128) '\000' in
+      let b = Bytes.make ((outer * depth * inner * tl * e) + 128) '\000' in
       let n = ref 0 in
       for o = 0 to outer - 1 do
-        for k = 0 to s.depth - 1 do
-          for i = 0 to (inner * tile) - 1 do
+        for k = 0 to depth - 1 do
+          for i = 0 to (inner * tl) - 1 do
             (match value o k i with
-            | Some x -> Elem.set s.src b (!n * e) x
+            | Some x -> Elem.set s.src b !n x
             | None -> ());
             incr n
           done
@@ -524,9 +613,14 @@ module Tile_gemm = struct
       Bytes.to_string b
     in
     let a =
-      pack ~outer:p.blocks ~inner:p.tile_rows (fun blk k i ->
-          let row = (blk * 2 * tile) + i in
-          if row < s.rows then Some (Gemm.a s row k) else None)
+      pack
+        ~outer:(p.blocks :> int)
+        ~inner:(p.tile_rows :> int)
+        (fun blk k i ->
+          let row = (blk * 2 * tl) + i in
+          if row < rows then
+            Some (Gemm.a s (Core.Dim.index row) (Core.Dim.index k))
+          else None)
     in
     let passes = passes p in
     let b =
@@ -537,8 +631,10 @@ module Tile_gemm = struct
           let n = List.length cols in
           let one =
             pack ~outer:1 ~inner:n (fun _ k i ->
-                let col = (2 * index * tile) + i in
-                if col < s.width then Some (Gemm.b s k col) else None)
+                let col = (2 * index * tl) + i in
+                if col < width then
+                  Some (Gemm.b s (Core.Dim.index k) (Core.Dim.index col))
+                else None)
           in
           Buffer.add_string buf (String.sub one 0 (String.length one - 128)))
         passes;
@@ -555,9 +651,14 @@ module Tile_gemm = struct
       items = items p;
       slots =
         [
-          slot L.Placement.In (String.length (List.nth inputs 0));
-          slot L.Placement.In (String.length (List.nth inputs 1));
-          slot L.Placement.Out (String.length expected);
+          slot L.Placement.In
+            (Coral_transfer.Transfer_units.Bytes.of_int
+               (String.length (List.nth inputs 0)));
+          slot L.Placement.In
+            (Coral_transfer.Transfer_units.Bytes.of_int
+               (String.length (List.nth inputs 1)));
+          slot L.Placement.Out
+            (Coral_transfer.Transfer_units.Bytes.of_int (String.length expected));
         ];
       inputs;
       expected;
@@ -565,8 +666,18 @@ module Tile_gemm = struct
         Printf.sprintf
           "C[%dx%d] %s = A[%dx%d] %s x B[%dx%d] %s, tiles %d deep, %d columns \
            (the last %d wide) in %d pass%s; inner loop:"
-          s.rows s.width (Elem.name s.dst) s.rows s.depth (Elem.name s.src)
-          s.depth s.width (Elem.name s.src) p.tm p.columns p.last
+          (s.rows :> int)
+          (s.width :> int)
+          (Elem.name s.dst)
+          (s.rows :> int)
+          (s.depth :> int)
+          (Elem.name s.src)
+          (s.depth :> int)
+          (s.width :> int)
+          (Elem.name s.src)
+          (p.tm :> int)
+          (p.columns :> int)
+          (p.last :> int)
           (List.length (passes p))
           (if List.length (passes p) = 1 then "" else "es");
       matrix = true;
@@ -592,10 +703,10 @@ let tile_gemm ?(geometry = Tile_gemm.Geometry.Engine)
           match input with Bf16 -> Bf16 | F32 -> F32 | I8 -> I8
         in
         {
-          Gemm.rows = 64;
-          width = 32;
-          depth;
-          blocks = 1;
+          Gemm.rows = Core.Dim.extent 64;
+          width = Core.Dim.extent 32;
+          depth = Core.Dim.extent depth;
+          blocks = Core.Dim.extent 1;
           src;
           dst;
           sa = 1;
@@ -603,7 +714,12 @@ let tile_gemm ?(geometry = Tile_gemm.Geometry.Engine)
         }
     | Rvv { width } ->
         let r = gemm_shape ?width (Input.to_gemm input) in
-        { r with rows = r.rows * r.blocks; blocks = 1; dst }
+        {
+          r with
+          rows = Core.Dim.extent ((r.rows :> int) * (r.blocks :> int));
+          blocks = Core.Dim.extent 1;
+          dst;
+        }
   in
   make (plan op t s)
 

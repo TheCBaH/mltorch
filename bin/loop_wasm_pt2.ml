@@ -36,6 +36,8 @@
 
 open Loop_ir
 
+let address a = Int64.to_int (Loop_wasm_layout.Address.to_int64 a)
+
 type eval =
   [ Loop_native4d_model.error
   | Native_predict.error
@@ -161,7 +163,8 @@ let direct_route ~dir ~wat ~vector ~numerics b ~constants =
     w.Loop_bundle_wasm.weights.C_payload_layout.length
     (C_workspace_plan.bytes ws)
     (C_workspace_plan.graph_arena_bytes ws)
-    w.Loop_bundle_wasm.placement.Loop_bundle_wasm.Placement.total (ms t1) dir;
+    (address w.Loop_bundle_wasm.placement.Loop_bundle_wasm.Placement.total)
+    (ms t1) dir;
   Printf.eprintf "loop_wasm_pt2: %s\n%!"
     (Loop_numerics.coverage ~numerics:st.Loop_bundle_wasm.numerics
        ~f32_kernels:st.Loop_bundle_wasm.f32_kernels
@@ -200,15 +203,15 @@ let direct_route ~dir ~wat ~vector ~numerics b ~constants =
               (placement_json
                  {
                    Loop_wasm_exec.Node.weights =
-                     pl.Loop_bundle_wasm.Placement.weights;
-                   inputs = pl.Loop_bundle_wasm.Placement.inputs;
-                   workspace = pl.Loop_bundle_wasm.Placement.workspace;
-                   outputs = pl.Loop_bundle_wasm.Placement.outputs;
+                     address pl.Loop_bundle_wasm.Placement.weights;
+                   inputs = address pl.Loop_bundle_wasm.Placement.inputs;
+                   workspace = address pl.Loop_bundle_wasm.Placement.workspace;
+                   outputs = address pl.Loop_bundle_wasm.Placement.outputs;
                    workspace_bytes = C_workspace_plan.bytes ws;
                    outputs_bytes =
                      w.Loop_bundle_wasm.outputs.C_payload_layout.length;
                  }
-                 ~total:pl.Loop_bundle_wasm.Placement.total
+                 ~total:(address pl.Loop_bundle_wasm.Placement.total)
                  ~identity:w.Loop_bundle_wasm.identity)
             ~input ~outs);
     }

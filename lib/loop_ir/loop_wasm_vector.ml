@@ -37,8 +37,8 @@ let f64_pair_bytes x =
 type vctx = {
   halves : int;
   lpr : int;  (** lanes per register: 2 ([f64x2]) or 4 ([f32x4]) *)
-  temps : (int, int array) Hashtbl.t;
-  mutable splats : (float Loop_expr.t * int) list;
+  temps : (V.Temp.t, Layout.Local.t array) Hashtbl.t;
+  mutable splats : (float Loop_expr.t * Layout.Local.t) list;
       (** a splatted scalar expression and the local holding its vector *)
 }
 
@@ -51,11 +51,11 @@ let hoistable inner e =
 
 let temp_local st vc t h =
   let regs =
-    match Hashtbl.find_opt vc.temps (V.Temp.to_int t) with
+    match Hashtbl.find_opt vc.temps t with
     | Some r -> r
     | None ->
         let r = Array.init vc.halves (fun _ -> fresh st Wasm_type.V128) in
-        Hashtbl.add vc.temps (V.Temp.to_int t) r;
+        Hashtbl.add vc.temps t r;
         r
   in
   regs.(h)
@@ -342,10 +342,13 @@ let rec stmt st vc (s : V.stmt) =
       match st.mark_base with
       | None -> []
       | Some base ->
-          let at = base + (4 * Loop_mark.index m) in
+          let at =
+            Layout.Address.advance base
+              ~bytes:(Int64.of_int (4 * Loop_mark.index m))
+          in
           [
-            i32 at;
-            i32 at;
+            Layout.Address.const at;
+            Layout.Address.const at;
             I.Load (Wasm.Load.I32_load, { Wasm.Mem_arg.align = 2; offset = 0 });
             i32 (vc.lpr * vc.halves);
             n Wasm_op.I32_add;

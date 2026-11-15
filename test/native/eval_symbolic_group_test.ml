@@ -18,7 +18,11 @@ let state_shape = Vec6.shape ~n:1 ~t:1 ~d:1 ~h:1 ~w:batch ~c:k
 let seq_shape = Vec6.shape ~n:1 ~t:1 ~d:1 ~h:seq ~w:batch ~c:isz
 
 let params : Lstm.Lstm.params =
-  { hidden_size = k; input_size = isz; batch_first = false }
+  {
+    hidden_size = Dim.extent k;
+    input_size = Dim.extent isz;
+    batch_first = false;
+  }
 
 (* One Lstm node (single layer, single direction) reading fresh graph
    inputs; returns its three output edge ids. *)

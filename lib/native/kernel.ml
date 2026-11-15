@@ -367,7 +367,8 @@ module Bounds = struct
        own six-factor fold. *)
     let bytes =
       Int64.mul numel
-        (Int64.of_int (Payload.packed_cell_bytes sg.Tensor_sig.fmt))
+        (Core.Storage_units.Element_bytes.to_int64
+           (Payload.packed_cell_bytes sg.Tensor_sig.fmt))
     in
     if Int64.compare bytes limits.Limits.max_bytes > 0 then
       Err.fail (`Bytes_too_large id)
@@ -386,8 +387,9 @@ let quant_contract id (sg : Tensor_sig.t) =
       match Quant.channel_count q with
       | None -> Err.return ()
       | Some n ->
-          if n = Dim.to_int (Vec6.get sg.Tensor_sig.shape Expr.Axis.C) then
-            Err.return ()
+          if
+            Dim.to_int n = Dim.to_int (Vec6.get sg.Tensor_sig.shape Expr.Axis.C)
+          then Err.return ()
           else Err.fail (`Quant_contract id))
   | true, None | false, Some _ -> Err.fail (`Quant_contract id)
 

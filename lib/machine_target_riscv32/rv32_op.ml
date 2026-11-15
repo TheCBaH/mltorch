@@ -196,11 +196,13 @@ let ordered = function
    compare's mask, a slide's temporary, the scalar a lane insert slides up. *)
 let vector_scratch (x : Rv32_vop.t) =
   match x with
-  | Rv32_vop.Vext { first; _ } when first <> 0 -> [ Rv32_reg.vector_scratch ]
+  | Rv32_vop.Vext { first; _ } when Mir_type.Lane.to_int first <> 0 ->
+      [ Rv32_reg.vector_scratch ]
   | Rv32_vop.Vfcmp _ | Rv32_vop.Vfredosum _ | Rv32_vop.Vinsert _
   | Rv32_vop.Vmerge _ | Rv32_vop.Vnsrl16_pair _ ->
       [ Rv32_reg.vector_scratch ]
-  | Rv32_vop.Vfmv_f_s (k, _) when k <> 0 -> [ Rv32_reg.vector_scratch ]
+  | Rv32_vop.Vfmv_f_s (k, _) when Mir_type.Lane.to_int k <> 0 ->
+      [ Rv32_reg.vector_scratch ]
   | Rv32_vop.Vadd _ | Rv32_vop.Vcast _ | Rv32_vop.Vext _ | Rv32_vop.Vfbin _
   | Rv32_vop.Vfcvt_f_x _ | Rv32_vop.Vfcvt_x_f _ | Rv32_vop.Vfmacc _
   | Rv32_vop.Vfmv_f_s _ | Rv32_vop.Vfmv_v_f _ | Rv32_vop.Vfsqrt _
@@ -213,27 +215,38 @@ let vector_scratch (x : Rv32_vop.t) =
 (* Integers and pointers take the next of a0-a7, floats the next of fa0-fa7;
    the status follows the results in the integer sequence. *)
 let sequence tys =
-  let gi = ref 0 and fi = ref 0 in
+  let gi = ref Rv32_reg.Num_seq.zero and fi = ref Rv32_reg.Num_seq.zero in
   List.map
     (fun (t : Mir_type.t) ->
       let fp = Mir_type.equal t Mir_type.F32 in
       let k = if fp then fi else gi in
       let r = if fp then Rv32_reg.fa !k else Rv32_reg.a !k in
-      incr k;
-      if !k > 8 then invalid_arg "Rv32_op: more than eight of one class";
+      k := Rv32_reg.Num.succ !k;
+      if Rv32_reg.Num.compare !k (Rv32_reg.Num.of_int 8) > 0 then
+        invalid_arg "Rv32_op: more than eight of one class";
       r)
     tys
 
 let constraints = function
   | Call { args; results; _ } ->
       List.mapi
-        (fun use view -> Mir_target.Constraint.Fixed_use { use; view })
+        (fun use view ->
+          Mir_target.Constraint.Fixed_use
+            { use = Mir_target.Constraint.Use_position.of_int use; view })
         (sequence (List.map (fun (a : v) -> a.Mir_value.ty) args))
       @ List.mapi
           (fun result view ->
-            Mir_target.Constraint.Fixed_result { result; view })
+            Mir_target.Constraint.Fixed_result
+              {
+                result = Mir_target.Constraint.Result_position.of_int result;
+                view;
+              })
           (sequence (results @ [ Mir_type.i32 ]))
-  | Add_wide _ -> [ Mir_target.Constraint.Early_clobber 0 ]
+  | Add_wide _ ->
+      [
+        Mir_target.Constraint.Early_clobber
+          (Mir_target.Constraint.Result_position.of_int 0);
+      ]
   | Vec x ->
       Rv32_vop.constraints x
       @ List.map (fun v -> Mir_target.Constraint.Scratch v) (vector_scratch x)
@@ -252,11 +265,12 @@ let unit_bits = function
 (* A call leaves undefined every register the psABI does not preserve: ra,
    t0-t6, a0-a7, ft0-ft11, fa0-fa7 and every vector register. *)
 let call_clobbers =
+  let module N = Rv32_reg.Num in
+  let module Ns = Rv32_reg.Num_seq in
   List.map Rv32_reg.x
-    ([ 1; 5; 6; 7 ] @ Rv32_reg.range 10 17 @ Rv32_reg.range 28 31)
-  @ List.map Rv32_reg.f
-      (Rv32_reg.range 0 7 @ Rv32_reg.range 10 17 @ Rv32_reg.range 28 31)
-  @ List.map Rv32_reg.v (Rv32_reg.range 0 31)
+    (Ns.of_ints [ 1; 5; 6; 7 ] @ Ns.range 10 17 @ Ns.range 28 31)
+  @ List.map Rv32_reg.f (Ns.range 0 7 @ Ns.range 10 17 @ Ns.range 28 31)
+  @ List.map Rv32_reg.v (Ns.range 0 31)
 
 let clobbers = function
   | Call _ -> call_clobbers

@@ -14,7 +14,10 @@ let%expect_test "Symbolic graph: pad reflect ground matches Direct" =
           let* x = input ~shape:(s 1 1 1 2 3 1) ~name:"x" () in
           pad ~name:"out"
             {
-              Pad.Pad.pads = [ (Axis.W, { Pad.Pad.before = 1; after = 1 }) ];
+              Pad.Pad.pads =
+                [
+                  (Axis.W, { Pad.Pad.before = Dim.delta 1; after = Dim.delta 1 });
+                ];
               mode = Pad.Pad.Reflect;
             }
             x)
@@ -61,8 +64,9 @@ let%expect_test "Symbolic graph: pad constant with a crop ground matches Direct"
             {
               Pad.Pad.pads =
                 [
-                  (Axis.H, { Pad.Pad.before = 1; after = 0 });
-                  (Axis.W, { Pad.Pad.before = -1; after = 0 });
+                  (Axis.H, { Pad.Pad.before = Dim.delta 1; after = Dim.delta 0 });
+                  ( Axis.W,
+                    { Pad.Pad.before = Dim.delta (-1); after = Dim.delta 0 } );
                 ];
               mode = Pad.Pad.Constant 0.5;
             }

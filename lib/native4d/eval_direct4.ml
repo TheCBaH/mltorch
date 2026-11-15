@@ -752,14 +752,12 @@ let eval_node ?region_counters ~limits ~synthetic_ids ~sched (g : Graph.graph)
                           (Tensor.materialize_i64 (Shape4.to_vec6 out_shape)
                              (fun coord ->
                                Int64.of_float
-                                 (Factory.Arange.value params
-                                    (Dim.to_int coord.Vec6.c)))))
+                                 (Factory.Arange.value params coord.Vec6.c))))
                 | _ ->
                     Err.return
                       (Tensor.materialize_fmt params.fmt
                          (Shape4.to_vec6 out_shape) (fun coord ->
-                           Factory.Arange.value params (Dim.to_int coord.Vec6.c)))
-                )
+                           Factory.Arange.value params coord.Vec6.c)))
             | Op.Eye4 { Ops4.Eye4.params } ->
                 Err.return
                   (Tensor.materialize_fmt params.fmt (Shape4.to_vec6 out_shape)

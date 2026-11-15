@@ -51,7 +51,7 @@ type st = {
   fallible : Mir_op.Callee.t -> bool;
   float_loads : (Mir_id.Value.t, Mir_value.t) Hashtbl.t;
       (** a load read only by one bitcast to a float: the float it defines *)
-  int_slices : (Mir_id.Value.t, int * Mir_value.t) Hashtbl.t;
+  int_slices : (Mir_id.Value.t, Mir_type.Lane.t * Mir_value.t) Hashtbl.t;
       (** four lanes of an integer register read only by extensions to int32:
           the first lane and the register *)
   shift_counts : (Mir_id.Value.t, int64) Hashtbl.t;
@@ -402,10 +402,8 @@ let vector st (i : Mir_op.t Mir_instr.t) =
       else
         let low = emit st (Arr.ty Arr.S4) (Vwiden a) in
         def (Ins_half (low, b))
-  | Mir_op.Vextract (lane, a) ->
-      def (Dup_lane (Arr.fsz (arr a), Mir_type.Lane.to_int lane, a))
-  | Mir_op.Vinsert (lane, a, x) ->
-      def (Ins_lane (Arr.fsz (arr a), Mir_type.Lane.to_int lane, a, x))
+  | Mir_op.Vextract (lane, a) -> def (Dup_lane (Arr.fsz (arr a), lane, a))
+  | Mir_op.Vinsert (lane, a, x) -> def (Ins_lane (Arr.fsz (arr a), lane, a, x))
   | Mir_op.Vload { Mir_op.Vaccess.addr; stride; elem = Mir_type.Elem.Int w; _ }
     -> (
       (* a whole register of integer lanes, contiguous *)
@@ -475,7 +473,7 @@ let vector st (i : Mir_op.t Mir_instr.t) =
       def (Scvtf_vec a)
   | Mir_op.Vload { Mir_op.Vaccess.addr; stride; _ } ->
       let a = arr (r ()) in
-      let fsz = Arr.fsz a and n = Arr.lanes a in
+      let fsz = Arr.fsz a and n = Mir_type.Lanes.to_int (Arr.lanes a) in
       let size = match fsz with Fsz.D -> 8L | Fsz.S -> 4L in
       if a = Arr.S2 then refuse st (Refusal.Width (r ()).Mir_value.ty);
       if Int64.equal stride size || mutated st Mutation.Contiguous_lanes then
@@ -496,13 +494,13 @@ let vector st (i : Mir_op.t Mir_instr.t) =
               (Mir_sel.Op.Machine
                  (match !acc with
                  | None -> Ld1r (a, at)
-                 | Some v -> Ld1_lane (fsz, k, v, at)));
+                 | Some v -> Ld1_lane (fsz, Mir_type.Lane.of_int k, v, at)));
             acc := Some res)
   | Mir_op.Vslice (first, count, a)
     when arr a = Arr.S4
          && Mir_type.Lanes.to_int count = 2
          && Mir_type.Lane.to_int first mod 2 = 0 ->
-      def (Dup_half (Mir_type.Lane.to_int first / 2, a))
+      def (Dup_half (first, a))
   | Mir_op.Vsplat (_, p)
     when match (r ()).Mir_value.ty with Mir_type.Mask _ -> true | _ -> false ->
       (* a predicate is 0 or 1: all ones where it is set, then to every lane *)
@@ -517,7 +515,7 @@ let vector st (i : Mir_op.t Mir_instr.t) =
   | Mir_op.Vsplat (_, x) -> def (Dup_elem (arr (r ()), x))
   | Mir_op.Vstore ({ Mir_op.Vaccess.addr; stride; _ }, v) ->
       let a = arr v in
-      let fsz = Arr.fsz a and n = Arr.lanes a in
+      let fsz = Arr.fsz a and n = Mir_type.Lanes.to_int (Arr.lanes a) in
       let size = match fsz with Fsz.D -> 8L | Fsz.S -> 4L in
       if a = Arr.S2 then refuse st (Refusal.Width v.Mir_value.ty);
       if Int64.equal stride size then
@@ -527,7 +525,9 @@ let vector st (i : Mir_op.t Mir_instr.t) =
       else
         chained st i.Mir_instr.order n (fun k order ->
             let at = offset st addr (Int64.mul (Int64.of_int k) stride) in
-            push st ~order [] (Mir_sel.Op.Machine (St1_lane (fsz, k, v, at))))
+            push st ~order []
+              (Mir_sel.Op.Machine
+                 (St1_lane (fsz, Mir_type.Lane.of_int k, v, at))))
   | _ -> unsupported ()
 
 let instr st (i : Mir_op.t Mir_instr.t) =
@@ -646,7 +646,7 @@ let instr st (i : Mir_op.t Mir_instr.t) =
             let log2 k =
               List.find_opt
                 (fun n -> Int64.equal k (Int64.shift_left 1L n))
-                (List.init (Sz.bits sz) Fun.id)
+                (List.init (Sz.bits sz :> int) Fun.id)
             in
             match
               immediate st ~commutes:true

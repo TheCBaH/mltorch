@@ -14,11 +14,11 @@ open Lstm.Lstm
    single dimension's extent. *)
 module Walk (L : Walk_core.Limits.S) = struct
   type cfg = {
-    hidden_size : int;
-    input_size : int;
-    seq : int;
-    batch : int;
-    num_layers : int;
+    hidden_size : Dim.extent Dim.t;
+    input_size : Dim.extent Dim.t;
+    seq : Dim.extent Dim.t;
+    batch : Dim.extent Dim.t;
+    num_layers : Num_layers.t;
     bidirectional : bool;
     bias : bool;
     batch_first : bool;
@@ -28,11 +28,11 @@ module Walk (L : Walk_core.Limits.S) = struct
 
   let initial =
     {
-      hidden_size = 3;
-      input_size = 2;
-      seq = 4;
-      batch = 2;
-      num_layers = 1;
+      hidden_size = Dim.extent 3;
+      input_size = Dim.extent 2;
+      seq = Dim.extent 4;
+      batch = Dim.extent 2;
+      num_layers = Num_layers.of_int 1;
       bidirectional = false;
       bias = true;
       batch_first = false;
@@ -53,7 +53,9 @@ module Walk (L : Walk_core.Limits.S) = struct
      layer is still a real, useful walk target, just not at
      [num_layers=3]. *)
   let cascade c =
-    if c.bidirectional && c.num_layers > 1 then { c with num_layers = 1 } else c
+    if c.bidirectional && Num_layers.to_int c.num_layers > 1 then
+      { c with num_layers = Num_layers.of_int 1 }
+    else c
 
   let directions (c : cfg) = if c.bidirectional then 2 else 1
 
@@ -66,18 +68,23 @@ module Walk (L : Walk_core.Limits.S) = struct
 
   let input_shape (c : cfg) =
     let h, w = if c.batch_first then (c.batch, c.seq) else (c.seq, c.batch) in
-    Vec6.shape ~n:1 ~t:1 ~d:1 ~h ~w ~c:c.input_size
+    Vec6.make ~n:Dim.one ~t:Dim.one ~d:Dim.one ~h ~w ~c:c.input_size
 
   let state_shape (c : cfg) =
     state_shape ~p:(params c)
-      ~layers:(c.num_layers * directions c)
+      ~layers:(Dim.extent (Num_layers.to_int c.num_layers * directions c))
       ~batch:c.batch
 
   (* Layer 0 reads the raw input width; every later layer reads the
      previous layer's [R]-wide hidden trace (the LSTM lowering analysis), matching
      [Computation.program]'s [this_layer_input_size]. *)
   let layer_input_size (c : cfg) ~layer =
-    if layer = 0 then c.input_size else c.hidden_size * directions c
+    if layer = 0 then c.input_size
+    else
+      Directions.width
+        (if c.bidirectional then Directions.Bidirectional
+         else Directions.Forward_only)
+        c.hidden_size
 
   let weight_ih_shape (c : cfg) ~layer =
     weight_ih_shape (params c) ~layer_input_size:(layer_input_size c ~layer)
@@ -88,13 +95,30 @@ module Walk (L : Walk_core.Limits.S) = struct
   let axes =
     Walk_core.Walk.
       [
-        int_axis "hidden_size" ~lo:1 ~hi:l.max_channels (fun c v ->
-            { c with hidden_size = v });
-        int_axis "input_size" ~lo:1 ~hi:l.max_channels (fun c v ->
-            { c with input_size = v });
-        int_axis "seq" ~lo:1 ~hi:l.max_extent (fun c v -> { c with seq = v });
-        int_axis "batch" ~lo:1 ~hi:l.max_batch (fun c v -> { c with batch = v });
-        int_axis "num_layers" ~lo:1 ~hi:3 (fun c v -> { c with num_layers = v });
+        range_axis
+          (module Extent)
+          "hidden_size" ~lo:Extent.one
+          ~hi:(Extent.of_int l.max_channels)
+          (fun c v -> { c with hidden_size = v });
+        range_axis
+          (module Extent)
+          "input_size" ~lo:Extent.one
+          ~hi:(Extent.of_int l.max_channels)
+          (fun c v -> { c with input_size = v });
+        range_axis
+          (module Extent)
+          "seq" ~lo:Extent.one
+          ~hi:(Extent.of_int l.max_extent)
+          (fun c v -> { c with seq = v });
+        range_axis
+          (module Extent)
+          "batch" ~lo:Extent.one
+          ~hi:(Extent.of_int l.max_batch)
+          (fun c v -> { c with batch = v });
+        range_axis
+          (module Num_layers)
+          "num_layers" ~lo:(Num_layers.of_int 1) ~hi:(Num_layers.of_int 3)
+          (fun c v -> { c with num_layers = v });
         field_axis "bidirectional" [ true; false ] (fun c v ->
             { c with bidirectional = v });
         field_axis "bias" [ true; false ] (fun c v -> { c with bias = v });
@@ -106,8 +130,12 @@ module Walk (L : Walk_core.Limits.S) = struct
     Format.fprintf fmt
       "{hidden_size=%d input_size=%d seq=%d batch=%d num_layers=%d \
        bidirectional=%b bias=%b batch_first=%b}"
-      c.hidden_size c.input_size c.seq c.batch c.num_layers c.bidirectional
-      c.bias c.batch_first
+      (c.hidden_size :> int)
+      (c.input_size :> int)
+      (c.seq :> int)
+      (c.batch :> int)
+      (Num_layers.to_int c.num_layers)
+      c.bidirectional c.bias c.batch_first
 
   (* One direction's operand shapes at [layer], forward and reverse alike
      (a bidirectional layer's reverse direction reads the same width as its

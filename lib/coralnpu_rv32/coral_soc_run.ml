@@ -8,7 +8,7 @@ module Run_error = struct
     | Guest_trap of Coral_run.Trap.t
     | Mailbox_malformed of Coral_mailbox.Malformed.t
     | No_core_csr
-    | Read_back_mismatch of int
+    | Read_back_mismatch of Core.Table_slot.t
     | Read_back_over_budget of Over_budget.t
     | Simulator_crashed of { status : string; tail : string }
     | Simulator_missing of string
@@ -25,7 +25,8 @@ module Run_error = struct
         Fmt.pf ppf "malformed mailbox (%a)" Coral_mailbox.pp_malformed m
     | No_core_csr -> Fmt.string ppf "the profile has no core CSR region"
     | Read_back_mismatch k ->
-        Fmt.pf ppf "slot %d read back over the bridge differs from its hash" k
+        Fmt.pf ppf "slot %d read back over the bridge differs from its hash"
+          (k :> int)
     | Read_back_over_budget { Over_budget.bytes; budget } ->
         Fmt.pf ppf
           "%Ld bytes to read back over the bridge, more than the budget of %Ld"
@@ -431,7 +432,9 @@ let run_held ?(deadline = 600.) ?label ?trace ?(read_back = [])
                                     fetched
                                 with
                                 | Some (k, _) ->
-                                    Err.fail (Run_error.Read_back_mismatch k)
+                                    Err.fail
+                                      (Run_error.Read_back_mismatch
+                                         (Core.Table_slot.of_int k))
                                 | None -> Err.return o)))))
 
 (* the whole run, simulator and bridge, holds the CPUs its threads keep busy *)

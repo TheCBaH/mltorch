@@ -24,7 +24,9 @@ let align = 64
 let round_up n = (n + align - 1) / align * align
 
 let cell_bytes (b : Loop_buffer.t) =
-  Payload.packed_cell_bytes b.Loop_buffer.sg.Tensor_sig.fmt
+  Int64.to_int
+    (Core.Storage_units.Element_bytes.to_int64
+       (Payload.packed_cell_bytes b.Loop_buffer.sg.Tensor_sig.fmt))
 
 let numel (b : Loop_buffer.t) =
   Int64.to_int

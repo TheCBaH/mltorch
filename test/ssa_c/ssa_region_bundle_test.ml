@@ -198,7 +198,11 @@ let lstm () =
         }
       in
       Graph_builder.lstm
-        { Lstm.Lstm.hidden_size = hidden; input_size; batch_first = true }
+        {
+          Lstm.Lstm.hidden_size = Dim.extent hidden;
+          input_size = Dim.extent input_size;
+          batch_first = true;
+        }
         ~input:x ~layers:[ layer ] ~h0 ~c0 ())
   in
   Err.or_raise ~pp_error:Graph_builder.pp_error

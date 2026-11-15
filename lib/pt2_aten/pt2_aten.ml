@@ -6,7 +6,20 @@
    dtype as required.
 
    Storage bytes are little-endian and the host is little-endian, so each cell
-   can be decoded directly into the matching Bigarray element type. *)
+   can be decoded directly into the matching Bigarray element type. ATen takes
+   native [int]s: this library is native-only, and a size, stride or offset
+   past [int] is refused by the narrowing ([Invalid_argument]). *)
+
+let sizes (t : Pt2_tensor.t) = List.map Pt2_tensor.Size.to_int t.sizes
+let strides (t : Pt2_tensor.t) = List.map Pt2_tensor.Stride.to_int t.strides
+
+let storage_offset (t : Pt2_tensor.t) =
+  Int64.to_int (Core.Storage_units.Element_offset.to_int64 t.storage_offset)
+
+let cells (t : Pt2_tensor.t) width =
+  match Core.Storage_units.Element_bytes.of_int64 (Int64.of_int width) with
+  | Ok w -> Pt2_storage.cell_count t.data w
+  | Error _ -> invalid_arg "Pt2_aten.cells"
 
 let to_tensor (t : Pt2_tensor.t) =
   match t.Pt2_tensor.dtype with
@@ -14,33 +27,30 @@ let to_tensor (t : Pt2_tensor.t) =
       let data = t.Pt2_tensor.data in
       let ba =
         Bigarray.Array1.create Bigarray.int8_unsigned Bigarray.c_layout
-          (Pt2_storage.length data)
+          (cells t 1)
       in
       for i = 0 to Bigarray.Array1.dim ba - 1 do
-        ba.{i} <- Char.code data.{i}
+        ba.{i} <- Pt2_storage.cell_uint8 data ~cell:i
       done;
-      Aten_tensor.of_storage Aten_dtype.bool ba ~sizes:t.Pt2_tensor.sizes
-        ~strides:t.Pt2_tensor.strides
-        ~storage_offset:t.Pt2_tensor.storage_offset
+      Aten_tensor.of_storage Aten_dtype.bool ba ~sizes:(sizes t)
+        ~strides:(strides t) ~storage_offset:(storage_offset t)
   | Pt2_dtype.Float32 ->
       let data = t.Pt2_tensor.data in
-      let n = Pt2_storage.length data / 4 in
+      let n = cells t 4 in
       let ba = Bigarray.Array1.create Bigarray.float32 Bigarray.c_layout n in
       for i = 0 to n - 1 do
         Bigarray.Array1.unsafe_set ba i
-          (Int32.float_of_bits (Pt2_storage.get_int32_le data (i * 4)))
+          (Int32.float_of_bits (Pt2_storage.cell_int32_le data ~cell:i))
       done;
-      Aten_tensor.of_storage Aten_dtype.float32 ba ~sizes:t.Pt2_tensor.sizes
-        ~strides:t.Pt2_tensor.strides
-        ~storage_offset:t.Pt2_tensor.storage_offset
+      Aten_tensor.of_storage Aten_dtype.float32 ba ~sizes:(sizes t)
+        ~strides:(strides t) ~storage_offset:(storage_offset t)
   | Pt2_dtype.Int64 ->
       let data = t.Pt2_tensor.data in
-      let n = Pt2_storage.length data / 8 in
+      let n = cells t 8 in
       let ba = Bigarray.Array1.create Bigarray.int64 Bigarray.c_layout n in
       for i = 0 to n - 1 do
-        Bigarray.Array1.unsafe_set ba i (Pt2_storage.get_int64_le data (i * 8))
+        Bigarray.Array1.unsafe_set ba i (Pt2_storage.cell_int64_le data ~cell:i)
       done;
-      Aten_tensor.of_storage Aten_dtype.int64 ba ~sizes:t.Pt2_tensor.sizes
-        ~strides:t.Pt2_tensor.strides
-        ~storage_offset:t.Pt2_tensor.storage_offset
+      Aten_tensor.of_storage Aten_dtype.int64 ba ~sizes:(sizes t)
+        ~strides:(strides t) ~storage_offset:(storage_offset t)
   | d -> failwith ("Pt2_aten: unsupported dtype " ^ Pt2_dtype.to_string d)

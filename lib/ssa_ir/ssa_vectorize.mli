@@ -71,7 +71,7 @@ module Decision : sig
     executions : int64;
         (** how many times the loop runs: the product of the constant trip
             counts of its enclosing loops *)
-    ops : (Ssa_target.Op.t * int) list;
+    ops : (Ssa_target.Op.t * int64) list;
         (** the vector operations of its body, each weighted by the inner loops
             around it: the multiset the cost model prices *)
     outcome : outcome;

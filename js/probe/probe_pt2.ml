@@ -34,7 +34,9 @@ let run_archive archive ~input_name ~input =
     |> List.hd |> snd
   in
   Printf.printf "input-shape [%s]\n"
-    (String.concat "; " (List.map string_of_int tensor.Pt2_tensor.sizes));
+    (Fmt.str "%a"
+       (Fmt.list ~sep:(Fmt.any "; ") Pt2_tensor.Size.pp)
+       tensor.Pt2_tensor.sizes);
   let outputs =
     ok "run" Native_interp.pp_error (Native_interp.run archive ~input:tensor)
   in

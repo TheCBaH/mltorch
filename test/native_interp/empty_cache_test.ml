@@ -316,13 +316,9 @@ let x_tensor =
   List.iteri
     (fun i v -> Bytes.set_int32_le data (4 * i) (Int32.bits_of_float v))
     values;
-  {
-    Pt2_tensor.dtype = Pt2_dtype.Float32;
-    sizes = [ 2; 3 ];
-    strides = [ 3; 1 ];
-    storage_offset = 0;
-    data = Pt2_storage.of_string (Bytes.to_string data);
-  }
+  Pt2_tensor.of_ints Pt2_dtype.Float32 ~sizes:[ 2; 3 ] ~strides:[ 3; 1 ]
+    ~storage_offset:0
+    (Pt2_storage.of_string (Bytes.to_string data))
 
 let floats packed =
   let (Tensor.Tensor t) = packed in

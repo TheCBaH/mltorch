@@ -233,21 +233,21 @@ let mnemonic = function
   | Vand_vi _ -> "vand.vi"
   | Vfmacc_vf _ -> "vfmacc.vf"
   | Vfwmaccbf16_vf _ -> "vfwmaccbf16.vf"
-  | Vle { eew; _ } -> Fmt.str "vle%d.v" (Rv32_kernel_vtype.Sew.bits eew)
-  | Vlse { eew; _ } -> Fmt.str "vlse%d.v" (Rv32_kernel_vtype.Sew.bits eew)
+  | Vle { eew; _ } -> Fmt.str "vle%a.v" Rv32_kernel_vtype.Sew.pp_bits eew
+  | Vlse { eew; _ } -> Fmt.str "vlse%a.v" Rv32_kernel_vtype.Sew.pp_bits eew
   | Vmacc_vx _ -> "vmacc.vx"
   | Vmcmp { cmp; _ } -> Cmp.mnemonic cmp
   | Vmerge_vvm _ -> "vmerge.vvm"
   | Vmv_v_i _ -> "vmv.v.i"
   | Vmv_v_x _ -> "vmv.v.x"
   | Vnsrl_wi _ -> "vnsrl.wi"
-  | Vse { eew; _ } -> Fmt.str "vse%d.v" (Rv32_kernel_vtype.Sew.bits eew)
+  | Vse { eew; _ } -> Fmt.str "vse%a.v" Rv32_kernel_vtype.Sew.pp_bits eew
   | Vsetvli _ -> "vsetvli"
   | Vsrl_vi _ -> "vsrl.vi"
-  | Vsse { eew; _ } -> Fmt.str "vsse%d.v" (Rv32_kernel_vtype.Sew.bits eew)
+  | Vsse { eew; _ } -> Fmt.str "vsse%a.v" Rv32_kernel_vtype.Sew.pp_bits eew
   | Vtmm { op; _ } -> Tile_op.mnemonic op
-  | Vtle { eew; _ } -> Fmt.str "vtle%d" (Rv32_kernel_vtype.Sew.bits eew)
-  | Vtse { eew; _ } -> Fmt.str "vtse%d" (Rv32_kernel_vtype.Sew.bits eew)
+  | Vtle { eew; _ } -> Fmt.str "vtle%a" Rv32_kernel_vtype.Sew.pp_bits eew
+  | Vtse { eew; _ } -> Fmt.str "vtse%a" Rv32_kernel_vtype.Sew.pp_bits eew
   | Vtzero _ -> "vtzero"
   | Vv { op; _ } -> Vv_op.mnemonic op
   | Vwmacc_vx _ -> "vwmacc.vx"

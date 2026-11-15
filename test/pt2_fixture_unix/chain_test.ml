@@ -31,7 +31,7 @@ let%expect_test "cold fetch, then the same fixture offline with no requests" =
           in
           (match w with
           | Ok t ->
-              Fmt.pr "w: %d elements, dtype %s@." (Pt2_tensor.numel t)
+              Fmt.pr "w: %d elements, dtype %s@." (Pt2_tensor.numel_int t)
                 (Pt2_dtype.to_string t.dtype)
           | Error _ -> print_endline "w failed");
           Fmt.pr "no model.pt2 in the bundle: %b@."

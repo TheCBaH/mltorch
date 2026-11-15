@@ -113,39 +113,27 @@ let f32 sizes values =
   List.iteri
     (fun i v -> Bytes.set_int32_le data (4 * i) (Int32.bits_of_float v))
     values;
-  {
-    Pt2_tensor.dtype = Pt2_dtype.Float32;
-    sizes;
-    strides = contiguous sizes;
-    storage_offset = 0;
-    data = Pt2_storage.of_string (Bytes.to_string data);
-  }
+  Pt2_tensor.of_ints Pt2_dtype.Float32 ~sizes ~strides:(contiguous sizes)
+    ~storage_offset:0
+    (Pt2_storage.of_string (Bytes.to_string data))
 
 let i64 sizes values =
   let data = Bytes.create (8 * List.length values) in
   List.iteri
     (fun i v -> Bytes.set_int64_le data (8 * i) (Int64.of_int v))
     values;
-  {
-    Pt2_tensor.dtype = Pt2_dtype.Int64;
-    sizes;
-    strides = contiguous sizes;
-    storage_offset = 0;
-    data = Pt2_storage.of_string (Bytes.to_string data);
-  }
+  Pt2_tensor.of_ints Pt2_dtype.Int64 ~sizes ~strides:(contiguous sizes)
+    ~storage_offset:0
+    (Pt2_storage.of_string (Bytes.to_string data))
 
 let bool sizes values =
   let data =
     String.init (List.length values) (fun i ->
         if List.nth values i then '\001' else '\000')
   in
-  {
-    Pt2_tensor.dtype = Pt2_dtype.Bool;
-    sizes;
-    strides = contiguous sizes;
-    storage_offset = 0;
-    data = Pt2_storage.of_string data;
-  }
+  Pt2_tensor.of_ints Pt2_dtype.Bool ~sizes ~strides:(contiguous sizes)
+    ~storage_offset:0
+    (Pt2_storage.of_string data)
 
 (* The elements of a rank-2 result in logical row-major order: sizes right-align
    into the frame, so a [rows; cols] tensor is [W=rows], [C=cols]. *)

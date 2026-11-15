@@ -165,7 +165,10 @@ module Image = struct
       else J.bad J.Failure.Decoded_image_is_not_uint8
     in
     let* h, w =
-      match t.sizes with
+      match
+        try List.map Pt2_tensor.Size.to_int t.sizes
+        with Invalid_argument _ -> []
+      with
       | [ 3; h; w ]
         when h > 0 && w > 0 && h <= 8192 && w <= 8192 && h <= 44739242 / w ->
           Ok (h, w)
@@ -414,10 +417,6 @@ let run r tensor ~geometry =
   done;
   let shape = [ 3; r.height; r.width ] in
   Ok
-    {
-      Pt2_tensor.data = Pt2_storage.of_string (Bytes.to_string bytes);
-      dtype = Pt2_dtype.Float32;
-      sizes = shape;
-      storage_offset = 0;
-      strides = Pt2_tensor.contiguous_strides shape;
-    }
+    (Pt2_tensor.dense Pt2_dtype.Float32
+       (List.map Pt2_tensor.Size.of_int shape)
+       (Pt2_storage.of_string (Bytes.to_string bytes)))

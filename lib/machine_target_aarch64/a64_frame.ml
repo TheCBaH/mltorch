@@ -9,8 +9,8 @@ open A64_op
 
 type op = A64_op.t
 
-let scratch = A64_reg.x 16
-let control_scratch = A64_reg.x 17
+let scratch = A64_reg.x (A64_reg.Num.of_int 16)
+let control_scratch = A64_reg.x (A64_reg.Num.of_int 17)
 let add_imm base k = Add_imm (Sz.X, base, k)
 
 let fp_control =

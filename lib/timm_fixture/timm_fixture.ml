@@ -45,7 +45,9 @@ module Descriptor = struct
     let* () =
       if
         count > 134217728 || bytes > 134217728
-        || bytes <> count * Pt2_dtype.element_size dtype
+        || not
+             (Int64.equal (Int64.of_int bytes)
+                (Int64.mul (Int64.of_int count) (Pt2_dtype.element_size dtype)))
       then bad J.Failure.Tensor_byte_count_disagrees
       else Ok ()
     in
@@ -53,19 +55,25 @@ module Descriptor = struct
 
   let check d (tensor : Pt2_tensor.t) =
     let* () = J.same "tensor dtype" d.dtype tensor.dtype in
-    let* () = J.same "tensor shape" d.shape tensor.sizes in
+    let* () =
+      J.same "tensor shape"
+        (List.map Int64.of_int d.shape)
+        (List.map Pt2_tensor.Size.to_int64 tensor.sizes)
+    in
     let* logical =
       Pt2_fixture.Logical.of_pt2 ~max_bytes:134217728 tensor
       |> J.wrap J.External.Source.Logical Pt2_fixture.Logical.pp_error
     in
     let* () =
-      J.same "tensor byte count" d.bytes (Pt2_storage.length logical.data)
+      J.same "tensor byte count" (Int64.of_int d.bytes)
+        (Core.Storage_units.Byte_size.to_int64
+           (Pt2_storage.length logical.data))
     in
     let* () =
       J.same "tensor digest" d.sha256 (Pt2_sha256.bigstring logical.data)
     in
     let rec finite i =
-      if i = Pt2_tensor.numel tensor || tensor.dtype = Pt2_dtype.UInt8 then
+      if i = Pt2_tensor.numel_int tensor || tensor.dtype = Pt2_dtype.UInt8 then
         Ok ()
       else if Float.is_finite (Pt2_fixture.Logical.get_float logical i) then
         finite (i + 1)
@@ -149,17 +157,15 @@ module Binding = struct
     Ok { graph; graph_shape; sample; sample_layout; sample_shape; transform }
 
   let input b (tensor : Pt2_tensor.t) =
-    let* () = J.same "stored input shape" b.sample_shape tensor.sizes in
+    let* () =
+      J.same "stored input shape"
+        (List.map Int64.of_int b.sample_shape)
+        (List.map Pt2_tensor.Size.to_int64 tensor.sizes)
+    in
     let* () = J.same "stored input dtype" Pt2_dtype.Float32 tensor.dtype in
     match b.transform with
     | Identity -> Ok tensor
-    | Unsqueeze ->
-        Ok
-          {
-            tensor with
-            sizes = 1 :: tensor.sizes;
-            strides = Pt2_tensor.numel tensor :: tensor.strides;
-          }
+    | Unsqueeze -> Ok (Pt2_tensor.batched tensor)
     | Select_cast -> bad J.Failure.Output_transform_used_for_input
 end
 
@@ -405,13 +411,17 @@ let compare_output contract binding reference actual =
     | Identity -> binding.graph_shape
     | Unsqueeze -> []
   in
-  let* () = J.same "reference output shape" reference.Pt2_tensor.sizes shape in
+  let* () =
+    J.same "reference output shape"
+      (List.map Pt2_tensor.Size.to_int64 reference.Pt2_tensor.sizes)
+      (List.map Int64.of_int shape)
+  in
   let* logical =
     Pt2_fixture.Logical.of_pt2 reference
     |> J.wrap J.External.Source.Logical Pt2_fixture.Logical.pp_error
   in
   let rec go i =
-    if i = Pt2_tensor.numel reference then Ok ()
+    if i = Pt2_tensor.numel_int reference then Ok ()
     else
       let a = Pt2_fixture.Logical.get_float actual i
       and r = Pt2_fixture.Logical.get_float logical i in

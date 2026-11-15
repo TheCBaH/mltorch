@@ -97,7 +97,7 @@ let forms =
       List.map
         (fun k ->
           form (Printf.sprintf "dup.half[%d]" k) [ V Arr.S4 ] (Some (V Arr.S2))
-            (fun vs _ -> Dup_half (k, u 0 vs)))
+            (fun vs _ -> Dup_half (Mir_type.Lane.of_int (2 * k), u 0 vs)))
         [ 0; 1 ];
       List.concat_map
         (fun fsz ->
@@ -106,7 +106,7 @@ let forms =
                 (Printf.sprintf "dup.lane.%s[%d]" (Fsz.name fsz) k)
                 [ V (if fsz = Fsz.D then Arr.D2 else Arr.S4) ]
                 (Some (Sc fsz))
-                (fun vs _ -> Dup_lane (fsz, k, u 0 vs))))
+                (fun vs _ -> Dup_lane (fsz, Mir_type.Lane.of_int k, u 0 vs))))
         fszs;
       [
         form "fcvtl" [ V Arr.S2 ] (Some (V Arr.D2)) (fun vs _ -> Fcvtl (u 0 vs));
@@ -132,7 +132,14 @@ let forms =
                    (Mir_width.name w) first)
                 [ I (w, n) ]
                 (Some (I (Mir_width.W32, 4)))
-                (fun vs _ -> Xtl_w { signed; from = w; first; src = u 0 vs }))
+                (fun vs _ ->
+                  Xtl_w
+                    {
+                      signed;
+                      from = w;
+                      first = Mir_type.Lane.of_int first;
+                      src = u 0 vs;
+                    }))
             firsts)
         (List.concat_map
            (fun signed ->
@@ -199,15 +206,18 @@ let forms =
                    form ~tied:0
                      (Printf.sprintf "ins.lane.%s[%d]" (Fsz.name fsz) k)
                      [ V full; Sc fsz ] (Some (V full))
-                     (fun vs _ -> Ins_lane (fsz, k, u 0 vs, u 1 vs));
+                     (fun vs _ ->
+                       Ins_lane (fsz, Mir_type.Lane.of_int k, u 0 vs, u 1 vs));
                    form ~mem:true ~tied:0
                      (Printf.sprintf "ld1.lane.%s[%d]" (Fsz.name fsz) k)
                      [ V full ] (Some (V full))
-                     (fun vs base -> Ld1_lane (fsz, k, u 0 vs, base));
+                     (fun vs base ->
+                       Ld1_lane (fsz, Mir_type.Lane.of_int k, u 0 vs, base));
                    form ~mem:true
                      (Printf.sprintf "st1.lane.%s[%d]" (Fsz.name fsz) k)
                      [ V full ] None
-                     (fun vs base -> St1_lane (fsz, k, u 0 vs, base));
+                     (fun vs base ->
+                       St1_lane (fsz, Mir_type.Lane.of_int k, u 0 vs, base));
                  ])))
         fszs;
       List.map

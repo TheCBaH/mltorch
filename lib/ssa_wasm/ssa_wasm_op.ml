@@ -88,7 +88,8 @@ let from_float_failure st x =
               ( None,
                 only F.Kind.I64_from_float_infinite,
                 fail st F.Kind.I64_from_float_out_of_range
-                  [ (0, [ get x; n Wasm_op.I64_reinterpret_f64 ]) ] );
+                  [ (Slot.of_int 0, [ get x; n Wasm_op.I64_reinterpret_f64 ]) ]
+              );
           ] );
     ]
 
@@ -106,28 +107,30 @@ let coord_failure st (b : Ssa_buffer.t) (comps : Ssa_wasm_ctx.Local.t list) =
           I.If
             ( None,
               [
-                i32 Loop_ir.Loop_wasm_ctx.error_address;
+                Layout.Address.const Loop_ir.Loop_wasm_ctx.error_address;
                 I.I64_const (Int64.of_int k);
-                I.Store (Wasm.Store.I64_store, arg 3 (W.slot_offset 1));
-                i32 Loop_ir.Loop_wasm_ctx.error_address;
+                I.Store (Wasm.Store.I64_store, W.slot_arg (Slot.of_int 1));
+                Layout.Address.const Loop_ir.Loop_wasm_ctx.error_address;
               ]
               @ wide [ get l ]
-              @ [ I.Store (Wasm.Store.I64_store, arg 3 (W.slot_offset 2)) ],
+              @ [ I.Store (Wasm.Store.I64_store, W.slot_arg (Slot.of_int 2)) ],
               chain (k + 1) rest );
         ]
   in
   [ i32 (W.kind_index F.Kind.Coord_out_of_range); call st R.Callee.Fail_set ]
   @ [
-      i32 Loop_ir.Loop_wasm_ctx.error_address;
+      Layout.Address.const Loop_ir.Loop_wasm_ctx.error_address;
       I.I64_const (Int64.of_int (b.Ssa_buffer.id :> int));
-      I.Store (Wasm.Store.I64_store, arg 3 (W.slot_offset 0));
+      I.Store (Wasm.Store.I64_store, W.slot_arg (Slot.of_int 0));
     ]
   @ List.concat
       (List.mapi
          (fun k l ->
-           [ i32 Loop_ir.Loop_wasm_ctx.error_address ]
+           [ Layout.Address.const Loop_ir.Loop_wasm_ctx.error_address ]
            @ wide [ get l ]
-           @ [ I.Store (Wasm.Store.I64_store, arg 3 (W.slot_offset (3 + k))) ])
+           @ [
+               I.Store (Wasm.Store.I64_store, W.slot_arg (Slot.of_int (3 + k)));
+             ])
          comps)
   @ chain 0 (List.combine comps exts)
   @ [ i32 1; I.Return ]
@@ -155,7 +158,7 @@ let quant_tables st (b : Ssa_buffer.t) =
    decode. *)
 let decode st (b : Ssa_buffer.t) (d : Ssa_op.Decode.t) ~address
     ~(access : Ssa_access.t) =
-  let load l = address @ [ I.Load (l, arg (Wasm.Load.natural_align l) 0) ] in
+  let load l = address @ [ I.Load (l, Width.of_load l) ] in
   match d with
   | Ssa_op.Decode.Bf16_to_f32 ->
       load Wasm.Load.I32_load16_u
@@ -229,14 +232,13 @@ let decode st (b : Ssa_buffer.t) (d : Ssa_op.Decode.t) ~address
           in
           let scales, zeros = quant_tables st b in
           let table base =
-            [ i32 base ]
+            [ Layout.Address.const base ]
             @ read st c
+            @ Width.scale (if narrow then Width.W4 else Width.W8)
             @ [
-                i32 (if narrow then 2 else 3);
-                n Wasm_op.I32_shl;
                 n Wasm_op.I32_add;
-                (if narrow then I.Load (Wasm.Load.F32_load, arg 2 0)
-                 else I.Load (Wasm.Load.F64_load, arg 3 0));
+                (if narrow then I.Load (Wasm.Load.F32_load, arg Width.W4)
+                 else I.Load (Wasm.Load.F64_load, arg Width.W8));
               ]
           in
           load l @ [ convert ] @ table zeros @ [ sub ] @ table scales @ [ mul ])
@@ -269,14 +271,16 @@ let encode_store st (e : Ssa_op.Encode.t) =
         k 0x7F80_0000l;
         n Wasm_op.I32_gt_u;
         I.Select;
-        I.Store (Wasm.Store.I32_store16, arg 1 0);
+        I.Store (Wasm.Store.I32_store16, arg Width.W2);
       ]
   | Ssa_op.Encode.Bool_nonzero ->
-      [ f64 0.; n Wasm_op.F64_ne; I.Store (Wasm.Store.I32_store8, arg 0 0) ]
-  | Ssa_op.Encode.F32_exact -> [ I.Store (Wasm.Store.F32_store, arg 2 0) ]
+      [
+        f64 0.; n Wasm_op.F64_ne; I.Store (Wasm.Store.I32_store8, arg Width.W1);
+      ]
+  | Ssa_op.Encode.F32_exact -> [ I.Store (Wasm.Store.F32_store, arg Width.W4) ]
   | Ssa_op.Encode.F32_round ->
-      [ n Wasm_op.F32_demote_f64; I.Store (Wasm.Store.F32_store, arg 2 0) ]
-  | Ssa_op.Encode.I64 -> [ I.Store (Wasm.Store.I64_store, arg 3 0) ]
+      [ n Wasm_op.F32_demote_f64; I.Store (Wasm.Store.F32_store, arg Width.W4) ]
+  | Ssa_op.Encode.I64 -> [ I.Store (Wasm.Store.I64_store, arg Width.W8) ]
 
 let local_address st local at =
   [ get (reg st local) ]
@@ -320,8 +324,7 @@ let gather elem (lanes : I.t list list) =
   let rec registers = function
     | [] -> []
     | l ->
-        let reg = List.filteri (fun i _ -> i < (per :> int)) l in
-        let rest = List.filteri (fun i _ -> i >= (per :> int)) l in
+        let reg, rest = Ssa_type.Lanes.split per l in
         reg :: registers rest
   in
   List.map
@@ -358,22 +361,22 @@ let reshape_mask st (m : Ssa_value.t) ~(target : mask_shape) =
   else
     let lanes = lanes_of m in
     let lane_value k =
+      let per =
+        Ssa_type.Lanes.of_int (match have with Wide -> 2 | Narrow -> 4)
+      in
+      let reg = get src.((Ssa_type.Lane.chunk k ~per :> int))
+      and slot = (Ssa_type.Lane.slot k ~per :> int) in
       match have with
-      | Wide ->
-          [
-            get src.(k / 2); I.Simd_lane (Wasm.Simd_lane.I64x2_extract, k mod 2);
-          ]
-      | Narrow ->
-          [
-            get src.(k / 4); I.Simd_lane (Wasm.Simd_lane.I32x4_extract, k mod 4);
-          ]
+      | Wide -> [ reg; I.Simd_lane (Wasm.Simd_lane.I64x2_extract, slot) ]
+      | Narrow -> [ reg; I.Simd_lane (Wasm.Simd_lane.I32x4_extract, slot) ]
     in
+    let at first k = Ssa_type.Lane.add first ~by:(Ssa_type.Lane.of_int k) in
     match target with
     | Narrow ->
-        List.init
-          ((lanes :> int) / 4)
-          (fun j ->
-            let l k = lane_value ((4 * j) + k) @ [ n Wasm_op.I32_wrap_i64 ] in
+        let per = Ssa_type.Lanes.of_int 4 in
+        Ssa_type.Chunk.map lanes ~per (fun j ->
+            let first = Ssa_type.Lane.first j ~per in
+            let l k = lane_value (at first k) @ [ n Wasm_op.I32_wrap_i64 ] in
             l 0
             @ [ vn Wasm_op.I32x4_splat ]
             @ List.concat
@@ -381,11 +384,11 @@ let reshape_mask st (m : Ssa_value.t) ~(target : mask_shape) =
                      l (k + 1)
                      @ [ I.Simd_lane (Wasm.Simd_lane.I32x4_replace, k + 1) ])))
     | Wide ->
-        List.init
-          ((lanes :> int) / 2)
-          (fun j ->
+        let per = Ssa_type.Lanes.of_int 2 in
+        Ssa_type.Chunk.map lanes ~per (fun j ->
+            let first = Ssa_type.Lane.first j ~per in
             let l k =
-              lane_value ((2 * j) + k) @ [ n Wasm_op.I64_extend_i32_s ]
+              lane_value (at first k) @ [ n Wasm_op.I64_extend_i32_s ]
             in
             l 0
             @ [ vn Wasm_op.I64x2_splat ]

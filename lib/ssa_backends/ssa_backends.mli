@@ -63,7 +63,7 @@ val c :
 
 val wasm :
   pipeline:Pipeline.t ->
-  table_alloc:(bytes:int -> int) ->
+  table_alloc:(bytes:int64 -> Loop_ir.Loop_wasm_layout.Address.t) ->
   Loop_ir.Loop_bundle.invocation ->
   (Loop_ir.Loop_wasm_module.kernel, string) result
 (** For {!Loop_ir.Loop_bundle_wasm.build}'s [kernel]. A [Planned] pipeline for a

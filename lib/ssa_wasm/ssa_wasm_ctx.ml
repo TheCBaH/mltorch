@@ -2,6 +2,9 @@ open Ssa_ir
 module I = Wasm.Instr
 module R = Loop_ir.Loop_wasm_runtime
 module W = Loop_ir.Loop_wasm_failure
+module Layout = Loop_ir.Loop_wasm_layout
+module Width = Layout.Width
+module Slot = W.Slot
 module F = Loop_ir.Loop_js_failure
 module LF = Loop_ir.Loop_failure
 
@@ -13,12 +16,7 @@ let map f l = List.rev (List.rev_map f l)
 
 (* A WebAssembly local of the function being built: parameters first, then
    the locals it declares. *)
-module Local =
-  Core.Tagged_int.Make
-    (struct
-      let prefix = "local"
-    end)
-    ()
+module Local = Layout.Local
 
 type error =
   [ `Local_arrays_too_large of int64
@@ -52,20 +50,20 @@ type mask_shape =
 type t = {
   esc : error Err.Escape.t;
   mutable extra : Wasm_type.t list;  (** locals past the parameters, reversed *)
-  n_params : int;
+  mutable next_local : Local.Next.t;  (** the next free local *)
   values : Local.t array Ssa_ir.Ssa_id.Value.Tbl.t;
       (** a value's locals, one per register *)
   mask_shapes : mask_shape Ssa_ir.Ssa_id.Value.Tbl.t;
   buffers : Ssa_buffer.t list;
-  tables : (int * int) Ssa_ir.Ssa_id.Buffer.Tbl.t;
+  tables : (Layout.Address.t * Layout.Address.t) Ssa_ir.Ssa_id.Buffer.Tbl.t;
       (** per-channel scale and zero tables *)
   locals : (int64 * Expr.Local_var.t option) Ssa_ir.Ssa_id.Value.Tbl.t;
       (** a scratch object's slots and the variable it names *)
   mutable local_top : int64;
-  table_alloc : bytes:int -> int;
+  table_alloc : bytes:int64 -> Layout.Address.t;
   mutable used : R.Callee.t list;
   mutable sites : LF.t list;
-  mutable site_count : int;
+  mutable site_next : Ssa_ir.Ssa_emit_id.Site.Next.t;
   mutable meter : (Local.t * Local.t) option;
       (** [scan_remaining], [scan_live] *)
   mutable f32 : bool;
@@ -83,7 +81,7 @@ let get i = I.Local_get (Local.to_int i)
 let set i = I.Local_set (Local.to_int i)
 let f64 x = I.F64_const (Int64.bits_of_float x)
 let f32 x = I.F32_const (Int32.bits_of_float x)
-let arg align offset = { Wasm.Mem_arg.align; offset }
+let arg = Width.arg
 let fits32 k = Int32.to_int (Int32.of_int k) = k
 let fits32_64 (k : int64) = Int64.equal (Int64.of_int32 (Int64.to_int32 k)) k
 
@@ -92,17 +90,18 @@ let call st c =
   R.call c
 
 let fresh st ty =
-  let id = st.n_params + List.length st.extra in
+  let id, next = Local.Next.alloc st.next_local in
+  st.next_local <- next;
   st.extra <- ty :: st.extra;
-  Local.of_int id
+  id
 
 let site st f =
   match st.site_table with
   | None ->
-      let k = st.site_count in
+      let k, next = Ssa_ir.Ssa_emit_id.Site.Next.alloc st.site_next in
       st.sites <- f :: st.sites;
-      st.site_count <- k + 1;
-      Ssa_ir.Ssa_emit_id.Site.of_int k
+      st.site_next <- next;
+      k
   | Some table ->
       (* a check the table has no entry for is one its own lowering proved can
          never fire: its index is one past the table, a defect to a decoder *)
@@ -130,10 +129,11 @@ let lanes_per_register : Ssa_type.scalar -> Ssa_type.Lanes.t = function
 
 (* How many registers a vector or mask type takes. A mask is counted in the
    registers of the shape it is held in, which the caller says. *)
-let registers_of_lanes st lanes per =
+let v128_registers st lanes ~per : Wasm_type.t list =
   let n = Ssa_type.Lanes.to_int lanes in
+  let per = Ssa_type.Lanes.to_int per in
   if n < per || n mod per <> 0 then refuse st (`Unsupported_lanes n);
-  n / per
+  List.init (n / per) (fun _ -> Wasm_type.V128)
 
 let local_types st (v : Ssa_value.t) ~shape : Wasm_type.t list =
   match v.Ssa_value.ty with
@@ -147,12 +147,12 @@ let local_types st (v : Ssa_value.t) ~shape : Wasm_type.t list =
   | Ssa_type.Scalar (Ssa_type.Index | Ssa_type.Pred) -> [ Wasm_type.I32 ]
   | Ssa_type.Vec (s, l) ->
       if s = Ssa_type.F32 then st.f32 <- true;
-      List.init
-        (registers_of_lanes st l (lanes_per_register s :> int))
-        (fun _ -> Wasm_type.V128)
+      v128_registers st l ~per:(lanes_per_register s)
   | Ssa_type.Mask l ->
-      let per = match shape with Wide -> 2 | Narrow -> 4 in
-      List.init (registers_of_lanes st l per) (fun _ -> Wasm_type.V128)
+      let per =
+        Ssa_type.Lanes.of_int (match shape with Wide -> 2 | Narrow -> 4)
+      in
+      v128_registers st l ~per
 
 (* Defines a value: one local per register. *)
 let define ?(shape = Wide) st (v : Ssa_value.t) =
@@ -184,13 +184,13 @@ let mask_shape st (v : Ssa_value.t) =
 (* A failure is a returned status, never a trap: the record is written, then the
    kernel returns nonzero. Each field is an [i64] expression evaluated only here,
    once the check has fired. *)
-let fail st kind (fields : (int * I.t list) list) =
+let fail st kind (fields : (W.Slot.t * I.t list) list) =
   [ i32 (W.kind_index kind); call st R.Callee.Fail_set ]
   @ List.concat_map
       (fun (slot, value) ->
-        [ i32 Loop_ir.Loop_wasm_ctx.error_address ]
+        [ Layout.Address.const Loop_ir.Loop_wasm_ctx.error_address ]
         @ value
-        @ [ I.Store (Wasm.Store.I64_store, arg 3 (W.slot_offset slot)) ])
+        @ [ I.Store (Wasm.Store.I64_store, W.slot_arg slot) ])
       fields
   @ [ i32 1; I.Return ]
 
@@ -220,12 +220,12 @@ let meter st =
 let meter_failure st which limit =
   fail st F.Kind.Scan_meter
     [
-      ( 0,
+      ( Slot.of_int 0,
         i64_of_int
           (match which with
           | F.Meter.State_over_limit -> 0
           | F.Meter.Updates_exhausted -> 1) );
-      (1, [ I.I64_const limit ]);
+      (Slot.of_int 1, [ I.I64_const limit ]);
     ]
 
 (* ---- buffers -------------------------------------------------------------------- *)
@@ -252,13 +252,13 @@ let find_buffer st id =
   | Some b -> b
   | None -> invalid_arg "Ssa_wasm: an undeclared buffer"
 
-(* log2 of the cell width in bytes. *)
-let cell_log2 (f : Ssa_format.t) =
+(* The cell width in bytes. *)
+let cell_width (f : Ssa_format.t) =
   match f with
-  | Ssa_format.Bool | Ssa_format.I8 _ -> 0
-  | Ssa_format.Bf16 | Ssa_format.F16 | Ssa_format.I16 _ -> 1
-  | Ssa_format.F32 | Ssa_format.I32 -> 2
-  | Ssa_format.F64 | Ssa_format.I64 -> 3
+  | Ssa_format.Bool | Ssa_format.I8 _ -> Width.W1
+  | Ssa_format.Bf16 | Ssa_format.F16 | Ssa_format.I16 _ -> Width.W2
+  | Ssa_format.F32 | Ssa_format.I32 -> Width.W4
+  | Ssa_format.F64 | Ssa_format.I64 -> Width.W8
 
 let extents (b : Ssa_buffer.t) = Expr.Coord.to_list b.Ssa_buffer.extents
 
@@ -283,10 +283,9 @@ let access_index st b = function
    cell width. The memory plan bounds every buffer, so this stays in a positive
    [int32]; the check that the cell is in range is a failure check. *)
 let cell_address st (b : Ssa_buffer.t) index_instrs =
-  let log2 = cell_log2 b.Ssa_buffer.format in
   [ get (buffer_param st b.Ssa_buffer.id) ]
   @ index_instrs
-  @ (if log2 = 0 then [] else [ i32 log2; n Wasm_op.I32_shl ])
+  @ Width.scale (cell_width b.Ssa_buffer.format)
   @ [ n Wasm_op.I32_add ]
 
 let cell_type id (f : Ssa_format.t) =
@@ -308,4 +307,4 @@ let reserve_local st bytes =
   if Int64.compare top static_cap > 0 then
     refuse st (`Local_arrays_too_large top);
   st.local_top <- top;
-  Int64.to_int off
+  Layout.Local_offset.of_int64 off

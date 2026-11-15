@@ -248,13 +248,16 @@ module Attention_layer = struct
   (* The sequences: on D, or on H when D is 1 (a vision encoder's patches);
      the row-major data is the same either way. *)
   let sequences (x_shape : Vec6.shape) =
-    Dim.to_int (Vec6.get x_shape Axis.D) * Dim.to_int (Vec6.get x_shape Axis.H)
+    Dim.(one_count *@ Vec6.get x_shape Axis.D *@ Vec6.get x_shape Axis.H)
 
   (* The head-split shape a query, key or value takes: [1,1,B,heads,L,d]. *)
-  let head_shape ~(x_shape : Vec6.shape) ~heads ~d =
-    Vec6.shape ~n:1 ~t:1 ~d:(sequences x_shape) ~h:heads
+  let head_shape ~(x_shape : Vec6.shape) ~(heads : Dim.extent Dim.t)
+      ~(d : Dim.extent Dim.t) =
+    Vec6.shape ~n:1 ~t:1
+      ~d:(sequences x_shape :> int)
+      ~h:(heads :> int)
       ~w:(Dim.to_int (Vec6.get x_shape Axis.W))
-      ~c:d
+      ~c:(d :> int)
 
   (* Every operand's shape against the one [x] and [heads] determine. The
      output is [x]'s; the attention's own bounds (the mask's broadcast set,
@@ -263,7 +266,7 @@ module Attention_layer = struct
   let output_shape (t : t) ~(shape_of : Tensor_ref.t -> Vec6.shape) =
     let open Err.Syntax in
     let x_shape = shape_of t.x in
-    let b = sequences x_shape
+    let b = (sequences x_shape :> int)
     and on_h = Dim.to_int (Vec6.get x_shape Axis.D) = 1
     and l = Dim.to_int (Vec6.get x_shape Axis.W)
     and e = Vec6.get x_shape Axis.C in
@@ -344,7 +347,7 @@ module Attention_layer = struct
           let* () = table R.Cos r.Rope.cos in
           table R.Sin r.Rope.sin
     in
-    let qkv = head_shape ~x_shape ~heads ~d in
+    let qkv = head_shape ~x_shape ~heads:(Dim.extent heads) ~d:(Dim.extent d) in
     let* (_ : Vec6.shape) =
       Attention.Sdpa.output_shape ~query_shape:qkv ~key_shape:qkv
         ~value_shape:qkv

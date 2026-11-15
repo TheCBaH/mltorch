@@ -16,7 +16,9 @@ module Mutation = struct
 end
 
 module Stage = struct
-  type t = Always | Outside of { base : int; bytes : int }
+  type t =
+    | Always
+    | Outside of { base : int64; bytes : Coral_transfer.Transfer_units.Bytes.t }
 end
 
 let tile = 16
@@ -61,10 +63,10 @@ let plan ~rows ~depth ~n =
   P.Tile_gemm.plan Insn.Tile_op.Vtfmm_alt
     (P.Tile.shape Insn.Tile_op.Vtfmm_alt)
     {
-      K.Gemm.rows;
-      width = n;
-      depth;
-      blocks = 1;
+      K.Gemm.rows = Core.Dim.extent rows;
+      width = Core.Dim.extent n;
+      depth = Core.Dim.extent depth;
+      blocks = Core.Dim.extent 1;
       src = K.Elem.Bf16;
       dst = K.Elem.F32;
       sa = 1;
@@ -301,9 +303,9 @@ let items esc ?mutation ?stage_b (d0 : C.t) =
             (* B inside the DTCM is read where it is *)
             let bits =
               let rec go b n = if n lsr (b + 1) = 0 then b else go (b + 1) n in
-              go 0 bytes
+              go 0 (bytes :> int)
             in
-            li Gpr.t0 base
+            li Gpr.t0 (Int64.to_int base)
             @ [
                 insn (Insn.Sub { dst = Gpr.t0; lhs = Gpr.s2; rhs = Gpr.t0 });
                 insn
@@ -363,18 +365,27 @@ let items esc ?mutation ?stage_b (d0 : C.t) =
     let a_pitch =
       if a_ip then
         Some
-          ((2 * Int64.to_int d.C.a.C.Operand.k)
-          + if mutation = Some Mutation.A_pitch then 2 else 0)
+          (Coral_transfer.Transfer_units.Bytes.of_int
+             ((2 * Int64.to_int d.C.a.C.Operand.k)
+             + if mutation = Some Mutation.A_pitch then 2 else 0))
       else None
     and b_pitch =
-      if b_ip then Some (2 * Int64.to_int d.C.b.C.Operand.k) else None
-    and b_pass = if b_ip then Some 64 else None in
+      if b_ip then
+        Some
+          (Coral_transfer.Transfer_units.Bytes.of_int
+             (2 * Int64.to_int d.C.b.C.Operand.k))
+      else None
+    and b_pass =
+      if b_ip then Some (Coral_transfer.Transfer_units.Bytes.of_int 64)
+      else None
+    in
     let accumulate =
       d.C.seed = C.Seed.Tensor && mutation <> Some Mutation.Seed_ignored
     in
     let blocks =
       ok
-        (P.Tile_gemm.block_items ~prefix ?a_pitch ?b_pitch ?b_pass ~c_row
+        (P.Tile_gemm.block_items ~prefix ?a_pitch ?b_pitch ?b_pass
+           ~c_row:(Coral_transfer.Transfer_units.Bytes.of_int c_row)
            ~accumulate p)
     in
     (if a_ip then [ insn (Insn.Mv { dst = Gpr.a3; src = Gpr.s6 }) ]

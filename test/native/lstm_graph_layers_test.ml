@@ -18,7 +18,11 @@ let state_shape = Vec6.shape ~n:1 ~t:1 ~d:1 ~h:1 ~w:batch ~c:k
 let seq_shape = Vec6.shape ~n:1 ~t:1 ~d:1 ~h:seq ~w:batch ~c:isz
 
 let params : Lstm.Lstm.params =
-  { hidden_size = k; input_size = isz; batch_first = false }
+  {
+    hidden_size = Dim.extent k;
+    input_size = Dim.extent isz;
+    batch_first = false;
+  }
 
 (* Q=2 stacked layers, R=1, time-first: layer 0 reads the raw input;
    layer 1 reads layer 0's completed hidden trace as its own per-timestep
@@ -125,7 +129,11 @@ module Stacked = struct
   let input = [| 1.0; -0.5; 0.2; 0.7; -0.3; 0.4 |]
 
   let params : Lstm.Lstm.params =
-    { hidden_size = k; input_size = isz; batch_first = false }
+    {
+      hidden_size = Dim.extent k;
+      input_size = Dim.extent isz;
+      batch_first = false;
+    }
 
   let graph =
     Err.or_raise ~pp_error:Graph_builder.pp_error
@@ -403,7 +411,11 @@ module Bidirectional = struct
   let input = [| 1.0; -0.5; 0.2; 0.7; -0.3; 0.4 |] (* asymmetric across t *)
 
   let params : Lstm.Lstm.params =
-    { hidden_size = k; input_size = isz; batch_first = false }
+    {
+      hidden_size = Dim.extent k;
+      input_size = Dim.extent isz;
+      batch_first = false;
+    }
 
   let graph =
     Err.or_raise ~pp_error:Graph_builder.pp_error
@@ -636,16 +648,15 @@ let%expect_test "an empty layer list is rejected, not silently ignored" =
   [%expect {| lstm: at least one layer is required |}]
 
 let%expect_test "a non-positive hidden_size is rejected, not silently ignored" =
-  let bad_params : Lstm.Lstm.params =
-    { hidden_size = 0; input_size = isz; batch_first = false }
-  in
   let build () =
     Graph_builder.(
       build ~name:"lstm_zero_hidden" ~outputs:(fun (out, _, _) -> [ out ])
       @@
-      (* Non-positive [hidden_size] is rejected before any operand shape is
-         examined, so these shapes are arbitrary valid placeholders, not
-         shapes consistent with [bad_params]. *)
+      (* A non-positive size is refused when the params are built, before any
+         operand shape is examined; the shapes below are placeholders. *)
+      let* bad_params =
+        lstm_params_of_sizes ~hidden_size:0 ~input_size:isz ~batch_first:false
+      in
       let* input_id = input ~shape:seq_shape ~name:"input" () in
       let* weight_ih_id =
         input ~shape:(mat_shape ~rows:1 ~cols:isz) ~name:"weight_ih" ()
@@ -677,3 +688,51 @@ let%expect_test "a non-positive hidden_size is rejected, not silently ignored" =
   | Ok _ -> Fmt.pr "unexpectedly built@."
   | Error e -> Fmt.pr "%a@." Graph_builder.pp_error (Err.Error.kind e));
   [%expect {| lstm: hidden_size must be positive, got 0 |}]
+
+let%expect_test "a hidden_size whose gate rows would not fit an int is rejected"
+    =
+  let build () =
+    Graph_builder.(
+      build ~name:"lstm_wide_hidden" ~outputs:(fun (out, _, _) -> [ out ])
+      @@
+      (* [4 * hidden_size] is checked before any operand shape is examined; the
+         shapes below are placeholders. *)
+      let bad_params : Lstm.Lstm.params =
+        {
+          hidden_size = Dim.extent (1 lsl 29);
+          input_size = Dim.extent isz;
+          batch_first = false;
+        }
+      in
+      let* input_id = input ~shape:seq_shape ~name:"input" () in
+      let* weight_ih_id =
+        input ~shape:(mat_shape ~rows:1 ~cols:isz) ~name:"weight_ih" ()
+      in
+      let* weight_hh_id =
+        input ~shape:(mat_shape ~rows:1 ~cols:1) ~name:"weight_hh" ()
+      in
+      let* h0_id =
+        input
+          ~shape:(Vec6.shape ~n:1 ~t:1 ~d:1 ~h:1 ~w:batch ~c:1)
+          ~name:"h0" ()
+      in
+      let* c0_id =
+        input
+          ~shape:(Vec6.shape ~n:1 ~t:1 ~d:1 ~h:1 ~w:batch ~c:1)
+          ~name:"c0" ()
+      in
+      let layer : Lstm.Lstm.Layer.t =
+        {
+          forward =
+            { weight_ih = weight_ih_id; weight_hh = weight_hh_id; bias = None };
+          reverse = None;
+        }
+      in
+      Graph_builder.lstm bad_params ~input:input_id ~layers:[ layer ] ~h0:h0_id
+        ~c0:c0_id ())
+  in
+  (match build () with
+  | Ok _ -> Fmt.pr "unexpectedly built@."
+  | Error e -> Fmt.pr "%a@." Graph_builder.pp_error (Err.Error.kind e));
+  [%expect
+    {| lstm: 4 * hidden_size does not fit: 4 * 536870912 does not fit below 2147483648 |}]

@@ -13,7 +13,10 @@ module Loc = Mir_phys.Loc
 (* What the allocator needs of a target beyond its selected interface. *)
 module type REGISTERS = sig
   val use_scratch :
-    Mir_target.Bank.t -> bits:Mir_target.Bits.t -> int -> Mir_target.View.t
+    Mir_target.Bank.t ->
+    bits:Mir_target.Bits.t ->
+    Mir_target.Scratch_slot.t ->
+    Mir_target.View.t
   (** the register for an instruction's [k]-th distinct operand *)
 
   val result_scratch :
@@ -55,7 +58,7 @@ module Make (T : Mir_sel.TARGET) (R : REGISTERS) = struct
 
   type st = {
     mutation : Mutation.t option;
-    mutable next_block : int;
+    mutable next_block : Mir_id.Block.Next.t;
     mutable slots : Mir_phys.Slot.t list;
     mutable previous : Mir_value.t option;  (** the last value spilled *)
   }
@@ -129,7 +132,9 @@ module Make (T : Mir_sel.TARGET) (R : REGISTERS) = struct
         let fixed_use k =
           List.find_map
             (function
-              | Mir_target.Constraint.Fixed_use { use; view } when use = k ->
+              | Mir_target.Constraint.Fixed_use { use; view }
+                when Mir_target.Constraint.Use_position.equal use
+                       (Mir_target.Constraint.Use_position.of_int k) ->
                   Some view
               | _ -> None)
             constraints
@@ -155,7 +160,8 @@ module Make (T : Mir_sel.TARGET) (R : REGISTERS) = struct
             | Some view -> Loc.Reg view
             | None ->
                 let bank, bits = shape v in
-                Loc.Reg (R.use_scratch bank ~bits k)
+                Loc.Reg
+                  (R.use_scratch bank ~bits (Mir_target.Scratch_slot.of_int k))
         in
         let reloads =
           List.map
@@ -174,11 +180,15 @@ module Make (T : Mir_sel.TARGET) (R : REGISTERS) = struct
                   List.find_map
                     (function
                       | Mir_target.Constraint.Fixed_result { result; view }
-                        when result = k ->
+                        when Mir_target.Constraint.Result_position.equal result
+                               (Mir_target.Constraint.Result_position.of_int k)
+                        ->
                           Some (Loc.Reg view)
                       | Mir_target.Constraint.Tied { result; use }
-                        when result = k && not (mutated st Mutation.Tie) -> (
-                          match List.nth uses use with
+                        when Mir_target.Constraint.Result_position.equal result
+                               (Mir_target.Constraint.Result_position.of_int k)
+                             && not (mutated st Mutation.Tie) -> (
+                          match Mir_target.Constraint.nth_use uses use with
                           | Loc.Reg u ->
                               let _, bits = shape r in
                               Some
@@ -223,8 +233,8 @@ module Make (T : Mir_sel.TARGET) (R : REGISTERS) = struct
         reloads @ [ Mir_phys.Instr.Exec { instr = i; uses; defs } ] @ spills
 
   let fresh_block st =
-    let id = Mir_id.Block.of_int st.next_block in
-    st.next_block <- st.next_block + 1;
+    let id, next = Mir_id.Block.Next.alloc st.next_block in
+    st.next_block <- next;
     id
 
   let func st (f : (S.Stage.op, S.Stage.term) Mir_func.t) =
@@ -290,7 +300,11 @@ module Make (T : Mir_sel.TARGET) (R : REGISTERS) = struct
                 if is_flags v then (Loc.Reg T.flags_view, [])
                 else
                   let bank, bits = shape v in
-                  let r = Loc.Reg (R.use_scratch bank ~bits k) in
+                  let r =
+                    Loc.Reg
+                      (R.use_scratch bank ~bits
+                         (Mir_target.Scratch_slot.of_int k))
+                  in
                   ( r,
                     [
                       Mir_phys.Instr.Move
@@ -326,7 +340,11 @@ module Make (T : Mir_sel.TARGET) (R : REGISTERS) = struct
                       :: !splits;
                     sid
                 in
-                let then_b = via 0 then_ else_ and else_b = via 1 else_ then_ in
+                let then_b =
+                  via (Mir_phys.Edge_ref.Position.of_int 0) then_ else_
+                and else_b =
+                  via (Mir_phys.Edge_ref.Position.of_int 1) else_ then_
+                in
                 ( List.concat_map snd located,
                   Mir_phys.Term.Branch
                     {
@@ -368,17 +386,13 @@ module Make (T : Mir_sel.TARGET) (R : REGISTERS) = struct
   let allocate ?mutation (sel : S.Verified.t) =
     let s = S.Verified.selected sel in
     let p = s.S.program in
-    let max_block =
-      List.fold_left
-        (fun m (f : (_, _) Mir_func.t) ->
-          List.fold_left
-            (fun m (b : (_, _) Mir_block.t) ->
-              max m (Mir_id.Block.to_int b.Mir_block.id))
-            m f.Mir_func.blocks)
-        0 p.Mir_program.funcs
-    in
     let st =
-      { mutation; next_block = max_block + 1; slots = []; previous = None }
+      {
+        mutation;
+        next_block = Mir_program.next_block p;
+        slots = [];
+        previous = None;
+      }
     in
     {
       Mir_phys.Program.data_model = p.Mir_program.data_model;

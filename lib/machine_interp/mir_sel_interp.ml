@@ -32,14 +32,6 @@ module Make (T : SEMANTICS) = struct
     last : Mir_interp.Location.t option;
   }
 
-  let slot = function
-    | Mir_event.Emitter -> 0
-    | Mir_event.Key -> 1
-    | Mir_event.Local -> 2
-    | Mir_event.Reduction -> 3
-    | Mir_event.Scan -> 4
-    | Mir_event.Scan_update -> 5
-
   (* The runtime view a failure record is stored in: the program's one
      [Runtime] view of record size. *)
   let record_view (p : (_, _) Mir_program.t) =
@@ -71,7 +63,7 @@ module Make (T : SEMANTICS) = struct
     Array.iteri
       (fun k w ->
         Mir_sel_env.store env
-          (at (Mir_failure.record_word_offset k))
+          (at (Mir_failure.word_offset (Mir_failure.Word_slot.of_int k)))
           ~bytes:8L ~align:8L w)
       words
 
@@ -111,7 +103,7 @@ module Make (T : SEMANTICS) = struct
       (v : S.Verified.t) memory binding ~args =
     let sel = S.Verified.selected v in
     let program = sel.S.program in
-    let events = Array.make 6 0L in
+    let events = Mir_event.Counter.create () in
     let steps = ref 0L and fuel = ref fuel and last = ref None in
     let result =
       Err.Escape.with_escape @@ fun esc ->
@@ -203,9 +195,7 @@ module Make (T : SEMANTICS) = struct
                 (fun o -> set o.Mir_order.output Mir_datum.Order)
                 i.Mir_instr.order;
               match i.Mir_instr.op with
-              | Mir_sel.Op.Event (e, n) ->
-                  let k = slot e in
-                  events.(k) <- Int64.add events.(k) n
+              | Mir_sel.Op.Event (e, n) -> Mir_event.Counter.add events e n
               | Mir_sel.Op.Machine o ->
                   let rs = T.exec env o in
                   if List.length rs <> List.length i.Mir_instr.results then
@@ -246,7 +236,7 @@ module Make (T : SEMANTICS) = struct
     in
     {
       outcome;
-      events = List.map (fun e -> (e, events.(slot e))) Mir_event.all;
+      events = Mir_event.Counter.totals events;
       steps = !steps;
       last = !last;
     }

@@ -737,10 +737,9 @@ module Context = struct
         | Error (`Quant_missing _) ->
             Error (Stop.Bind (Fmt.str "%a has no quantization" Tensor_id.pp id))
         | Ok tensor -> (
-            let n = Int64.to_int (Mir_memory.size cx.memory key) in
             match
               Mir_tensor_bytes.fill tensor
-                (Mir_memory.read_bytes cx.memory key ~offset:0L ~n)
+                (Mir_memory.read_region cx.memory key)
             with
             | Ok () -> Ok tensor
             | Error _ -> Error (Stop.Undefined_output id)))

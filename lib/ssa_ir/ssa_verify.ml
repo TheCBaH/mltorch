@@ -415,7 +415,8 @@ let check_buffers ctx scope =
         match Ssa_format.channels b.Ssa_buffer.format with
         | None -> true
         | Some n ->
-            Int64.equal (Int64.of_int n)
+            Int64.equal
+              (Int64.of_int (n :> int))
               (Expr.Coord.get b.Ssa_buffer.extents Expr.Axis.C)
       in
       if

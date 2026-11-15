@@ -5,176 +5,15 @@
    their result to the operand they overwrite; IDIV's dividend and results
    sit in fixed registers. Every consumer matches this type exhaustively and
    alphabetically; typing refuses an immediate the form cannot encode. *)
-
 open Machine_ir
-
-module Sz = struct
-  type t = L | Q
-
-  let bits = function L -> 32 | Q -> 64
-  let name = function L -> "l" | Q -> "q"
-end
-
-module Fsz = struct
-  type t = D | S
-
-  let name = function D -> "sd" | S -> "ss"
-end
-
-(* A memory access size and the register file it moves. *)
-module Msz = struct
-  type t = B | D | H | L | Q | S
-
-  let bytes = function B -> 1L | H -> 2L | L | S -> 4L | D | Q -> 8L
-
-  let name = function
-    | B -> "b"
-    | D -> "sd"
-    | H -> "w"
-    | L -> "l"
-    | Q -> "q"
-    | S -> "ss"
-end
-
-(* Our compact RFLAGS: CF 1, PF 2, AF 4, ZF 8, SF 16, OF 32. *)
-module Flag = struct
-  let cf = 1L
-  let pf = 2L
-  let af = 4L
-  let zf = 8L
-  let sf = 16L
-  let of_ = 32L
-  let all = 63L
-end
-
-module Cond = struct
-  type t = A | Ae | B | Be | E | G | Ge | L | Le | Ne | Np | P
-
-  let reads = function
-    | A | Be -> Int64.logor Flag.cf Flag.zf
-    | Ae | B -> Flag.cf
-    | E | Ne -> Flag.zf
-    | G | Le -> Int64.logor Flag.zf (Int64.logor Flag.sf Flag.of_)
-    | Ge | L -> Int64.logor Flag.sf Flag.of_
-    | Np | P -> Flag.pf
-
-  let holds t f =
-    let bit b = not (Int64.equal (Int64.logand f b) 0L) in
-    match t with
-    | A -> (not (bit Flag.cf)) && not (bit Flag.zf)
-    | Ae -> not (bit Flag.cf)
-    | B -> bit Flag.cf
-    | Be -> bit Flag.cf || bit Flag.zf
-    | E -> bit Flag.zf
-    | G -> (not (bit Flag.zf)) && bit Flag.sf = bit Flag.of_
-    | Ge -> bit Flag.sf = bit Flag.of_
-    | L -> bit Flag.sf <> bit Flag.of_
-    | Le -> bit Flag.zf || bit Flag.sf <> bit Flag.of_
-    | Ne -> not (bit Flag.zf)
-    | Np -> not (bit Flag.pf)
-    | P -> bit Flag.pf
-
-  let name = function
-    | A -> "a"
-    | Ae -> "ae"
-    | B -> "b"
-    | Be -> "be"
-    | E -> "e"
-    | G -> "g"
-    | Ge -> "ge"
-    | L -> "l"
-    | Le -> "le"
-    | Ne -> "ne"
-    | Np -> "np"
-    | P -> "p"
-end
-
-module Alu = struct
-  type t = Add | And | Or | Sub | Xor
-
-  let name = function
-    | Add -> "add"
-    | And -> "and"
-    | Or -> "or"
-    | Sub -> "sub"
-    | Xor -> "xor"
-end
-
-module Shift = struct
-  type t = Sar | Shl | Shr
-
-  let name = function Sar -> "sar" | Shl -> "shl" | Shr -> "shr"
-end
-
-module Fop = struct
-  (* [Max] is MAXSD/MAXSS: the source operand when either is a NaN or both
-     are zero, not IEEE maximum *)
-  type t = Add | Div | Max | Mul | Sub
-
-  let name = function
-    | Add -> "add"
-    | Div -> "div"
-    | Max -> "max"
-    | Mul -> "mul"
-    | Sub -> "sub"
-end
-
-module Flogic = struct
-  type t = And | Andn | Or | Xor
-
-  let name = function
-    | And -> "andp"
-    | Andn -> "andnp"
-    | Or -> "orp"
-    | Xor -> "xorp"
-end
-
-(* CMPSD/CMPSS and CMPPS/CMPPD predicates admitted: 0 (equal, ordered), 1
-   (less than, ordered), 2 (less or equal, ordered) and 3 (unordered). *)
-module Cmp_pred = struct
-  type t = Eq | Le | Lt | Unord
-
-  let imm = function Eq -> 0L | Lt -> 1L | Le -> 2L | Unord -> 3L
-  let name = function Eq -> "eq" | Le -> "le" | Lt -> "lt" | Unord -> "unord"
-end
-
-(* A packed format: four binary32 lanes (PS) or two binary64 lanes (PD) of an
-   XMM register. *)
-module Pk = struct
-  type t = Pd | Ps
-
-  let fsz = function Pd -> Fsz.D | Ps -> Fsz.S
-  let lanes = function Pd -> 2 | Ps -> 4
-
-  let ty t =
-    Mir_type.Vec
-      ( (match t with Pd -> Mir_type.Elem.F64 | Ps -> Mir_type.Elem.F32),
-        Mir_type.Lanes.of_int (lanes t) )
-
-  (* the mask a packed compare of these lanes fills: every bit of a lane set or
-     clear *)
-  let mask_ty t = Mir_type.Mask (Mir_type.Lanes.of_int (lanes t))
-  let name = function Pd -> "pd" | Ps -> "ps"
-end
-
-(* Two binary32 lanes in an XMM register's low half. *)
-let half_ty = Mir_type.Vec (Mir_type.Elem.F32, Mir_type.Lanes.of_int 2)
-
-type v = Mir_value.t
-
-(* [base + index * scale + disp]: scale 1, 2, 4 or 8; disp a signed 32-bit
-   value *)
-module Addr = struct
-  type t = { base : v; index : (v * int64) option; disp : int64 }
-
-  let uses a = a.base :: Option.to_list (Option.map fst a.index)
-end
+include X64_kinds
 
 type t =
   | Alu of Alu.t * Sz.t * v * v
   | Alu_imm of Alu.t * Sz.t * v * int64
       (** an imm32, sign-extended at 64 bits; tied *)
-  | Bt of Sz.t * v * int  (** CF := the bit; OF, SF, AF, PF undefined *)
+  | Bt of Sz.t * v * Mir_target.Bits.t
+      (** CF := the bit; OF, SF, AF, PF undefined *)
   | Call of {
       callee : Mir_op.Callee.t;
       args : v list;
@@ -248,17 +87,18 @@ type t =
       (** SHUFPS/SHUFPD: lanes from the first operand, then from the second,
           chosen by the immediate; tied to the first *)
   | Pshufd_half of v  (** PSHUFD 0xEE: a PS vector's high half, low *)
-  | Pshufd_lane of Fsz.t * int * v  (** PSHUFD: lane [k] to lane 0, a scalar *)
+  | Pshufd_lane of Fsz.t * Mir_type.Lane.t * v
+      (** PSHUFD: lane [k] to lane 0, a scalar *)
   | Pshufd_splat of Pk.t * v  (** PSHUFD 0x00 or 0x44: a scalar to every lane *)
   | Pshufd_splat_mask of Pk.t * v
       (** the same, the scalar's bits taken as a lane of a mask *)
-  | Pshift of Shift.t * int * v
+  | Pshift of Shift.t * Mir_target.Bits.t * v
       (** PSLLD, PSRLD or PSRAD (immediate) on four int32 lanes *)
   | Psqrt of Pk.t * v  (** SQRTPS/SQRTPD *)
   | Round_trunc of Fsz.t * v  (** ROUNDSD/ROUNDSS with immediate 3 *)
   | Setcc_zx of Cond.t * v
       (** SETcc r8 then MOVZX r32, r8: probed natively as the pair *)
-  | Shift_imm of Shift.t * Sz.t * v * int
+  | Shift_imm of Shift.t * Sz.t * v * Mir_target.Bits.t
   | Sqrt of Fsz.t * v
   | Store of Msz.t * Addr.t * v
   | Test of Sz.t * v * v
@@ -266,7 +106,12 @@ type t =
   | Trunc_zx of Mir_width.t * v
       (** MOVZX r32 from the low byte or word of an r32 *)
   | Ucomis of Fsz.t * v * v
-  | Xt_lanes of { signed : bool; from : Mir_width.t; first : int; src : v }
+  | Xt_lanes of {
+      signed : bool;
+      from : Mir_width.t;
+      first : Mir_type.Lane.t;
+      src : v;
+    }
       (** lanes [first .. first + 3] of an [i8x16] or [i16x8] register extended
           to four int32 lanes: PSHUFD to bring them low, the PUNPCKL interleaves
           of the result with itself, then PSRAD or PSRLD (SSE2) *)
@@ -347,7 +192,14 @@ let ordered = function
       true
   | _ -> false
 
-let tied0 = [ Mir_target.Constraint.Tied { result = 0; use = 0 } ]
+let tied0 =
+  [
+    Mir_target.Constraint.Tied
+      {
+        result = Mir_target.Constraint.Result_position.of_int 0;
+        use = Mir_target.Constraint.Use_position.of_int 0;
+      };
+  ]
 
 let constraints = function
   | Alu _ | Alu_imm _ | Cmps _ | Fbin _ | Flogic _ | Imul _ | Movlhps _ | Neg _
@@ -355,25 +207,47 @@ let constraints = function
   | Shift_imm _ ->
       tied0
   | Cmov _ | Fmadd231 _ | Pfmadd231 _ ->
-      [ Mir_target.Constraint.Tied { result = 0; use = 2 } ]
+      [
+        Mir_target.Constraint.Tied
+          {
+            result = Mir_target.Constraint.Result_position.of_int 0;
+            use = Mir_target.Constraint.Use_position.of_int 2;
+          };
+      ]
   | Cqo_idiv _ ->
       (* CQO writes rdx before IDIV reads the divisor *)
       [
         Mir_target.Constraint.Fixed_use
-          { use = 0; view = X64_reg.q X64_reg.rax };
+          {
+            use = Mir_target.Constraint.Use_position.of_int 0;
+            view = X64_reg.q X64_reg.rax;
+          };
         Mir_target.Constraint.Fixed_result
-          { result = 0; view = X64_reg.q X64_reg.rax };
+          {
+            result = Mir_target.Constraint.Result_position.of_int 0;
+            view = X64_reg.q X64_reg.rax;
+          };
         Mir_target.Constraint.Fixed_result
-          { result = 1; view = X64_reg.q X64_reg.rdx };
-        Mir_target.Constraint.Early_clobber 1;
+          {
+            result = Mir_target.Constraint.Result_position.of_int 1;
+            view = X64_reg.q X64_reg.rdx;
+          };
+        Mir_target.Constraint.Early_clobber
+          (Mir_target.Constraint.Result_position.of_int 1);
       ]
   | Call { args; results; _ } ->
       List.mapi
-        (fun use view -> Mir_target.Constraint.Fixed_use { use; view })
+        (fun use view ->
+          Mir_target.Constraint.Fixed_use
+            { use = Mir_target.Constraint.Use_position.of_int use; view })
         (X64_regs.args (List.map (fun (a : v) -> a.Mir_value.ty) args))
       @ List.mapi
           (fun result view ->
-            Mir_target.Constraint.Fixed_result { result; view })
+            Mir_target.Constraint.Fixed_result
+              {
+                result = Mir_target.Constraint.Result_position.of_int result;
+                view;
+              })
           (X64_regs.results (results @ [ Mir_type.i32 ]))
   | _ -> []
 
@@ -387,12 +261,12 @@ let call_clobbers =
       X64_reg.rdx;
       X64_reg.rsi;
       X64_reg.rdi;
-      8;
-      9;
-      10;
-      11;
+      X64_reg.r8;
+      X64_reg.r9;
+      X64_reg.r10;
+      X64_reg.r11;
     ]
-  @ List.map X64_reg.xmm (X64_reg.range 0 15)
+  @ List.map X64_reg.xmm (X64_reg.Num_seq.range 0 15)
   @ [ X64_reg.rflags ]
 
 let clobbers = function Call _ -> call_clobbers | _ -> []
@@ -542,7 +416,9 @@ let typing op =
       Ok [ ty a ]
   | Bt (sz, a, k) ->
       let* () = need (arith sz (ty a)) "bt operand" in
-      let* () = need (k >= 0 && k < Sz.bits sz) "bit index" in
+      let* () =
+        need ((k :> int) >= 0 && (k :> int) < (Sz.bits sz :> int)) "bit index"
+      in
       Ok [ Mir_type.Flags ]
   | Call { args; results; _ } ->
       let ok (t : Mir_type.t) =
@@ -615,8 +491,10 @@ let typing op =
       let* () =
         need
           (match (int_register (ty src), from) with
-          | Some Mir_width.W8, Mir_width.W8 -> List.mem first [ 0; 4; 8; 12 ]
-          | Some Mir_width.W16, Mir_width.W16 -> List.mem first [ 0; 4 ]
+          | Some Mir_width.W8, Mir_width.W8 ->
+              List.mem (first :> int) [ 0; 4; 8; 12 ]
+          | Some Mir_width.W16, Mir_width.W16 ->
+              List.mem (first :> int) [ 0; 4 ]
           | _ -> false)
           "extended lanes"
       in
@@ -626,8 +504,8 @@ let typing op =
       let* () =
         need
           (match o with
-          | Shift.Shl -> k >= 0 && k < 32
-          | Shift.Sar | Shift.Shr -> k >= 1 && k < 32)
+          | Shift.Shl -> (k :> int) >= 0 && (k :> int) < 32
+          | Shift.Sar | Shift.Shr -> (k :> int) >= 1 && (k :> int) < 32)
           "lane shift amount"
       in
       Ok [ int32x4 ]
@@ -785,7 +663,11 @@ let typing op =
   | Pshufd_lane (fsz, k, a) ->
       let pk = match fsz with Fsz.D -> Pk.Pd | Fsz.S -> Pk.Ps in
       let* () =
-        need (k >= 0 && k < Pk.lanes pk && is_pk pk (ty a)) "pshufd lane"
+        need
+          ((k :> int) >= 0
+          && (k :> int) < (Pk.lanes pk :> int)
+          && is_pk pk (ty a))
+          "pshufd lane"
       in
       Ok [ fty fsz ]
   | Pshufd_splat (pk, a) ->
@@ -820,7 +702,9 @@ let typing op =
       Ok [ Mir_type.Pred ]
   | Shift_imm (_, sz, a, k) ->
       let* () = need (arith sz (ty a)) "shift operand" in
-      let* () = need (k >= 0 && k < Sz.bits sz) "shift count" in
+      let* () =
+        need ((k :> int) >= 0 && (k :> int) < (Sz.bits sz :> int)) "shift count"
+      in
       Ok [ ty a ]
   | Store (m, a, x) ->
       let* () = addr_ok a in
@@ -869,7 +753,7 @@ let pp_op pv fmt op =
       Fmt.pf fmt "%s%s %a" (Alu.name o) (Sz.name sz) vs [ a; b ]
   | Alu_imm (o, sz, a, k) ->
       Fmt.pf fmt "%s%s %a, $%Ld" (Alu.name o) (Sz.name sz) pv a k
-  | Bt (sz, a, k) -> Fmt.pf fmt "bt%s %a, $%d" (Sz.name sz) pv a k
+  | Bt (sz, a, k) -> Fmt.pf fmt "bt%s %a, $%d" (Sz.name sz) pv a (k :> int)
   | Call { callee; args; _ } ->
       Fmt.pf fmt "call %a(%a)" Mir_op.Callee.pp callee vs args
   | Cmov (sz, c, f, a, b) ->
@@ -888,8 +772,11 @@ let pp_op pv fmt op =
   | Xt_lanes { signed; from; first; src } ->
       Fmt.pf fmt "%cext.4s.%s[%d] %a"
         (if signed then 's' else 'z')
-        (Mir_width.name from) first pv src
-  | Pshift (o, k, a) -> Fmt.pf fmt "p%s.4s %a, #%d" (Shift.name o) pv a k
+        (Mir_width.name from)
+        (first :> int)
+        pv src
+  | Pshift (o, k, a) ->
+      Fmt.pf fmt "p%s.4s %a, #%d" (Shift.name o) pv a (k :> int)
   | Movap_cast (t, a) -> Fmt.pf fmt "movap.%a %a" Mir_type.pp t pv a
   | Cvtsi2s (fsz, a) -> Fmt.pf fmt "cvtsi2%sq %a" (Fsz.name fsz) pv a
   | Cvtts2si (fsz, a) -> Fmt.pf fmt "cvtt%s2siq %a" (Fsz.name fsz) pv a
@@ -951,7 +838,7 @@ let pp_op pv fmt op =
       Fmt.pf fmt "shuf%s $0x%x, %a" (Pk.name pk) k vs [ a; b ]
   | Pshufd_half a -> Fmt.pf fmt "pshufd $0xee, %a" pv a
   | Pshufd_lane (fsz, k, a) ->
-      Fmt.pf fmt "pshufd.%s[%d] %a" (Fsz.name fsz) k pv a
+      Fmt.pf fmt "pshufd.%s[%d] %a" (Fsz.name fsz) (k :> int) pv a
   | Pshufd_splat (pk, a) -> Fmt.pf fmt "pshufd.splat%s %a" (Pk.name pk) pv a
   | Pshufd_splat_mask (pk, a) ->
       Fmt.pf fmt "pshufd.splat_mask%s %a" (Pk.name pk) pv a
@@ -959,7 +846,7 @@ let pp_op pv fmt op =
   | Round_trunc (fsz, a) -> Fmt.pf fmt "round%s $3, %a" (Fsz.name fsz) pv a
   | Setcc_zx (c, f) -> Fmt.pf fmt "set%s+movzbl %a" (Cond.name c) pv f
   | Shift_imm (o, sz, a, k) ->
-      Fmt.pf fmt "%s%s $%d, %a" (Shift.name o) (Sz.name sz) k pv a
+      Fmt.pf fmt "%s%s $%d, %a" (Shift.name o) (Sz.name sz) (k :> int) pv a
   | Sqrt (fsz, a) -> Fmt.pf fmt "sqrt%s %a" (Fsz.name fsz) pv a
   | Store (m, a, x) ->
       Fmt.pf fmt "store.%s %a, %a" (Msz.name m) pv x (pp_addr pv) a

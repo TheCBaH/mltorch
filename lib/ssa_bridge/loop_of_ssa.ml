@@ -204,8 +204,10 @@ let convert (p : Ssa_program.t) =
     | Ssa_op.Local_write { local; at; value } ->
         [ Loop_stmt.Array_set (array local, ix at, fx value) ]
     | Ssa_op.Meter_charge -> [ Loop_stmt.Charge_scan_update ]
-    | Ssa_op.Meter_release w -> [ Loop_stmt.Release_scan_state (int_of w) ]
-    | Ssa_op.Meter_reserve w -> [ Loop_stmt.Reserve_scan_state (int_of w) ]
+    | Ssa_op.Meter_release w ->
+        [ Loop_stmt.Release_scan_state (Slot.extent (int_of w)) ]
+    | Ssa_op.Meter_reserve w ->
+        [ Loop_stmt.Reserve_scan_state (Slot.extent (int_of w)) ]
     | Ssa_op.Meter_reset -> [ Loop_stmt.Reset_meter ]
     | Ssa_op.Check_gather { raw; extent } ->
         let bound n = Loop_expr.I64_const n in

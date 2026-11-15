@@ -22,9 +22,9 @@ type reg = G of int | Fr of int | Vr of int | Vn of int * Mir_width.t
 (* [Vn]: a vector register of i8 or i16 lanes, loaded as its four words *)
 
 let view = function
-  | G k -> Rv32_reg.x k
-  | Fr k -> Rv32_reg.f k
-  | Vr k | Vn (k, _) -> Rv32_reg.v k
+  | G k -> Rv32_reg.x (Rv32_reg.Num.of_int k)
+  | Fr k -> Rv32_reg.f (Rv32_reg.Num.of_int k)
+  | Vr k | Vn (k, _) -> Rv32_reg.v (Rv32_reg.Num.of_int k)
 
 let rname r = (view r).Mir_target.View.name
 let width = function G _ | Fr _ -> 1 | Vr _ | Vn _ -> 4
@@ -143,14 +143,14 @@ let lanes_moves =
       [
         inst
           (Fmt.str "vfmv.f.s [%d]" k)
-          (Vo.Vfmv_f_s (k, vf 0))
+          (Vo.Vfmv_f_s (Mir_type.Lane.of_int k, vf 0))
           [ Vr 1 ] [ Fr 14 ] float_singles;
         inst (Fmt.str "vinsert [%d]" k)
-          (Vo.Vinsert (k, vf 0, fv 1))
+          (Vo.Vinsert (Mir_type.Lane.of_int k, vf 0, fv 1))
           [ Vr 1; Fr 11 ] [ Vr 4 ] (with_scalar k);
         inst
           (Fmt.str "vinsert [%d], rd = vector" k)
-          (Vo.Vinsert (k, vf 0, fv 1))
+          (Vo.Vinsert (Mir_type.Lane.of_int k, vf 0, fv 1))
           [ Vr 1; Fr 11 ] [ Vr 1 ] (with_scalar k);
       ])
     [ 0; 1; 2; 3 ]
@@ -212,7 +212,12 @@ let integer_lanes =
                    (if signed then 's' else 'z')
                    (Mir_width.name from) first)
                 (Vo.Vext
-                   { signed; from; first; src = v 0 (Vo.int_register from) })
+                   {
+                     signed;
+                     from;
+                     first = Mir_type.Lane.of_int first;
+                     src = v 0 (Vo.int_register from);
+                   })
                 [ Vn (1, from) ]
                 [ Vr 4 ] narrow)
             firsts)
@@ -221,8 +226,9 @@ let integer_lanes =
   @ List.map
       (fun w ->
         inst ~memory:true
-          (Fmt.str "vle%d.v" (Mir_width.bits w))
-          (Vo.Vle_int (w, 128 / Mir_width.bits w, ptr))
+          (Fmt.str "vle%d.v" (Mir_width.bits w :> int))
+          (Vo.Vle_int
+             (w, Mir_type.Lanes.of_int (128 / (Mir_width.bits w :> int)), ptr))
           [ base ]
           [ Vn (4, w) ]
           [ [] ])
@@ -252,7 +258,7 @@ let datum r words =
   match r with
   | Vr _ -> D.Lanes (Array.of_list words)
   | Vn (_, w) ->
-      let b = Mir_width.bits w in
+      let b = (Mir_width.bits w :> int) in
       let per = 32 / b in
       let ws = Array.of_list words in
       D.Lanes
@@ -304,7 +310,7 @@ let expected ~sem i j words =
   in
   (* a register of narrow lanes is its four words *)
   let pack w l =
-    let b = Mir_width.bits w in
+    let b = (Mir_width.bits w :> int) in
     let per = 32 / b in
     List.init 4 (fun k ->
         let acc = ref 0L in
@@ -328,9 +334,7 @@ let expected ~sem i j words =
     if i.memory then
       Some
         (String.init area_bytes (fun n ->
-             match
-               (Mem.read_bytes memory key ~offset:(Int64.of_int n) ~n:1).(0)
-             with
+             match Mem.read_byte memory key ~offset:(Int64.of_int n) with
              | Some b -> Char.chr b
              | None -> '\000'))
     else None
@@ -422,7 +426,8 @@ let run ~cpu ~items ~in_words ~out_words vectors =
   | Error what -> Error ("no form for " ^ what)
   | Ok m -> (
       let slot size placement =
-        { H.size = max 4 size; align = 16; placement }
+        Machine_rivet_riscv32_test.Harness_slot.make ~size:(max 4 size)
+          ~align:16 placement
       in
       match
         H.prepare

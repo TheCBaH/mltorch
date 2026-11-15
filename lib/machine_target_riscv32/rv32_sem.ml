@@ -167,6 +167,7 @@ let vexec env (op : Rv32_vop.t) =
   | V.Vcast (_, a) | V.Vmv a -> [ vec (lanes env a) ]
   | V.Vext { signed; from; first; src } ->
       let l = lanes env src in
+      let first = Mir_type.Lane.to_int first in
       let n = if Array.length l = 16 && from = Mir_width.W16 then 16 else 4 in
       [
         vec
@@ -175,6 +176,7 @@ let vexec env (op : Rv32_vop.t) =
                if signed then m32 (Mir_width.signed from x) else x));
       ]
   | V.Vle_int (w, n, base) ->
+      let n = Mir_type.Lanes.to_int n in
       let size = Mir_width.bytes w in
       [
         vec
@@ -225,12 +227,12 @@ let vexec env (op : Rv32_vop.t) =
           (Array.init (Array.length c) (fun k ->
                fbits (N.fma32 x.(k) y.(k) c.(k))));
       ]
-  | V.Vfmv_f_s (k, a) -> [ b (lanes env a).(k) ]
+  | V.Vfmv_f_s (k, a) -> [ b (lanes env a).(Mir_type.Lane.to_int k) ]
   | V.Vfmv_v_f (t, a) -> [ vec (Array.make (count_of t) (m32 (bits env a))) ]
   | V.Vfsqrt a -> [ lanewise env (fun x -> fres (Float.sqrt (N.f32 x))) a ]
   | V.Vinsert (k, a, x) ->
       let l = Array.copy (lanes env a) in
-      l.(k) <- m32 (bits env x);
+      l.(Mir_type.Lane.to_int k) <- m32 (bits env x);
       [ vec l ]
   | V.Vle32 (t, base) ->
       [

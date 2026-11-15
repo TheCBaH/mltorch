@@ -19,7 +19,7 @@ let scale =
   {
     Mir_helper.id = Mir_id.Helper.of_int 0;
     name = "scale";
-    version = 1;
+    version = Mir_helper.Version.of_int 1;
     params = [ f64 ];
     results = [ f64 ];
     effects = Mir_helper.Effect.Pure;
@@ -30,7 +30,7 @@ let guard =
   {
     Mir_helper.id = Mir_id.Helper.of_int 1;
     name = "guard";
-    version = 1;
+    version = Mir_helper.Version.of_int 1;
     params = [ i64 ];
     results = [];
     effects = Mir_helper.Effect.Pure;
@@ -41,7 +41,7 @@ let models =
   [
     {
       Mir_helper_model.name = "scale";
-      version = 1;
+      version = Mir_helper.Version.of_int 1;
       run =
         (fun _ -> function
           | [ Mir_datum.Bits b ] ->
@@ -54,7 +54,7 @@ let models =
     };
     {
       Mir_helper_model.name = "guard";
-      version = 1;
+      version = Mir_helper.Version.of_int 1;
       run =
         (fun _ -> function
           | [ Mir_datum.Bits n ] ->
@@ -288,8 +288,8 @@ let keep_across_call keep (p : (_, _) Mir_phys.Program.t) =
 
 let%expect_test "a value across a call: preserved bits only" =
   (* d8's low half survives a call; d16 and x... are caller-saved *)
-  routes ~edit:(keep_across_call (A64_reg.d 8)) (1.5, 3L);
-  routes ~edit:(keep_across_call (A64_reg.d 16)) (1.5, 3L);
+  routes ~edit:(keep_across_call (A64_reg.d (A64_reg.Num.of_int 8))) (1.5, 3L);
+  routes ~edit:(keep_across_call (A64_reg.d (A64_reg.Num.of_int 16))) (1.5, 3L);
   [%expect
     {|
     generic ok 0x1.6p+2 | selected ok 0x1.6p+2 | allocated ok 0x1.6p+2
@@ -300,7 +300,9 @@ let%expect_test "the physical interpreter alone catches the clobber" =
   let g = Result.get_ok (Err.payload (Mir_verify.generic program)) in
   let res = Result.get_ok (Err.payload (A64_select.program g)) in
   let phys =
-    keep_across_call (A64_reg.d 16) (H.A.allocate res.A64_select.selected)
+    keep_across_call
+      (A64_reg.d (A64_reg.Num.of_int 16))
+      (H.A.allocate res.A64_select.selected)
   in
   let memory = Mir_memory.create () in
   let binding =
@@ -336,7 +338,11 @@ let writes_x19 (p : (_, _) Mir_phys.Program.t) =
                         b with
                         Mir_phys.Block.body =
                           Mir_phys.Instr.Move
-                            { dst = Loc.Reg (A64_reg.x 19); src = l; value = n }
+                            {
+                              dst = Loc.Reg (A64_reg.x (A64_reg.Num.of_int 19));
+                              src = l;
+                              value = n;
+                            }
                           :: b.Mir_phys.Block.body;
                       }
                     else b)
@@ -354,14 +360,16 @@ let%expect_test "preserved state on every exit" =
   let seed regs =
     List.iter
       (fun k ->
-        H.P.seed regs (A64_reg.x k) ~lo:(Int64.of_int (0x1900 + k)) ~hi:0L)
-      (A64_reg.range 19 28);
+        H.P.seed regs (A64_reg.x k)
+          ~lo:(Int64.of_int (0x1900 + A64_reg.Num.to_int k))
+          ~hi:0L)
+      (A64_reg.Num_seq.range 19 28);
     List.iter
       (fun k ->
         H.P.seed regs (A64_reg.q k)
-          ~lo:(Int64.of_int (0x800 + k))
-          ~hi:(Int64.of_int (0x8000 + k)))
-      (A64_reg.range 8 15)
+          ~lo:(Int64.of_int (0x800 + A64_reg.Num.to_int k))
+          ~hi:(Int64.of_int (0x8000 + A64_reg.Num.to_int k)))
+      (A64_reg.Num_seq.range 8 15)
   in
   let run phys =
     let memory = Mir_memory.create () in

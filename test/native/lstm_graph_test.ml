@@ -68,7 +68,11 @@ let c0 = [| 0.5; 0.1 |]
 let input = [| 1.0; -0.5; 0.2; 0.7; -0.3; 0.4 |]
 
 let params : Lstm.Lstm.params =
-  { hidden_size = k; input_size = isz; batch_first = false }
+  {
+    hidden_size = Dim.extent k;
+    input_size = Dim.extent isz;
+    batch_first = false;
+  }
 
 (* Declaration order below is what [graph.Graph_ir.Graph.inputs] returns ("ordered =
    the graph's signature", graph_common.ml) -- this list supplies the

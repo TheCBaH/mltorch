@@ -4,10 +4,21 @@
    alphabetical, so the number is a stable ABI); [v] holds the kind's fields in
    [Loop_js_failure.fields] order, a coordinate taking six slots. [invocation]
    is filled by the schedule, never by a kernel. *)
+module Slot =
+  Core.Tagged_int.Make
+    (struct
+      let prefix = "slot"
+    end)
+    ()
+
 let error_words = 12
 let kind_offset = 0
 let invocation_offset = 4
 let slot_offset k = 8 + (8 * k)
+
+let slot_arg k =
+  { Wasm.Mem_arg.align = 3; offset = slot_offset (Slot.to_int k) }
+
 let record_bytes = slot_offset error_words
 
 let kind_index k =

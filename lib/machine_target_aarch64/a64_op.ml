@@ -21,10 +21,12 @@ let pp_op pv fmt op =
       Fmt.pf fmt "csel.%s.%s %a" (Sz.name sz) (Cond.name c) vs [ f; a; b ]
   | Cset (c, f) -> Fmt.pf fmt "cset.%s %a" (Cond.name c) pv f
   | Dup_elem (arr, a) -> Fmt.pf fmt "dup.%s %a" (Arr.name arr) pv a
-  | Dup_half (k, a) -> Fmt.pf fmt "dup.d %a.d[%d]" pv a k
+  | Dup_half (first, a) ->
+      Fmt.pf fmt "dup.d %a.d[%d]" pv a (Mir_type.Lane.to_int first / 2)
   | Dup_mask (arr, a) -> Fmt.pf fmt "dup.%s.gpr %a" (Arr.name arr) pv a
   | Dup_lane (fsz, k, a) ->
-      Fmt.pf fmt "dup.%s %a.%s[%d]" (Fsz.name fsz) pv a (Fsz.name fsz) k
+      Fmt.pf fmt "dup.%s %a.%s[%d]" (Fsz.name fsz) pv a (Fsz.name fsz)
+        (Mir_type.Lane.to_int k)
   | Dup_w a -> Fmt.pf fmt "dup.4s.gpr %a" pv a
   | Ext { signed; from; src } ->
       Fmt.pf fmt "%sxt%s %a"
@@ -49,9 +51,11 @@ let pp_op pv fmt op =
       Fmt.pf fmt "%s.%s %a" (Funary.name u) (Fsz.name fsz) pv a
   | Ins_half (a, b) -> Fmt.pf fmt "ins %a.d[1], %a.d[0]" pv a pv b
   | Ins_lane (fsz, k, a, x) ->
-      Fmt.pf fmt "ins %a.%s[%d], %a" pv a (Fsz.name fsz) k pv x
+      Fmt.pf fmt "ins %a.%s[%d], %a" pv a (Fsz.name fsz)
+        (Mir_type.Lane.to_int k) pv x
   | Ld1_lane (fsz, k, a, base) ->
-      Fmt.pf fmt "ld1 %a.%s[%d], [%a]" pv a (Fsz.name fsz) k pv base
+      Fmt.pf fmt "ld1 %a.%s[%d], [%a]" pv a (Fsz.name fsz)
+        (Mir_type.Lane.to_int k) pv base
   | Ld1r (arr, base) -> Fmt.pf fmt "ld1r.%s [%a]" (Arr.name arr) pv base
   | Ldr (m, base, k) -> Fmt.pf fmt "ldr.%s [%a, #%Ld]" (Msz.name m) pv base k
   | Ldr_idx (m, base, i) ->
@@ -79,7 +83,8 @@ let pp_op pv fmt op =
   | Shift_imm (o, sz, a, k) ->
       Fmt.pf fmt "%s.%s %a, #%d" (Shift.name o) (Sz.name sz) pv a k
   | St1_lane (fsz, k, a, base) ->
-      Fmt.pf fmt "st1 %a.%s[%d], [%a]" pv a (Fsz.name fsz) k pv base
+      Fmt.pf fmt "st1 %a.%s[%d], [%a]" pv a (Fsz.name fsz)
+        (Mir_type.Lane.to_int k) pv base
   | Str (m, base, k, x) ->
       Fmt.pf fmt "str.%s %a, [%a, #%Ld]" (Msz.name m) pv x pv base k
   | Str_idx (m, base, i, x) ->
@@ -115,7 +120,9 @@ let pp_op pv fmt op =
   | Xtl_w { signed; from; first; src } ->
       Fmt.pf fmt "%cxtl.4s.%s[%d] %a"
         (if signed then 's' else 'u')
-        (Mir_width.name from) first pv src
+        (Mir_width.name from)
+        (Mir_type.Lane.to_int first)
+        pv src
   | Vmov (arr, a) -> Fmt.pf fmt "mov.%s %a" (Arr.name arr) pv a
   | Vwiden a -> Fmt.pf fmt "fmov.d %a" pv a
   | Wtrunc a -> Fmt.pf fmt "mov.w.x %a" pv a

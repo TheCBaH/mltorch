@@ -8,7 +8,7 @@ open X64_op
 
 type op = X64_op.t
 
-let scratch = X64_reg.q 11
-let control_scratch = X64_reg.q 10
+let scratch = X64_reg.q X64_reg.r11
+let control_scratch = X64_reg.q X64_reg.r10
 let add_imm base k = Lea (base, k)
 let fp_control = None

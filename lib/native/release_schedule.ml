@@ -81,7 +81,9 @@ let edge_bytes (g : 'op Graph.t) id =
   let+ numel =
     Vec6.numel_bounded ~limit:Kernel.Limits.Hard.numel sg.Tensor_sig.shape
   in
-  Int64.mul numel (Int64.of_int (Payload.packed_cell_bytes sg.Tensor_sig.fmt))
+  Int64.mul numel
+    (Core.Storage_units.Element_bytes.to_int64
+       (Payload.packed_cell_bytes sg.Tensor_sig.fmt))
 
 let add_bytes id acc bytes =
   if Int64.compare acc (Int64.sub Int64.max_int bytes) > 0 then

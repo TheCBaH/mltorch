@@ -395,8 +395,10 @@ let per_op () =
              {
                Ops4.Pad4.pads =
                  [
-                   (Axis4.H, { Pad.Pad.before = 1; after = -1 });
-                   (Axis4.W, { Pad.Pad.before = 0; after = 2 });
+                   ( Axis4.H,
+                     { Pad.Pad.before = Dim.delta 1; after = Dim.delta (-1) } );
+                   ( Axis4.W,
+                     { Pad.Pad.before = Dim.delta 0; after = Dim.delta 2 } );
                  ];
                mode = Pad.Pad.Constant 0.25;
              }) );
@@ -579,8 +581,8 @@ let per_op () =
              let* c0 = input ~shape:state_shape () in
              lstm
                {
-                 Lstm.Lstm.hidden_size = 2;
-                 input_size = 2;
+                 Lstm.Lstm.hidden_size = Dim.extent 2;
+                 input_size = Dim.extent 2;
                  batch_first = false;
                }
                ~input:x

@@ -48,7 +48,7 @@ val publish :
 val harness_slots :
   record:Machine_ir.Mir_id.Region.t ->
   ('a, 'b) Rv32_mir_module.Table.Art.t ->
-  H.slot list
+  (H.slot list, string) result
 
 val generated : ('a, 'b) Art.t -> Contraction.t list
 val attentions : ('a, 'b) Art.t -> Attention_block.t list
@@ -98,7 +98,7 @@ val region_bytes :
   Machine_interp.Mir_memory.t ->
   Machine_interp.Mir_interp.Binding.t ->
   Machine_ir.Mir_id.Region.t ->
-  int ->
+  Core.Storage_units.Byte_size.t ->
   (Machine_interp.Mir_memory.Key.t * string, string) result
 
 val run_once :

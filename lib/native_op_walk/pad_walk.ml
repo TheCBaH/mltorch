@@ -31,7 +31,15 @@ module Pad = struct
 
     let initial =
       {
-        shape = { Walk_core.Shape.n = 1; t = 1; d = 1; h = 6; w = 6; c = 3 };
+        shape =
+          {
+            Walk_core.Shape.n = Dim.one;
+            t = Dim.one;
+            d = Dim.one;
+            h = Dim.extent 6;
+            w = Dim.extent 6;
+            c = Dim.extent 3;
+          };
         pattern = Pad_hw;
       }
 
@@ -54,31 +62,37 @@ module Pad = struct
        extent >= 2. *)
     let params (c : cfg) : params =
       let h = c.shape.Walk_core.Shape.h and w = c.shape.Walk_core.Shape.w in
-      let third n = Stdlib.min (Stdlib.max 1 (n / 3)) (n - 1) in
+      let third (n : Dim.extent Dim.t) =
+        let n = (n :> int) in
+        Stdlib.min (Stdlib.max 1 (n / 3)) (n - 1)
+      in
+      let crop n = Dim.delta (-third n) and grow n = Dim.delta (third n) in
+      let nothing = Dim.delta 0 in
       let pads =
         match c.pattern with
-        | Crop_h -> [ (Axis.H, { before = -third h; after = 0 }) ]
+        | Crop_h -> [ (Axis.H, { before = crop h; after = nothing }) ]
         | Mixed_hw ->
             [
-              (Axis.H, { before = -third h; after = 0 });
-              (Axis.W, { before = 0; after = third w });
+              (Axis.H, { before = crop h; after = nothing });
+              (Axis.W, { before = nothing; after = grow w });
             ]
-        | Pad_asymmetric_w -> [ (Axis.W, { before = third w; after = 0 }) ]
+        | Pad_asymmetric_w -> [ (Axis.W, { before = grow w; after = nothing }) ]
         | Pad_hw ->
             [
-              (Axis.H, { before = third h; after = third h });
-              (Axis.W, { before = third w; after = third w });
+              (Axis.H, { before = grow h; after = grow h });
+              (Axis.W, { before = grow w; after = grow w });
             ]
-        | Reflect_asymmetric_w -> [ (Axis.W, { before = third w; after = 0 }) ]
+        | Reflect_asymmetric_w ->
+            [ (Axis.W, { before = grow w; after = nothing }) ]
         | Reflect_crop_h ->
             [
-              (Axis.H, { before = -third h; after = 0 });
-              (Axis.W, { before = third w; after = 0 });
+              (Axis.H, { before = crop h; after = nothing });
+              (Axis.W, { before = grow w; after = nothing });
             ]
         | Reflect_hw ->
             [
-              (Axis.H, { before = third h; after = third h });
-              (Axis.W, { before = third w; after = third w });
+              (Axis.H, { before = grow h; after = grow h });
+              (Axis.W, { before = grow w; after = grow w });
             ]
       in
       let mode =

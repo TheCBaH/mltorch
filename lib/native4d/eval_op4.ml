@@ -136,12 +136,14 @@ module Make (S : Semantics.SEMANTICS) = struct
     | Conv2d { Ops4.Conv_payload.params; x; weight; bias } ->
         let module C = Conv.Conv2d.Compute (S) in
         C.pixel
-          (Graph_shape4.conv2d_params params ~groups:1)
+          (Graph_shape4.conv2d_params params ~groups:(Op_config.Pos.of_int 1))
           ~x_shape:(shape_of x) ~weight_shape:(shape_of weight) ~x:(operand x)
           ~weight:(operand weight) ~bias:(conv_bias weight bias) out
     | Depthwise_conv2d { Ops4.Conv_payload.params; x; weight; bias } ->
         let module C = Conv.Conv2d.Compute (S) in
-        let groups = Dim.to_int params.Ops4.Conv_params.in_channels in
+        let groups =
+          Dim_arith.Extent.to_pos params.Ops4.Conv_params.in_channels
+        in
         C.pixel
           (Graph_shape4.conv2d_params params ~groups)
           ~x_shape:(shape_of x) ~weight_shape:(shape_of weight) ~x:(operand x)

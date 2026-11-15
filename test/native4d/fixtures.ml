@@ -417,7 +417,7 @@ let adaptive_maxpool_indices_live () =
    otherwise-unreferenced edges), not a Native4D domain question. *)
 
 let lstm_params : Lstm.Lstm.params =
-  { hidden_size = 2; input_size = 2; batch_first = false }
+  { hidden_size = Dim.extent 2; input_size = Dim.extent 2; batch_first = false }
 
 let lstm_layer ~weight_ih ~weight_hh : Lstm.Lstm.Layer.t =
   {
@@ -517,8 +517,8 @@ let pad_hw_crop =
   pad_graph "pad_hw_crop" ~shape:(nhwc ~n:1 ~h:4 ~w:4 ~c:2)
     ~pads:
       [
-        (Axis.H, { Pad.Pad.before = 1; after = -1 });
-        (Axis.W, { Pad.Pad.before = 0; after = 2 });
+        (Axis.H, { Pad.Pad.before = Dim.delta 1; after = Dim.delta (-1) });
+        (Axis.W, { Pad.Pad.before = Dim.delta 0; after = Dim.delta 2 });
       ]
     ~mode:(Pad.Pad.Constant 0.25)
 
@@ -527,7 +527,7 @@ let pad_hw_crop =
    would leave a numeric golden that no wrong pixel map could fail. *)
 let pad_tiny =
   pad_graph "pad_tiny" ~shape:(nhwc ~n:1 ~h:2 ~w:2 ~c:1)
-    ~pads:[ (Axis.H, { Pad.Pad.before = 1; after = 0 }) ]
+    ~pads:[ (Axis.H, { Pad.Pad.before = Dim.delta 1; after = Dim.delta 0 }) ]
     ~mode:(Pad.Pad.Constant 9.)
 
 (* The same op naming D, which the frame has and the dialect does not. Refused
@@ -535,7 +535,7 @@ let pad_tiny =
    that happens to have extent there. *)
 let pad_d =
   pad_graph "pad_d" ~shape:(s 1 1 3 2 2 2)
-    ~pads:[ (Axis.D, { Pad.Pad.before = 1; after = 1 }) ]
+    ~pads:[ (Axis.D, { Pad.Pad.before = Dim.delta 1; after = Dim.delta 1 }) ]
     ~mode:Pad.Pad.Reflect
 
 let slice_graph name ~shape ~axis ~start ~stop ~step () =

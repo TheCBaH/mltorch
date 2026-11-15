@@ -54,11 +54,29 @@ module Item = struct
     | Insn of { mnemonic : string; ops : A.E.Operand.t list }
     | Label of string
 
+  (* A length or position in the emitted code, in bytes. *)
+  module Size =
+    Core.Tagged_int.Make
+      (struct
+        let prefix = "B"
+      end)
+      ()
+
+  module Size_math = struct
+    let zero = Size.of_int 0
+    let add a b = Size.of_int (Size.to_int a + Size.to_int b)
+    let sub a b = Size.of_int (Size.to_int a - Size.to_int b)
+    let min a b = if Size.compare a b <= 0 then a else b
+    let distance a b = Size.of_int (abs (Size.to_int a - Size.to_int b))
+    let scale n a = Size.of_int (n * Size.to_int a)
+    let total = List.fold_left add zero
+  end
+
   let bytes = function
-    | Branch _ -> 4
-    | Insn { mnemonic = "la" | "call"; _ } -> 8
-    | Insn _ -> 4
-    | Label _ -> 0
+    | Branch _ -> Size.of_int 4
+    | Insn { mnemonic = "la" | "call"; _ } -> Size.of_int 8
+    | Insn _ -> Size.of_int 4
+    | Label _ -> Size_math.zero
 end
 
 type env = {
@@ -66,7 +84,7 @@ type env = {
   esc : Refusal.t Err.Escape.t;
   reference : Mir_target.Reference.t -> (string * int64) option;
       (** the symbol and addend the artifact records for this reference *)
-  table_slot : string -> int option;
+  table_slot : string -> Core.Table_slot.t option;
       (** the slot of the caller's table a region symbol is addressed through;
           [None]: the symbol is resident in the image *)
   fresh_label : unit -> string;
@@ -164,12 +182,19 @@ end
 let vsetivli ?(config = Vconfig.M1) ?vl ?(tail = "ta") () =
   let vl, lmul =
     match config with
-    | Vconfig.M1 -> (Option.value vl ~default:4, "m1")
-    | Vconfig.M4 -> (Option.value vl ~default:16, "m4")
-    | Vconfig.M8 -> (Option.value vl ~default:32, "m8")
+    | Vconfig.M1 -> (Option.value vl ~default:(Mir_type.Lanes.of_int 4), "m1")
+    | Vconfig.M4 -> (Option.value vl ~default:(Mir_type.Lanes.of_int 16), "m4")
+    | Vconfig.M8 -> (Option.value vl ~default:(Mir_type.Lanes.of_int 32), "m8")
   in
   i "vsetivli"
-    [ A.reg "zero"; A.imm vl; A.sym "e32"; A.sym lmul; A.sym tail; A.sym "ma" ]
+    [
+      A.reg "zero";
+      A.imm (Mir_type.Lanes.to_int vl);
+      A.sym "e32";
+      A.sym lmul;
+      A.sym tail;
+      A.sym "ma";
+    ]
 
 (* A configuration's items: [vsetivli], or for vl 32 the count in the
    reserved scratch and [vsetvli]. *)
@@ -258,19 +283,20 @@ let vitems env (op : Rv32_vop.t) ~(uses : Loc.t list) ~(defs : Loc.t list) :
           gmove8 (d 0) (u 0)
       | _ -> vmove (d 0) (u 0))
   | V.Vext { signed; from; first; _ } ->
+      let first = Mir_type.Lane.to_int first in
       let ext =
         Printf.sprintf "v%cext.vf%d"
           (if signed then 's' else 'z')
-          (32 / Mir_width.bits from)
+          (32 / (Mir_width.bits from :> int))
       in
-      let sew = Printf.sprintf "e%d" (Mir_width.bits from) in
+      let sew = Printf.sprintf "e%d" (Mir_width.bits from :> int) in
       if first = 0 then [ i ext [ rd 0; ru 0 ] ]
       else
         [
           i "vsetivli"
             [
               A.reg "zero";
-              A.imm (128 / Mir_width.bits from);
+              A.imm (128 / (Mir_width.bits from :> int));
               A.sym sew;
               A.sym "m1";
               A.sym "ta";
@@ -281,8 +307,9 @@ let vitems env (op : Rv32_vop.t) ~(uses : Loc.t list) ~(defs : Loc.t list) :
           i ext [ rd 0; A.reg v0 ];
         ]
   | V.Vle_int (w, n, _) ->
+      let n = Mir_type.Lanes.to_int n in
       (* a register, or half a group at LMUL 2 *)
-      let b = Mir_width.bits w in
+      let b = (Mir_width.bits w :> int) in
       [
         i "vsetivli"
           [
@@ -318,8 +345,10 @@ let vitems env (op : Rv32_vop.t) ~(uses : Loc.t list) ~(defs : Loc.t list) :
         i "vfredosum.vs" [ A.reg v0; ru 1; A.reg v0 ];
         i "vfmv.f.s" [ rd 0; A.reg v0 ];
       ]
-  | V.Vfmv_f_s (0, _) -> [ i "vfmv.f.s" [ rd 0; ru 0 ] ]
+  | V.Vfmv_f_s (k, _) when Mir_type.Lane.to_int k = 0 ->
+      [ i "vfmv.f.s" [ rd 0; ru 0 ] ]
   | V.Vfmv_f_s (k, a) ->
+      let k = Mir_type.Lane.to_int k in
       (* a register's lane slides into v0; a group's, at LMUL 4 and whatever
          VLEN, into the group copy scratch, where nothing is allocated *)
       let scratch =
@@ -334,12 +363,13 @@ let vitems env (op : Rv32_vop.t) ~(uses : Loc.t list) ~(defs : Loc.t list) :
   | V.Vfmv_v_f _ -> [ i "vfmv.v.f" [ rd 0; ru 0 ] ]
   | V.Vfsqrt _ -> [ i "vfsqrt.v" [ rd 0; ru 0 ] ]
   | V.Vinsert (k, _, _) ->
+      let k = Mir_type.Lane.to_int k in
       (* the scalar to v0's first lane, then slid up to lane [k] with only
          lanes [0, k] active and the rest undisturbed *)
       vmove (d 0) (u 0)
       @ [
           i "vfmv.s.f" [ A.reg v0; ru 1 ];
-          vsetivli ~vl:(k + 1) ~tail:"tu" ();
+          vsetivli ~vl:(Mir_type.Lanes.of_int (k + 1)) ~tail:"tu" ();
           i "vslideup.vi" [ rd 0; A.reg v0; A.imm k ];
           vsetivli ();
         ]
@@ -376,8 +406,9 @@ let vitems env (op : Rv32_vop.t) ~(uses : Loc.t list) ~(defs : Loc.t list) :
       ]
   | V.Vse32 _ -> [ i "vse32.v" [ ru 1; A.mem (u 0) 0 ] ]
   | V.Vse_int (w, n, _, _) ->
+      let n = Mir_type.Lanes.to_int n in
       (* a register, or half a group at LMUL 2 *)
-      let b = Mir_width.bits w in
+      let b = (Mir_width.bits w :> int) in
       [
         narrow ~vl:n ~sew:b ~lmul:(if n * b > 128 then "m2" else "m1") ();
         i (Printf.sprintf "vse%d.v" b) [ ru 1; A.mem (u 0) 0 ];
@@ -432,6 +463,7 @@ let items env (op : O.t) ~(uses : Loc.t list) ~(defs : Loc.t list) : Item.t list
       | Some slot ->
           (* a table-bound region: its base from the caller's table, then
              the view's offset in it *)
+          let slot = (slot :> int) in
           let slot =
             if mutated env Mutation.Shifted_slot then slot + 1 else slot
           in
@@ -449,7 +481,7 @@ let items env (op : O.t) ~(uses : Loc.t list) ~(defs : Loc.t list) : Item.t list
   | O.Mv _ | O.Zext _ -> gmove (d 0) (u 0)
   | O.Sel _ -> select env ~move:gmove ~rd:(d 0) ~p:(u 0) ~a:(u 1) ~b:(u 2)
   | O.Sext (w, _) ->
-      let k = Int64.of_int (32 - Mir_width.bits w) in
+      let k = Int64.of_int (32 - (Mir_width.bits w :> int)) in
       [ i "slli" [ rd 0; ru 0; imm k ]; i "srai" [ rd 0; rd 0; imm k ] ]
   | O.Store (m, _, k, _) ->
       [ i (O.Msz.store m) [ ru 1; A.mem (u 0) (Int64.to_int k) ] ]

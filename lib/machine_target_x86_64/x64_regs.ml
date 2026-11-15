@@ -6,6 +6,8 @@
    view), floats in xmm0-xmm7; results in rax then rdx, xmm0 then xmm1. *)
 
 open Machine_ir
+module Num = X64_reg.Num
+module Num_seq = X64_reg.Num_seq
 
 let view bank ~(bits : Mir_target.Bits.t) k =
   let width = (bits :> int) in
@@ -18,23 +20,25 @@ let view bank ~(bits : Mir_target.Bits.t) k =
   | Mir_target.Bank.Flags, _ -> X64_reg.rflags
   | _ -> invalid_arg "X64_regs: no view of that shape"
 
-let gpr_uses = [| 8; 9; X64_reg.rsi |]
+let gpr_uses = [| X64_reg.r8; X64_reg.r9; X64_reg.rsi |]
 
 let use_scratch bank ~bits k =
   view bank ~bits
-    (match bank with Mir_target.Bank.Fpr -> 8 + k | _ -> gpr_uses.(k))
+    (match bank with
+    | Mir_target.Bank.Fpr -> Num_seq.at (Num.of_int 8) k
+    | _ -> gpr_uses.(Mir_target.Scratch_slot.to_int k))
 
 let result_scratch bank ~bits =
   view bank ~bits
-    (match bank with Mir_target.Bank.Fpr -> 11 | _ -> X64_reg.rdi)
+    (match bank with Mir_target.Bank.Fpr -> Num.of_int 11 | _ -> X64_reg.rdi)
 
 let copy_scratch bank ~bits =
   view bank ~bits
-    (match bank with Mir_target.Bank.Fpr -> 12 | _ -> X64_reg.rcx)
+    (match bank with Mir_target.Bank.Fpr -> Num.of_int 12 | _ -> X64_reg.rcx)
 
 let cycle_scratch bank ~bits =
   view bank ~bits
-    (match bank with Mir_target.Bank.Fpr -> 13 | _ -> X64_reg.rdx)
+    (match bank with Mir_target.Bank.Fpr -> Num.of_int 13 | _ -> X64_reg.rdx)
 
 let shape (t : Mir_type.t) =
   match t with
@@ -63,10 +67,21 @@ let sequence ~ints ~floats tys =
 
 let args =
   sequence
-    ~ints:[| X64_reg.rdi; X64_reg.rsi; X64_reg.rdx; X64_reg.rcx; 8; 9 |]
-    ~floats:(Array.init 8 Fun.id)
+    ~ints:
+      [|
+        X64_reg.rdi;
+        X64_reg.rsi;
+        X64_reg.rdx;
+        X64_reg.rcx;
+        X64_reg.r8;
+        X64_reg.r9;
+      |]
+    ~floats:(Array.of_list (Num_seq.range 0 7))
 
-let results = sequence ~ints:[| X64_reg.rax; X64_reg.rdx |] ~floats:[| 0; 1 |]
+let results =
+  sequence
+    ~ints:[| X64_reg.rax; X64_reg.rdx |]
+    ~floats:(Array.of_list (Num_seq.of_ints [ 0; 1 ]))
 
 (* What production allocation draws on, in preference order: caller-saved
    first, then callee-saved; never a reserved register (rsp, rbp, r10, r11)
@@ -76,8 +91,14 @@ let results = sequence ~ints:[| X64_reg.rax; X64_reg.rdx |] ~floats:[| 0; 1 |]
 let allocatable = function
   | Mir_target.Bank.Gpr ->
       [
-        X64_reg.rax; X64_reg.rsi; X64_reg.rdi; 8; 9; X64_reg.rbx; 12; 13; 14; 15;
+        X64_reg.rax;
+        X64_reg.rsi;
+        X64_reg.rdi;
+        X64_reg.r8;
+        X64_reg.r9;
+        X64_reg.rbx;
       ]
-  | Mir_target.Bank.Fpr -> List.init 12 Fun.id @ [ 14; 15 ]
+      @ Num_seq.range 12 15
+  | Mir_target.Bank.Fpr -> Num_seq.range 0 11 @ Num_seq.range 14 15
   | Mir_target.Bank.Control | Mir_target.Bank.Flags | Mir_target.Bank.Vector ->
       []

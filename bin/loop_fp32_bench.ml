@@ -483,13 +483,16 @@ let execute_wasm (b : Bench.t) (c : Config.t) =
       (Loop_c_exec.bind_buffers ~outputs:(fun _ -> None) p ~bind:(bind p))
   in
   let offsets, total = Loop_c_exec.layout p in
-  let heap_base = lowered.Loop_wasm.heap_base in
-  let pages = max 1 ((heap_base + total + 65535) / 65536) in
+  let heap_base =
+    Loop_wasm_layout.Address.to_int64 lowered.Loop_wasm.heap_base
+  in
   let* wasm =
     Result.map_error
       (fun (`Wasm_invalid i) ->
         Fmt.str "%a" Wasm_check.pp_error (`Wasm_invalid i))
-      (Err.payload (Wasm_encode.module_ (Loop_wasm.with_pages lowered ~pages)))
+      (Err.payload
+         (Wasm_encode.module_
+            (Loop_wasm.with_heap lowered ~bytes:(Int64.of_int total))))
   in
   let features = Wasm_features.of_module lowered.Loop_wasm.module_ in
   let dir = Loop_c_exec.Proc.temp_dir "loop_fp32_bench_wasm" in
@@ -518,9 +521,10 @@ let execute_wasm (b : Bench.t) (c : Config.t) =
             module_file;
             blob;
             result;
-            string_of_int heap_base;
+            Int64.to_string heap_base;
             string_of_int total;
-            string_of_int lowered.Loop_wasm.local_base;
+            Int64.to_string
+              (Loop_wasm_layout.Address.to_int64 lowered.Loop_wasm.local_base);
             string_of_int b.Bench.reps;
           ]
         @ List.map string_of_int offsets
