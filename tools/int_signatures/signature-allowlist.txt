@@ -1071,7 +1071,7 @@ lib/loop_ir/loop_wasm_fail.ml	as-written	val scan_failure : Loop_ir.Loop_wasm_ct
 lib/loop_ir/loop_wasm_vector.ml	todo-domain	type vctx = { halves : int; lpr : int; temps : (V.Temp.t, Loop_ir.Loop_wasm_ctx.Layout.Local.t array) Hashtbl.t; mutable splats : (float Loop_ir.Loop_expr.t * Loop_ir.Loop_wasm_ctx.Layout.Local.t) list; }
 lib/loop_ir/loop_wasm_vector.ml	todo-domain	val temp_local : Loop_ir.Loop_wasm_ctx.st -> vctx -> V.Temp.t -> int -> Loop_ir.Loop_wasm_ctx.Layout.Local.t
 lib/native/slot.mli	budget	val scan_state : extent t -> int
-lib/coralnpu_kernels/peak_kernels.ml	quantum	type shape = { rows : Core.Dim.extent Core.Dim.t; width : Core.Dim.extent Core.Dim.t; depth : Core.Dim.extent Core.Dim.t; blocks : Core.Dim.extent Core.Dim.t; src : Elem.t; dst : Elem.t; sa : int; sb : int; }
-lib/coralnpu_kernels/peak_kernels.ml	quantum	val a : shape -> Core.Dim.index Core.Dim.t -> Core.Dim.index Core.Dim.t -> int
-lib/coralnpu_kernels/peak_kernels.ml	quantum	val b : shape -> Core.Dim.index Core.Dim.t -> Core.Dim.index Core.Dim.t -> int
+lib/coralnpu_kernels/peak_kernels.ml	cell	type shape = { rows : Core.Dim.extent Core.Dim.t; width : Core.Dim.extent Core.Dim.t; depth : Core.Dim.extent Core.Dim.t; blocks : Core.Dim.extent Core.Dim.t; src : Elem.t; dst : Elem.t; sa : int; sb : int; }
+lib/coralnpu_kernels/peak_kernels.ml	cell	val a : shape -> Core.Dim.index Core.Dim.t -> Core.Dim.index Core.Dim.t -> int
+lib/coralnpu_kernels/peak_kernels.ml	cell	val b : shape -> Core.Dim.index Core.Dim.t -> Core.Dim.index Core.Dim.t -> int
 lib/coralnpu_kernels_zvt/peak_zvt.ml	bits	type shape = { mtwiden : int; tk : Core.Dim.extent Core.Dim.t; vtype : int; lmul : Coralnpu_kernels.Peak_kernels.Vtype.Lmul.t; a : int; b : int; acc : Coralnpu_kernels.Peak_kernels.Elem.t; sum : int; }
