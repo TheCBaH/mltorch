@@ -193,7 +193,7 @@ let items () =
     @ List.map Item.insn base
     @ [
         li a5 D.ctrl_start;
-        vset_item 8 8;
+        vset_item E8 M8;
         Item.label (l "case");
         lw t5 a1 0;
         lw t6 a1 12;

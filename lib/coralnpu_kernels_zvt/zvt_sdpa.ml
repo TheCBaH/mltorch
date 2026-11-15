@@ -265,7 +265,14 @@ let items esc ?mutation ?dtcm ?(skip = []) (t : A.t) =
     let p = plan ~rows:(extent rows) ~depth:(extent depth) ~n:(extent n) in
     let blocks =
       ok
-        (P.Tile_gemm.block_items ~prefix ?a_pitch ?b_pitch ?b_pass ~c_row
+        (P.Tile_gemm.block_items ~prefix
+           ?a_pitch:
+             (Option.map Coral_transfer.Transfer_units.Bytes.of_int a_pitch)
+           ?b_pitch:
+             (Option.map Coral_transfer.Transfer_units.Bytes.of_int b_pitch)
+           ?b_pass:
+             (Option.map Coral_transfer.Transfer_units.Bytes.of_int b_pass)
+           ~c_row:(Coral_transfer.Transfer_units.Bytes.of_int c_row)
            ~accumulate p)
     in
     a3 @ a7 @ a4 @ blocks
@@ -459,7 +466,7 @@ let items esc ?mutation ?dtcm ?(skip = []) (t : A.t) =
   (* [expr] over the inputs in v4 and v8 (consumed), its result stored *)
   let evaluate expr dest =
     match
-      Vexpr.emit ~lmul:4 ~scratch:Gpr.t0
+      Vexpr.emit ~lmul:Vtype.Lmul.M4 ~scratch:Gpr.t0
         ~free:(without [ vreg 4; vreg 8 ])
         ~inputs:[| (vreg 4, `Consumed); (vreg 8, `Consumed) |]
         expr
@@ -467,16 +474,20 @@ let items esc ?mutation ?dtcm ?(skip = []) (t : A.t) =
     | Error e -> Kernel_refusal.refuse esc (Vector_expression e)
     | Ok plan -> plan.Vexpr.Plan.items @ store32 plan.Vexpr.Plan.result dest
   in
-  let m_in = Vexpr.input 0 and mn_in = Vexpr.input 1 in
+  let m_in = Vexpr.input (Vexpr.Input.of_int 0)
+  and mn_in = Vexpr.input (Vexpr.Input.of_int 1) in
   (* exp (v4 - v8), both consumed, emitted once and called from the two places
      that need it; its result is in [exp_r] *)
   let exp_l = label "exp" in
   let exp_plan =
     match
-      Vexpr.emit ~lmul:4 ~scratch:Gpr.t0
+      Vexpr.emit ~lmul:Vtype.Lmul.M4 ~scratch:Gpr.t0
         ~free:(without [ vreg 4; vreg 8 ])
         ~inputs:[| (vreg 4, `Consumed); (vreg 8, `Consumed) |]
-        (M.exp (O.sub (Vexpr.input 0) (Vexpr.input 1)))
+        (M.exp
+           (O.sub
+              (Vexpr.input (Vexpr.Input.of_int 0))
+              (Vexpr.input (Vexpr.Input.of_int 1))))
     with
     | Error e -> Kernel_refusal.refuse esc (Vector_expression e)
     | Ok plan -> plan
@@ -496,7 +507,10 @@ let items esc ?mutation ?dtcm ?(skip = []) (t : A.t) =
     @ store32 (vreg 8) mn_arr
     @ load32 (vreg 4) mn_arr
     @ evaluate
-        (O.select_eq (Vexpr.input 0) neg_inf (O.const 0.) (Vexpr.input 0))
+        (O.select_eq
+           (Vexpr.input (Vexpr.Input.of_int 0))
+           neg_inf (O.const 0.)
+           (Vexpr.input (Vexpr.Input.of_int 0)))
         ms_arr
     (* m_eff into a's array, then a = exp (m_eff - ms), ms being mn_eff *)
     @ load32 (vreg 4) m_arr

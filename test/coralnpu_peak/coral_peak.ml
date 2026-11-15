@@ -35,7 +35,10 @@ let kernel name args =
         match String.split_on_char '_' g with
         | [ t ] -> (t, None)
         | [ t; w ] when String.length w > 1 && w.[0] = 'w' ->
-            (t, Some (int_of_string (String.sub w 1 (String.length w - 1))))
+            ( t,
+              Some
+                (Core.Dim.extent
+                   (int_of_string (String.sub w 1 (String.length w - 1)))) )
         | _ -> invalid_arg ("coral_peak: no matrix multiply for " ^ g)
       in
       match K.Gemm.Input.of_name input with
@@ -51,7 +54,9 @@ let kernel name args =
               Rvv
                 {
                   width =
-                    Some (int_of_string (String.sub w 1 (String.length w - 1)));
+                    Some
+                      (Core.Dim.extent
+                         (int_of_string (String.sub w 1 (String.length w - 1))));
                 } )
         | _ -> invalid_arg ("coral_peak: no Zvt matrix multiply for " ^ t)
       in

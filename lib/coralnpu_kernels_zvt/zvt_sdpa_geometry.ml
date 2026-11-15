@@ -17,10 +17,10 @@ let plan ~(rows : Core.Dim.extent Core.Dim.t)
   P.Tile_gemm.plan Insn.Tile_op.Vtfmm_alt
     (P.Tile.shape Insn.Tile_op.Vtfmm_alt)
     {
-      K.Gemm.rows :> int;
-      width = (n :> int);
-      depth :> int;
-      blocks = 1;
+      K.Gemm.rows;
+      width = n;
+      depth;
+      blocks = Core.Dim.extent 1;
       src = K.Elem.Bf16;
       dst = K.Elem.F32;
       sa = 1;

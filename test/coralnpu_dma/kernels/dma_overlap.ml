@@ -143,7 +143,7 @@ let items s () =
     @ List.map Item.insn base
     @ [
         li Gpr.a5 D.ctrl_start;
-        vset_item 8 8;
+        vset_item E8 M8;
         vmv_v_i Vreg.v16;
         vmv_v_i Vreg.v24;
         Item.label case;

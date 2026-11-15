@@ -225,8 +225,9 @@ let image ?mutation ?kernel_mutation ?home ?(engine = true) ?engine_mutation
         match r.Coral_profile.Region.role with
         | Coral_profile.Role.Dtcm ->
             Some
-              ( Int64.to_int r.Coral_profile.Region.base,
-                Int64.to_int r.Coral_profile.Region.size )
+              ( r.Coral_profile.Region.base,
+                Coral_transfer.Transfer_units.Bytes.of_int
+                  (Int64.to_int r.Coral_profile.Region.size) )
         | _ -> None)
       profile.Coral_profile.regions
   in

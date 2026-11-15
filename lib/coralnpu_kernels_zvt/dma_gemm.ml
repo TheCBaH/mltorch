@@ -29,6 +29,14 @@ module B = Coral_transfer.Transfer_units.Bytes
 module G = Gemm
 module T = Peak_zvt.Tile_gemm
 
+(* A count of DMA descriptors, which may be none. *)
+module Descriptors =
+  Core.Tagged_int.Make
+    (struct
+      let prefix = "d"
+    end)
+    ()
+
 (* A word of the table: the index of a slot of the layout, and of its address. *)
 module Slot : sig
   type t = private int
@@ -102,13 +110,13 @@ let block_depth t =
   | Split_k { chunk } -> chunk
   | Resident_a _ | Resident_b | Row_major_a -> t.depth
 
-let chunks t = (t.depth :> int) / (block_depth t :> int)
+let chunks t = Core.Dim.extent ((t.depth :> int) / (block_depth t :> int))
 
 let steps t =
   match t.geometry with
-  | Resident_a { panel } -> (t.width :> int) / (panel :> int)
-  | Resident_b | Row_major_a -> (t.blocks :> int)
-  | Split_k _ -> chunks t * (t.blocks :> int)
+  | Resident_a { panel } -> Core.Dim.extent ((t.width :> int) / (panel :> int))
+  | Resident_b | Row_major_a -> t.blocks
+  | Split_k _ -> Core.Dim.extent ((chunks t :> int) * (t.blocks :> int))
 
 let shape t =
   let src, dst =
@@ -121,10 +129,10 @@ let shape t =
     | Zvt_i8 -> (I8, I32)
   in
   {
-    G.rows = (rows t :> int);
-    width = (t.width :> int);
-    depth = (t.depth :> int);
-    blocks = (t.blocks :> int);
+    G.rows = Core.Dim.extent (rows t :> int);
+    width = t.width;
+    depth = t.depth;
+    blocks = t.blocks;
     src;
     dst;
     sa = 1;
@@ -134,7 +142,13 @@ let shape t =
 (* The Zvt plan, over all M rows at once as the peak kernel takes them. *)
 let plan t =
   let s = shape t in
-  let s = { s with rows = s.rows * s.blocks; blocks = 1 } in
+  let s =
+    {
+      s with
+      rows = Core.Dim.extent ((s.rows :> int) * (s.blocks :> int));
+      blocks = Core.Dim.extent 1;
+    }
+  in
   match t.engine with
   | Rvv_bf16 | Rvv_f32 | Rvv_i8 -> invalid_arg "Dma_gemm.plan: not Zvt"
   | Zvt_bf16 -> T.plan Vtfmm_alt (Peak_zvt.Tile.shape Vtfmm_alt) s
@@ -209,14 +223,14 @@ let a_block t =
    is otherwise row-major. *)
 let panels t =
   let s = shape t and n = lanes t in
-  let e = Elem.bytes s.src in
+  let e = (Elem.size s.src :> int) in
   let b = Bytes.make ((t.depth :> int) * (t.width :> int) * e) '\000' in
   for j = 0 to ((t.width :> int) / (n :> int)) - 1 do
     for k = 0 to (t.depth :> int) - 1 do
       for c = 0 to (n :> int) - 1 do
         Elem.set s.src b
-          (((((j * (t.depth :> int)) + k) * (n :> int)) + c) * e)
-          (G.b s k ((j * (n :> int)) + c))
+          ((((j * (t.depth :> int)) + k) * (n :> int)) + c)
+          (G.b s (Core.Dim.index k) (Core.Dim.index ((j * (n :> int)) + c)))
       done
     done
   done;
@@ -225,12 +239,14 @@ let panels t =
 (* Zvt's B by chunks of K, each packed as for that depth: a pass's rows of the
    chunk, pass by pass. RVV's row-major B is by chunks already. *)
 let by_chunks t b =
-  let e = Elem.bytes (shape t).src and chunk = block_depth t in
-  let pass = (t.depth :> int) * 2 * T.tile * e
-  and part = (chunk :> int) * 2 * T.tile * e in
+  let e = (Elem.size (shape t).src :> int) and chunk = block_depth t in
+  let pass = (t.depth :> int) * 2 * (T.tile :> int) * e
+  and part = (chunk :> int) * 2 * (T.tile :> int) * e in
   String.concat ""
     (List.concat
-       (List.init (chunks t) (fun c ->
+       (List.init
+          (chunks t :> int)
+          (fun c ->
             List.init
               (String.length b / pass)
               (fun p -> String.sub b ((p * pass) + (c * part)) part))))
@@ -238,11 +254,14 @@ let by_chunks t b =
 (* A row-major, M x K, as the host has it. *)
 let row_major t =
   let s = shape t in
-  let e = Elem.bytes s.src and m = (rows t :> int) * (t.blocks :> int) in
+  let e = (Elem.size s.src :> int)
+  and m = (rows t :> int) * (t.blocks :> int) in
   let a = Bytes.make (m * (t.depth :> int) * e) '\000' in
   for i = 0 to m - 1 do
     for k = 0 to (t.depth :> int) - 1 do
-      Elem.set s.src a (((i * (t.depth :> int)) + k) * e) (G.a s i k)
+      Elem.set s.src a
+        ((i * (t.depth :> int)) + k)
+        (G.a s (Core.Dim.index i) (Core.Dim.index k))
     done
   done;
   Bytes.to_string a
@@ -294,24 +313,26 @@ let chunk_bytes t = B.times_extent (block_depth t) (b_row t)
 
 (* The descriptors that copy a step's C out. *)
 let c_descriptors t =
-  match (t.geometry, t.out) with
-  | _, Core -> 0
-  | Resident_a _, (Dma | Split _) -> (rows t :> int) * (t.blocks :> int)
-  | (Resident_b | Row_major_a | Split_k _), (Dma | Split _) -> 1
+  Descriptors.of_int
+    (match (t.geometry, t.out) with
+    | _, Core -> 0
+    | Resident_a _, (Dma | Split _) -> (rows t :> int) * (t.blocks :> int)
+    | (Resident_b | Row_major_a | Split_k _), (Dma | Split _) -> 1)
 
 let slots t =
   check t;
   let a, b = packed t in
   let a_size = String.length a and b_size = String.length b in
-  let table = 4 * (steps t + 4) in
+  let table = 4 * ((steps t :> int) + 4) in
   let chains =
     D.Descriptor.size
     *
     match t.geometry with
     | Resident_a _ ->
-        ((t.width :> int) / (lanes t :> int) * (1 + c_descriptors t)) + 3
+        ((t.width :> int) / (lanes t :> int) * (1 + (c_descriptors t :> int)))
+        + 3
     | Resident_b | Row_major_a -> (2 * (t.blocks :> int)) + 2
-    | Split_k _ -> (4 * steps t) + 4
+    | Split_k _ -> (4 * (steps t :> int)) + 4
   in
   (* With K split, B's copy is two chunks. *)
   let streamed, resident, resident_dtcm, ring_pad =
@@ -362,7 +383,11 @@ let slots t =
 
 let expected t =
   G.product
-    { (shape t) with rows = (rows t :> int) * (t.blocks :> int); blocks = 1 }
+    {
+      (shape t) with
+      rows = Core.Dim.extent ((rows t :> int) * (t.blocks :> int));
+      blocks = Core.Dim.extent 1;
+    }
 
 (* The longest piece of a descriptor: whole beats, under 16 MiB. *)
 let pieces ~src ~dst (n : B.t) =
@@ -457,7 +482,7 @@ let inputs p t (l : L.t) =
           (((n + (t.blocks :> int) - 1) / (t.blocks :> int)) + 15) land lnot 15
         in
         let from = block i * share in
-        if chunk i + 1 < chunks t && from < n then
+        if chunk i + 1 < (chunks t :> int) && from < n then
           [
             D.Descriptor.copy
               ~src:(off (address Slot.resident) (((chunk i + 1) * n) + from))
@@ -491,8 +516,8 @@ let inputs p t (l : L.t) =
     @ [ piece_in 0 ]
     @ c_in 0
   in
-  let n = steps t in
-  let by_dma = c_descriptors t > 0 in
+  let n = (steps t :> int) in
+  let by_dma = (c_descriptors t :> int) > 0 in
   let per i =
     (if i > 0 && by_dma then c_out (i - 1) else [])
     @ (if i + 1 < n then piece_in (i + 1) :: c_in (i + 1) else [])
@@ -585,17 +610,17 @@ let wait ~into ~skip ~poll =
 (* The core's share of B, [bytes_at] bytes into the steps ([s2]), copied by
    RVV from the table's slot at [src] to [dst], 256 bytes a trip, while the
    prologue chain runs. Writes [a1], [a5], [t6]. *)
-let core_copy ~src ~dst ~bytes_at =
+let core_copy ~(src : B.t) ~dst ~(bytes_at : B.t) =
   let open Gpr in
   let trip = Label.named "b_trip" and none = Label.named "b_none" in
   let e8 = Vtype.Sew.E8 in
   [
-    lw t6 s2 bytes_at;
+    lw t6 s2 (bytes_at :> int);
     beqz t6 none;
-    lw a1 a0 src;
+    lw a1 a0 (src :> int);
     mv a5 dst;
     srli t6 t6 8;
-    vset_item 8 8;
+    vset_item E8 M8;
     Item.label trip;
     vle e8 Vreg.v0 a1;
     addi a1 a1 128;
@@ -652,9 +677,8 @@ let items t () =
     | Rvv_i8 -> Ok (Coralnpu_kernels.Dma_block.i8 block_shape)
     | Zvt_bf16 | Zvt_f32 | Zvt_i8 -> (
         match t.out with
-        | Split n -> T.block_items ~split:((n :> int), a5) (block_plan t)
-        | Core | Dma ->
-            T.block_items ~c_row:(c_row :> int) ~accumulate (block_plan t))
+        | Split n -> T.block_items ~split:(n, a5) (block_plan t)
+        | Core | Dma -> T.block_items ~c_row ~accumulate (block_plan t))
   in
   let* step =
     match t.geometry with
@@ -691,7 +715,7 @@ let items t () =
         in
         let* next_rows = G.add_imm s10 ((rows t :> int) * (c_row :> int)) in
         let* next_panel =
-          G.add_imm s5 ((lanes t :> int) * Elem.bytes (shape t).dst)
+          G.add_imm s5 ((lanes t :> int) * (Elem.size (shape t).dst :> int))
         in
         Ok
           ([ mv a7 s4; mv s10 s5; beqz s6 even ]
@@ -765,7 +789,9 @@ let items t () =
     @ List.map Item.insn dma
     @ [ li s7 0; lw s9 s2 4 ]
     @ start ~skip:(label "pre_started")
-    @ core_copy ~src:(4 * (Slot.resident :> int)) ~dst:s1 ~bytes_at:8
+    @ core_copy
+        ~src:(B.of_int (4 * (Slot.resident :> int)))
+        ~dst:s1 ~bytes_at:(B.of_int 8)
     @ wait ~into:s7 ~skip:(label "pre_waited") ~poll:(label "pre_poll")
     @ chunk_setup
     @ [

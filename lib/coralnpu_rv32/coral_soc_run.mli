@@ -20,7 +20,7 @@ module Run_error : sig
     | Guest_trap of Coral_run.Trap.t
     | Mailbox_malformed of Coral_mailbox.Malformed.t
     | No_core_csr  (** The profile has no core CSR region to start through. *)
-    | Read_back_mismatch of int
+    | Read_back_mismatch of Core.Table_slot.t
         (** A slot's bytes from the bridge do not match the guest's hash. *)
     | Read_back_over_budget of Over_budget.t
         (** The slots to read back (after [skip_unchanged]) exceed [budget]:

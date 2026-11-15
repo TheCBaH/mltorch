@@ -233,7 +233,7 @@ let core_items engine =
   let vgroup m =
     let step = 16 * m in
     let e8 = Vtype.Sew.E8 in
-    ( [ vset_item 8 m ],
+    ( [ vset_item e8 (lmul_of_factor m) ],
       step,
       fun ~load ~store ->
         (if load then

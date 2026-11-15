@@ -89,7 +89,7 @@ let predict ?(r = measured) (t : G.t) =
     | Resident_b | Row_major_a -> f (String.length b)
     | Split_k _ -> f (G.chunk_bytes t :> int)
   in
-  let piece = f (G.piece t :> int) and n = G.steps t in
+  let piece = f (G.piece t :> int) and n = (G.steps t :> int) in
   (* With K split, a step also brings a block's partial sums back and a share
      of the next chunk of B, each a further descriptor. *)
   let split =
@@ -99,7 +99,7 @@ let predict ?(r = measured) (t : G.t) =
   in
   let c_in = if split then f (G.c_block t :> int) else 0. in
   let share i =
-    if split && (i / (t.blocks :> int)) + 1 < G.chunks t then
+    if split && (i / (t.blocks :> int)) + 1 < (G.chunks t :> int) then
       f (G.chunk_bytes t :> int) /. f (t.blocks :> int)
     else 0.
   in
@@ -110,7 +110,7 @@ let predict ?(r = measured) (t : G.t) =
     c *. f (G.Out.by_core ~rows:(G.rows t) t.out :> int) /. f (G.rows t :> int)
   in
   let c_dma = c -. c_core in
-  let extra = f (max 0 (G.c_descriptors t - 1)) *. r.descriptor in
+  let extra = f (max 0 ((G.c_descriptors t :> int) - 1)) *. r.descriptor in
   let step_ops = f (G.ops t / n) in
   let prologue =
     match t.prologue with
@@ -131,7 +131,9 @@ let predict ?(r = measured) (t : G.t) =
   let repack =
     match t.geometry with
     | Row_major_a ->
-        let e = f (Coralnpu_kernels.Peak_kernels.Elem.bytes (G.shape t).src) in
+        let e =
+          f (Coralnpu_kernels.Peak_kernels.Elem.size (G.shape t).src :> int)
+        in
         let stride = f (G.rows t :> int) *. e in
         let rate =
           Float.min r.repack_peak (r.repack_beat *. Float.max 1. (16. /. stride))

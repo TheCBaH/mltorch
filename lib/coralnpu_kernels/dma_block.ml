@@ -41,13 +41,13 @@ let i8 (s : Shape.t) =
     mv a2 s.b;
     addi a3 a2 (s.b_row :> int);
     li a0 ((s.depth :> int) / 4);
-    vset_item ~avl:t0 8 4;
+    vset_item ~avl:t0 E8 M4;
     vle E8 v0 a2;
     lw a4 a1 0;
-    vset_item ~avl:t0 16 8;
+    vset_item ~avl:t0 E16 M8;
   ]
   @ accumulators s ~eew:E16 [ v16; v24 ]
-  @ [ vset_item ~avl:t0 8 4 ]
+  @ [ vset_item ~avl:t0 E8 M4 ]
   @ body_items
       [
         lw a5 a1 4;
@@ -79,7 +79,7 @@ let i8 (s : Shape.t) =
         bnez a0 body_label;
       ]
   @ [
-      vset_item ~avl:t0 16 8;
+      vset_item ~avl:t0 E16 M8;
       vse E16 v16 a6;
       addi a6 a6 (s.c_row :> int);
       vse E16 v24 a6;
@@ -100,15 +100,15 @@ let bf16 (s : Shape.t) =
     mv a2 s.b;
     addi a3 a2 (s.b_row :> int);
     li a0 ((s.depth :> int) / 2);
-    vset_item ~avl:t0 16 4;
+    vset_item ~avl:t0 E16 M4;
     vle E16 v0 a2;
     flh fa0 a1 0;
     flh fa1 a1 2;
     flh fa2 a1 4;
-    vset_item ~avl:t0 32 8;
+    vset_item ~avl:t0 E32 M8;
   ]
   @ accumulators s ~eew:E32 [ v8; v16; v24 ]
-  @ [ vset_item ~avl:t0 16 4 ]
+  @ [ vset_item ~avl:t0 E16 M4 ]
   @ body_items
       [
         flh fa3 a1 6;
@@ -131,7 +131,7 @@ let bf16 (s : Shape.t) =
         addi a0 a0 (-1);
         bnez a0 body_label;
       ]
-  @ [ vset_item ~avl:t0 32 8 ]
+  @ [ vset_item ~avl:t0 E32 M8 ]
   @ List.concat_map
       (fun v -> [ vse E32 v a6; addi a6 a6 (s.c_row :> int) ])
       [ v8; v16; v24 ]
@@ -148,7 +148,7 @@ let f32 (s : Shape.t) =
   in
   let macs (r0, r1, r2) = [ mac v8 r0 v0; mac v16 r1 v0; mac v24 r2 v0 ] in
   let cur = (fa4, fa5, fa6) and next = (ft1, ft2, ft3) in
-  [ li t0 (s.lanes :> int); vset_item ~avl:t0 32 8 ]
+  [ li t0 (s.lanes :> int); vset_item ~avl:t0 E32 M8 ]
   @ accumulators s ~eew:E32 [ v8; v16; v24 ]
   @ [ mv a2 s.b; li a0 ((s.depth :> int) / 2) ]
   @ loads cur 0
@@ -185,7 +185,7 @@ let repack ~(bytes : Coral_transfer.Transfer_units.Bytes.t)
   let row = Label.named "repack_row" and trip = Label.named "repack_trip" in
   let* step = Insn.load_imm t2 (vl * rows * bytes) in
   Ok
-    ([ vset_item (8 * bytes) 8; li t5 (rows * bytes) ]
+    ([ vset_item eew M8; li t5 (rows * bytes) ]
     @ List.map Item.insn step
     @ [
         mv a2 s11;

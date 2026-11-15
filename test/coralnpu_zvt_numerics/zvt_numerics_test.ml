@@ -56,7 +56,11 @@ let kernel () =
       ~vtype:0xD2
   in
   let* store =
-    Peak_zvt.Tile.store ~base:Gpr.a6 ~stride:(4 * n) ~rows:n 0 Reg.Mtreg.mt0
+    Peak_zvt.Tile.store ~base:Gpr.a6
+      ~stride:(Coral_transfer.Transfer_units.Bytes.of_int (4 * n))
+      ~rows:(Coral_transfer.Transfer_units.Rows.of_int n)
+      ~label:(Label.named "peak_store0")
+      Reg.Mtreg.mt0
   in
   let load dst off = [ addi Gpr.a4 Gpr.a5 off; vle Vtype.Sew.E32 dst Gpr.a4 ] in
   Ok
@@ -217,7 +221,11 @@ let alt_kernel () =
       ~vtype:0xD2
   in
   let* store =
-    Peak_zvt.Tile.store ~base:Gpr.a6 ~stride:(4 * n) ~rows:n 1 Reg.Mtreg.mt0
+    Peak_zvt.Tile.store ~base:Gpr.a6
+      ~stride:(Coral_transfer.Transfer_units.Bytes.of_int (4 * n))
+      ~rows:(Coral_transfer.Transfer_units.Rows.of_int n)
+      ~label:(Label.named "peak_store1")
+      Reg.Mtreg.mt0
   in
   (* an operand's two slices, 32 bytes apart in memory and, as the peak
      kernels place them, 2 x LMUL groups (four registers) apart *)

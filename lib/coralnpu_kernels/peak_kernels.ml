@@ -28,10 +28,10 @@ let rv32_profile =
 module Elem = struct
   type t = Bf16 | F32 | I8 | I16 | I32
 
-  let bytes = function Bf16 | I16 -> 2 | F32 | I32 -> 4 | I8 -> 1
-
-  (* The same size as the quantity a transfer plan trades in. *)
-  let size t = Coral_transfer.Transfer_units.Bytes.of_int (bytes t)
+  (* The size of one element, the quantity a transfer plan trades in. *)
+  let size t =
+    Coral_transfer.Transfer_units.Bytes.of_int
+      (match t with Bf16 | I16 -> 2 | F32 | I32 -> 4 | I8 -> 1)
 
   let name = function
     | Bf16 -> "bf16"
@@ -40,8 +40,9 @@ module Elem = struct
     | I16 -> "int16"
     | I32 -> "int32"
 
-  (* [x] (a small integer, exact in every type) at [at] in [b]. *)
-  let set t b at x =
+  (* [x] (a small integer, exact in every type) as element [index] of [b]. *)
+  let set t b index x =
+    let at = index * (size t :> int) in
     let f32 = Int32.bits_of_float (float_of_int x) in
     match t with
     | Bf16 ->
@@ -131,7 +132,7 @@ let lmul_of_factor n =
   | None -> invalid_arg (Printf.sprintf "Peak_kernels: no register group m%d" n)
 
 (* [vl] = [avl], or VLMAX into [t0] without one. *)
-let vset_item ?avl sew lmul =
+let vset_item ?avl (sew : Vtype.Sew.t) (lmul : Vtype.Lmul.t) =
   Item.insn
     (Insn.Vsetvli
        {
@@ -141,8 +142,8 @@ let vset_item ?avl sew lmul =
            | None -> Vtype.Avl.Vlmax { vl = Gpr.t0 });
          vtype =
            {
-             Vtype.sew = sew_of_bits sew;
-             lmul = lmul_of_factor lmul;
+             Vtype.sew;
+             lmul;
              tail = Vtype.Policy.Agnostic;
              mask = Vtype.Policy.Agnostic;
            };
@@ -214,15 +215,15 @@ module Vv_op = struct
 
   (* The accumulator's element type for sources of [sew] bits, if there is one:
      no half or double-precision float here. *)
-  let accumulator op ~sew : Elem.t option =
+  let accumulator op ~(sew : Vtype.Sew.t) : Elem.t option =
     match (widening op, floating op, sew) with
-    | false, false, 8 -> Some I8
-    | false, false, 16 -> Some I16
-    | false, false, 32 -> Some I32
-    | false, true, 32 -> Some F32
-    | true, false, 8 -> Some I16
-    | true, false, 16 -> Some I32
-    | true, true, 16 -> Some F32
+    | false, false, E8 -> Some I8
+    | false, false, E16 -> Some I16
+    | false, false, E32 -> Some I32
+    | false, true, E32 -> Some F32
+    | true, false, E8 -> Some I16
+    | true, false, E16 -> Some I32
+    | true, true, E16 -> Some F32
     | _ -> None
 end
 
@@ -238,9 +239,10 @@ let elementwise ~sew ~lmul op =
       Vtype.Lmul.of_factor lmul,
       Vtype.Sew.of_bits dsew,
       Vtype.Lmul.of_factor dlmul,
-      Vv_op.accumulator op ~sew )
+      Option.bind (Vtype.Sew.of_bits sew) (fun sew -> Vv_op.accumulator op ~sew)
+    )
   with
-  | Some _, Some _, Some _, Some _, Some acc ->
+  | Some vsew, Some vlmul, Some vdsew, Some vdlmul, Some acc ->
       let items () =
         let open Err.Syntax in
         let* accumulators =
@@ -251,9 +253,9 @@ let elementwise ~sew ~lmul op =
         let* set_one = Insn.load_imm Gpr.t1 one in
         Ok
           (start_items
-          @ [ lw Gpr.a6 Gpr.a0 0; vset_item dsew dlmul ]
+          @ [ lw Gpr.a6 Gpr.a0 0; vset_item vdsew vdlmul ]
           @ List.map vmv_v_i accumulators
-          @ [ vset_item sew lmul ]
+          @ [ vset_item vsew vlmul ]
           @ List.map Item.insn set_one
           @ [
               Item.insn (Vmv_v_x { dst = Vreg.v8; src = Gpr.t1 });
@@ -266,19 +268,15 @@ let elementwise ~sew ~lmul op =
                    Item.insn (Vv { op; dst; a = Vreg.v8; b = Vreg.v12 }))
                  accumulators
               @ [ addi Gpr.a1 Gpr.a1 (-1); bnez Gpr.a1 body_label ])
-          @ [ vset_item dsew dlmul ]
+          @ [ vset_item vdsew vdlmul ]
           @ List.concat_map
-              (fun v ->
-                [
-                  vse (sew_of_bits dsew) v Gpr.a6;
-                  addi Gpr.a6 Gpr.a6 (16 * dlmul);
-                ])
+              (fun v -> [ vse vdsew v Gpr.a6; addi Gpr.a6 Gpr.a6 (16 * dlmul) ])
               accumulators
           @ [ li Gpr.a0 0; Item.insn Ret ])
       in
       let expected = Bytes.create 256 in
-      for i = 0 to (256 / Elem.bytes acc) - 1 do
-        Elem.set acc expected (i * Elem.bytes acc) sum
+      for i = 0 to (256 / (Elem.size acc :> int)) - 1 do
+        Elem.set acc expected i sum
       done;
       Ok
         {
@@ -322,53 +320,68 @@ module Gemm = struct
   end
 
   type shape = {
-    rows : int;  (** R *)
-    width : int;  (** W *)
-    depth : int;  (** K *)
-    blocks : int;
+    rows : Core.Dim.extent Core.Dim.t;  (** R *)
+    width : Core.Dim.extent Core.Dim.t;  (** W *)
+    depth : Core.Dim.extent Core.Dim.t;  (** K *)
+    blocks : Core.Dim.extent Core.Dim.t;
     src : Elem.t;
     dst : Elem.t;
     sa : int;  (** A's scale *)
     sb : int;  (** B's scale *)
   }
 
-  let a s i k =
+  (* The generated element values: [a s i k] is A's element at row [i], column
+     [k], [b s k j] B's at row [k], column [j], before conversion to [src]. *)
+  let a s (i : Core.Dim.index Core.Dim.t) (k : Core.Dim.index Core.Dim.t) =
+    let i = (i :> int) and k = (k :> int) in
     ((((7 * k * k) + (13 * i) + (5 * i * k) + (3 * k)) mod 23 mod 9) - 4) * s.sa
 
-  let b s k j =
+  let b s (k : Core.Dim.index Core.Dim.t) (j : Core.Dim.index Core.Dim.t) =
+    let k = (k :> int) and j = (j :> int) in
     ((((3 * k * k) + (11 * j) + (7 * k * j) + k) mod 29 mod 7) - 3) * s.sb
 
   let inputs s =
-    let m = s.rows * s.blocks and e = Elem.bytes s.src in
-    let pa = Bytes.make ((m * s.depth * e) + 64) '\000' in
+    let rows = (s.rows :> int)
+    and blocks = (s.blocks :> int)
+    and depth = (s.depth :> int)
+    and width = (s.width :> int) in
+    let m = rows * blocks and e = (Elem.size s.src :> int) in
+    let pa = Bytes.make ((m * depth * e) + 64) '\000' in
     let n = ref 0 in
-    for blk = 0 to s.blocks - 1 do
-      for k = 0 to s.depth - 1 do
-        for r = 0 to s.rows - 1 do
-          Elem.set s.src pa (!n * e) (a s ((blk * s.rows) + r) k);
+    for blk = 0 to blocks - 1 do
+      for k = 0 to depth - 1 do
+        for r = 0 to rows - 1 do
+          Elem.set s.src pa !n
+            (a s (Core.Dim.index ((blk * rows) + r)) (Core.Dim.index k));
           incr n
         done
       done
     done;
-    let e = Elem.bytes s.src in
-    let pb = Bytes.make ((s.depth + 2) * s.width * e) '\000' in
-    for k = 0 to s.depth - 1 do
-      for j = 0 to s.width - 1 do
-        Elem.set s.src pb (((k * s.width) + j) * e) (b s k j)
+    let pb = Bytes.make ((depth + 2) * width * e) '\000' in
+    for k = 0 to depth - 1 do
+      for j = 0 to width - 1 do
+        Elem.set s.src pb
+          ((k * width) + j)
+          (b s (Core.Dim.index k) (Core.Dim.index j))
       done
     done;
     [ Bytes.to_string pa; Bytes.to_string pb ]
 
   let product s =
-    let m = s.rows * s.blocks and e = Elem.bytes s.dst in
-    let c = Bytes.create (m * s.width * e) in
+    let m = (s.rows :> int) * (s.blocks :> int)
+    and width = (s.width :> int)
+    and depth = (s.depth :> int) in
+    let c = Bytes.create (m * width * (Elem.size s.dst :> int)) in
     for i = 0 to m - 1 do
-      for j = 0 to s.width - 1 do
+      for j = 0 to width - 1 do
         let sum = ref 0 in
-        for k = 0 to s.depth - 1 do
-          sum := !sum + (a s i k * b s k j)
+        for k = 0 to depth - 1 do
+          sum :=
+            !sum
+            + a s (Core.Dim.index i) (Core.Dim.index k)
+              * b s (Core.Dim.index k) (Core.Dim.index j)
         done;
-        Elem.set s.dst c (((i * s.width) + j) * e) !sum
+        Elem.set s.dst c ((i * width) + j) !sum
       done
     done;
     Bytes.to_string c
@@ -378,31 +391,40 @@ module Gemm = struct
      wider than [lanes] must be a multiple of it; each block of rows then runs
      once per tile, over the same A and the tile's columns of B and C. *)
   type tiling = {
-    vl : int;  (** lanes of a tile *)
-    tiles : int;
-    b_row : int;  (** bytes from a row of B to the next *)
-    c_row : int;  (** bytes from a row of C to the next *)
+    vl : Core.Dim.extent Core.Dim.t;  (** lanes of a tile *)
+    tiles : Core.Dim.extent Core.Dim.t;
+    b_row : Coral_transfer.Transfer_units.Bytes.t;
+        (** from a row of B to the next *)
+    c_row : Coral_transfer.Transfer_units.Bytes.t;
+        (** from a row of C to the next *)
   }
 
-  let tiling s ~lanes =
+  let tiling s ~(lanes : Core.Dim.extent Core.Dim.t) =
     let vl = min s.width lanes in
-    if s.width mod vl <> 0 then
-      invalid_arg
-        (Printf.sprintf "Peak_kernels.Gemm: W = %d is not a multiple of %d"
-           s.width lanes);
-    {
-      vl;
-      tiles = s.width / vl;
-      b_row = s.width * Elem.bytes s.src;
-      c_row = s.width * Elem.bytes s.dst;
-    }
+    match Core.Dim.div_exact s.width ~by:vl with
+    | None ->
+        invalid_arg
+          (Printf.sprintf "Peak_kernels.Gemm: W = %d is not a multiple of %d"
+             (s.width :> int)
+             (lanes :> int))
+    | Some tiles ->
+        {
+          vl;
+          tiles;
+          b_row =
+            Coral_transfer.Transfer_units.Bytes.times_extent s.width
+              (Elem.size s.src);
+          c_row =
+            Coral_transfer.Transfer_units.Bytes.times_extent s.width
+              (Elem.size s.dst);
+        }
 
   (* {2 Typed fragments} *)
 
   (* [s0] and [s1] are the caller's: [s0] counts blocks, [s1] holds B. Tiles
      also use [s2], the tiles left in this block, and [s3], B at this tile. *)
   let saved t =
-    if t.tiles = 1 then [ Gpr.s0; Gpr.s1 ]
+    if Core.Dim.equal t.tiles Core.Dim.one then [ Gpr.s0; Gpr.s1 ]
     else [ Gpr.s0; Gpr.s1; Gpr.s2; Gpr.s3 ]
 
   let prologue t ~a ~c =
@@ -417,22 +439,22 @@ module Gemm = struct
   (* The start of a tile, and of its first block of rows. Tiles are the outer
      loop, so moving on between blocks costs what it does with one tile. *)
   let block_head s t ~tile =
-    (if t.tiles = 1 then []
-     else [ li Gpr.s2 t.tiles; mv Gpr.s3 Gpr.s1; Item.label tile ])
-    @ [ li Gpr.s0 s.blocks ]
+    (if Core.Dim.equal t.tiles Core.Dim.one then []
+     else [ li Gpr.s2 (t.tiles :> int); mv Gpr.s3 Gpr.s1; Item.label tile ])
+    @ [ li Gpr.s0 (s.blocks :> int) ]
 
   let block_start s t ~tile ~block = block_head s t ~tile @ [ Item.label block ]
 
   (* B at the current tile. *)
-  let b_base t = if t.tiles = 1 then Gpr.s1 else Gpr.s3
+  let b_base t = if Core.Dim.equal t.tiles Core.Dim.one then Gpr.s1 else Gpr.s3
 
   (* B's first row for the next block, loaded while the last multiply-adds and
      the stores of this one are still in flight: [per] k steps a trip. *)
-  let next_b s t ~per ~eew =
+  let next_b s t ~(per : Core.Dim.extent Core.Dim.t) ~eew =
     [
       mv Gpr.a2 (b_base t);
-      addi Gpr.a3 Gpr.a2 t.b_row;
-      li Gpr.a0 (s.depth / per);
+      addi Gpr.a3 Gpr.a2 (t.b_row :> int);
+      li Gpr.a0 ((s.depth :> int) / (per :> int));
       vle eew Vreg.v0 Gpr.a2;
     ]
 
@@ -450,19 +472,19 @@ module Gemm = struct
   let store_rows s t ~c ~eew ~block ~tile accumulators =
     let open Err.Syntax in
     let rows = List.length accumulators in
+    let src = (Elem.size s.src :> int) and dst = (Elem.size s.dst :> int) in
+    let blocks = (s.blocks :> int) and vl = (t.vl :> int) in
     let stores =
-      List.concat_map (fun v -> [ vse eew v c; addi c c t.c_row ]) accumulators
+      List.concat_map
+        (fun v -> [ vse eew v c; addi c c (t.c_row :> int) ])
+        accumulators
       @ [ addi Gpr.s0 Gpr.s0 (-1); bnez Gpr.s0 block ]
     in
-    if t.tiles = 1 then Ok stores
+    if Core.Dim.equal t.tiles Core.Dim.one then Ok stores
     else
-      let* a =
-        add_imm Gpr.a1 (-(s.blocks * rows * s.depth * Elem.bytes s.src))
-      in
-      let* c' =
-        add_imm c ((t.vl * Elem.bytes s.dst) - (s.blocks * rows * t.c_row))
-      in
-      let* b = add_imm Gpr.s3 (t.vl * Elem.bytes s.src) in
+      let* a = add_imm Gpr.a1 (-(blocks * rows * (s.depth :> int) * src)) in
+      let* c' = add_imm c ((vl * dst) - (blocks * rows * (t.c_row :> int))) in
+      let* b = add_imm Gpr.s3 (vl * src) in
       Ok (stores @ a @ c' @ b @ [ addi Gpr.s2 Gpr.s2 (-1); bnez Gpr.s2 tile ])
 
   let zeroed accumulators = List.map vmv_v_i accumulators
@@ -475,25 +497,25 @@ module Gemm = struct
   let i8 s () =
     let open Err.Syntax in
     let open Gpr in
-    let t = tiling s ~lanes:64 in
+    let t = tiling s ~lanes:(Core.Dim.extent 64) in
     let vl = t0 and tile = Label.named "peak_tile" in
     let block = Label.named "peak_block" in
-    let rows2 = 2 * t.b_row in
+    let rows2 = (Coral_transfer.Transfer_units.Bytes.double t.b_row :> int) in
     let mac acc scalar src = Item.insn (Vwmacc_vx { acc; scalar; src }) in
-    let next_b = next_b s t ~per:4 ~eew:Vtype.Sew.E8 in
+    let next_b = next_b s t ~per:(Core.Dim.extent 4) ~eew:Vtype.Sew.E8 in
     let v0 = Vreg.v0 and v4 = Vreg.v4 and v16 = Vreg.v16 and v24 = Vreg.v24 in
     let* stores =
       store_rows s t ~c:a6 ~eew:Vtype.Sew.E16 ~block ~tile [ v16; v24 ]
     in
     Ok
       (start_items @ prologue t ~a:a1 ~c:a6
-      @ [ li vl t.vl ]
+      @ [ li vl (t.vl :> int) ]
       @ block_head s t ~tile
-      @ [ vset_item ~avl:vl 8 4 ]
+      @ [ vset_item ~avl:vl E8 M4 ]
       @ next_b
-      @ [ lw a4 a1 0; vset_item ~avl:vl 16 8; Item.label block ]
+      @ [ lw a4 a1 0; vset_item ~avl:vl E16 M8; Item.label block ]
       @ zeroed [ v16; v24 ]
-      @ [ vset_item ~avl:vl 8 4 ]
+      @ [ vset_item ~avl:vl E8 M4 ]
       @ body_items
           [
             lw a5 a1 4;
@@ -525,7 +547,7 @@ module Gemm = struct
             bnez a0 body_label;
           ]
       @ next_b
-      @ [ vset_item ~avl:vl 16 8 ]
+      @ [ vset_item ~avl:vl E16 M8 ]
       @ stores @ epilogue t)
 
   (* INT16 x INT16 -> INT32. Three rows of C in e32 m8 accumulators, v8, v16
@@ -535,11 +557,11 @@ module Gemm = struct
   let i16 s () =
     let open Err.Syntax in
     let open Gpr in
-    let t = tiling s ~lanes:32 in
+    let t = tiling s ~lanes:(Core.Dim.extent 32) in
     let vl = t6 and tile = Label.named "peak_tile" in
     let block = Label.named "peak_block" in
-    let rows2 = 2 * t.b_row in
-    let next_b = next_b s t ~per:4 ~eew:Vtype.Sew.E16 in
+    let rows2 = (Coral_transfer.Transfer_units.Bytes.double t.b_row :> int) in
+    let next_b = next_b s t ~per:(Core.Dim.extent 4) ~eew:Vtype.Sew.E16 in
     let mac acc scalar src = Item.insn (Vwmacc_vx { acc; scalar; src }) in
     let v0 = Vreg.v0 and v4 = Vreg.v4 and v8 = Vreg.v8 in
     let v16 = Vreg.v16 and v24 = Vreg.v24 in
@@ -593,23 +615,23 @@ module Gemm = struct
     in
     Ok
       (start_items @ prologue t ~a:a1 ~c:a7
-      @ [ li vl t.vl ]
+      @ [ li vl (t.vl :> int) ]
       @ block_head s t ~tile
-      @ [ vset_item ~avl:vl 16 4 ]
+      @ [ vset_item ~avl:vl E16 M4 ]
       @ next_b
       @ [
           lw a4 a1 0;
           lw a5 a1 4;
           lw a6 a1 8;
-          vset_item ~avl:vl 32 8;
+          vset_item ~avl:vl E32 M8;
           Item.label block;
         ]
       @ zeroed [ v8; v16; v24 ]
-      @ [ vset_item ~avl:vl 16 4 ]
+      @ [ vset_item ~avl:vl E16 M4 ]
       @ body_items
           (half ~next ~cur @ second @ [ addi a0 a0 (-1); bnez a0 body_label ])
       @ next_b
-      @ [ vset_item ~avl:vl 32 8 ]
+      @ [ vset_item ~avl:vl E32 M8 ]
       @ stores @ epilogue t)
 
   (* BF16 x BF16 -> FP32. Three rows of C in e32 m8 accumulators: each
@@ -619,12 +641,12 @@ module Gemm = struct
     let open Err.Syntax in
     let open Gpr in
     let open Reg.Fpr in
-    let t = tiling s ~lanes:32 in
+    let t = tiling s ~lanes:(Core.Dim.extent 32) in
     let vl = t0 and tile = Label.named "peak_tile" in
     let block = Label.named "peak_block" in
-    let rows2 = 2 * t.b_row in
+    let rows2 = (Coral_transfer.Transfer_units.Bytes.double t.b_row :> int) in
     let mac acc scalar src = Item.insn (Vfwmaccbf16_vf { acc; scalar; src }) in
-    let next_b = next_b s t ~per:2 ~eew:Vtype.Sew.E16 in
+    let next_b = next_b s t ~per:(Core.Dim.extent 2) ~eew:Vtype.Sew.E16 in
     let v0 = Vreg.v0 and v4 = Vreg.v4 and v8 = Vreg.v8 in
     let v16 = Vreg.v16 and v24 = Vreg.v24 in
     let* stores =
@@ -632,19 +654,19 @@ module Gemm = struct
     in
     Ok
       (start_items @ prologue t ~a:a1 ~c:a7
-      @ [ li vl t.vl ]
+      @ [ li vl (t.vl :> int) ]
       @ block_head s t ~tile
-      @ [ vset_item ~avl:vl 16 4 ]
+      @ [ vset_item ~avl:vl E16 M4 ]
       @ next_b
       @ [
           flh fa0 a1 0;
           flh fa1 a1 2;
           flh fa2 a1 4;
-          vset_item ~avl:vl 32 8;
+          vset_item ~avl:vl E32 M8;
           Item.label block;
         ]
       @ zeroed [ v8; v16; v24 ]
-      @ [ vset_item ~avl:vl 16 4 ]
+      @ [ vset_item ~avl:vl E16 M4 ]
       @ body_items
           [
             flh fa3 a1 6;
@@ -668,7 +690,7 @@ module Gemm = struct
             bnez a0 body_label;
           ]
       @ next_b
-      @ [ vset_item ~avl:vl 32 8 ]
+      @ [ vset_item ~avl:vl E32 M8 ]
       @ stores @ epilogue t)
 
   (* The two instances of {!word}: INT32 through the integer registers, FP32
@@ -711,10 +733,10 @@ module Gemm = struct
   let word (ops : _ Scalar_ops.t) s () =
     let open Err.Syntax in
     let open Gpr in
-    let t = tiling s ~lanes:32 in
+    let t = tiling s ~lanes:(Core.Dim.extent 32) in
     let vl = t0 and tile = Label.named "peak_tile" in
     let block = Label.named "peak_block" in
-    let rows1 = t.b_row in
+    let rows1 = (t.b_row :> int) in
     let v0 = Vreg.v0 and v8 = Vreg.v8 in
     let v16 = Vreg.v16 and v24 = Vreg.v24 in
     let loads (r0, r1, r2) off =
@@ -732,10 +754,10 @@ module Gemm = struct
     in
     Ok
       (start_items @ prologue t ~a:a1 ~c:a7
-      @ [ li vl t.vl; vset_item ~avl:vl 32 8 ]
+      @ [ li vl (t.vl :> int); vset_item ~avl:vl E32 M8 ]
       @ block_start s t ~tile ~block
       @ zeroed [ v8; v16; v24 ]
-      @ [ mv a2 (b_base t); li a0 (s.depth / 2) ]
+      @ [ mv a2 (b_base t); li a0 ((s.depth :> int) / 2) ]
       @ loads ops.cur 0
       @ body_items
           (loads ops.next 12
@@ -749,7 +771,10 @@ module Gemm = struct
       @ stores @ epilogue t)
 
   let make s items_of =
-    let m = s.rows * s.blocks in
+    let rows = (s.rows :> int)
+    and width = (s.width :> int)
+    and depth = (s.depth :> int) in
+    let m = rows * (s.blocks :> int) in
     let inputs = inputs s in
     let expected = product s in
     {
@@ -771,18 +796,28 @@ module Gemm = struct
         Printf.sprintf
           "C[%dx%d] %s = A[%dx%d] %s x B[%dx%d] %s, %d rows at a time; inner \
            loop:"
-          m s.width (Elem.name s.dst) m s.depth (Elem.name s.src) s.depth
-          s.width (Elem.name s.src) s.rows;
+          m width (Elem.name s.dst) m depth (Elem.name s.src) depth width
+          (Elem.name s.src) rows;
       matrix = false;
     }
 end
 
 (* Each RVV kernel's shape, with [width] if given, and its items. *)
-let gemm_kernel ?width (input : Gemm.Input.t) =
+let gemm_kernel ?(width : Core.Dim.extent Core.Dim.t option)
+    (input : Gemm.Input.t) =
   let open Gemm in
   let shape ~rows ~width:lanes ~depth ~blocks ~src ~dst ~sa ~sb () =
-    let width = Option.value width ~default:lanes in
-    { rows; width; depth; blocks; src; dst; sa; sb }
+    let width = Option.value width ~default:(Core.Dim.extent lanes) in
+    {
+      rows = Core.Dim.extent rows;
+      width;
+      depth = Core.Dim.extent depth;
+      blocks = Core.Dim.extent blocks;
+      src;
+      dst;
+      sa;
+      sb;
+    }
   in
   match input with
   | Bf16 ->
