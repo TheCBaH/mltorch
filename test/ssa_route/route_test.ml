@@ -1,4 +1,5 @@
 module F = Native_test.Graph_fixtures
+module S = Ssa_ir
 
 (* The converter route against the direct lowering over whole-graph bundles:
    the capability, numerical and structure checks of the route gate. Every row
@@ -350,3 +351,44 @@ let%expect_test
     sink_permute_sdpa: invocations=2 failure_sites=0 same verdict: c 2, js 2, wasm 2
     sink_permute_slice: invocations=2 failure_sites=0 same verdict: c 2, js 2, wasm 2
     wide_chain: invocations=3 failure_sites=0 same verdict: c 3, js 3, wasm 3 |}]
+
+(* A reshape then a head-major permute, as a layer's projections are split.
+   The Loop guard of every load is also an access check the converter writes
+   ahead of the load, which makes the same check: planned for the Coral core,
+   the structured program must carry no check the direct one does not, or its
+   copy kernels run slower (the RTL core measured +30% cycles on this shape). *)
+let head_split () =
+  F.build "head_split"
+    Graph_builder.(
+      let* x = input ~shape:(F.s 1 1 1 1 16 64) () in
+      let* x = reshape { Reshape.Reshape.shape = F.s 1 1 1 16 2 32 } x in
+      permute Axis.[ (N, N); (T, T); (D, D); (H, W); (W, H); (C, C) ] x)
+
+let%expect_test
+    "a planned head split checks as little through the structured route" =
+  let b =
+    Err.or_raise ~pp_error:Loop_ir.Loop_bundle.pp_error
+      (Loop_ir.Loop_bundle.build (head_split ()))
+  in
+  List.iteri
+    (fun i inv ->
+      let stats frontend =
+        match
+          Ssa_backends.plan ~frontend ~numerics:S.Ssa_numerics.Fp32_ordered
+            ~target:S.Ssa_target.zve32f128 inv
+        with
+        | Ok p -> S.Ssa_stats.of_program p.S.Ssa_plan.program
+        | Error e -> failwith e
+      in
+      let d = stats Ssa_backends.Frontend.Direct in
+      let s = stats Ssa_backends.Frontend.Structured in
+      Fmt.pr
+        "invocation %d: direct instrs=%d checked=%d, structured instrs=%d \
+         checked=%d@."
+        i d.S.Ssa_stats.instrs d.S.Ssa_stats.checked s.S.Ssa_stats.instrs
+        s.S.Ssa_stats.checked)
+    b.Loop_ir.Loop_bundle.invocations;
+  [%expect
+    {|
+    invocation 0: direct instrs=23 checked=1, structured instrs=23 checked=1
+    invocation 1: direct instrs=9 checked=0, structured instrs=9 checked=0 |}]

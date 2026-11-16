@@ -30,8 +30,41 @@ let without_effect (i : Ssa_instr.t) op =
 
 let subset ranges v ~lo ~hi = Ssa_range.(subset (range ranges v) ~lo ~hi)
 
+(* The effect results of the checks a load repeats: a [Check_access] whose
+   effect the very next effectful operation consumes, and that operation is a
+   load of the same buffer at the same coordinate. The load makes the same
+   check at the same point of the effect chain, so the pair fails exactly as
+   the load alone does. The converter from Loop IR writes the pair (the Loop
+   guard, then the load it guards). *)
+let repeated_checks (p : Ssa_program.t) =
+  let checks = Ssa_id.Value.Tbl.create 16 in
+  let repeated = Ssa_id.Value.Tbl.create 16 in
+  let rec region (r : Ssa_region.t) = List.iter stmt r.Ssa_region.body
+  and stmt = function
+    | Ssa_stmt.Instr i -> (
+        match (i.Ssa_instr.op, i.Ssa_instr.token) with
+        | Ssa_op.Check_access { buffer; at }, _ -> (
+            match List.rev i.Ssa_instr.results with
+            | out :: _ ->
+                Ssa_id.Value.Tbl.replace checks out.Ssa_value.id (buffer, at)
+            | [] -> ())
+        | Ssa_op.Load { buffer; at; _ }, Some token -> (
+            match Ssa_id.Value.Tbl.find_opt checks token.Ssa_value.id with
+            | Some (b, a) when b = buffer && a = at ->
+                Ssa_id.Value.Tbl.replace repeated token.Ssa_value.id ()
+            | Some _ | None -> ())
+        | _ -> ())
+    | Ssa_stmt.For { body; _ } | Ssa_stmt.Ordered_sum { body; _ } -> region body
+    | Ssa_stmt.If { then_; else_; _ } ->
+        region then_;
+        region else_
+  in
+  region p.Ssa_program.entry;
+  repeated
+
 let pass (p : Ssa_program.t) =
   let ranges = Ssa_range.analyze p in
+  let repeated = repeated_checks p in
   let rule t (s : Ssa_region.t Ssa_stmt.t) =
     match s with
     | Ssa_stmt.Instr i -> (
@@ -64,9 +97,16 @@ let pass (p : Ssa_program.t) =
                 ]
             | Some _ | None -> [ s ])
         | Ssa_op.Check_access { buffer; at } -> (
-            match Ssa_program.find_buffer p buffer with
-            | Some b when Ssa_range.in_bounds ranges b at -> drop ()
-            | Some _ | None -> [ s ])
+            let again =
+              match List.rev i.Ssa_instr.results with
+              | out :: _ -> Ssa_id.Value.Tbl.mem repeated out.Ssa_value.id
+              | [] -> false
+            in
+            if again then drop ()
+            else
+              match Ssa_program.find_buffer p buffer with
+              | Some b when Ssa_range.in_bounds ranges b at -> drop ()
+              | Some _ | None -> [ s ])
         | Ssa_op.Check_gather { raw; extent }
           when subset ranges raw ~lo:(Int64.neg extent) ~hi:(Int64.pred extent)
           ->

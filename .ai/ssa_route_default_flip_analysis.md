@@ -35,10 +35,23 @@ copy kernels is a defect to fix in the route, not to absorb by refitting the
 estimator; the accuracy limits stay as they are. The estimator fit (committed
 rates against Direct-route data) is unchanged and passes under Direct.
 
+## Cause and fix
+
+The index arithmetic was identical in both routes. The difference was one
+`check_access` per element: the Loop guard of a load becomes an access check
+the converter writes ahead of the load, and the load repeats the same check.
+The range analysis cannot prove the floor-division coordinates of a reshape
+plus permute in bounds, so the pair survived planning and ran per element.
+`Ssa_opt_guards` now drops a `Check_access` whose effect the next effectful
+operation consumes when that operation is a load of the same buffer at the same
+coordinate (it fails exactly as the load alone does). Re-running the calibration
+on the structured route: head splits equal the Direct cycles, no row is slower,
+and the norm/softmax gains remain (layer norm, rms norm, softmax and the
+decomposed layer's large invocation faster); the only other change in the table
+is the dropped scratch buffer in the `ram` lists.
+
 ## Next step
 
-Find what the structured lowering emits for the head-split copy (extra index
-arithmetic per element is the first suspect: instret rises with cycles), fix it
-in `Ssa_of_loop`/the planner, then repeat the flip: promote the seven goldens,
-rerun calibration, refit, check the held-out limits (linear 32x96 k48 was
--7.57% against the Direct-calibrated rates, limit 2%).
+Repeat the flip: promote the seven goldens, rerun calibration, refit, check the
+held-out limits (linear 32x96 k48 was -7.57% against the Direct-calibrated
+rates, limit 2%).
