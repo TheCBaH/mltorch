@@ -8,12 +8,12 @@
     SSA path cannot make is [Error] with its reason: no fallback. *)
 
 (** Which lowering makes an invocation's SSA program from its placed kernel.
-    [Direct], the default, is {!Ssa_lower.Ssa_lower_plan}. [Structured] is
-    [Loop_lower.lower_structured] then {!Ssa_of_loop.convert}, before precision
-    planning, vectorization and contraction recognition: the one placed-graph
-    lowering, taken through the converter. It is an explicit selection until the
-    route gate covers every class a model uses; a construct the converter does
-    not cover is a {!Refusal}, never a fallback to [Direct]. *)
+    [Structured], the default, is [Loop_lower.lower_structured] then
+    {!Ssa_of_loop.convert}, before precision planning, vectorization and
+    contraction recognition: the one placed-graph lowering, taken through the
+    converter. [Direct] is {!Ssa_lower.Ssa_lower_plan}, kept as the comparison
+    route. A construct the converter does not cover is a {!Refusal}, never a
+    fallback to [Direct]. *)
 module Frontend : sig
   (* @alphabetical *)
   type t = Direct | Structured
@@ -109,7 +109,7 @@ val js :
 (** For {!Loop_ir.Loop_bundle_js.build}'s [kernel]. *)
 
 (** The three emitters' kernel producers with the lowering chosen: [c], [wasm]
-    and [js] are these with {!Frontend.Direct}. *)
+    and [js] are these with {!Frontend.Structured}. *)
 
 val c_via :
   frontend:Frontend.t ->

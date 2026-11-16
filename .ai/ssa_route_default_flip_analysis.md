@@ -1,7 +1,7 @@
-# Structured route as the default: analysis, flip withheld
+# Structured route as the default: analysis
 
-`Ssa_backends` still defaults to `Frontend.Direct`. Flipping the default to
-`Frontend.Structured` was tried and reverted.
+The structured route was first withheld as the default for a cycle regression,
+then made the default once that was fixed. The text below records both steps.
 
 ## What the flip changes (measured)
 
@@ -50,8 +50,16 @@ and the norm/softmax gains remain (layer norm, rms norm, softmax and the
 decomposed layer's large invocation faster); the only other change in the table
 is the dropped scratch buffer in the `ram` lists.
 
-## Next step
+## Outcome
 
-Repeat the flip: promote the seven goldens, rerun calibration, refit, check the
-held-out limits (linear 32x96 k48 was -7.57% against the Direct-calibrated
-rates, limit 2%).
+The flip landed: `Ssa_backends` defaults to `Frontend.Structured`; `Direct`
+stays selectable as the comparison route. The goldens above were promoted, and
+the estimator was recalibrated on structured-route kernels and refit with every
+accuracy limit unchanged. Held-out errors under the refit rates: linear 32x96
+k48 +1.5% (limit 2%), softmax over C +0.2%, sdpa -9.6%, bare layer -10.2%; the
+decomposed layer's out-of-gate error moved from -28.6% to -12.4%. In the
+machine-model goldens `flags` drops are caught on fewer kernels (4 to 2
+aarch64, 4 to 3 x86_64) because the softmax, sdpa and norm kernels shrank to
+a few dozen instructions, while `data` (7) and `order` (6) are unchanged and
+`hole` is now caught; the aarch64 sink schedule has no moves left on softmax
+and sdpa, which x86_64 still exercises.

@@ -264,9 +264,9 @@ let%expect_test "the fit set" =
     add 16x64, scalar, in RAM (1 invocations): bitwise
       [0] cycles 22802 instret 11562 ram 0,1,2
     softmax over C 16x16 (1 invocations): bitwise
-      [0] cycles 34924 instret 17333
+      [0] cycles 34255 instret 16820
     softmax over C 32x32 (1 invocations): bitwise
-      [0] cycles 135916 instret 66613
+      [0] cycles 134651 instret 65594
     sum over C 16x64 (1 invocations): bitwise
       [0] cycles 1828 instret 1741
     sum over C 32x128 (1 invocations): bitwise
@@ -291,25 +291,25 @@ let%expect_test "the fit set" =
     linear 9x32 k64 (1 invocations): bitwise
       [0] cycles 4844 instret 2145
     linear 16x64 k64 (1 invocations): bitwise
-      [0] cycles 13922 instret 4945 ram 2,4
+      [0] cycles 13922 instret 4945 ram 2,3
     linear 64x64 k64 (1 invocations): bitwise
-      [0] cycles 57286 instret 19534 ram 1,2,4
+      [0] cycles 57286 instret 19534 ram 1,2,3
     linear 16x128 k32 (1 invocations): bitwise
-      [0] cycles 18302 instret 6785 ram 2,4
+      [0] cycles 18302 instret 6785 ram 2,3
     linear 32x32 k128 (1 invocations): bitwise
-      [0] cycles 23374 instret 7973 ram 1,4
+      [0] cycles 23374 instret 7973 ram 1,3
     linear 48x80 k32 (1 invocations): bitwise
-      [0] cycles 34395 instret 13360 ram 2,4
+      [0] cycles 34395 instret 13360 ram 2,3
     linear bf16 9x32 k64 (1 invocations): bitwise
       [0] cycles 4191 instret 1800
     linear bf16 16x64 k64 (1 invocations): bitwise
-      [0] cycles 10403 instret 3965 ram 2,4
+      [0] cycles 10403 instret 3965 ram 2,3
     linear bf16 64x64 k64 (1 invocations): bitwise
-      [0] cycles 28186 instret 11662 ram 1,2,4
+      [0] cycles 28186 instret 11662 ram 1,2,3
     linear bf16 32x128 k32 (1 invocations): bitwise
-      [0] cycles 23631 instret 9943 ram 2,4
+      [0] cycles 23631 instret 9943 ram 2,3
     linear bf16 48x48 k48 (1 invocations): bitwise
-      [0] cycles 16482 instret 7673 ram 2,4
+      [0] cycles 16482 instret 7673 ram 2,3
     sdpa bf16 32x32 d32 (1 invocations): bitwise
       [0] cycles 87661 instret 30256
     sdpa bf16 64x64 d64 (1 invocations): bitwise
@@ -323,21 +323,21 @@ let%expect_test "the fit set" =
     sdpa bf16 64x32 d32 (1 invocations): bitwise
       [0] cycles 175305 instret 60394 ram 8
     linear 9x32 k64, in RAM (1 invocations): bitwise
-      [0] cycles 5853 instret 2145 ram 0,1,2,3,4
+      [0] cycles 5853 instret 2145 ram 0,1,2,3
     linear 32x32 k64, in RAM (1 invocations): bitwise
-      [0] cycles 15120 instret 5157 ram 0,1,2,3,4
+      [0] cycles 15120 instret 5157 ram 0,1,2,3
     linear bf16 16x256 k64 (1 invocations): bitwise
-      [0] cycles 52692 instret 15385 ram 1,4
+      [0] cycles 52692 instret 15385 ram 1,3
     linear bf16 32x128 k128 (1 invocations): bitwise
-      [0] cycles 95847 instret 23269 ram 1,2,4
+      [0] cycles 95847 instret 23269 ram 1,2,3
     linear bf16 49x512 k64 (1 invocations): bitwise
-      [0] cycles 391657 instret 111523 ram 1,2,4
+      [0] cycles 391657 instret 111523 ram 1,2,3
     linear bf16 16x256 k64, in RAM (1 invocations): bitwise
-      [0] cycles 58806 instret 15385 ram 0,1,2,3,4
+      [0] cycles 58806 instret 15385 ram 0,1,2,3
     linear bf16 16x64 k64, in RAM (1 invocations): bitwise
-      [0] cycles 10595 instret 3965 ram 0,1,2,3,4
+      [0] cycles 10595 instret 3965 ram 0,1,2,3
     linear bf16 64x64 k64, in RAM (1 invocations): bitwise
-      [0] cycles 28314 instret 11662 ram 0,1,2,3,4
+      [0] cycles 28314 instret 11662 ram 0,1,2,3
     sdpa bf16 32x32 d32, in RAM (1 invocations): bitwise
       [0] cycles 88109 instret 30256 ram 0,1,2,7,8
     sdpa bf16 16x16 d32 bk16, in RAM (1 invocations): bitwise
@@ -354,15 +354,15 @@ let%expect_test "the check set" =
     exp 64x64 (1 invocations): bitwise
       [0] cycles 207173 instret 99366 ram 1
     softmax over C 64x64 (1 invocations): bitwise
-      [0] cycles 536591 instret 261173 ram 1
+      [0] cycles 534046 instret 259130 ram 1
     softmax over W 16x16 (1 invocations): bitwise
-      [0] cycles 70901 instret 39491
+      [0] cycles 70214 instret 38978
     layer norm over C 16x64 (1 invocations): bitwise
-      [0] cycles 22694 instret 10345
+      [0] cycles 21422 instret 9362
     rms norm over C 16x64 (1 invocations): bitwise
-      [0] cycles 12611 instret 5639
+      [0] cycles 12145 instret 5291
     linear 32x96 k48 (1 invocations): bitwise
-      [0] cycles 32529 instret 12366 ram 1,4
+      [0] cycles 32529 instret 12366 ram 1,3
     sdpa bf16 41x61 d32 (1 invocations): bitwise
       [0] cycles 241225 instret 84947 ram 8
     layer, bare (1 invocations): bitwise
@@ -374,17 +374,17 @@ let%expect_test "the check set" =
     layer, post rms (1 invocations): bitwise
       [0] cycles 323484 instret 210827 ram 2,4,6,8,11,12,13,14,15,16,17,18,19,20,21,22
     layer decomposed, bare (14 invocations): bitwise
-      [0] cycles 13922 instret 4945 ram 5,20
+      [0] cycles 13922 instret 4945 ram 5,6
       [1] cycles 173009 instret 108328
       [2] cycles 2423 instret 1848
-      [3] cycles 13922 instret 4945 ram 8,20
+      [3] cycles 13922 instret 4945 ram 8,9
       [4] cycles 173009 instret 108328
       [5] cycles 2423 instret 1848
-      [6] cycles 13922 instret 4945 ram 11,20
+      [6] cycles 13922 instret 4945 ram 11,12
       [7] cycles 173009 instret 108328
       [8] cycles 2423 instret 1848
-      [9] cycles 1147441 instret 717421
+      [9] cycles 956811 instret 567243
       [10] cycles 2623 instret 2074
       [11] cycles 237237 instret 142632
-      [12] cycles 13922 instret 4945 ram 17,20
+      [12] cycles 13922 instret 4945 ram 17,18
       [13] cycles 2628 instret 2119 |}]
