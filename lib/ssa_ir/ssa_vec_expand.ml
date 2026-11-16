@@ -195,7 +195,10 @@ let expand_instr t (i : Ssa_instr.t) : Ssa_region.t Ssa_stmt.t list =
 
 let rec stmt t : Ssa_region.t Ssa_stmt.t -> Ssa_region.t Ssa_stmt.t list =
   function
-  | Ssa_stmt.Instr i -> expand_instr t i
+  | Ssa_stmt.Instr i ->
+      List.map
+        (Ssa_rewrite.inherit_origin i.Ssa_instr.origin)
+        (expand_instr t i)
   | Ssa_stmt.For f ->
       let lo = resolve t f.lo and hi = resolve t f.hi in
       let inits = List.concat_map (flatten t) f.inits in

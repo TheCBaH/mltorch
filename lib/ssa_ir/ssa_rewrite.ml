@@ -107,12 +107,28 @@ and origin_in (r : Ssa_region.t) =
 (* A rule that makes an instruction without a source gives it the origin of the
    statement it replaces: what a pass moves or rewrites keeps its origin, and a
    clone gets it too. An instruction with an origin of its own keeps it. *)
-let inherit_origin origin (s : Ssa_region.t Ssa_stmt.t) =
+let rec inherit_origin origin (s : Ssa_region.t Ssa_stmt.t) =
   match (origin, s) with
   | Ssa_origin.Unknown, _ -> s
   | _, Ssa_stmt.Instr ({ Ssa_instr.origin = Ssa_origin.Unknown; _ } as i) ->
       Ssa_stmt.Instr { i with Ssa_instr.origin }
-  | _ -> s
+  | _, Ssa_stmt.Instr _ -> s
+  | _, Ssa_stmt.For f -> Ssa_stmt.For { f with body = inherit_in origin f.body }
+  | _, Ssa_stmt.If f ->
+      Ssa_stmt.If
+        {
+          f with
+          then_ = inherit_in origin f.then_;
+          else_ = inherit_in origin f.else_;
+        }
+  | _, Ssa_stmt.Ordered_sum f ->
+      Ssa_stmt.Ordered_sum { f with body = inherit_in origin f.body }
+
+and inherit_in origin (r : Ssa_region.t) =
+  {
+    r with
+    Ssa_region.body = List.map (inherit_origin origin) r.Ssa_region.body;
+  }
 
 let program ?(enter = ignore) ?(leave = ignore) ?(enter_stmt = ignore)
     (rule : rule) (p : Ssa_program.t) =

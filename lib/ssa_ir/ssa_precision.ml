@@ -58,7 +58,8 @@ let exact_decode t = function
 
 let rec stmt t : Ssa_region.t Ssa_stmt.t -> Ssa_region.t Ssa_stmt.t list =
   function
-  | Ssa_stmt.Instr i -> instr_ t i
+  | Ssa_stmt.Instr i ->
+      List.map (Ssa_rewrite.inherit_origin i.Ssa_instr.origin) (instr_ t i)
   | Ssa_stmt.For f ->
       let lo = get t f.lo and hi = get t f.hi in
       let inits = List.map (get t) f.inits in

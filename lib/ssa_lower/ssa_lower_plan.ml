@@ -5,6 +5,15 @@ type error = [ `Unsupported of Ssa_unsupported.t ]
 let pp_error fmt : [< error ] -> unit = function
   | `Unsupported u -> Ssa_unsupported.pp fmt u
 
+(* The logical value a stored value's operations come from: its buffer and the
+   extents of the domain its output iterates, in axis order. *)
+let value_origin (v : Kernel.Value.t) =
+  Ssa_origin.Value
+    {
+      Ssa_origin.Value.buffer = Ssa_lower_ctx.buffer_id v.Kernel.Value.id;
+      domain = List.map (Vec6.get v.Kernel.Value.sg.Tensor_sig.shape) Axis.all;
+    }
+
 let buffer sg role =
   match Ssa_sig.buffer sg role with
   | Some b -> b
@@ -278,9 +287,7 @@ let lower (plan : Fusion_plan.t) =
            (function
              | Region_group.Run.Solo v when stored v ->
                  reads_i64 (Region_group.Ref.sources v.Kernel.Value.computation);
-                 Ssa_builder.with_origin b
-                   (Ssa_origin.Value (Ssa_lower_ctx.buffer_id v.Kernel.Value.id))
-                   (fun () ->
+                 Ssa_builder.with_origin b (value_origin v) (fun () ->
                      match
                        Region_group.Ref.pixel_expression
                          v.Kernel.Value.computation
@@ -314,10 +321,7 @@ let lower (plan : Fusion_plan.t) =
                           Expr.Source.Set.empty selected);
                      group_unit ~refuse_at first g selected
                        ~limits:k.Kernel.limits;
-                     Ssa_builder.with_origin b
-                       (Ssa_origin.Value
-                          (Ssa_lower_ctx.buffer_id first.Kernel.Value.id))
-                       (fun () ->
+                     Ssa_builder.with_origin b (value_origin first) (fun () ->
                          Ssa_lower_region.lower_group
                            { ctx with Ssa_lower_ctx.at = first.Kernel.Value.id }
                            g selected)))

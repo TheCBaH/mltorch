@@ -63,6 +63,17 @@ its own name becomes its interface and hides its siblings (the lowering is
   (`Invalid_argument`), never a row.
 - A failure ends the invocation (`Err.Escape` in the interpreter). There is no
   failure terminator yet; failure is a dynamic outcome of an operation.
+- An instruction's `origin` is its provenance: `Value` names the stored value
+  whose lowering made it (buffer and the extents of its iteration domain, in
+  axis order), `Output` a buffer it stores to, `Unknown` neither. A pass keeps
+  the origin of what it moves or rewrites and gives a clone its source's. The
+  passes behind `Ssa_rewrite.program` inherit it for every instruction a rule
+  makes without one, nested loops included; precision narrowing, lane
+  expansion and the control-flow lowering carry it themselves (loop control
+  takes the origin of the loop). The tests pin, per pass, zero `Unknown` and
+  that each stored value's nest, domain included, is attributed to that value.
+  The origin is part of the printed program, so it is part of a plan's
+  subject digest.
 
 ## Scalar semantics
 
