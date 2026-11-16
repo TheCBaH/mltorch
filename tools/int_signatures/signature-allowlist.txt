@@ -4,7 +4,7 @@
 # [todo-domain] is a debt marker (an int that names an entity); the ceiling only goes down.
 # [ml:<dir>] scope entries also read the inferred interface of each .ml without an .mli; a library enters with an opening
 # [todo-domain] balance that is part of the ceiling, and the ceiling only goes down from there.
-@todo-domain-ceiling 25
+@todo-domain-ceiling 23
 lib/band_schedule/band_schedule.mli	defn	type t = private int
 lib/band_schedule/band_schedule.mli	defn	val of_int : int -> t
 lib/band_schedule/band_schedule.mli	defn	val to_int : t -> int
@@ -561,7 +561,6 @@ lib/native/op_config.mli	defn	type fault = [ `Negative of int | `Not_positive of
 lib/native/op_config.mli	defn	val pos : op:string -> param:param -> int -> (Pos.t, t) result
 lib/native/op_config.mli	defn	val nonneg : op:string -> param:param -> int -> (Nonneg.t, t) result end
 lib/native/quant.mli	arity	type error = [ `Quant_array_lengths of int * int | `Quant_not_binary32 of [ `Scale | `Zero_point ] * float ]
-lib/native/quant.mli	todo-domain	val channel_count : t -> int option
 lib/native/quant.mli	quantum	val dequantize : t -> c:Dim.index Dim.t -> q:int -> float
 lib/native/quant.mli	quantum	val dequantize32 : t -> c:Dim.index Dim.t -> q:int -> float
 lib/native/quant.mli	quantum	val quantize : t -> c:Dim.index Dim.t -> qmin:int -> qmax:int -> float -> int
@@ -622,7 +621,7 @@ lib/native/transform/ground_eval.mli	budget	type t = { max_ground_nodes : int64;
 lib/native/transform/ground_eval.mli	budget	type error = [ Expr.Eval.error | `Data_index_unresolved | `Ground_nodes_over_limit of int64 | `Group of Region_group.error | `Pair_nodes_over_limit of int | `Partition of Region_partition.error | `Region of Region_program.error | `Unknown_edge of Tensor_id.t | `Unsupported_i64_comparison_ground | `Unsupported_i64_stage_ground | `Unsupported_i64_to_float_ground | `Unsupported_value_eq_ground ]
 lib/native/transform/ground_expr.mli	hash	val compare : t -> t -> int
 lib/native/transform/ground_expr.mli	hash	val compare : t -> t -> int
-lib/native/transform/ground_expr.mli	todo-domain	val draw : int -> Cell.Set.t -> t end
+lib/native/transform/ground_expr.mli	budget	val before : t -> limit:int -> bool end
 lib/native/transform/ground_expr.mli	hash	val compare : t -> t -> int
 lib/native/transform/ground_expr.mli	hash	val hash : t -> int
 lib/native/transform/ground_expr.mli	hash	val compare_guard : guard -> guard -> int

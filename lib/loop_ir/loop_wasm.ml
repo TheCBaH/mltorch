@@ -332,7 +332,10 @@ let channel_tables (b : Loop_buffer.t) =
       let q = quant_of b in
       match Quant.channel_count q with
       | None -> None
-      | Some k -> Some (List.init k (fun c -> Quant.params q ~c:(Dim.index c))))
+      | Some k ->
+          Some
+            (List.init (Dim.to_int k) (fun c -> Quant.params q ~c:(Dim.index c)))
+      )
   | _ -> None
 
 let f32_bytes xs =

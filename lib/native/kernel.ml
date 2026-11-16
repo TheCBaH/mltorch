@@ -387,8 +387,9 @@ let quant_contract id (sg : Tensor_sig.t) =
       match Quant.channel_count q with
       | None -> Err.return ()
       | Some n ->
-          if n = Dim.to_int (Vec6.get sg.Tensor_sig.shape Expr.Axis.C) then
-            Err.return ()
+          if
+            Dim.to_int n = Dim.to_int (Vec6.get sg.Tensor_sig.shape Expr.Axis.C)
+          then Err.return ()
           else Err.fail (`Quant_contract id))
   | true, None | false, Some _ -> Err.fail (`Quant_contract id)
 

@@ -643,7 +643,8 @@ let to_ast (p : Loop_program.t) =
             | None -> []
             | Some n ->
                 let params =
-                  List.init n (fun c -> Quant.params q ~c:(Dim.index c))
+                  List.init (Dim.to_int n) (fun c ->
+                      Quant.params q ~c:(Dim.index c))
                 in
                 [
                   B.Stmt.const_arr (quant_scales nm b)

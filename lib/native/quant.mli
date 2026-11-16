@@ -44,7 +44,7 @@ val per_channel :
     binary32 value. Copying establishes ownership; it does not establish the
     invariant, which is why this is result-valued. *)
 
-val channel_count : t -> int option
+val channel_count : t -> Core.Dim.fence Core.Dim.t option
 (** [None] for per-tensor. The only way to ask about granularity once the
     variant is hidden — and probing with [params] is not a substitute, since a
     per-tensor value accepts every channel while a short per-channel array

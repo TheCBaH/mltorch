@@ -69,6 +69,20 @@ end
 module Valuation = struct
   type t = float Cell.Map.t
 
+  (* The ordinal of a draw in a retry sequence. *)
+  module Draw = struct
+    include
+      Core.Tagged_int.Make
+        (struct
+          let prefix = "draw"
+        end)
+        ()
+
+    let first = of_int 0
+    let next d = of_int (to_int d + 1)
+    let before d ~limit = to_int d < limit
+  end
+
   let empty = Cell.Map.empty
   let find t cell = Cell.Map.find cell t
   let of_list l = List.to_seq l |> Cell.Map.of_seq
@@ -114,7 +128,8 @@ module Valuation = struct
      collision-free by construction rather than by choice of weights, and still
      deterministic — the set order is [Cell.compare], not insertion order. A
      distinct value per cell is what makes an index swap visible at all. *)
-  let draw n cells =
+  let draw d cells =
+    let n = Draw.to_int d in
     if n = 0 then
       snd
         (Cell.Set.fold
