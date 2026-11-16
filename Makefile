@@ -1828,7 +1828,7 @@ coralnpu.runtest:
 		echo "coralnpu.runtest: missing $(CORALNPU_DATA) -- run 'make coralnpu.download' first" >&2; \
 		exit 1; \
 	}
-	CORALNPU_DATA=$(CORALNPU_DATA) opam exec -- dune build @test/coralnpu_data/runtest --force
+	CORALNPU_DATA=$(CORALNPU_DATA) opam exec -- dune build @test/coralnpu_data/runtest @test/coral_capacity/runtest --force
 
 # The binary32 embedding tests of test/loop_c_embed through the F-only CompCert
 # on the Coral simulators (mpact-v2, core-mini-highmem-axi), bitwise equal to the

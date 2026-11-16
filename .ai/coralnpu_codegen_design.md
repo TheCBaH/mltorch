@@ -1,6 +1,6 @@
 # Coral NPU code generation — design record
 
-Libraries: contraction, coral_transfer, coralnpu_kernels, coralnpu_kernels_zvt
+Libraries: contraction, coral_capacity, coral_transfer, coralnpu_kernels, coralnpu_kernels_zvt
 Status: 2026-11-12 — ownership recorded; the body was not re-audited against the code
 
 How the RV32 Machine IR route selects Coral-specific code, and under which
@@ -1189,3 +1189,22 @@ MPACT run. It shows one fact worth knowing: a bfloat16 paired contraction with
 the matrix engine off is refused, not lowered to loops. Machine IR and layout
 are not printed yet; the layout needs a profile's regions, which would come
 from a hand-built manifest as in `test/coralnpu`.
+
+## Executable capacity and the code budget
+
+`coral_capacity` places an image (its executable size and data allocations) on
+a configuration. Sizes are `int64` in two types of their own, `Code_bytes`
+(the ITCM budget and an image's code) and `Data_bytes`, so a data size cannot
+be compared with the code budget. The budget is the profile's ITCM size; an
+image over it is refused as `` `Code_over_budget `` with both sizes before the
+layout runs, and data capacity stays the authority of `Coral_layout.place`
+(its `Over_capacity`), with no sum of its own. The two witness images of the
+segment-plan capacity claim (a mobilenetv2_050 pointwise segment at 112x112
+and an efficientnet_b0 expand plus depthwise segment) are derived from their
+shapes; the hermetic suite pins their sizes and addresses on the 8 KiB
+configurations, and `make coralnpu.runtest` places them on every baseline
+profile of the release. Both fit the 4 MiB RAM (2.85 MB and 2.27 MB); on the
+1 MiB-DTCM configuration the layout puts what fits in DTCM. The code size used
+is the one measured for a block's three kernels and runtime; the driver is not
+in it. Open: the sizes of the assembled images with the real driver, tail
+loops and variants, and the per-candidate size in the segment plan.

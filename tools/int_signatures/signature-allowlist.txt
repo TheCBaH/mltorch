@@ -21,6 +21,7 @@ lib/band_schedule/band_schedule.mli	defn	val block : int -> block t
 lib/band_schedule/band_schedule.mli	defn	val chunk : int -> chunk t
 lib/band_schedule/band_schedule.mli	defn	val to_int : 'role t -> int
 lib/band_schedule/band_schedule.mli	hash	val compare : 'role t -> 'role t -> int
+lib/coral_capacity/sized.mli	hash	val compare : t -> t -> int
 lib/coral_estimate/coral_census.mli	hash	val compare : t -> t -> int
 lib/coral_estimate/coral_census.mli	tally	type t = { counts : (Class.t * float) list; contracts : (Contract_call.t * float) list; attends : (Attend_call.t * float) list; bodies : (Class.t * float) list list; unknown : int; }
 lib/coral_transfer/transfer_units.mli	defn	type t = private int

@@ -1,0 +1,26 @@
+; The capacity model on the hand-made manifest's profiles (8 KiB ITCM, 32 KiB
+; DTCM, 4 MiB RAM; a copy with 1 MiB TCMs), hermetic.
+
+(library
+ (name coral_capacity_test)
+ (modules capacity_test)
+ (libraries coral_capacity coralnpu err_trace fmt)
+ (inline_tests
+  (deps ../coralnpu/fragment.json))
+ (preprocess
+  (pps ppx_expect)))
+
+; The real emulators release: CORALNPU_DATA names the extracted archive root.
+; Both witnesses placed on every baseline configuration, with the code size
+; the design records for one block (the driver is not in it).
+
+(executable
+ (name witness_placed)
+ (modules witness_placed)
+ (libraries coral_capacity coralnpu err_trace fmt))
+
+(cram
+ (applies_to witness)
+ (deps %{exe:witness_placed.exe} (universe))
+ (enabled_if
+  (<> %{env:CORALNPU_DATA=} "")))
