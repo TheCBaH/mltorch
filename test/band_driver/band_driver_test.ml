@@ -15,7 +15,7 @@ let kernel name ~chunk =
     stride = count 1;
     pad = count 0;
     dilation = count 1;
-    chunk = count chunk;
+    chunk = S.Span.chunk chunk;
   }
 
 let stage name ~chunk ~cin ~cout =
@@ -64,7 +64,9 @@ let run (p : D.Program.t) ~input ~weights =
   | _ -> assert false
 
 let case ~name stages ~width ~rows ~block =
-  match D.program stages ~width ~rows:(count rows) ~block:(count block) with
+  match
+    D.program stages ~width ~rows:(count rows) ~block:(S.Span.block block)
+  with
   | Error r -> Fmt.pr "%s: refused: %a@." name D.pp_refusal r
   | Ok banded ->
       let reference = D.whole stages ~width ~rows:(count rows) in
@@ -107,7 +109,7 @@ let%expect_test "banded pointwise chains equal the whole-tensor chain" =
     {|
     3 stages, 8 rows, block 2: windows 2 2; equals the whole-tensor Contracts
     3 stages, 7 rows, block 2: windows 2 2; equals the whole-tensor Contracts
-    3 stages, 8 rows, block 3: refused: c reads rows [3, 6) across the end of its producer's window
+    3 stages, 8 rows, block 3: windows 2 4; equals the whole-tensor Contracts
     1 stage, 5 rows, block 5: windows ; equals the whole-tensor Contracts |}]
 
 let%expect_test "a kernel that is not pointwise is refused" =
@@ -125,7 +127,9 @@ let%expect_test "the targets refuse a view call, and the expansion has none" =
     [ stage "a" ~chunk:2 ~cin:2 ~cout:3; stage "b" ~chunk:2 ~cin:3 ~cout:2 ]
   in
   let p =
-    match D.program stages ~width:2L ~rows:(count 4) ~block:(count 2) with
+    match
+      D.program stages ~width:2L ~rows:(count 4) ~block:(S.Span.block 2)
+    with
     | Ok p -> p.D.Program.program
     | Error _ -> assert false
   in

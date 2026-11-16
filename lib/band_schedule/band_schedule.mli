@@ -34,13 +34,33 @@ module Count : sig
   val pp : Format.formatter -> t -> unit
 end
 
+(** A number of rows a call covers: the rows of a block (what the last kernel
+    produces a step) or of a chunk (what a producer makes a call when it runs
+    ahead). One family, tagged by role, so a block cannot stand for a chunk. *)
+module Span : sig
+  type +'role t = private int
+  type block
+  type chunk
+
+  val block : int -> block t
+  (** Raises [Invalid_argument] below 1. *)
+
+  val chunk : int -> chunk t
+  (** Raises [Invalid_argument] below 1. *)
+
+  val to_int : 'role t -> int
+  val compare : 'role t -> 'role t -> int
+  val pp : Format.formatter -> 'role t -> unit
+end
+
 type kernel = {
   name : string;
   extent : Count.t;  (** the window's size [K], at least 1 *)
   stride : Count.t;  (** at least 1 *)
   pad : Count.t;
   dilation : Count.t;  (** at least 1 *)
-  chunk : Count.t;  (** rows it produces a call when it runs ahead; at least 1 *)
+  chunk : Span.chunk Span.t;
+      (** rows it produces a call when it runs ahead; at least 1 *)
 }
 
 val window : kernel -> Count.t
@@ -70,7 +90,7 @@ type t = {
           are written out *)
 }
 
-val run : kernel list -> input:Count.t -> block:Count.t -> t
+val run : kernel list -> input:Count.t -> block:Span.block Span.t -> t
 (** Runs the chain over an input of [input] rows, the last kernel producing
     [block] rows at a time. Raises [Invalid_argument] on an empty chain, a zero
     block or a kernel that produces no rows. *)
@@ -96,7 +116,7 @@ val admit :
   consumers:(string * string list) list ->
   side_outputs:string list ->
   input:Count.t ->
-  block:Count.t ->
+  block:Span.block Span.t ->
   (t, refusal) result
 (** The schedule of the spine, or the reason it is not one. [consumers] lists,
     per kernel, the kernels that read its output inside the segment; each kernel
@@ -151,12 +171,12 @@ end
 module Window : sig
   type t
 
-  val make : rows:Count.t -> chunk:Count.t -> t
+  val make : rows:Count.t -> chunk:Span.chunk Span.t -> t
   (** Raises [Invalid_argument] when [chunk] is zero or does not divide [rows],
       or [rows] is zero. *)
 
   val rows : t -> Count.t
-  val chunk : t -> Count.t
+  val chunk : t -> Span.chunk Span.t
 
   val ring_row : t -> Row.t -> Ring_row.t
   (** Raises [Invalid_argument] on a negative logical row. *)

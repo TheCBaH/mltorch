@@ -10,7 +10,7 @@
 # and a divisor of -1 exclude each other, so swapping them changes nothing a
 # program can observe.
 #
-# usage: scripts/ssa-fuzz-mutation-check.sh [c|js|wasm ...]   (from the repository
+# usage: scripts/ssa-fuzz-mutation-check.sh [c|js|wasm|ir ...]   (from the repository
 # root; every emitter when none is named)
 set -u
 
@@ -32,6 +32,7 @@ run_suite() {
     c) NO_COLOR=1 opam exec -- dune build --root . @test/ssa_fuzz_c/runtest ;;
     js) NO_COLOR=1 opam exec -- dune build --root . @test/ssa_fuzz_js/runtest-js ;;
     wasm) MLTORCH_WASM=1 NO_COLOR=1 opam exec -- dune build --root . @test/ssa_fuzz_wasm/runtest ;;
+    ir) NO_COLOR=1 opam exec -- dune build --root . @test/ssa_fuzz/runtest ;;
   esac
 }
 
@@ -128,6 +129,22 @@ if want wasm; then
   target wasm lib/ssa_wasm/ssa_wasm.ml
   mutate "loop-carried values never transferred to the next iteration" \
     's|let moves = transfer st carried body.Ssa_region.yields in|let moves = (ignore transfer; []) in|'
+fi
+
+# The view call and its expansion (compared with each other by the seeded
+# differential of test/ssa_fuzz): each defect is in one of the two, so the other
+# disagrees.
+if want ir; then
+  target ir lib/ssa_ir/ssa_expand_contract.ml
+  mutate "an expanded one-base operand loses its base" \
+    's#moved v (offset bld \[ (batch, bi); (outer, o); (inner, x) \])#moved (ignore v; B.index bld 0L) (offset bld [ (batch, bi); (outer, o); (inner, x) ])#'
+  mutate "an expanded per-row base is always the first row's" \
+    's#moved r.(s) (offset#moved r.(s * 0) (offset#'
+  target ir lib/ssa_ir/ssa_view_call.ml
+  mutate "a view call's one-base operand loses its base" \
+    's#Int64.add (base v) (Int64.add tail#Int64.add (ignore (base v); 0L) (Int64.add tail#'
+  mutate "a view call's per-row base is always the first row's" \
+    's#(base (List.nth rs (Int64.to_int o)))#(base (List.nth rs 0))#'
 fi
 
 restore

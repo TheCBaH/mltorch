@@ -10,7 +10,7 @@ let kernel ?(stride = 1) ?(pad = 0) ?(dilation = 1) ?(chunk = 1) name extent =
     stride = c stride;
     pad = c pad;
     dilation = c dilation;
-    chunk = c chunk;
+    chunk = Span.chunk chunk;
   }
 
 let rows k ~lo ~hi ~height =
@@ -48,7 +48,7 @@ let%expect_test "a producer that runs ahead keeps the row a later demand needs"
      first demand [0,2) makes [0,4); row 3 stays for the demand [1,4) *)
   let producer = kernel "producer" 1 ~chunk:4 in
   let consumer = kernel "consumer" 3 ~pad:1 in
-  let s = run [ producer; consumer ] ~input:(c 8) ~block:(c 1) in
+  let s = run [ producer; consumer ] ~input:(c 8) ~block:(Span.block 1) in
   Fmt.pr "%a" pp s;
   [%expect
     {|
@@ -66,7 +66,9 @@ let%expect_test "a producer that runs ahead keeps the row a later demand needs"
 
 let%expect_test "interior blocks overlap by the window less the stride" =
   let consumed k =
-    let s = run [ kernel "p" 1 ~chunk:16; k ] ~input:(c 16) ~block:(c 1) in
+    let s =
+      run [ kernel "p" 1 ~chunk:16; k ] ~input:(c 16) ~block:(Span.block 1)
+    in
     List.filter_map
       (fun e ->
         if String.equal e.kernel k.name then
@@ -113,7 +115,8 @@ let%expect_test
   let chain = [ producer; consume () ] in
   let spine = [ ("producer", [ "consumer" ]) ] in
   let admit ?(consumers = spine) ?(side = []) kernels =
-    admit kernels ~consumers ~side_outputs:side ~input:(c 8) ~block:(c 1)
+    admit kernels ~consumers ~side_outputs:side ~input:(c 8)
+      ~block:(Span.block 1)
   in
   show "spine" (admit chain);
   show "side output, every row demanded" (admit chain ~side:[ "producer" ]);
@@ -139,7 +142,7 @@ let%expect_test "the verifier accepts a schedule and refuses each mutation" =
   let producer = kernel "producer" 1 ~chunk:4 in
   let consumer = kernel "consumer" 3 ~pad:1 in
   let chain = [ producer; consumer ] in
-  let s = run chain ~input:(c 8) ~block:(c 1) in
+  let s = run chain ~input:(c 8) ~block:(Span.block 1) in
   let show name t =
     match verify chain ~input:(c 8) t with
     | Ok () -> Fmt.pr "%s: valid@." name

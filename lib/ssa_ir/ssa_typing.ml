@@ -29,6 +29,7 @@ type error =
   | Operands_differ of { first : Ssa_type.t; second : Ssa_type.t }
   | Round_bf16_operation
   | Scale_out_of_domain of int64
+  | View_rows_differ
 
 let pp_error fmt = function
   | Divisor_not_positive k ->
@@ -66,6 +67,8 @@ let pp_error fmt = function
          operation"
   | Scale_out_of_domain k ->
       Fmt.pf fmt "scale literal %Ld is outside the index domain" k
+  | View_rows_differ ->
+      Fmt.string fmt "a view's row bases are not as many as the axis they place"
 
 let scalar s = Ssa_type.Scalar s
 let index = scalar Ssa_type.Index
@@ -394,7 +397,8 @@ let rec result_types : Ssa_op.t -> (Ssa_type.t list, error) result = function
   | Ssa_op.Attend _ | Ssa_op.Contract _ | Ssa_op.Mark _ -> Ok []
   | Ssa_op.View_call v ->
       let* () = expect_all index (Ssa_view_call.operands v) in
-      Ok []
+      if not (Ssa_view_call.rows_expected v) then Error View_rows_differ
+      else Ok []
   | Ssa_op.Store { at; encode; value; _ } ->
       let coords = Ssa_access.operands at in
       let* () = expect_all index coords in

@@ -12,20 +12,11 @@ module Stage : sig
   type t = { kernel : Band_schedule.kernel; cin : int64; cout : int64 }
 end
 
-(* @alphabetical *)
-
 (** Why a chain has no driver. *)
 type refusal =
   | Not_pointwise of string
       (** the stage's kernel is not extent 1, stride 1, no padding, dilation 1
       *)
-  | Read_spans_wrap of {
-      kernel : string;
-      lo : Band_schedule.Row.t;
-      hi : Band_schedule.Row.t;
-    }
-      (** an event reads producer rows that straddle the end of the producer's
-          window: one base cannot name them (the per-row base form would) *)
 
 val pp_refusal : Format.formatter -> refusal -> unit
 
@@ -44,7 +35,7 @@ val program :
   Stage.t list ->
   width:int64 ->
   rows:Band_schedule.Count.t ->
-  block:Band_schedule.Count.t ->
+  block:Band_schedule.Span.block Band_schedule.Span.t ->
   (Program.t, refusal) result
 (** Raises [Invalid_argument] as {!Band_schedule.run} does. *)
 

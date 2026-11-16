@@ -8,6 +8,11 @@ type access =
   | Coord of Ssa_type.index value Expr.Coord.t
   | Flat of Ssa_type.index value
 
+(* @alphabetical *)
+type view_at =
+  | Base of Ssa_type.index value
+  | Rows of Ssa_type.index value list
+
 type shared = {
   buffers : Ssa_buffer.t list;
   mutable next_value : Ssa_id.Value.Next.t;
@@ -163,9 +168,15 @@ let contract ?engine bld desc ~a ~b ~c =
   ignore (instr bld (Ssa_op.Contract { desc; engine; a; b; c }))
 
 let view_call bld desc ~a ~b ~c =
-  let view (buffer, (base : Ssa_type.index value)) =
+  let value (v : Ssa_type.index value) = (v :> Ssa_value.t) in
+  let view (buffer, at) =
     declared bld buffer;
-    { Ssa_view_call.View.buffer; base :> Ssa_value.t }
+    let at =
+      match at with
+      | Base v -> Ssa_view_call.At.Base (value v)
+      | Rows vs -> Ssa_view_call.At.Rows (List.map value vs)
+    in
+    { Ssa_view_call.View.buffer; at }
   in
   let a = view a in
   let b = view b in

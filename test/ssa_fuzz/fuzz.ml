@@ -573,6 +573,117 @@ let generate ?(profile = full) ~seed ~size () =
          size=%d): %a"
         seed size Ssa_verify.pp_error e
 
+(* ---- view calls ------------------------------------------------------------- *)
+
+(* Programs of view calls over the two buffers, A and B both read from the input
+   and C written to the output, each operand placed by one base or by one base
+   per row. Every base is a constant chosen so the footprint fits the buffer,
+   which the verifier re-derives. The inputs of such a case are multiples of an
+   eighth, small, so every product and sum is exact in binary32 and an expansion
+   in binary64 computes the same bits; the specials (NaN, infinities, zeros) are
+   the same under either. *)
+let view_call_statement c =
+  let g = c.g in
+  let one = Int64.of_int in
+  let m = 1 + draw g 3 and n = 1 + draw g 3 and k = 1 + draw g 3 in
+  let batch = 1 + draw g 2 in
+  let stride () = one (draw g 4) in
+  let desc =
+    Result.get_ok
+      (Err.payload
+         (Contraction.make ~batch:(one batch) ~m:(one m) ~n:(one n) ~k:(one k)
+            ~a:
+              {
+                Contraction.Operand.batch = stride ();
+                outer = stride ();
+                k = stride ();
+              }
+            ~b:
+              {
+                Contraction.Operand.batch = stride ();
+                outer = stride ();
+                k = stride ();
+              }
+            ~c:
+              {
+                Contraction.Output.batch = stride ();
+                row = stride ();
+                col = stride ();
+              }
+            ~format:Contraction.Element.F32
+            ~seed:(pick g [| Contraction.Seed.Zero; Contraction.Seed.Tensor |])
+            ~numerics:Contraction.Numerics.Ordered))
+  in
+  (* the top offset each operand can reach, with or without its outer axis *)
+  let last count stride = Int64.mul (Int64.max 0L (Int64.pred count)) stride in
+  let top_a rows (o : Contraction.Operand.t) outer =
+    Int64.add
+      (Int64.add
+         (last (one batch) o.Contraction.Operand.batch)
+         (if rows then 0L else last outer o.Contraction.Operand.outer))
+      (last (one k) o.Contraction.Operand.k)
+  in
+  let rows_a = chance g 2 and rows_b = chance g 2 and rows_c = chance g 2 in
+  let reach_a = top_a rows_a desc.Contraction.a (one m)
+  and reach_b = top_a rows_b desc.Contraction.b (one n) in
+  let co = desc.Contraction.c in
+  let reach_c =
+    Int64.add
+      (Int64.add
+         (last (one batch) co.Contraction.Output.batch)
+         (if rows_c then 0L else last (one m) co.Contraction.Output.row))
+      (last (one n) co.Contraction.Output.col)
+  in
+  if
+    Int64.compare reach_a 7L > 0
+    || Int64.compare reach_b 7L > 0
+    || Int64.compare reach_c 7L > 0
+  then ()
+  else
+    let base reach =
+      B.index c.b (Int64.of_int (draw g (8 - Int64.to_int reach)))
+    in
+    let view buffer rows count reach =
+      ( Fx.buf buffer,
+        if rows then B.Rows (List.init count (fun _ -> base reach))
+        else B.Base (base reach) )
+    in
+    B.view_call c.b desc
+      ~a:(view input_id rows_a m reach_a)
+      ~b:(view input_id rows_b n reach_b)
+      ~c:(view output_id rows_c m reach_c)
+
+let generate_views ~seed ~size () =
+  let g = { pcg = Pcg.seed ~seed ~seq:0x71e3L } in
+  let input =
+    Array.init cells (fun _ ->
+        if chance g 12 then pick g [| 0.; -0.; infinity; neg_infinity; nan |]
+        else random_float g)
+  in
+  let build bld =
+    let c =
+      {
+        g;
+        b = bld;
+        profile = full;
+        st = { local = None; var = local_var };
+        nest = 2;
+        f64s = [];
+        idxs = [];
+      }
+    in
+    for _ = 1 to 1 + size do
+      view_call_statement c
+    done
+  in
+  match Err.payload (B.program ~buffers build) with
+  | Ok program -> { seed; size; program; input }
+  | Error e ->
+      Fmt.failwith
+        "the generator built a view-call program that does not verify \
+         (seed=%Ld size=%d): %a"
+        seed size Ssa_verify.pp_error e
+
 (* ---- running ---------------------------------------------------------------- *)
 
 type outcome = { row : Kernel_eval.error option; cells : float list }
@@ -742,3 +853,14 @@ let row_name : Kernel_eval.error -> string = function
   | `Scan_projection _ -> "scan_projection"
   | `Unbound_local _ -> "unbound_local"
   | _ -> "other"
+
+(* A backend run on the expansion of the case's view calls into loops: the
+   expansion must compute what the view call does, so it is compared with the
+   interpreter on the unexpanded program. *)
+let expanded b =
+  {
+    name = b.name ^ " on the expansion";
+    run =
+      (fun case ->
+        b.run { case with program = Ssa_expand_view_call.program case.program });
+  }

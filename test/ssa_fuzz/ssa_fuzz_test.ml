@@ -234,3 +234,17 @@ let%expect_test "the generator emits control flow, memory checks and the meter"
     check_gather in a 1/10 of the programs: true
     meter in a 1/10 of the programs: true
     nested region in a 1/50 of the programs: true |}]
+
+(* View calls: the CFG executor and the loop expansion each compute the
+   interpreter's cells, and the cases write something (an all-zero output would
+   compare equal whatever the bases said). *)
+let%expect_test "view calls: the CFG executor and the expansion agree" =
+  let wrote = ref 0 in
+  for s = 0 to seeds - 1 do
+    let case = generate_views ~seed:(Int64.of_int s) ~size:3 () in
+    match check case [ cfg; expanded interp ] with
+    | Error d -> fail_on (Error d)
+    | Ok o -> if List.exists (fun x -> x <> 0.) o.cells then incr wrote
+  done;
+  Fmt.pr "%d seeds, most write cells: %b@." seeds (!wrote * 2 > seeds);
+  [%expect {| 2000 seeds, most write cells: true |}]

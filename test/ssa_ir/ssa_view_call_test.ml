@@ -38,9 +38,9 @@ let banded_program ~m ~k ~n ~r ~blocks =
       let call bld ~rows ~at =
         let base stride = B.index_scale bld (i64 stride) at in
         B.view_call bld (desc ~m:rows ~k ~n)
-          ~a:(F.buf 0, base (r * k))
-          ~b:(F.buf 1, B.index bld 0L)
-          ~c:(F.buf 2, base (r * n))
+          ~a:(F.buf 0, B.Base (base (r * k)))
+          ~b:(F.buf 1, B.Base (B.index bld 0L))
+          ~c:(F.buf 2, B.Base (base (r * n)))
       in
       ignore
         (B.for_ bld ~lo:(B.index bld 0L)
@@ -165,3 +165,68 @@ let%expect_test "the printer names each operand's base" =
       }
       yield %3
     } |}]
+
+(* Rows placed by one base each, in any order: A's rows reversed, C's rows
+   scattered, B's columns swapped, against the same product over arrays
+   permuted by hand. *)
+let rows_program ~m ~k ~n ~a_rows ~b_cols ~c_rows =
+  B.program ~buffers:(buffers ~m ~k ~n) (fun bld ->
+      let idx l = List.map (fun x -> B.index bld (i64 x)) l in
+      B.view_call bld (desc ~m ~k ~n)
+        ~a:(F.buf 0, B.Rows (idx (List.map (fun r -> r * k) a_rows)))
+        ~b:(F.buf 1, B.Rows (idx b_cols))
+        ~c:(F.buf 2, B.Rows (idx (List.map (fun r -> r * n) c_rows))))
+
+let%expect_test "per-row bases place each row independently" =
+  let m = 4 and k = 3 and n = 2 in
+  let a = Array.init (m * k) (fun _ -> value ())
+  and b = Array.init (k * n) (fun _ -> value ()) in
+  let a_rows = [ 3; 1; 0; 2 ]
+  and b_cols = [ 1; 0 ]
+  and c_rows = [ 2; 0; 3; 1 ] in
+  let p =
+    Err.or_raise ~pp_error:Ssa_verify.pp_error
+      (rows_program ~m ~k ~n ~a_rows ~b_cols ~c_rows)
+  in
+  let got = run p ~a ~b ~nc:(m * n) in
+  (* output row c_rows.(i) holds row a_rows.(i) of A times B with its columns
+     taken in b_cols order *)
+  let a' =
+    Array.init (m * k) (fun x -> a.((List.nth a_rows (x / k) * k) + (x mod k)))
+  and b' =
+    Array.init (k * n) (fun x -> b.((x / n * n) + List.nth b_cols (x mod n)))
+  in
+  let product = run (whole ~m ~k ~n) ~a:a' ~b:b' ~nc:(m * n) in
+  let want = Array.make (m * n) 0. in
+  List.iteri (fun i r -> Array.blit product (i * n) want (r * n) n) c_rows;
+  let through =
+    run
+      (Ssa_precision.to_f32 ~exact:true (Ssa_expand_view_call.program p))
+      ~a ~b ~nc:(m * n)
+  in
+  Fmt.pr "%s; expanded %s@."
+    (if same want got then "rows land where their bases say" else "DIFFERS")
+    (if same want through then "equal" else "DIFFERS");
+  [%expect {| rows land where their bases say; expanded equal |}]
+
+let%expect_test "a row base that leaves the buffer, or a short list, is refused"
+    =
+  let m = 4 and k = 3 and n = 2 in
+  let show = function
+    | Ok _ -> Fmt.pr "accepted@."
+    | Error e -> Fmt.pr "%a@." Ssa_verify.pp_error e
+  in
+  show
+    (Err.payload
+       (rows_program ~m ~k ~n ~a_rows:[ 3; 1; 0; 4 ] ~b_cols:[ 1; 0 ]
+          ~c_rows:[ 2; 0; 3; 1 ]));
+  (try
+     show
+       (Err.payload
+          (rows_program ~m ~k ~n ~a_rows:[ 3; 1; 0 ] ~b_cols:[ 1; 0 ]
+             ~c_rows:[ 2; 0; 3; 1 ]))
+   with Invalid_argument s -> Fmt.pr "builder: %s@." s);
+  [%expect
+    {|
+    r0, stmt10: a proof of an access staying in its buffer cannot be re-derived
+    builder: Ssa_builder: a view's row bases are not as many as the axis they place |}]

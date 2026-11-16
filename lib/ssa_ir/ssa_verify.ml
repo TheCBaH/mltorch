@@ -536,19 +536,22 @@ let check_proofs ctx scope =
                    last d.Contraction.m d.Contraction.c.Contraction.Output.row;
                    last d.Contraction.n d.Contraction.c.Contraction.Output.col;
                  ])
-        | Ssa_op.View_call { desc; a; b; c } ->
-            let r = Ssa_view_call.reach desc in
+        | Ssa_op.View_call ({ a; b; c; _ } as v) ->
+            let r = Ssa_view_call.reach v in
             List.iter
-              (fun ((v : Ssa_view_call.View.t), reach) ->
-                match Ssa_program.find_buffer p v.Ssa_view_call.View.buffer with
+              (fun ((view : Ssa_view_call.View.t), reach) ->
+                match
+                  Ssa_program.find_buffer p view.Ssa_view_call.View.buffer
+                with
                 | Some bf ->
-                    if
-                      not
-                        (Ssa_range.view_in_bounds ranges bf
-                           ~base:v.Ssa_view_call.View.base ~reach)
-                    then fail ctx scope (Unproven In_bounds)
+                    List.iter
+                      (fun base ->
+                        if not (Ssa_range.view_in_bounds ranges bf ~base ~reach)
+                        then fail ctx scope (Unproven In_bounds))
+                      (Ssa_view_call.bases view)
                 | None ->
-                    fail ctx scope (Buffer_unknown v.Ssa_view_call.View.buffer))
+                    fail ctx scope
+                      (Buffer_unknown view.Ssa_view_call.View.buffer))
               [
                 (a, r.Ssa_view_call.Reach.a);
                 (b, r.Ssa_view_call.Reach.b);

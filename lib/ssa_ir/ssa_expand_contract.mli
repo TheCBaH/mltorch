@@ -7,21 +7,25 @@
 
 val program : Ssa_program.t -> Ssa_program.t
 
+(** How an operand's cells are placed: moved by one base, or by one base per row
+    of its outer axis (A's and C's rows, B's columns), which replaces the
+    descriptor's outer stride. *)
+type view =
+  | Base of Ssa_type.index Ssa_builder.value
+  | Rows of Ssa_type.index Ssa_builder.value array
+
 val expansion :
-  ?bases:
-    (Ssa_builder.t ->
-    Ssa_type.index Ssa_builder.value
-    * Ssa_type.index Ssa_builder.value
-    * Ssa_type.index Ssa_builder.value) ->
+  ?views:(Ssa_builder.t -> view * view * view) ->
   Contraction.t ->
   a:Ssa_id.Buffer.t ->
   b:Ssa_id.Buffer.t ->
   c:Ssa_id.Buffer.t ->
   buffers:Ssa_buffer.t list ->
   Ssa_program.t
-(** The loops of one contraction as a program over [buffers]. [bases], when
-    given, makes in the program the index each operand's cells are offset by (A,
-    B, C): the expansion of a {!Ssa_view_call}. *)
+(** The loops of one contraction as a program over [buffers]. [views], when
+    given, makes in the program how each operand (A, B, C) is placed: the
+    expansion of a {!Ssa_view_call}. An axis some operand names by rows is
+    unrolled. *)
 
 val expandable : Contraction.t -> bool
 (** Whether {!program} expands a contraction of this descriptor. *)

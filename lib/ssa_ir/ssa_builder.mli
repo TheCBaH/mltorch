@@ -23,6 +23,13 @@ type access =
   | Coord of Ssa_type.index value Expr.Coord.t
   | Flat of Ssa_type.index value
 
+(* @alphabetical *)
+
+(** Where a view call's operand starts ({!Ssa_view_call.At}). *)
+type view_at =
+  | Base of Ssa_type.index value
+  | Rows of Ssa_type.index value list
+
 val program :
   ?scan_limits:Expr.Scan_limits.t ->
   buffers:Ssa_buffer.t list ->
@@ -204,12 +211,12 @@ val contract :
 val view_call :
   t ->
   Contraction.t ->
-  a:Ssa_id.Buffer.t * Ssa_type.index value ->
-  b:Ssa_id.Buffer.t * Ssa_type.index value ->
-  c:Ssa_id.Buffer.t * Ssa_type.index value ->
+  a:Ssa_id.Buffer.t * view_at ->
+  b:Ssa_id.Buffer.t * view_at ->
+  c:Ssa_id.Buffer.t * view_at ->
   unit
-(** The contraction of {!Ssa_view_call}: each operand is a buffer and the index
-    base its cells are read from or written to. *)
+(** The contraction of {!Ssa_view_call}: each operand is a buffer and where its
+    cells start, one base or one per row. *)
 
 val attend :
   t ->

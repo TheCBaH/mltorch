@@ -49,3 +49,23 @@ let%expect_test
   Hashtbl.to_seq_keys reasons
   |> List.of_seq |> List.sort compare |> List.iter print_endline;
   [%expect {| a binary64 fused multiply-add has no WebAssembly form |}]
+
+(* A view call is refused by name; its expansion runs and agrees with the
+   interpreter on the view call itself. *)
+let%expect_test "the Wasm emitter runs the expansion of view calls" =
+  let e = expanded wasm in
+  let refused = ref 0 and direct = ref 0 in
+  timed (fun () ->
+      for s = 0 to (wasm_seeds / 2) - 1 do
+        let case = generate_views ~seed:(Int64.of_int s) ~size:3 () in
+        (match e.run case with Refused _ -> incr refused | Ran _ -> ());
+        (match wasm.run case with Refused _ -> incr direct | Ran _ -> ());
+        match check case [ e ] with
+        | Ok _ -> ()
+        | Error d -> Fmt.failwith "%a" pp_disagreement d
+      done);
+  Fmt.pr
+    "expansion refused: %d; the view call itself refused on some seeds: %b@."
+    !refused (!direct > 0);
+  [%expect
+    {| expansion refused: 0; the view call itself refused on some seeds: true |}]

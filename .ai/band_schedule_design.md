@@ -1,9 +1,8 @@
 # Band schedule, view call and segment driver
 
 Libraries: band_driver, band_schedule
-Status: 2026-11-16 — schedule interpreter, view-call operation and a pointwise
-driver implemented; per-row bases, target realization and the fuzz generator
-open
+Status: 2026-11-16 — schedule interpreter, view-call operation with per-row bases,
+pointwise driver and fuzz generator implemented; target realization open
 
 A chain of row-local kernels runs block by block: the last kernel makes `block`
 rows, each earlier kernel runs ahead in chunks of its own, and a produced row
@@ -47,13 +46,37 @@ base cannot name rows that are not consecutive in the ring. `Band_driver.whole`
 is the unbanded reference (one `Contract` per stage over complete tensors); the
 tests compare the two bitwise under the SSA interpreter.
 
+## Per-row bases
+
+An operand may be placed by one base per row of its outer axis (`At.Rows`):
+A's and C's rows, B's columns. The descriptor's outer stride then does not
+apply and the cell is `rows.(i) + batch + inner`; the list must be as long as
+the axis (a typing error otherwise) and the verifier proves every base's
+footprint. The interpreter decodes `Contraction.eval`'s offsets through a
+descriptor with unambiguous strides, so the reference loop order stays the one
+`Contraction` owns. The expansion unrolls an axis some operand names by rows.
+The driver uses it for a read that straddles its producer's window end: one
+base per pixel, each from its own ring row, where a single base would run past
+the allocation.
+
+Rows are typed: a logical row (`Row`), a ring row (`Window.ring_row` is the one
+function between them) and, for a call's row count, `Span` tagged `block` or
+`chunk`, so a block cannot stand for a chunk. The driver names a row's
+addressing as `Position.Logical` or `Position.Ring`, and element offsets come
+from one function of it.
+
+## Evidence
+
+`test/ssa_fuzz` generates programs of view calls (one base or per-row bases,
+constant in-bounds bases, inputs exact in binary32) and runs the CFG executor and
+the expansion against the interpreter; the C, JavaScript and Wasm suites run the
+expansion through each emitter and show the call itself refused.
+`scripts/ssa-fuzz-mutation-check.sh ir` breaks the expansion and the evaluator
+four ways and requires each to go red.
+
 ## Open
 
-- A per-row base list form for an operand (a KxK consumer reading rows that
-  wrap), with the footprint proved per base, and the driver's use of it.
-- Row bases and block rows as typed values end to end (block rows and chunk
-  rows as one phantom-role family).
-- Realization on the three machine targets through the `Mir_helper` route; the
-  generator of the SSA fuzz suite and its mutation script gain the operation.
-- Non-pointwise stages and the driver as a loop over uniform blocks, not an
-  unrolled event list.
+- A KxK stage (several rows read per output row, each with its own bases) in
+  the driver; stages that are not pointwise.
+- Realization on the three machine targets through the `Mir_helper` route.
+- The driver as a loop over uniform blocks, not an unrolled event list.

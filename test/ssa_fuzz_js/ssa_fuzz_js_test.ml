@@ -40,3 +40,22 @@ let%expect_test
     {|
     a binary64 fused multiply-add has no JavaScript form
     an int64 to binary32 conversion has no JavaScript form |}]
+
+(* A view call is refused by name; its expansion runs and agrees with the
+   interpreter on the view call itself. *)
+let%expect_test "the JavaScript emitter runs the expansion of view calls" =
+  let e = expanded js in
+  let refused = ref 0 and direct = ref 0 in
+  for s = 0 to js_seeds - 1 do
+    let case = generate_views ~seed:(Int64.of_int s) ~size:3 () in
+    (match e.run case with Refused _ -> incr refused | Ran _ -> ());
+    (match js.run case with Refused _ -> incr direct | Ran _ -> ());
+    match check case [ e ] with
+    | Ok _ -> ()
+    | Error d -> Fmt.failwith "%a" pp_disagreement d
+  done;
+  Fmt.pr
+    "expansion refused: %d; the view call itself refused on some seeds: %b@."
+    !refused (!direct > 0);
+  [%expect
+    {| expansion refused: 0; the view call itself refused on some seeds: true |}]
