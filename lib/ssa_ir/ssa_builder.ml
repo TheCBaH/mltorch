@@ -162,6 +162,16 @@ let contract ?engine bld desc ~a ~b ~c =
   List.iter (declared bld) [ a; b; c ];
   ignore (instr bld (Ssa_op.Contract { desc; engine; a; b; c }))
 
+let view_call bld desc ~a ~b ~c =
+  let view (buffer, (base : Ssa_type.index value)) =
+    declared bld buffer;
+    { Ssa_view_call.View.buffer; base :> Ssa_value.t }
+  in
+  let a = view a in
+  let b = view b in
+  let c = view c in
+  ignore (instr bld (Ssa_op.View_call { Ssa_view_call.desc; a; b; c }))
+
 let attend bld desc ~q ~k ~v ~mask ~o =
   List.iter (declared bld) ([ q; k; v; o ] @ Option.to_list mask);
   ignore (instr bld (Ssa_op.Attend { desc; q; k; v; mask; o }))

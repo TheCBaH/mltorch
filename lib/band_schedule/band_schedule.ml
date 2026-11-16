@@ -308,3 +308,29 @@ let mutate m t =
           events
   in
   { t with events }
+
+module Ring_row = struct
+  type t = int
+
+  let to_int n = n
+  let compare = Int.compare
+  let pp = Fmt.int
+end
+
+module Window = struct
+  type t = { rows : Count.t; chunk : Count.t }
+
+  let make ~rows ~chunk =
+    if rows = 0 || chunk = 0 || rows mod chunk <> 0 then
+      invalid_arg "Band_schedule.Window.make: rows is not a multiple of chunk";
+    { rows; chunk }
+
+  let rows t = t.rows
+  let chunk t = t.chunk
+
+  let ring_row t r =
+    if r < 0 then invalid_arg "Band_schedule.Window.ring_row: negative row";
+    r mod t.rows
+
+  let spans_wrap t ~lo ~hi = hi > lo && ring_row t lo + (hi - lo) > t.rows
+end

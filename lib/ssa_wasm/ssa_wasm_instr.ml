@@ -172,6 +172,7 @@ let instr st ~limits (i : Ssa_instr.t) : I.t list =
   match op with
   | Ssa_op.Mark _ | Ssa_op.Mark_lanes _ -> []
   | Ssa_op.Attend _ -> refuse st (`Unsupported_operation "an attention")
+  | Ssa_op.View_call _ -> refuse st `Unsupported_view_call
   | Ssa_op.Contract { desc = d; a; b; c; _ } -> contract st d ~a ~b ~c
   | Ssa_op.Check_access { buffer; at } -> (
       let b = find_buffer st buffer in

@@ -358,6 +358,7 @@ let instr cx depth (i : Ssa_instr.t) =
   let no_result () = () in
   match op with
   | Ssa_op.Mark _ | Ssa_op.Mark_lanes _ -> no_result ()
+  | Ssa_op.View_call _ -> Ssa_c_ctx.refuse cx `Unsupported_view_call
   | Ssa_op.Attend _ ->
       Ssa_c_ctx.refuse cx (`Unsupported_operation "an attention")
   | Ssa_op.Contract { desc = d; a; b; c; _ } ->

@@ -24,7 +24,9 @@ let expandable (d : Contraction.t) =
   | Contraction.Numerics.Paired, _ ->
       false
 
-let expansion (d : Contraction.t) ~a ~b ~c ~buffers =
+(* [bases] makes, inside the template, the index value each operand's cells are
+   offset by: a view's bases ({!Ssa_view_call}); none for a whole buffer. *)
+let expansion ?bases (d : Contraction.t) ~a ~b ~c ~buffers =
   let decode =
     match d.Contraction.format with
     | Contraction.Element.Bf16 -> Ssa_op.Decode.Bf16_to_f64
@@ -34,16 +36,27 @@ let expansion (d : Contraction.t) ~a ~b ~c ~buffers =
   let ao = d.Contraction.a and bo = d.Contraction.b in
   let co = d.Contraction.c in
   template ~buffers (fun bld ->
+      let ba, bb, bc =
+        match bases with
+        | None -> (None, None, None)
+        | Some make ->
+            let ba, bb, bc = make bld in
+            (Some ba, Some bb, Some bc)
+      in
+      let moved bld base cell =
+        match base with None -> cell | Some v -> B.index_add bld v cell
+      in
       loop bld d.Contraction.batch (fun bld bi ->
           loop bld d.Contraction.m (fun bld i ->
               loop bld d.Contraction.n (fun bld j ->
                   let cell =
-                    offset bld
-                      [
-                        (co.Contraction.Output.batch, bi);
-                        (co.Contraction.Output.row, i);
-                        (co.Contraction.Output.col, j);
-                      ]
+                    moved bld bc
+                      (offset bld
+                         [
+                           (co.Contraction.Output.batch, bi);
+                           (co.Contraction.Output.row, i);
+                           (co.Contraction.Output.col, j);
+                         ])
                   in
                   let seed =
                     match d.Contraction.seed with
@@ -55,20 +68,22 @@ let expansion (d : Contraction.t) ~a ~b ~c ~buffers =
                       ~hi:(B.index bld d.Contraction.k) ~seed (fun bld k ->
                         let x =
                           load ~decode bld a
-                            (offset bld
-                               [
-                                 (ao.Contraction.Operand.batch, bi);
-                                 (ao.Contraction.Operand.outer, i);
-                                 (ao.Contraction.Operand.k, k);
-                               ])
+                            (moved bld ba
+                               (offset bld
+                                  [
+                                    (ao.Contraction.Operand.batch, bi);
+                                    (ao.Contraction.Operand.outer, i);
+                                    (ao.Contraction.Operand.k, k);
+                                  ]))
                         and y =
                           load ~decode bld b
-                            (offset bld
-                               [
-                                 (bo.Contraction.Operand.batch, bi);
-                                 (bo.Contraction.Operand.outer, j);
-                                 (bo.Contraction.Operand.k, k);
-                               ])
+                            (moved bld bb
+                               (offset bld
+                                  [
+                                    (bo.Contraction.Operand.batch, bi);
+                                    (bo.Contraction.Operand.outer, j);
+                                    (bo.Contraction.Operand.k, k);
+                                  ]))
                         in
                         B.f64_binary bld Expr.Value.Mul x y)
                   in

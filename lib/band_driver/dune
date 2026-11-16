@@ -1,0 +1,9 @@
+; The segment driver of a band schedule as an ordinary SSA program: each
+; schedule event becomes a view call of its stage's contraction over the rows it
+; produces, reading and writing the rolling windows through bases the window's
+; ring-row function names. A chain of pointwise (1x1, stride 1) stages; a read
+; that would span a ring wrap is refused.
+
+(library
+ (name band_driver)
+ (libraries band_schedule contraction err_trace expr fmt ssa_ir))

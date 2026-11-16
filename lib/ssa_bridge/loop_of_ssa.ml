@@ -501,6 +501,9 @@ let convert (p : Ssa_program.t) =
         invalid_arg
           "Loop_of_ssa: an attention has no Loop form; only the Machine IR \
            route realizes one"
+    | Ssa_op.View_call _ ->
+        invalid_arg
+          "Loop_of_ssa: a view call has no Loop form; expand it to loops first"
     | Ssa_op.Contract _ ->
         invalid_arg
           "Loop_of_ssa: a contraction has no Loop form; only the Machine IR \

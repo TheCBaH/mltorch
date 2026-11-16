@@ -330,6 +330,9 @@ type t =
     }
       (** Lane [k] writes the cell at [at + k * steps]; the lanes are written in
           order and the verifier requires all of them in bounds. *)
+  | View_call of Ssa_view_call.t
+      (** [Contract] on views: each operand's cells offset by an index base
+          ({!Ssa_view_call}). Only a band driver introduces one. *)
 
 (* Checked operations and accesses are effectful even when their result looks
    like a scalar expression: they sequence on the effect chain. *)
@@ -346,7 +349,8 @@ let rec effectful = function
   | Contract _ | Float_to_i64 _ | I64_div _ | Index_add _ | Index_of_i64 _
   | Index_scale _ | Load _ | Load_in_bounds _ | Local_alloc _ | Local_read _
   | Local_write _ | Mark _ | Mark_lanes _ | Meter_charge | Meter_release _
-  | Meter_reserve _ | Meter_reset | Store _ | Vec_load _ | Vec_store _ ->
+  | Meter_reserve _ | Meter_reset | Store _ | Vec_load _ | Vec_store _
+  | View_call _ ->
       true
 
 let rec operands = function
@@ -395,6 +399,7 @@ let rec operands = function
   | Vec_load { at; _ } -> Expr.Coord.to_list at
   | Vec_splat { element; _ } -> [ element ]
   | Vec_store { at; value; _ } -> Expr.Coord.to_list at @ [ value ]
+  | View_call v -> Ssa_view_call.operands v
 
 let rec map_operands f = function
   | Lanewise op -> Lanewise (map_operands f op)
@@ -509,6 +514,7 @@ let rec map_operands f = function
   | Vec_store { buffer; at; steps; encode; value; lanes } ->
       let at = Expr.Coord.map f at in
       Vec_store { buffer; at; steps; encode; value = f value; lanes }
+  | View_call v -> View_call (Ssa_view_call.map_operands f v)
 
 let binary_name = function
   | Expr.Value.Add -> "add"
@@ -578,6 +584,7 @@ let rec name = function
   | Vec_load _ -> "vec.load"
   | Vec_splat _ -> "vec.splat"
   | Vec_store _ -> "vec.store"
+  | View_call _ -> "view_call"
 
 (* Two pure operations with the same key compute the same value from the same
    operands: the name carries the operator and the conversion, the rest of the

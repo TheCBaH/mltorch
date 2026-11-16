@@ -392,6 +392,9 @@ let rec result_types : Ssa_op.t -> (Ssa_type.t list, error) result = function
       let* () = expect_all index (Ssa_access.operands at) in
       Ok [ Ssa_op.Decode.result decode ]
   | Ssa_op.Attend _ | Ssa_op.Contract _ | Ssa_op.Mark _ -> Ok []
+  | Ssa_op.View_call v ->
+      let* () = expect_all index (Ssa_view_call.operands v) in
+      Ok []
   | Ssa_op.Store { at; encode; value; _ } ->
       let coords = Ssa_access.operands at in
       let* () = expect_all index coords in

@@ -161,6 +161,13 @@ let rec op st (o : Ssa_op.t) =
            ~some:(fun e -> " engine=" ^ Contraction.Select.Engine.name e)
            engine)
         Ssa_id.Buffer.pp a Ssa_id.Buffer.pp b Ssa_id.Buffer.pp c
+  | Ssa_op.View_call { desc; a; b; c } ->
+      let view (v : Ssa_view_call.View.t) =
+        Fmt.str "%a+%s" Ssa_id.Buffer.pp v.Ssa_view_call.View.buffer
+          (name st v.Ssa_view_call.View.base)
+      in
+      Fmt.str "view %a a=%s b=%s c=%s" Contraction.pp desc (view a) (view b)
+        (view c)
   | Ssa_op.Store { buffer; at; encode; value } ->
       Fmt.str "store.%s %a%s, %s"
         (Ssa_op.Encode.name encode)

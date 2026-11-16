@@ -47,6 +47,10 @@ let accesses (op : Ssa_op.t) =
   | Ssa_op.Attend { q; k; v; mask; o; _ } ->
       List.map (fun b -> (b, Other)) ([ q; k; v; o ] @ Option.to_list mask)
   | Ssa_op.Contract { a; b; c; _ } -> [ (a, Other); (b, Other); (c, Other) ]
+  | Ssa_op.View_call v ->
+      List.map
+        (fun b -> (b, Other))
+        (Ssa_view_call.writes v :: Ssa_view_call.reads v)
   | _ -> []
 
 let rec fold_instrs f acc (r : Ssa_region.t) =

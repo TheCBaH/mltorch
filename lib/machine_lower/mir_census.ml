@@ -333,6 +333,8 @@ let rec op_row (op : Ssa_op.t) =
   | Ssa_op.Attend _ ->
       row "attend" Slice.Helpers "an attention helper call"
         ~observable:Observable.Writes
+  | Ssa_op.View_call _ ->
+      row "view_call" Slice.Helpers "refused: no helper binding for a base"
   | Ssa_op.Contract _ ->
       row "contract" Slice.Helpers "a contraction helper call"
         ~observable:Observable.Writes

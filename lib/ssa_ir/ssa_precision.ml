@@ -248,9 +248,9 @@ and instr_ t (i : Ssa_instr.t) =
     | Ssa_op.Index_compare _ | Ssa_op.Index_floor_div _ | Ssa_op.Index_max _
     | Ssa_op.Index_min _ | Ssa_op.Index_of_i64 _ | Ssa_op.Index_scale _
     | Ssa_op.Index_scale_in_domain _ | Ssa_op.Local_alloc _ | Ssa_op.Mark _
-    | Ssa_op.Meter_charge | Ssa_op.Meter_release _ | Ssa_op.Meter_reserve _
-    | Ssa_op.Meter_reset | Ssa_op.Pool_better _ | Ssa_op.Pred_not _
-    | Ssa_op.Pred_or _ | Ssa_op.Select _ ) as op ->
+    | Ssa_op.View_call _ | Ssa_op.Meter_charge | Ssa_op.Meter_release _
+    | Ssa_op.Meter_reserve _ | Ssa_op.Meter_reset | Ssa_op.Pool_better _
+    | Ssa_op.Pred_not _ | Ssa_op.Pred_or _ | Ssa_op.Select _ ) as op ->
       keep op (results ())
 
 let to_f32 ?(exact = false) (p : Ssa_program.t) =

@@ -135,3 +135,33 @@ type mutation =
   | Shift_consumed  (** the last kernel's first read starts one row late *)
 
 val mutate : mutation -> t -> t
+
+(** A row of a window's physical allocation: reached from a logical row by
+    {!Window.ring_row} and by nothing else. *)
+module Ring_row : sig
+  type t = private int
+
+  val to_int : t -> int
+  val compare : t -> t -> int
+  val pp : Format.formatter -> t -> unit
+end
+
+(** A producer's rolling allocation: [rows] physical rows, a multiple of the
+    producer's chunk, holding logical row [r] at ring row [r mod rows]. *)
+module Window : sig
+  type t
+
+  val make : rows:Count.t -> chunk:Count.t -> t
+  (** Raises [Invalid_argument] when [chunk] is zero or does not divide [rows],
+      or [rows] is zero. *)
+
+  val rows : t -> Count.t
+  val chunk : t -> Count.t
+
+  val ring_row : t -> Row.t -> Ring_row.t
+  (** Raises [Invalid_argument] on a negative logical row. *)
+
+  val spans_wrap : t -> lo:Row.t -> hi:Row.t -> bool
+  (** Whether logical rows [[lo, hi)] are not consecutive ring rows: a call
+      that names them by one base would read past the allocation's end. *)
+end

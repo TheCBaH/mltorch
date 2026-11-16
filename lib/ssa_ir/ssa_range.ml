@@ -285,7 +285,7 @@ let analyze (p : Ssa_program.t) =
     | Ssa_op.Pool_better _ | Ssa_op.Pred_not _ | Ssa_op.Pred_or _
     | Ssa_op.Store _ | Ssa_op.Vec_extract _ | Ssa_op.Vec_insert _
     | Ssa_op.Vec_iota _ | Ssa_op.Vec_load _ | Ssa_op.Vec_splat _
-    | Ssa_op.Vec_store _ ->
+    | Ssa_op.Vec_store _ | Ssa_op.View_call _ ->
         ()
   in
   let rec region (r : Ssa_region.t) = List.iter stmt r.Ssa_region.body
@@ -416,6 +416,15 @@ let in_bounds t (b : Ssa_buffer.t) (at : Ssa_access.t) =
       match Ssa_buffer.elements b.Ssa_buffer.extents with
       | Some n -> subset (range t o) ~lo:0L ~hi:(Int64.pred n)
       | None -> false)
+
+(* A view's whole footprint inside the buffer: its base is at least 0 and at
+   most [elements - 1 - reach], so the last cell the descriptor touches from
+   any base the value can take is a cell. A base alone is not a bound. *)
+let view_in_bounds t (b : Ssa_buffer.t) ~(base : Ssa_value.t) ~reach =
+  match Ssa_buffer.elements b.Ssa_buffer.extents with
+  | Some n when Int64.compare reach 0L >= 0 && Int64.compare reach n < 0 ->
+      subset (range t base) ~lo:0L ~hi:(Int64.sub (Int64.pred n) reach)
+  | Some _ | None -> false
 
 (* Every lane of a vector access inside the buffer: along each axis the first
    lane's coordinate range, moved by the span the lanes' steps add, stays inside

@@ -201,6 +201,16 @@ val contract :
 (** The matrix product [desc] ({!Ssa_op.Contract}), reading A and B and writing
     C, which must be disjoint from both. *)
 
+val view_call :
+  t ->
+  Contraction.t ->
+  a:Ssa_id.Buffer.t * Ssa_type.index value ->
+  b:Ssa_id.Buffer.t * Ssa_type.index value ->
+  c:Ssa_id.Buffer.t * Ssa_type.index value ->
+  unit
+(** The contraction of {!Ssa_view_call}: each operand is a buffer and the index
+    base its cells are read from or written to. *)
+
 val attend :
   t ->
   Attention_block.t ->

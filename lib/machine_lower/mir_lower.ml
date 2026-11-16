@@ -299,6 +299,7 @@ let rec instr st (i : Ssa_instr.t) =
       with
       | Ok [] -> ()
       | _ -> invalid_arg "Mir_lower: an attention helper call")
+  | Ssa_op.View_call _ -> refuse st Refusal.View_call
   | Ssa_op.Contract { desc; a; b; c; _ } -> (
       (* a call to the descriptor's helper with each operand's address *)
       let same d = String.equal (Contraction.name d) (Contraction.name desc) in

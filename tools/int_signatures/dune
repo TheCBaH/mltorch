@@ -22,6 +22,7 @@
   (alias ../../lib/coral_transfer/check)
   (alias ../../lib/f32_math/check)
   (alias ../../lib/norm_block/check)
+  (alias ../../lib/band_driver/check)
   (alias ../../lib/band_schedule/check)
   (alias ../../lib/coralnpu_kernels/check)
   (alias ../../lib/coralnpu_kernels_zvt/check)

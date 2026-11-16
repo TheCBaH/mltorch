@@ -14,6 +14,7 @@ type t =
   | Lane_wise
   | Vector
   | Vector_or_mask
+  | View_call
 
 let pp ppf = function
   | Attention -> Fmt.string ppf "an attention"
@@ -31,3 +32,4 @@ let pp ppf = function
   | Lane_wise -> Fmt.string ppf "a lane-wise operation"
   | Vector -> Fmt.string ppf "a vector operation"
   | Vector_or_mask -> Fmt.string ppf "a vector or mask"
+  | View_call -> Fmt.string ppf "a view call"

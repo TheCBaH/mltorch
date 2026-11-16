@@ -6,3 +6,22 @@
     a Machine IR route, that realizes no [Contract] of its own. *)
 
 val program : Ssa_program.t -> Ssa_program.t
+
+val expansion :
+  ?bases:
+    (Ssa_builder.t ->
+    Ssa_type.index Ssa_builder.value
+    * Ssa_type.index Ssa_builder.value
+    * Ssa_type.index Ssa_builder.value) ->
+  Contraction.t ->
+  a:Ssa_id.Buffer.t ->
+  b:Ssa_id.Buffer.t ->
+  c:Ssa_id.Buffer.t ->
+  buffers:Ssa_buffer.t list ->
+  Ssa_program.t
+(** The loops of one contraction as a program over [buffers]. [bases], when
+    given, makes in the program the index each operand's cells are offset by (A,
+    B, C): the expansion of a {!Ssa_view_call}. *)
+
+val expandable : Contraction.t -> bool
+(** Whether {!program} expands a contraction of this descriptor. *)
