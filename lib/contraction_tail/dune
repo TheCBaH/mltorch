@@ -1,0 +1,8 @@
+; A contraction with pointwise operations attached to its result, and the
+; generic realization of that descriptor: the product into block-sized scratch,
+; then a loop over the scratch applying the operations. Pure data and exact
+; evaluators over a Contraction descriptor; no target, no SSA, no tensor type.
+
+(library
+ (name contraction_tail)
+ (libraries contraction err_trace f32_math fmt))

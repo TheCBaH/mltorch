@@ -1,0 +1,11 @@
+; The attached-pointwise descriptor's cases, hermetic: its refusals, the generic
+; realization against the unattached reference over blocks that divide and do
+; not divide the output, and each deliberate defect of the realization shown
+; red.
+
+(library
+ (name contraction_tail_test)
+ (libraries contraction contraction_tail f32_math fmt)
+ (inline_tests)
+ (preprocess
+  (pps ppx_expect)))
