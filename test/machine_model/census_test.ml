@@ -70,7 +70,7 @@ let%expect_test "baseline census of the fixtures" =
     fixtures;
   [%expect
     {|
-    chain exact: arithmetic 13, conversion 18, helper_call 0, memory_move 4, helpers []
+    chain exact: arithmetic 13, conversion 18, helper_call 0, memory_move 5, helpers []
     chain simd_fp32_ordered neon128: arithmetic 14, conversion 23, helper_call 0, memory_move 7, helpers []
     chain simd_fp32_ordered scalar: arithmetic 13, conversion 18, helper_call 0, memory_move 5, helpers []
     chain fp32_ordered scalar: arithmetic 0, conversion 0, helper_call 0, memory_move 0, helpers []

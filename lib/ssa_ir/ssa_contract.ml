@@ -467,18 +467,18 @@ let program ~numerics ?bf16 (p : Ssa_program.t) =
       next := n;
       { Ssa_value.id; ty }
     in
-    let instr ?token results op =
-      Ssa_stmt.Instr
-        { Ssa_instr.results; op; token; origin = Ssa_origin.Unknown }
+    (* what a contraction makes stands for the sum it replaces *)
+    let instr ~origin ?token results op =
+      Ssa_stmt.Instr { Ssa_instr.results; op; token; origin }
     in
     (* the contractions before [token], and the effect after them *)
-    let contracts fs token =
+    let contracts ~origin fs token =
       List.fold_left
         (fun (stmts, token) ((f : Found.t), (s : Ssa_buffer.t)) ->
           let e = fresh Ssa_type.Effect in
           ( stmts
             @ [
-                instr ~token [ e ]
+                instr ~origin ~token [ e ]
                   (Ssa_op.Contract
                      {
                        desc = f.Found.desc;
@@ -521,7 +521,9 @@ let program ~numerics ?bf16 (p : Ssa_program.t) =
                   (fun (v : Ssa_value.t) -> v.Ssa_value.ty = Ssa_type.Effect)
                   f.inits
               in
-              let pre, token = contracts fs effect in
+              let pre, token =
+                contracts ~origin:(Ssa_rewrite.origin_of s) fs effect
+              in
               let inits =
                 List.map
                   (fun (v : Ssa_value.t) ->
@@ -535,9 +537,10 @@ let program ~numerics ?bf16 (p : Ssa_program.t) =
               match of_sum sum with
               | None -> [ Ssa_stmt.Ordered_sum { o with body = region o.body } ]
               | Some ((f : Found.t), scratch) ->
+                  let origin = Ssa_rewrite.origin_of s in
                   let pre, token =
                     match f.Found.top with
-                    | None -> contracts [ (f, scratch) ] o.token
+                    | None -> contracts ~origin [ (f, scratch) ] o.token
                     | Some _ -> ([], o.token)
                   in
                   let zero = fresh (Ssa_type.Scalar Ssa_type.Index) in
@@ -558,8 +561,8 @@ let program ~numerics ?bf16 (p : Ssa_program.t) =
                   in
                   pre
                   @ [
-                      instr [ zero ] (Ssa_op.Const (Ssa_const.Index 0L));
-                      instr ~token o.results
+                      instr ~origin [ zero ] (Ssa_op.Const (Ssa_const.Index 0L));
+                      instr ~origin ~token o.results
                         (Ssa_op.Load_in_bounds
                            {
                              buffer = scratch.Ssa_buffer.id;

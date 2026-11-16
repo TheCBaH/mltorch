@@ -8,6 +8,7 @@
  (name machine_rivet_riscv32_coral_test)
  (libraries
   contraction
+  coral_capacity
   coralnpu
   coralnpu_kernels
   coralnpu_kernels_zvt

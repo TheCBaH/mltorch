@@ -8,6 +8,7 @@
 (library
  (name machine_rivet_riscv32_coral)
  (libraries
+  coral_capacity
   coralnpu
   contraction
   coral_transfer
@@ -20,7 +21,8 @@
   machine_model
   machine_rivet_common
   machine_rivet_riscv32
-  machine_rivet_riscv32_mir)
+  machine_rivet_riscv32_mir
+  rivet.image)
  (enabled_if
   (and
    %{lib-available:rivet.riscv32_encode}

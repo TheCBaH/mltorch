@@ -20,6 +20,17 @@ type refusal =
 
 val pp_refusal : Format.formatter -> refusal -> unit
 
+(** The repeated part of a banded program: from block [first], [iterations]
+    repetitions of [period] blocks, one body of view calls whose bases move by a
+    fixed step per repetition. Blocks before and after it are unrolled. *)
+module Loop : sig
+  type t = {
+    first : Band_schedule.Count.t;
+    period : Band_schedule.Count.t;
+    iterations : Band_schedule.Count.t;
+  }
+end
+
 module Program : sig
   type t = {
     program : Ssa_program.t;
@@ -28,16 +39,27 @@ module Program : sig
     output : Ssa_id.Buffer.t;  (** the last stage's whole output *)
     rings : (Ssa_id.Buffer.t * Band_schedule.Count.t) list;
         (** per non-last stage, its window buffer and its rows *)
+    loop : Loop.t option;  (** [None] when no run of blocks repeats *)
   }
 end
 
+(** Deliberate defects of the loop for the evidence suite; no consumer applies
+    one. Alphabetical. *)
+type mutation =
+  | Iterations_short  (** the loop stops one repetition early *)
+  | Step_dropped  (** the bases do not move between repetitions *)
+
 val program :
+  ?looped:bool ->
+  ?mutation:mutation ->
   Stage.t list ->
   width:int64 ->
   rows:Band_schedule.Count.t ->
   block:Band_schedule.Span.block Band_schedule.Span.t ->
   (Program.t, refusal) result
-(** Raises [Invalid_argument] as {!Band_schedule.run} does. *)
+(** A run of blocks that repeats becomes a loop over one body, so a view-call
+    body is reused per repetition; [~looped:false] keeps every event unrolled.
+    Raises [Invalid_argument] as {!Band_schedule.run} does. *)
 
 val whole :
   Stage.t list -> width:int64 -> rows:Band_schedule.Count.t -> Program.t

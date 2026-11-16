@@ -32,3 +32,18 @@ end
 val place : Coral_profile.t -> Image.t -> (Placed.t, [> error ]) Err.t
 (** {!check_code}, then {!Coral_layout.place} with one executable segment and
     one slot per allocation. *)
+
+(** The candidates of one segment, each an image carrying the code size of its
+    assembled form. One over the budget is rejected, with the sizes, and the
+    rest are placed; none placed is a refusal of its own, with every reason. *)
+module Admission : sig
+  type rejection = { name : string; reason : error }
+  type t = { placed : (string * Placed.t) list; rejected : rejection list }
+end
+
+val admit :
+  Coral_profile.t ->
+  Image.t list ->
+  (Admission.t, [> `None_fit of Admission.rejection list ]) Err.t
+(** Each image through {!place}, in order, keyed by its name. [`None_fit] when
+    the list is empty or none was placed. *)

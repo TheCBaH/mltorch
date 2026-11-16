@@ -110,3 +110,36 @@ let%expect_test "the SSA JavaScript bundle is bitwise the reference" =
     wide_chain: default path identical: true
     wide_chain representation: identical: true
     wide_chain exact: identical: true |}]
+
+(* Region-authored operations (rms_norm, softmax) through the SSA JavaScript
+   bundle: neither is a pointwise or contraction kernel, so each goes through its
+   region program rather than a fixture the chain above already covers. *)
+let region_chain () =
+  let module F = Native_test.Graph_fixtures in
+  F.build "region_chain"
+    Graph_builder.(
+      let* x = input ~shape:(F.nhwc ~h:3 ~w:4 ~c:8) () in
+      let* gamma = constant ~shape:(F.s1c 8) () in
+      let* n =
+        rms_norm
+          { Norm.RmsNorm.dims = [ Axis.C ]; eps = 1e-5 }
+          ~x ~weight:gamma ()
+      in
+      softmax { Reduce.Softmax.axis = Axis.C } n)
+
+let%expect_test
+    "a Region operation through the SSA JavaScript bundle is bitwise the \
+     reference" =
+  let g = region_chain () in
+  Fmt.pr "region_chain: default path identical: %b@." (run_graph g);
+  List.iter
+    (fun pipeline ->
+      Fmt.pr "region_chain %s: identical: %b@."
+        (Ssa_backends.Pipeline.name pipeline)
+        (run_graph ~kernel:(Ssa_backends.js ~pipeline) g))
+    [ Ssa_backends.Pipeline.Representation; Ssa_backends.Pipeline.Exact ];
+  [%expect
+    {|
+    region_chain: default path identical: true
+    region_chain representation: identical: true
+    region_chain exact: identical: true |}]

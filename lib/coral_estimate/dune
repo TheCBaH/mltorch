@@ -4,4 +4,4 @@
 
 (library
  (name coral_estimate)
- (libraries attention_block contraction expr fmt ssa_ir))
+ (libraries attention_block contraction err_trace expr fmt ssa_ir))

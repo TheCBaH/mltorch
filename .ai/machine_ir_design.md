@@ -974,6 +974,7 @@ row-blocked vector accumulators (AArch64 matmul, two rows: 4 hot spills, none
 with the rule). `Reverse` (latest ready first) is evidence
 only: the legal order farthest from the source, run bitwise on every model
 route, and with any one dependence class dropped refused by the check.
+The structured route's kernels are compact enough that softmax and sdpa leave `Sink` nothing to move and the flags class is caught on two or three kernels, so the comparison route's kernels (`Direct`, same graphs) are a second fixture set pinning sink moves and the flags mutation on four.
 
 **Pressure feedback** (`Mir_pressure`, `Mir_blocking`). A kernel's pressure is
 counted, never timed: the most values live at once per bank of the selected

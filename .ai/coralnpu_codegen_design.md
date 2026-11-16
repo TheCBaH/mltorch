@@ -1207,4 +1207,16 @@ profile of the release. Both fit the 4 MiB RAM (2.85 MB and 2.27 MB); on the
 1 MiB-DTCM configuration the layout puts what fits in DTCM. The code size used
 is the one measured for a block's three kernels and runtime; the driver is not
 in it. Open: the sizes of the assembled images with the real driver, tail
-loops and variants, and the per-candidate size in the segment plan.
+loops and variants, and selection of the cheapest candidate that fits.
+
+Candidates carry their code size. `Capacity.admit` runs each candidate image
+through `place` and returns the placed ones with the rejected ones and their
+typed reasons (`` `None_fit `` when none is placed). The route supplies the
+size: `Rv32_mir_coral.candidate` takes the image the Machine IR route
+assembled (the bytes of its executable segments, one allocation per layout
+slot), and `route ~on_candidate` hands it over as the image is built. An
+image over its own configuration's ITCM is not assembled, so measure on a
+configuration that holds the candidate and admit against the target's
+profile. The gated suite in `test/machine_rivet_riscv32_coral` pins a linear
+fixture's measured size (matrix 1608, vector 1680 bytes) and the boundary at
+exactly that size.

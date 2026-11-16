@@ -1,8 +1,7 @@
 # Band schedule, view call and segment driver
 
 Libraries: band_driver, band_schedule
-Status: 2026-11-16 — schedule interpreter, view-call operation with per-row bases,
-pointwise driver and fuzz generator implemented; target realization open
+Status: 2026-11-17 — the driver loops over repeating blocks; schedule interpreter, view-call operation with per-row bases, pointwise driver and fuzz generator implemented; Machine IR lowering through the contraction helper, run on the generic, AArch64 and RV32 interpreters
 
 A chain of row-local kernels runs block by block: the last kernel makes `block`
 rows, each earlier kernel runs ahead in chunks of its own, and a produced row
@@ -32,7 +31,7 @@ Where it is handled:
 | `Ssa_interp`, `Ssa_cfg_interp` | `Contraction.eval` through the bases; the CFG executor shares the instruction evaluator |
 | `Ssa_expand_view_call` | expansion into the loops of `Ssa_expand_contract` with each cell moved by its base; ordered or fused binary32 and ordered bfloat16, as for `Contract` |
 | C, JavaScript, Wasm emitters | typed refusal (`` `Unsupported_view_call ``, `Operation.View_call`); expand first |
-| Machine IR | typed refusal (`Refusal.View_call`): the helper route takes whole buffers |
+| Machine IR | contraction helper calls on offset addresses (`Mir_lower`): one call per view call, one per row of the split axis where bases are per row, the descriptor made single there; the helper is the `Contract` one, so every target that realizes it realizes the view call |
 | `Loop_of_ssa` | no Loop form; expand first |
 
 ## The driver
@@ -45,6 +44,19 @@ rows. A read that straddles a window's end is refused (`Read_spans_wrap`): one
 base cannot name rows that are not consecutive in the ring. `Band_driver.whole`
 is the unbanded reference (one `Contract` per stage over complete tensors); the
 tests compare the two bitwise under the SSA interpreter.
+
+The driver emits the blocks that repeat as one loop. Events are grouped into
+blocks (up to each event of the last stage); the longest run in which
+repetition `k` of a period of blocks equals repetition 0 with every base moved
+by `k` times a fixed per-base step becomes `For` over the repetitions, the
+bases `base + i * step` (a step of zero stays a constant). Ring bases step by
+zero once the window rotation has repeated, logical bases by the rows a period
+covers. Blocks before and after the run stay unrolled; `Program.loop` names
+the run, and `~looped:false` keeps the unrolled list as the reference. The
+verifier proves each body footprint over the induction range, so the loop is as
+checked as the unrolled form. Two driver mutations (`Step_dropped`,
+`Iterations_short`) are red against the whole chain on the SSA interpreter and
+on all three Machine IR routes (`test/band_driver`, `test/machine_view_call`).
 
 ## Per-row bases
 
@@ -74,9 +86,20 @@ expansion through each emitter and show the call itself refused.
 `scripts/ssa-fuzz-mutation-check.sh ir` breaks the expansion and the evaluator
 four ways and requires each to go red.
 
+`test/machine_view_call` lowers the banded driver chains and hand-built per-row
+calls (A and C rows, B columns, a single-base operand beside per-row ones,
+batched) through `Mir_lower` and runs them on the generic, AArch64 and RV32
+interpreters (the contraction helper bound to its model), bitwise equal to the
+SSA interpreter, which equals the whole `Contract` chain. Two lowering
+mutations (`View_base_dropped`, `View_outer_dropped`) each turn it red. Not yet
+run under qemu or on hardware: the interpreted routes only. The per-row form
+costs one helper call per row of the axis, since a helper takes one address per
+operand.
+
 ## Open
 
 - A KxK stage (several rows read per output row, each with its own bases) in
   the driver; stages that are not pointwise.
-- Realization on the three machine targets through the `Mir_helper` route.
-- The driver as a loop over uniform blocks, not an unrolled event list.
+- Loop bodies are reused per period of blocks; a chain whose window rotation
+  never repeats within the rows stays unrolled. A loop over blocks whose ring
+  base is computed from the induction value (no period) is not done.

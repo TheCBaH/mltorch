@@ -46,16 +46,16 @@ let%expect_test "scalar and Zve32f on the RTL vector core" =
     {|
     relu then add over C=32, scalar (2 invocations): bitwise
     relu then add over C=32, zve32f128 (2 invocations): bitwise
-      cycles 7492 -> 1601 (4.68x), instructions 4564 -> 1141 (4.00x)
+      cycles 7452 -> 1601 (4.65x), instructions 4456 -> 1141 (3.91x)
     softmax over H, W=32, scalar (1 invocations): bitwise
     softmax over H, W=32, zve32f128 (1 invocations): bitwise
-      cycles 213975 -> 213975 (1.00x), instructions 120886 -> 120886 (1.00x)
+      cycles 209854 -> 209854 (1.00x), instructions 117816 -> 117816 (1.00x)
     layer_norm over H, W=32, scalar (1 invocations): bitwise
     layer_norm over H, W=32, zve32f128 (1 invocations): bitwise
-      cycles 50380 -> 50380 (1.00x), instructions 27189 -> 27189 (1.00x)
+      cycles 42125 -> 42125 (1.00x), instructions 21237 -> 21237 (1.00x)
     conv, batch norm, relu to C=32, scalar (3 invocations): bitwise
     conv, batch norm, relu to C=32, zve32f128 (3 invocations): bitwise
-      cycles 183545 -> 23709 (7.74x), instructions 137969 -> 20356 (6.78x)
+      cycles 183499 -> 23709 (7.74x), instructions 137815 -> 20356 (6.77x)
     residual add 2x160, scalar (1 invocations): bitwise
     residual add 2x160, zve32f128 (1 invocations): bitwise
       cycles 5850 -> 868 (6.74x), instructions 3594 -> 689 (5.22x)
@@ -67,13 +67,13 @@ let%expect_test "scalar and Zve32f on the RTL vector core" =
       cycles 659 -> 186 (3.54x), instructions 402 -> 127 (3.17x)
     rms norm 2x160, scalar (1 invocations): bitwise
     rms norm 2x160, zve32f128 (1 invocations): bitwise
-      cycles 11824 -> 3599 (3.29x), instructions 6564 -> 1634 (4.02x)
+      cycles 11771 -> 3564 (3.30x), instructions 6524 -> 1597 (4.09x)
     rms norm 1x67, scalar (1 invocations): bitwise
     rms norm 1x67, zve32f128 (1 invocations): bitwise
-      cycles 2600 -> 986 (2.64x), instructions 1432 -> 474 (3.02x)
+      cycles 2571 -> 963 (2.67x), instructions 1412 -> 456 (3.10x)
     rms norm 1x33, scalar (1 invocations): bitwise
     rms norm 1x33, zve32f128 (1 invocations): bitwise
-      cycles 1376 -> 591 (2.33x), instructions 752 -> 289 (2.60x)
+      cycles 1347 -> 568 (2.37x), instructions 732 -> 271 (2.70x)
     tanh gelu mul 2x160, scalar (2 invocations): bitwise
     tanh gelu mul 2x160, zve32f128 (2 invocations): bitwise
       cycles 81207 -> 21755 (3.73x), instructions 43855 -> 11220 (3.91x)
@@ -94,13 +94,13 @@ let%expect_test "scalar and Zve32f on the RTL vector core" =
       cycles 857 -> 256 (3.35x), instructions 567 -> 199 (2.85x)
     rms norm bf16 2x160, scalar (1 invocations): bitwise
     rms norm bf16 2x160, zve32f128 (1 invocations): bitwise
-      cycles 14068 -> 4807 (2.93x), instructions 8806 -> 2838 (3.10x)
+      cycles 14013 -> 4762 (2.94x), instructions 8766 -> 2798 (3.13x)
     rms norm bf16 1x67, scalar (1 invocations): bitwise
     rms norm bf16 1x67, zve32f128 (1 invocations): bitwise
-      cycles 3069 -> 1240 (2.48x), instructions 1901 -> 731 (2.60x)
+      cycles 3040 -> 1212 (2.51x), instructions 1881 -> 711 (2.65x)
     rms norm bf16 1x33, scalar (1 invocations): bitwise
     rms norm bf16 1x33, zve32f128 (1 invocations): bitwise
-      cycles 1607 -> 708 (2.27x), instructions 983 -> 411 (2.39x)
+      cycles 1578 -> 680 (2.32x), instructions 963 -> 391 (2.46x)
     tanh gelu mul bf16 2x160, scalar (2 invocations): bitwise
     tanh gelu mul bf16 2x160, zve32f128 (2 invocations): bitwise
       cycles 83147 -> 23704 (3.51x), instructions 45790 -> 13614 (3.36x)
@@ -121,13 +121,13 @@ let%expect_test "scalar and Zve32f on the RTL vector core" =
       cycles 1843 -> 582 (3.17x), instructions 1562 -> 453 (3.45x)
     rms norm bf16->bf16 2x160, scalar (2 invocations): bitwise
     rms norm bf16->bf16 2x160, zve32f128 (2 invocations): bitwise
-      cycles 23116 -> 7054 (3.28x), instructions 18155 -> 4636 (3.92x)
+      cycles 23061 -> 7009 (3.29x), instructions 18115 -> 4596 (3.94x)
     rms norm bf16->bf16 1x67, scalar (2 invocations): bitwise
     rms norm bf16->bf16 1x67, zve32f128 (2 invocations): bitwise
-      cycles 5007 -> 1842 (2.72x), instructions 3882 -> 1219 (3.18x)
+      cycles 4978 -> 1814 (2.74x), instructions 3862 -> 1199 (3.22x)
     rms norm bf16->bf16 1x33, scalar (2 invocations): bitwise
     rms norm bf16->bf16 1x33, zve32f128 (2 invocations): bitwise
-      cycles 2593 -> 1034 (2.51x), instructions 1978 -> 665 (2.97x)
+      cycles 2564 -> 1006 (2.55x), instructions 1958 -> 645 (3.04x)
     tanh gelu mul bf16->bf16 2x160, scalar (3 invocations): bitwise
     tanh gelu mul bf16->bf16 2x160, zve32f128 (3 invocations): bitwise
       cycles 92195 -> 25951 (3.55x), instructions 55139 -> 15412 (3.58x)
@@ -361,13 +361,13 @@ let%expect_test "transformer operations, register groups" =
       cycles 186 -> 144 (1.29x)
     rms norm 2x160, m1 (1 invocations): bitwise
     rms norm 2x160, m4 (1 invocations): bitwise
-      cycles 3599 -> 2130 (1.69x)
+      cycles 3564 -> 2085 (1.71x)
     rms norm 1x67, m1 (1 invocations): bitwise
     rms norm 1x67, m4 (1 invocations): bitwise
-      cycles 986 -> 685 (1.44x)
+      cycles 963 -> 656 (1.47x)
     rms norm 1x33, m1 (1 invocations): bitwise
     rms norm 1x33, m4 (1 invocations): bitwise
-      cycles 591 -> 435 (1.36x)
+      cycles 568 -> 406 (1.40x)
     tanh gelu mul 2x160, m1 (2 invocations): bitwise
     tanh gelu mul 2x160, m4 (2 invocations): bitwise
       cycles 21755 -> 13889 (1.57x)
@@ -388,13 +388,13 @@ let%expect_test "transformer operations, register groups" =
       cycles 256 -> 176 (1.45x)
     rms norm bf16 2x160, m1 (1 invocations): bitwise
     rms norm bf16 2x160, m4 (1 invocations): bitwise
-      cycles 4807 -> 2497 (1.93x)
+      cycles 4762 -> 2453 (1.94x)
     rms norm bf16 1x67, m1 (1 invocations): bitwise
     rms norm bf16 1x67, m4 (1 invocations): bitwise
-      cycles 1240 -> 777 (1.60x)
+      cycles 1212 -> 749 (1.62x)
     rms norm bf16 1x33, m1 (1 invocations): bitwise
     rms norm bf16 1x33, m4 (1 invocations): bitwise
-      cycles 708 -> 475 (1.49x)
+      cycles 680 -> 447 (1.52x)
     tanh gelu mul bf16 2x160, m1 (2 invocations): bitwise
     tanh gelu mul bf16 2x160, m4 (2 invocations): bitwise
       cycles 23704 -> 14129 (1.68x)
@@ -415,13 +415,13 @@ let%expect_test "transformer operations, register groups" =
       cycles 582 -> 402 (1.45x)
     rms norm bf16->bf16 2x160, m1 (2 invocations): bitwise
     rms norm bf16->bf16 2x160, m4 (2 invocations): bitwise
-      cycles 7054 -> 3723 (1.89x)
+      cycles 7009 -> 3679 (1.91x)
     rms norm bf16->bf16 1x67, m1 (2 invocations): bitwise
     rms norm bf16->bf16 1x67, m4 (2 invocations): bitwise
-      cycles 1842 -> 1177 (1.56x)
+      cycles 1814 -> 1149 (1.58x)
     rms norm bf16->bf16 1x33, m1 (2 invocations): bitwise
     rms norm bf16->bf16 1x33, m4 (2 invocations): bitwise
-      cycles 1034 -> 701 (1.48x)
+      cycles 1006 -> 673 (1.49x)
     tanh gelu mul bf16->bf16 2x160, m1 (3 invocations): bitwise
     tanh gelu mul bf16->bf16 2x160, m4 (3 invocations): bitwise
       cycles 25951 -> 15355 (1.69x)
@@ -468,13 +468,13 @@ let%expect_test "groups of eight" =
       cycles 144 -> 139 (1.04x)
     rms norm 2x160, m4 (1 invocations): bitwise
     rms norm 2x160, m8 (1 invocations): bitwise
-      cycles 2130 -> 2098 (1.02x)
+      cycles 2085 -> 2044 (1.02x)
     rms norm 1x67, m4 (1 invocations): bitwise
     rms norm 1x67, m8 (1 invocations): bitwise
-      cycles 685 -> 678 (1.01x)
+      cycles 656 -> 650 (1.01x)
     rms norm 1x33, m4 (1 invocations): bitwise
     rms norm 1x33, m8 (1 invocations): bitwise
-      cycles 435 -> 431 (1.01x) |}]
+      cycles 406 -> 403 (1.01x) |}]
 
 (* RMS norm under the relaxed policy in groups of four: its scheduled sum's
    horizontal combine extracts lanes of a sixteen-lane group. The oracle is
@@ -498,8 +498,8 @@ let%expect_test "relaxed sums, register groups" =
   [%expect
     {|
     rms norm 2x160, m4 (1 invocations): bitwise
-      cycles 1781
+      cycles 1743
     rms norm 1x67, m4 (1 invocations): bitwise
-      cycles 744
+      cycles 721
     rms norm 1x33, m4 (1 invocations): bitwise
-      cycles 785 |}]
+      cycles 756 |}]

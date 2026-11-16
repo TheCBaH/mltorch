@@ -63,9 +63,10 @@ let run (p : D.Program.t) ~input ~weights =
   | Ssa_memory.Floats cs -> cs
   | _ -> assert false
 
-let case ~name stages ~width ~rows ~block =
+let case ?mutation ~name stages ~width ~rows ~block =
   match
-    D.program stages ~width ~rows:(count rows) ~block:(S.Span.block block)
+    D.program ?mutation stages ~width ~rows:(count rows)
+      ~block:(S.Span.block block)
   with
   | Error r -> Fmt.pr "%s: refused: %a@." name D.pp_refusal r
   | Ok banded ->
@@ -81,15 +82,32 @@ let case ~name stages ~width ~rows ~block =
       in
       let want = run reference ~input ~weights in
       let got = run banded ~input ~weights in
-      Fmt.pr "%s: windows %a; %s@." name
+      let unrolled =
+        match
+          D.program ~looped:false stages ~width ~rows:(count rows)
+            ~block:(S.Span.block block)
+        with
+        | Ok u -> run u ~input ~weights
+        | Error _ -> assert false
+      in
+      let same a b =
+        Array.for_all2
+          (fun a b -> Int32.bits_of_float a = Int32.bits_of_float b)
+          a b
+      in
+      Fmt.pr "%s: windows %a; loop %a; %s; unrolled %s@." name
         Fmt.(list ~sep:(any " ") int)
         (List.map (fun (_, w) -> S.Count.to_int w) banded.D.Program.rings)
-        (if
-           Array.for_all2
-             (fun a b -> Int32.bits_of_float a = Int32.bits_of_float b)
-             want got
-         then "equals the whole-tensor Contracts"
+        Fmt.(
+          option ~none:(any "none") (fun ppf (l : D.Loop.t) ->
+              pf ppf "%d blocks x %d from block %d"
+                (S.Count.to_int l.D.Loop.period)
+                (S.Count.to_int l.D.Loop.iterations)
+                (S.Count.to_int l.D.Loop.first)))
+        banded.D.Program.loop
+        (if same want got then "equals the whole-tensor Contracts"
          else "DIFFERS")
+        (if same want unrolled then "equal" else "DIFFERS")
 
 let%expect_test "banded pointwise chains equal the whole-tensor chain" =
   let three =
@@ -102,15 +120,23 @@ let%expect_test "banded pointwise chains equal the whole-tensor chain" =
   case ~name:"3 stages, 8 rows, block 2" three ~width:3L ~rows:8 ~block:2;
   case ~name:"3 stages, 7 rows, block 2" three ~width:2L ~rows:7 ~block:2;
   case ~name:"3 stages, 8 rows, block 3" three ~width:3L ~rows:8 ~block:3;
+  case ~name:"3 stages, 16 rows, block 2" three ~width:3L ~rows:16 ~block:2;
+  case ~name:"3 stages, 23 rows, block 3" three ~width:2L ~rows:23 ~block:3;
+  case ~name:"3 stages, 12 rows, block 1" three ~width:2L ~rows:12 ~block:1;
+  case ~name:"3 stages, 48 rows, block 3" three ~width:2L ~rows:48 ~block:3;
   case ~name:"1 stage, 5 rows, block 5"
     [ stage "a" ~chunk:1 ~cin:2 ~cout:2 ]
     ~width:2L ~rows:5 ~block:5;
   [%expect
     {|
-    3 stages, 8 rows, block 2: windows 2 2; equals the whole-tensor Contracts
-    3 stages, 7 rows, block 2: windows 2 2; equals the whole-tensor Contracts
-    3 stages, 8 rows, block 3: windows 2 4; equals the whole-tensor Contracts
-    1 stage, 5 rows, block 5: windows ; equals the whole-tensor Contracts |}]
+    3 stages, 8 rows, block 2: windows 2 2; loop 1 blocks x 4 from block 0; equals the whole-tensor Contracts; unrolled equal
+    3 stages, 7 rows, block 2: windows 2 2; loop 1 blocks x 3 from block 0; equals the whole-tensor Contracts; unrolled equal
+    3 stages, 8 rows, block 3: windows 2 4; loop none; equals the whole-tensor Contracts; unrolled equal
+    3 stages, 16 rows, block 2: windows 2 2; loop 1 blocks x 8 from block 0; equals the whole-tensor Contracts; unrolled equal
+    3 stages, 23 rows, block 3: windows 2 4; loop none; equals the whole-tensor Contracts; unrolled equal
+    3 stages, 12 rows, block 1: windows 2 2; loop 2 blocks x 6 from block 0; equals the whole-tensor Contracts; unrolled equal
+    3 stages, 48 rows, block 3: windows 2 4; loop 4 blocks x 4 from block 0; equals the whole-tensor Contracts; unrolled equal
+    1 stage, 5 rows, block 5: windows ; loop none; equals the whole-tensor Contracts; unrolled equal |}]
 
 let%expect_test "a kernel that is not pointwise is refused" =
   let k = { (kernel "w" ~chunk:1) with S.extent = count 3 } in
@@ -122,7 +148,8 @@ let%expect_test "a kernel that is not pointwise is refused" =
 
 (* Where a target has no form for a view call it refuses, by name; the
    expansion is how a program with one reaches such a target. *)
-let%expect_test "the targets refuse a view call, and the expansion has none" =
+let%expect_test
+    "C, JavaScript and Wasm refuse a view call; Machine IR lowers it" =
   let stages =
     [ stage "a" ~chunk:2 ~cin:2 ~cout:3; stage "b" ~chunk:2 ~cin:3 ~cout:2 ]
   in
@@ -170,5 +197,29 @@ let%expect_test "the targets refuse a view call, and the expansion has none" =
     C: C has no form for a view call
     JavaScript: a view call has no JavaScript form
     Wasm: a view call has no WebAssembly form
-    Machine IR: a view call has no helper binding: the helper route takes whole buffers
+    Machine IR: accepted
     C, expanded: accepted |}]
+
+(* The loop's two defects are seen: bases that do not move repeat the first
+   repetition's rows, a loop one repetition short leaves the last block's rows
+   unwritten. *)
+let%expect_test "loop mutations are red" =
+  let three =
+    [
+      stage "a" ~chunk:2 ~cin:2 ~cout:3;
+      stage "b" ~chunk:2 ~cin:3 ~cout:4;
+      stage "c" ~chunk:2 ~cin:4 ~cout:2;
+    ]
+  in
+  List.iter
+    (fun (name, mutation) ->
+      Fmt.pr "== %s@." name;
+      case ~mutation ~name:"3 stages, 16 rows, block 2" three ~width:3L ~rows:16
+        ~block:2)
+    D.[ ("iterations short", Iterations_short); ("step dropped", Step_dropped) ];
+  [%expect
+    {|
+    == iterations short
+    3 stages, 16 rows, block 2: windows 2 2; loop 1 blocks x 8 from block 0; DIFFERS; unrolled equal
+    == step dropped
+    3 stages, 16 rows, block 2: windows 2 2; loop 1 blocks x 8 from block 0; DIFFERS; unrolled equal |}]

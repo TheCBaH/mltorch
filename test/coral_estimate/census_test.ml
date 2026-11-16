@@ -197,3 +197,77 @@ let%expect_test "innermost loop bodies" =
     softmax over C 16x16: f32_op=256 iteration=256 load_dtcm=256
     softmax over C 16x16: f32_op=256 int_op=32 iteration=16 vec_f32_op=64 vec_other=256 vec_load_dtcm=64 vec_exp=64
     softmax over C 16x16: iteration=16 vec_f32_div=64 vec_f32_op=64 vec_load_dtcm=64 vec_exp=64 vec_store_dtcm=64 |}]
+
+(* A view call is counted as the helper calls it lowers to (one per row of an
+   axis with a base per row, as Mir_lower_contract.view_call emits), with its
+   address arithmetic as int ops: a loop of three block calls of four rows is
+   three calls on one base, twelve on per-row bases, and the loop's trips are
+   still counted as iterations. *)
+let%expect_test "view calls are their helper calls" =
+  let open Ssa_ir in
+  let i64 = Int64.of_int in
+  let m = 12 and k = 8 and n = 16 and r = 4 in
+  let desc rows =
+    Result.get_ok
+      (Err.payload
+         (Contraction.make ~batch:1L ~m:(i64 rows) ~n:(i64 n) ~k:(i64 k)
+            ~a:{ Contraction.Operand.batch = 0L; outer = i64 k; k = 1L }
+            ~b:{ Contraction.Operand.batch = 0L; outer = 1L; k = i64 n }
+            ~c:{ Contraction.Output.batch = 0L; row = i64 n; col = 1L }
+            ~format:Contraction.Element.F32 ~seed:Contraction.Seed.Zero
+            ~numerics:Contraction.Numerics.Ordered))
+  in
+  let buffer id ~h ~w role =
+    {
+      Ssa_buffer.id = Ssa_id.Buffer.of_int id;
+      extents = Expr.Coord.make ~n:1L ~t:1L ~d:1L ~h:(i64 h) ~w:(i64 w) ~c:1L;
+      format = Ssa_format.F32;
+      role;
+    }
+  in
+  let buffers =
+    [
+      buffer 0 ~h:m ~w:k Ssa_buffer.Input;
+      buffer 1 ~h:k ~w:n Ssa_buffer.Input;
+      buffer 2 ~h:m ~w:n Ssa_buffer.Output;
+    ]
+  in
+  let census ~per_row =
+    let module B = Ssa_builder in
+    let p =
+      Err.or_raise ~pp_error:Ssa_verify.pp_error
+        (B.program ~buffers (fun bld ->
+             ignore
+               (B.for_ bld ~lo:(B.index bld 0L)
+                  ~hi:(B.index bld (i64 (m / r)))
+                  ~init:B.Nil
+                  (fun bld blk B.Nil ->
+                    let start s = B.index_scale bld (i64 s) blk in
+                    let at s =
+                      let first = start (r * s) in
+                      if per_row then
+                        B.Rows
+                          (List.init r (fun i ->
+                               B.index_add bld first (B.index bld (i64 (i * s)))))
+                      else B.Base first
+                    in
+                    B.view_call bld (desc r)
+                      ~a:(Ssa_id.Buffer.of_int 0, at k)
+                      ~b:(Ssa_id.Buffer.of_int 1, B.Base (B.index bld 0L))
+                      ~c:(Ssa_id.Buffer.of_int 2, at n);
+                    B.Nil))))
+    in
+    CE.program p
+  in
+  List.iter
+    (fun per_row ->
+      let c = census ~per_row in
+      Fmt.pr "per_row=%b: %a@." per_row CE.pp c)
+    [ false; true ];
+  [%expect {|
+    per_row=false: int_op 42
+                   iteration 3
+                   contract contract.f32.b1.m4.n16.k8.a0_8_1.b0_1_16.c0_16_1.zero.ordered (dtcm dtcm dtcm) x3
+    per_row=true: int_op 174
+                  iteration 3
+                  contract contract.f32.b1.m1.n16.k8.a0_8_1.b0_1_16.c0_16_1.zero.ordered (dtcm dtcm dtcm) x12 |}]

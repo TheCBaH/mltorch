@@ -148,3 +148,34 @@ let%expect_test "the unfused code size of the probe block fits 8 KiB" =
       input    0x20000000    401408 testbench-ram
       output   0x20062000   2408448 testbench-ram
       scratch  0x202ae000     43008 testbench-ram |}]
+
+let%expect_test "candidates: the over-budget one is rejected, the rest placed" =
+  let small = Witness.pointwise_mobilenetv2_050 ~code:fused in
+  let big =
+    {
+      (Witness.expand_depthwise_efficientnet_b0
+         ~code:(Code_bytes.of_int64 8_193L))
+      with
+      name = "big";
+    }
+  in
+  (match Err.payload (Capacity.admit rtl [ big; small ]) with
+  | Ok a ->
+      List.iter (fun (n, _) -> Fmt.pr "placed %s@." n) a.placed;
+      List.iter
+        (fun (r : Capacity.Admission.rejection) ->
+          Fmt.pr "rejected %s: %a@." r.name Capacity.pp_error r.reason)
+        a.rejected
+  | Error _ -> Fmt.pr "none fit@.");
+  (match Err.payload (Capacity.admit rtl [ big ]) with
+  | Error
+      (`None_fit [ { Capacity.Admission.name; reason = `Code_over_budget o } ])
+    ->
+      Fmt.pr "none fit: %s %a over %a@." name Code_bytes.pp o.needed
+        Code_bytes.pp o.budget
+  | Ok _ | Error _ -> Fmt.pr "not the typed refusal@.");
+  [%expect
+    {|
+    placed mobilenetv2_050 pointwise 8 -> 48 at 112x112
+    rejected big: code: 8193 bytes needed, 8192 budget
+    none fit: big 8193 over 8192 |}]

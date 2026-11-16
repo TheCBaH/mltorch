@@ -38,8 +38,8 @@ end
 
 (* The one place an invocation's placed kernel becomes an SSA program. The
    string boundary of this library's callers is [lower_string]. *)
-let lowered ?(frontend = Frontend.Direct) (inv : Loop_ir.Loop_bundle.invocation)
-    =
+let lowered ?(frontend = Frontend.Structured)
+    (inv : Loop_ir.Loop_bundle.invocation) =
   let placed = inv.Loop_ir.Loop_bundle.placed in
   match frontend with
   | Frontend.Direct -> (
@@ -212,9 +212,9 @@ let js_via ~frontend ~pipeline inv =
   | Ok (ast, _) -> Ok ast
   | Error e -> Error (Fmt.str "%a" Ssa_js.pp_error e)
 
-let c = c_via ~frontend:Frontend.Direct
-let wasm = wasm_via ~frontend:Frontend.Direct
-let js = js_via ~frontend:Frontend.Direct
+let c = c_via ~frontend:Frontend.Structured
+let wasm = wasm_via ~frontend:Frontend.Structured
+let js = js_via ~frontend:Frontend.Structured
 
 module Coverage = struct
   type column =

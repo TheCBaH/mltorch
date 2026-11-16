@@ -395,3 +395,10 @@ The memory classes charge a per-access cost, and the tile and strided classes
 absorb the pipelining through their fitted rates. A cost per outstanding
 request (up to eight sources) would need traces that vary the number in flight
 within one instruction, which these cases do not.
+
+Recalibrated when the structured Loop-to-SSA route became the default
+backend route: the dataset is the structured-route kernels' (cycles equal or
+lower on every row; the decomposed layer's large invocation -16.6%, norms
+-4% to -6%). The rates were refit with no limit changed; the held-out linear
+32x96 k48 is +1.5% (limit 2%), and the decomposed layer's out-of-gate error is
+-12.4%.
