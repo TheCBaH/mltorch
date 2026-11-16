@@ -1,5 +1,6 @@
 ; Generated Coral microkernels: a contraction descriptor realized as one RVV
-; function, for the RV32 Machine IR route to link beside a model's module; and
+; function, for the RV32 Machine IR route to link beside a model's module; a
+; non-overlapping window convolution as one (Rvv_window); and
 ; the peak suite's kernels and the DMA suite's RVV block emitters
 ; (Peak_kernels, Dma_block), which the suites re-export under their names.
 ; Built only where the RV32 Rivet encoder is installed.
@@ -8,6 +9,7 @@
  (name coralnpu_kernels)
  (libraries
   contraction
+  core
   coral_transfer
   coralnpu
   err_trace

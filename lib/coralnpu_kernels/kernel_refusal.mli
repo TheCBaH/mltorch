@@ -25,6 +25,9 @@ type t =
   | Not_paired_bf16  (** not a paired bfloat16 contraction *)
   | Offset_past_31_bits  (** a byte offset past 31 bits *)
   | Operand_past_dma_transfer  (** an operand past one DMA transfer *)
+  | Out_channels_past_16
+      (** more output channels than one e32 m4 register group holds *)
+  | Overlapping_window  (** a kernel wider than its stride *)
   | Paired_requirement
       (** the paired requirement: only the matrix engine rounds pairs *)
   | Panels_over_budget of {
@@ -44,6 +47,7 @@ type t =
       (** a transfer plan checked for another contraction *)
   | Vector_expression of string
       (** the vector-expression emitter's own reason *)
+  | Window_past_input  (** a kernel larger than the input *)
 
 val pp : Format.formatter -> t -> unit
 val to_string : t -> string

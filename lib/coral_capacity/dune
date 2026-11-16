@@ -1,0 +1,9 @@
+; Whether an image fits a Coral configuration, and the two witness images the
+; segment plan's capacity claim rests on: byte sizes as int64 in types of their
+; own (a data size cannot be compared with the code budget), a code-budget
+; check that refuses with a typed reason, and the placement by the real
+; layout. Pure: no Rivet, no simulator.
+
+(library
+ (name coral_capacity)
+ (libraries coralnpu err_trace fmt))

@@ -173,8 +173,10 @@ let run ?(sram = false) ?(engine = Engine.plain) ?operands ?seed ~spread d =
           ~stage_b:
             (Z.Zvt_packed_contraction.Stage.Outside
                {
-                 base = Int64.to_int dtcm.Coral_profile.Region.base;
-                 bytes = Int64.to_int dtcm.Coral_profile.Region.size;
+                 base = dtcm.Coral_profile.Region.base;
+                 bytes =
+                   Coral_transfer.Transfer_units.Bytes.of_int
+                     (Int64.to_int dtcm.Coral_profile.Region.size);
                })
           d
     | Staged mutation ->

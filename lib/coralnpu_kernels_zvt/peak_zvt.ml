@@ -5,6 +5,17 @@
 open Coralnpu_kernels.Peak_kernels
 module Units = Coral_transfer.Transfer_units
 
+(* The first register of the group [n] groups above [base]'s. *)
+let groups_above lmul base (n : Core.Dim.index Core.Dim.t) =
+  let open Err.Syntax in
+  let rec go r n =
+    if n = 0 then Ok r
+    else
+      let* next = Vtype.Lmul.next lmul r in
+      go next (n - 1)
+  in
+  go base (n :> int)
+
 (* {1 One tile multiply}
 
    [op] repeated on the four independent 32-bit accumulator tiles [mt0],
@@ -158,14 +169,13 @@ module Tile = struct
     let s = shape op in
     let slices first =
       Err.List.map
-        (fun k ->
-          Reg.Vreg.of_index (first + (2 * k * Vtype.Lmul.factor s.lmul)))
+        (fun k -> groups_above s.lmul first (Core.Dim.index (2 * k)))
         (List.init (s.tk :> int) Fun.id)
     in
     let items () =
       let open Err.Syntax in
-      let* a = slices 8 in
-      let* b = slices 16 in
+      let* a = slices Vreg.v8 in
+      let* b = slices Vreg.v16 in
       let* config =
         configure
           ~mtype:(mtype ~tk:(s.tk :> int) ~mtwiden:s.mtwiden)
@@ -341,13 +351,14 @@ module Tile_gemm = struct
           | None -> if two then 64 else (tile :> int) * e);
       ]
     in
-    let first = Reg.Vreg.index base in
-    let regs =
-      if two then [ first; first + 4 ]
+    let* regs =
+      if two then
+        let* second = Reg.Vreg.of_index (Reg.Vreg.index base + 4) in
+        Ok [ base; second ]
       else
-        List.init
-          (p.t.tk :> int)
-          (fun j -> first + (2 * j * Vtype.Lmul.factor p.t.lmul))
+        Err.List.map
+          (fun j -> groups_above p.t.lmul base (Core.Dim.index (2 * j)))
+          (List.init (p.t.tk :> int) Fun.id)
     in
     let eew =
       if two then Vtype.Sew.E32
@@ -357,22 +368,20 @@ module Tile_gemm = struct
         | Bf16 | I16 -> E16
         | F32 | I32 -> E32
     in
-    let* regs = Err.List.map Reg.Vreg.of_index regs in
     Ok (List.concat_map (load eew) regs)
 
   (* The tile multiplies of one step, a column at a time: [tn] is narrowed
      ([t1]) for a partial last column and restored ([t3], 16) for the loads. *)
   let multiplies p cols ~(a : Reg.Vreg.t) ~(b : Reg.Vreg.t) =
     let open Err.Syntax in
-    let lmul = Vtype.Lmul.factor p.t.lmul in
     let* per_column =
       Err.List.map
         (fun (k, c) ->
-          let* bv = Reg.Vreg.of_index (Reg.Vreg.index b + (k * lmul)) in
+          let* bv = groups_above p.t.lmul b (Core.Dim.index k) in
           let* mults =
             Err.List.map
               (fun r ->
-                let* av = Reg.Vreg.of_index (Reg.Vreg.index a + (r * lmul)) in
+                let* av = groups_above p.t.lmul a (Core.Dim.index r) in
                 Ok
                   (Item.insn
                      (Vtmm

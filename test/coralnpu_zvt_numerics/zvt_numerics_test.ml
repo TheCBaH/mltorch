@@ -88,7 +88,12 @@ let%expect_test "vtfmm binary32 accumulation" =
     {
       items = kernel;
       slots =
-        [ slot L.Placement.In (4 * n * 4); slot L.Placement.Out (4 * n * n) ];
+        [
+          slot L.Placement.In
+            (Coral_transfer.Transfer_units.Bytes.of_int (4 * n * 4));
+          slot L.Placement.Out
+            (Coral_transfer.Transfer_units.Bytes.of_int (4 * n * n));
+        ];
       inputs = [ bytes_of [ a1; b1; a2; b2 ] ];
       expected = "";
       shape = "";
@@ -285,7 +290,12 @@ let alt_run dir configuration =
     {
       items = alt_kernel;
       slots =
-        [ slot L.Placement.In (2 * n * 8); slot L.Placement.Out (4 * n * n) ];
+        [
+          slot L.Placement.In
+            (Coral_transfer.Transfer_units.Bytes.of_int (2 * n * 8));
+          slot L.Placement.Out
+            (Coral_transfer.Transfer_units.Bytes.of_int (4 * n * n));
+        ];
       inputs =
         [
           bf16_bytes

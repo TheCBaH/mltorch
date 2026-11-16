@@ -1,0 +1,18 @@
+; The binary32 counterexample of the window kernels: a non-overlapping 2x2
+; convolution whose nested sums and flat tap sum round differently. Hermetic;
+; the fixture every window-kernel realization is held to.
+
+(library
+ (name coral_window_test)
+ (libraries
+  contraction
+  err_trace
+  fmt
+  loop_ir
+  native
+  native_test
+  ssa_backends
+  ssa_ir)
+ (inline_tests)
+ (preprocess
+  (pps ppx_expect)))

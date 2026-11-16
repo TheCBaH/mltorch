@@ -10,8 +10,12 @@
    [--prepack] reads each Linear's weight as a packed copy with contiguous
    columns, built once before the first invocation.
 
+   The graph is the canonical one (permutes and batch norms removed, weights
+   folded), the graph the profile and the capacity census are taken on;
+   [--lowered] runs the PT2 import unchanged instead.
+
    argv: <model.pt2> --dir=<extracted emulators archive>
-   --configuration=<name> [--contractions] [--prepack] *)
+   --configuration=<name> [--contractions] [--prepack] [--lowered] *)
 
 open Loop_ir
 module M = Machine_model.Mir_model
@@ -39,7 +43,8 @@ let () =
   let dir = ref None
   and configuration = ref None
   and contractions = ref false
-  and prepack = ref false in
+  and prepack = ref false
+  and lowered_graph = ref false in
   let args =
     List.filter
       (fun a ->
@@ -56,6 +61,9 @@ let () =
         | [ "--prepack" ] ->
             prepack := true;
             false
+        | [ "--lowered" ] ->
+            lowered_graph := true;
+            false
         | _ -> true)
       (List.tl (Array.to_list Sys.argv))
   in
@@ -70,13 +78,34 @@ let () =
         let* lowered =
           Native_interp.lower_archive archive |> Err.map_error lift
         in
-        let* constants =
+        let* constants0 =
           Native_interp.preload archive lowered |> Err.map_error lift
         in
-        let* b =
-          Loop_bundle.build lowered.Pt2_native_graph.graph |> Err.map_error lift
+        let* graph, constants =
+          if !lowered_graph then
+            Err.return (lowered.Pt2_native_graph.graph, constants0)
+          else
+            let* (Native_interp.Transformed t) =
+              Native_interp.transform_lowered ~constants:constants0 lowered
+                ~passes:[ Pipeline.canonical ~fold:true ]
+              |> Err.map_error lift
+            in
+            (* a folded weight lives only in the transform's store *)
+            let* store, _ =
+              Const_ssa_materialize.materialize
+                (Native_interp.capture_resolver archive)
+                t.constant_store
+              |> Err.map_error (fun e -> lift (`Materialize e))
+            in
+            Err.return
+              ( t.graph,
+                Graph_ir.Tensor_id.Map.union
+                  (fun _ _ planned -> Some planned)
+                  t.constants
+                  (Constant_store.materialized store) )
         in
-        Err.return (b, constants, lowered.Pt2_native_graph.graph)
+        let* b = Loop_bundle.build graph |> Err.map_error lift in
+        Err.return (b, constants, graph)
       in
       match Err.payload result with
       | Error _ ->
@@ -189,5 +218,5 @@ let () =
   | _ ->
       prerr_endline
         "usage: machine_rivet_coral_model <model.pt2> --dir=DIR \
-         --configuration=NAME [--contractions] [--prepack]";
+         --configuration=NAME [--contractions] [--prepack] [--lowered]";
       exit 2

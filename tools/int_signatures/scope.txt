@@ -2,6 +2,8 @@ ml:lib/attention_block
 ml:lib/band_driver
 ml:lib/band_schedule
 lib/contraction
+ml:lib/contraction_tail
+ml:lib/coral_capacity
 ml:lib/coral_estimate
 ml:lib/coral_transfer
 lib/coralnpu

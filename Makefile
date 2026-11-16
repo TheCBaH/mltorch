@@ -1755,6 +1755,31 @@ CORALNPU_SUBSYSTEM_DATA = $(abspath $(CORALNPU_DIR)/$(shell sed -n 's/^tag //p' 
 coralnpu.subsystem.download:
 	scripts/coralnpu-download.sh coralnpu.lock $(CORALNPU_DIR) subsystem
 
+# The repeatable whole-model profile on a Coral NPU simulator: each model's
+# canonical graph, contractions and prepacking on, ordered binary32, every
+# invocation's cycles and every output bitwise against the oracle (the run
+# exits 1 on a difference). MANUAL, needs the emulators download and the
+# models' data/pt2-functional archives. Logs land in $(CORAL_PROFILE_OUT).
+.PHONY: coral.model.profile
+CORAL_PROFILE_MODELS ?= test_convnext2 regnetx_002 mobilenetv3_small_050
+CORAL_PROFILE_CONFIGURATION ?= rvv-core-mini-highmem-axi
+CORAL_PROFILE_OUT ?= _build/coral-profile
+coral.model.profile:
+	@test -f $(CORALNPU_DATA)/hardware-configurations.json || { \
+		echo "coral.model.profile: missing $(CORALNPU_DATA) -- run 'make coralnpu.download' first" >&2; \
+		exit 1; \
+	}
+	opam exec -- dune build bin/machine_rivet_coral_model.exe
+	@mkdir -p $(CORAL_PROFILE_OUT)
+	@for m in $(CORAL_PROFILE_MODELS); do \
+		echo "== $$m"; \
+		_build/default/bin/machine_rivet_coral_model.exe data/pt2-functional/$$m/$$m.pt2 \
+			--dir=$(CORALNPU_DATA) --configuration=$(CORAL_PROFILE_CONFIGURATION) \
+			--contractions --prepack > $(CORAL_PROFILE_OUT)/$$m.txt; status=$$?; \
+		cat $(CORAL_PROFILE_OUT)/$$m.txt; \
+		test $$status -eq 0 || exit $$status; \
+	done
+
 # Typed kernels on the four subsystem simulators through the mailbox runtime
 # (started over the SPI bridge, results checked by guest-computed hashes), and
 # the peak suite's kernels rerun there with everything in DTCM. Needs the
@@ -1803,7 +1828,7 @@ coralnpu.runtest:
 		echo "coralnpu.runtest: missing $(CORALNPU_DATA) -- run 'make coralnpu.download' first" >&2; \
 		exit 1; \
 	}
-	CORALNPU_DATA=$(CORALNPU_DATA) opam exec -- dune build @test/coralnpu_data/runtest --force
+	CORALNPU_DATA=$(CORALNPU_DATA) opam exec -- dune build @test/coralnpu_data/runtest @test/coral_capacity/runtest --force
 
 # The binary32 embedding tests of test/loop_c_embed through the F-only CompCert
 # on the Coral simulators (mpact-v2, core-mini-highmem-axi), bitwise equal to the
