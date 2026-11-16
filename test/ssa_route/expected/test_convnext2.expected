@@ -1,0 +1,7 @@
+test_convnext2.pt2: invocations=49 converted=49 refused=0
+  f64   compared=49 bitwise=49 oracle=49 contractions=49 vectors=49
+  neon  compared=49 bitwise=49 oracle=49 contractions=49 vectors=49
+  wasm  compared=49 bitwise=49 oracle=49 contractions=49 vectors=49
+  coral compared=49 bitwise=49 oracle=49 contractions=49 vectors=49
+  failure_sites=0 same emit verdict: c 49, js 49, wasm 49
+gate: pass

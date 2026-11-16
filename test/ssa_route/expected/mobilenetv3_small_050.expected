@@ -1,0 +1,7 @@
+mobilenetv3_small_050.pt2: invocations=159 converted=159 refused=0
+  f64   compared=159 bitwise=159 oracle=159 contractions=159 vectors=159
+  neon  compared=159 bitwise=159 oracle=159 contractions=159 vectors=159
+  wasm  compared=159 bitwise=159 oracle=159 contractions=159 vectors=159
+  coral compared=159 bitwise=159 oracle=159 contractions=159 vectors=159
+  failure_sites=0 same emit verdict: c 159, js 159, wasm 159
+gate: pass

@@ -21,6 +21,31 @@
   ssa_ir
   ssa_lower
   ssa_of_loop)
+ (modules :standard \ ssa_route_pt2 ssa_route_perf model_load)
  (inline_tests)
  (preprocess
   (pps ppx_expect)))
+
+; The same gate over a real model's bundle (make ssa.route.pt2.runtest): reads
+; MODEL.pt2 and prints the table committed under expected/.
+
+; ssa_route_perf is the performance row: planned kernels from both frontends,
+; paired timing, no golden (make ssa.route.pt2.perf).
+
+(executables
+ (names ssa_route_pt2 ssa_route_perf)
+ (modules ssa_route_pt2 ssa_route_perf model_load)
+ (libraries
+  core
+  err_trace
+  fmt
+  loop_c_exec
+  loop_ir
+  native
+  native_interp
+  paired_timing
+  pt2
+  ssa_backends
+  ssa_ir
+  ssa_route_test
+  unix))

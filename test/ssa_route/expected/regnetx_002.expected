@@ -1,0 +1,7 @@
+regnetx_002.pt2: invocations=101 converted=101 refused=0
+  f64   compared=101 bitwise=101 oracle=101 contractions=101 vectors=101
+  neon  compared=101 bitwise=101 oracle=101 contractions=101 vectors=101
+  wasm  compared=101 bitwise=101 oracle=101 contractions=101 vectors=101
+  coral compared=101 bitwise=101 oracle=101 contractions=101 vectors=101
+  failure_sites=0 same emit verdict: c 101, js 101, wasm 101
+gate: pass

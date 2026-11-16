@@ -340,17 +340,7 @@ let refusal_key = function
 
 (* [rewrite] perturbs the structured program before it is planned, to show the
    comparison can fail. *)
-let bundle ?(rewrite = Fun.id) (g : G.graph) =
-  let b = Err.or_raise ~pp_error:Loop_bundle.pp_error (Loop_bundle.build g) in
-  let constants =
-    List.map
-      (fun id -> (id, constant_tensor (sig_of_edge b id)))
-      b.Loop_bundle.constants
-  and inputs =
-    List.map
-      (fun id -> (id, input_tensor (sig_of_edge b id)))
-      b.Loop_bundle.inputs
-  in
+let compare_bundle ?(rewrite = Fun.id) (b : Loop_bundle.t) ~constants ~inputs =
   let values =
     List.map
       (fun precision -> (precision, oracle b ~constants ~inputs precision))
@@ -383,3 +373,63 @@ let bundle ?(rewrite = Fun.id) (g : G.graph) =
             Config.all)
     b.Loop_bundle.invocations;
   t
+
+(* The inputs are deterministic and the constants positive, unless the caller
+   has real ones. *)
+let default_inputs (b : Loop_bundle.t) =
+  List.map
+    (fun id -> (id, input_tensor (sig_of_edge b id)))
+    b.Loop_bundle.inputs
+
+let default_constants (b : Loop_bundle.t) =
+  List.map
+    (fun id -> (id, constant_tensor (sig_of_edge b id)))
+    b.Loop_bundle.constants
+
+let bundle ?rewrite (g : G.graph) =
+  let b = Err.or_raise ~pp_error:Loop_bundle.pp_error (Loop_bundle.build g) in
+  compare_bundle ?rewrite b ~constants:(default_constants b)
+    ~inputs:(default_inputs b)
+
+(* The emitters read the invocation's own failure-site table, made from its
+   optimized Loop program; the converted program comes from the unoptimized
+   one. Per emitter, how many invocations emit under the structured frontend
+   exactly when they emit under the direct one, and how many failure sites the
+   bundle declares. *)
+let emitter_agreement (b : Loop_bundle.t) =
+  let open Ssa_backends in
+  let pipeline = Pipeline.Exact in
+  let emitters =
+    [
+      ( "c",
+        fun frontend inv ->
+          Result.map ignore (c_via ~frontend ~pipeline ~name:"k" inv) );
+      ( "js",
+        fun frontend inv -> Result.map ignore (js_via ~frontend ~pipeline inv)
+      );
+      ( "wasm",
+        fun frontend inv ->
+          Result.map ignore
+            (wasm_via ~frontend ~pipeline
+               ~table_alloc:(fun ~bytes:_ ->
+                 Loop_wasm_layout.Address.of_int64 0L)
+               inv) );
+    ]
+  in
+  let sites =
+    List.fold_left
+      (fun n (inv : Loop_bundle.invocation) ->
+        n + Array.length (Loop_js_failure.sites inv.Loop_bundle.program))
+      0 b.Loop_bundle.invocations
+  in
+  ( sites,
+    List.map
+      (fun (emitter, emit) ->
+        ( emitter,
+          List.length
+            (List.filter
+               (fun inv ->
+                 Result.is_ok (emit Frontend.Direct inv)
+                 = Result.is_ok (emit Frontend.Structured inv))
+               b.Loop_bundle.invocations) ))
+      emitters )
