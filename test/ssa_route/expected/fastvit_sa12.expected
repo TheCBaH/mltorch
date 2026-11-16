@@ -1,0 +1,7 @@
+fastvit_sa12.pt2: invocations=370 converted=370 refused=0
+  f64   compared=370 bitwise=370 oracle=370 contractions=370 vectors=370
+  neon  compared=370 bitwise=370 oracle=370 contractions=370 vectors=370
+  wasm  compared=370 bitwise=370 oracle=370 contractions=370 vectors=370
+  coral compared=370 bitwise=370 oracle=370 contractions=370 vectors=370
+  failure_sites=0 same emit verdict: c 370, js 370, wasm 370
+gate: pass
