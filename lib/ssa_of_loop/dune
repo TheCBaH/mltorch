@@ -1,0 +1,10 @@
+; The scalar Loop program to structured SSA converter: the one route from the
+; placed-graph lowering ([Loop_lower.lower_structured]) to the SSA passes and
+; emitters, taken before precision planning, vectorization and contraction
+; recognition. Depends on [loop_ir] and [ssa_ir] so neither depends on the
+; other. Unwrapped: its modules keep the names the converter's consumers use.
+
+(library
+ (name ssa_of_loop)
+ (wrapped false)
+ (libraries core err_trace expr fmt loop_ir native ssa_ir ssa_lower))

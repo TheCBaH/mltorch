@@ -74,19 +74,19 @@ let%expect_test "plans" =
     buffer b1 in f32 [1, 1, 1, 1, 1, 1024]
     buffer b2 out f32 [1, 1, 1, 1, 1, 1024]
     entry(%0:effect) {
-      (%1:index) = const 0:index
-      (%2:index) = const 1024:index
-      (%3:index) = const 16:index
+      (%1:index) = const 0:index  ; value b2 [1x1x1x1x16x64]
+      (%2:index) = const 1024:index  ; value b2 [1x1x1x1x16x64]
+      (%3:index) = const 16:index  ; value b2 [1x1x1x1x16x64]
       (%4:effect) = for %1 to %2 step 32 iter(%5:index, %6:effect := %0) {
-        (%7:index) = index.add_in_domain %5, %3
-        (%8:vec<x16,f32>, %9:effect) = vec.load.f32_exact b0[%1, %1, %1, %1, %1, %5] step [0, 0, 0, 0, 0, 1] x16 effect %6
-        (%10:vec<x16,f32>, %11:effect) = vec.load.f32_exact b1[%1, %1, %1, %1, %1, %5] step [0, 0, 0, 0, 0, 1] x16 effect %9
-        (%12:vec<x16,f32>, %13:effect) = vec.load.f32_exact b0[%1, %1, %1, %1, %1, %7] step [0, 0, 0, 0, 0, 1] x16 effect %11
-        (%14:vec<x16,f32>) = lanes float.add %8, %10
-        (%15:vec<x16,f32>, %16:effect) = vec.load.f32_exact b1[%1, %1, %1, %1, %1, %7] step [0, 0, 0, 0, 0, 1] x16 effect %13
-        (%17:effect) = vec.store.f32_exact b2[%1, %1, %1, %1, %1, %5] step [0, 0, 0, 0, 0, 1] x16, %14 effect %16
-        (%18:vec<x16,f32>) = lanes float.add %12, %15
-        (%19:effect) = vec.store.f32_exact b2[%1, %1, %1, %1, %1, %7] step [0, 0, 0, 0, 0, 1] x16, %18 effect %17
+        (%7:index) = index.add_in_domain %5, %3  ; value b2 [1x1x1x1x16x64]
+        (%8:vec<x16,f32>, %9:effect) = vec.load.f32_exact b0[%1, %1, %1, %1, %1, %5] step [0, 0, 0, 0, 0, 1] x16 effect %6  ; value b2 [1x1x1x1x16x64]
+        (%10:vec<x16,f32>, %11:effect) = vec.load.f32_exact b1[%1, %1, %1, %1, %1, %5] step [0, 0, 0, 0, 0, 1] x16 effect %9  ; value b2 [1x1x1x1x16x64]
+        (%12:vec<x16,f32>, %13:effect) = vec.load.f32_exact b0[%1, %1, %1, %1, %1, %7] step [0, 0, 0, 0, 0, 1] x16 effect %11  ; value b2 [1x1x1x1x16x64]
+        (%14:vec<x16,f32>) = lanes float.add %8, %10  ; value b2 [1x1x1x1x16x64]
+        (%15:vec<x16,f32>, %16:effect) = vec.load.f32_exact b1[%1, %1, %1, %1, %1, %7] step [0, 0, 0, 0, 0, 1] x16 effect %13  ; value b2 [1x1x1x1x16x64]
+        (%17:effect) = vec.store.f32_exact b2[%1, %1, %1, %1, %1, %5] step [0, 0, 0, 0, 0, 1] x16, %14 effect %16  ; value b2 [1x1x1x1x16x64]
+        (%18:vec<x16,f32>) = lanes float.add %12, %15  ; value b2 [1x1x1x1x16x64]
+        (%19:effect) = vec.store.f32_exact b2[%1, %1, %1, %1, %1, %7] step [0, 0, 0, 0, 0, 1] x16, %18 effect %17  ; value b2 [1x1x1x1x16x64]
         yield %19
       }
       yield %4
@@ -98,15 +98,15 @@ let%expect_test "plans" =
     buffer b1 in f32 [1, 1, 1, 1, 16, 64]
     buffer b2 out f32 [1, 1, 1, 1, 16, 64]
     entry(%0:effect) {
-      (%1:index) = const 0:index
-      (%2:index) = const 16:index
-      (%3:index) = const 64:index
+      (%1:index) = const 0:index  ; value b2 [1x1x1x1x16x64]
+      (%2:index) = const 16:index  ; value b2 [1x1x1x1x16x64]
+      (%3:index) = const 64:index  ; value b2 [1x1x1x1x16x64]
       (%4:effect) = for %1 to %2 step 1 iter(%5:index, %6:effect := %0) {
         (%7:effect) = for %1 to %3 step 1 iter(%8:index, %9:effect := %6) {
-          (%10:f32, %11:effect) = load.in_bounds.f32_exact b0[%1, %1, %1, %1, %5, %8] effect %9
-          (%12:f32, %13:effect) = load.in_bounds.f32_exact b1[%1, %1, %1, %1, %5, %8] effect %11
-          (%14:f32) = float.add %10, %12
-          (%15:effect) = store.f32_exact b2[%1, %1, %1, %1, %5, %8], %14 effect %13
+          (%10:f32, %11:effect) = load.in_bounds.f32_exact b0[%1, %1, %1, %1, %5, %8] effect %9  ; value b2 [1x1x1x1x16x64]
+          (%12:f32, %13:effect) = load.in_bounds.f32_exact b1[%1, %1, %1, %1, %5, %8] effect %11  ; value b2 [1x1x1x1x16x64]
+          (%14:f32) = float.add %10, %12  ; value b2 [1x1x1x1x16x64]
+          (%15:effect) = store.f32_exact b2[%1, %1, %1, %1, %5, %8], %14 effect %13  ; value b2 [1x1x1x1x16x64]
           yield %15
         }
         yield %7
@@ -119,12 +119,12 @@ let%expect_test "plans" =
     buffer b0 in f32 [1, 1, 1, 1, 1, 256]
     buffer b1 out f32 [1, 1, 1, 1, 1, 256]
     entry(%0:effect) {
-      (%1:index) = const 0:index
-      (%2:index) = const 256:index
+      (%1:index) = const 0:index  ; value b1 [1x1x1x1x16x16]
+      (%2:index) = const 256:index  ; value b1 [1x1x1x1x16x16]
       (%3:effect) = for %1 to %2 step 16 iter(%4:index, %5:effect := %0) {
-        (%6:vec<x16,f32>, %7:effect) = vec.load.f32_exact b0[%1, %1, %1, %1, %1, %4] step [0, 0, 0, 0, 0, 1] x16 effect %5
-        (%8:vec<x16,f32>) = lanes float.exp %6
-        (%9:effect) = vec.store.f32_exact b1[%1, %1, %1, %1, %1, %4] step [0, 0, 0, 0, 0, 1] x16, %8 effect %7
+        (%6:vec<x16,f32>, %7:effect) = vec.load.f32_exact b0[%1, %1, %1, %1, %1, %4] step [0, 0, 0, 0, 0, 1] x16 effect %5  ; value b1 [1x1x1x1x16x16]
+        (%8:vec<x16,f32>) = lanes float.exp %6  ; value b1 [1x1x1x1x16x16]
+        (%9:effect) = vec.store.f32_exact b1[%1, %1, %1, %1, %1, %4] step [0, 0, 0, 0, 0, 1] x16, %8 effect %7  ; value b1 [1x1x1x1x16x16]
         yield %9
       }
       yield %3
@@ -135,19 +135,19 @@ let%expect_test "plans" =
     buffer b0 in f32 [1, 1, 1, 1, 1, 1024]
     buffer b1 out f32 [1, 1, 1, 1, 1, 1024]
     entry(%0:effect) {
-      (%1:index) = const 0:index
-      (%2:index) = const 1024:index
-      (%3:index) = const 16:index
+      (%1:index) = const 0:index  ; value b1 [1x1x1x1x16x64]
+      (%2:index) = const 1024:index  ; value b1 [1x1x1x1x16x64]
+      (%3:index) = const 16:index  ; value b1 [1x1x1x1x16x64]
       (%4:effect) = for %1 to %2 step 32 iter(%5:index, %6:effect := %0) {
-        (%7:index) = index.add_in_domain %5, %3
-        (%8:vec<x16,f32>, %9:effect) = vec.load.f32_exact b0[%1, %1, %1, %1, %1, %5] step [0, 0, 0, 0, 0, 1] x16 effect %6
-        (%10:vec<x16,f32>, %11:effect) = vec.load.f32_exact b0[%1, %1, %1, %1, %1, %5] step [0, 0, 0, 0, 0, 1] x16 effect %9
-        (%12:vec<x16,f32>, %13:effect) = vec.load.f32_exact b0[%1, %1, %1, %1, %1, %7] step [0, 0, 0, 0, 0, 1] x16 effect %11
-        (%14:vec<x16,f32>) = lanes float.mul %8, %10
-        (%15:vec<x16,f32>, %16:effect) = vec.load.f32_exact b0[%1, %1, %1, %1, %1, %7] step [0, 0, 0, 0, 0, 1] x16 effect %13
-        (%17:effect) = vec.store.f32_exact b1[%1, %1, %1, %1, %1, %5] step [0, 0, 0, 0, 0, 1] x16, %14 effect %16
-        (%18:vec<x16,f32>) = lanes float.mul %12, %15
-        (%19:effect) = vec.store.f32_exact b1[%1, %1, %1, %1, %1, %7] step [0, 0, 0, 0, 0, 1] x16, %18 effect %17
+        (%7:index) = index.add_in_domain %5, %3  ; value b1 [1x1x1x1x16x64]
+        (%8:vec<x16,f32>, %9:effect) = vec.load.f32_exact b0[%1, %1, %1, %1, %1, %5] step [0, 0, 0, 0, 0, 1] x16 effect %6  ; value b1 [1x1x1x1x16x64]
+        (%10:vec<x16,f32>, %11:effect) = vec.load.f32_exact b0[%1, %1, %1, %1, %1, %5] step [0, 0, 0, 0, 0, 1] x16 effect %9  ; value b1 [1x1x1x1x16x64]
+        (%12:vec<x16,f32>, %13:effect) = vec.load.f32_exact b0[%1, %1, %1, %1, %1, %7] step [0, 0, 0, 0, 0, 1] x16 effect %11  ; value b1 [1x1x1x1x16x64]
+        (%14:vec<x16,f32>) = lanes float.mul %8, %10  ; value b1 [1x1x1x1x16x64]
+        (%15:vec<x16,f32>, %16:effect) = vec.load.f32_exact b0[%1, %1, %1, %1, %1, %7] step [0, 0, 0, 0, 0, 1] x16 effect %13  ; value b1 [1x1x1x1x16x64]
+        (%17:effect) = vec.store.f32_exact b1[%1, %1, %1, %1, %1, %5] step [0, 0, 0, 0, 0, 1] x16, %14 effect %16  ; value b1 [1x1x1x1x16x64]
+        (%18:vec<x16,f32>) = lanes float.mul %12, %15  ; value b1 [1x1x1x1x16x64]
+        (%19:effect) = vec.store.f32_exact b1[%1, %1, %1, %1, %1, %7] step [0, 0, 0, 0, 0, 1] x16, %18 effect %17  ; value b1 [1x1x1x1x16x64]
         yield %19
       }
       yield %4
@@ -158,19 +158,19 @@ let%expect_test "plans" =
     buffer b0 in f32 [1, 1, 1, 1, 1, 1024]
     buffer b2 out f32 [1, 1, 1, 1, 1, 1024]
     entry(%0:effect) {
-      (%1:index) = const 0:index
-      (%2:index) = const 1024:index
-      (%3:index) = const 16:index
+      (%1:index) = const 0:index  ; value b2 [1x1x1x1x16x64]
+      (%2:index) = const 1024:index  ; value b2 [1x1x1x1x16x64]
+      (%3:index) = const 16:index  ; value b2 [1x1x1x1x16x64]
       (%4:effect) = for %1 to %2 step 32 iter(%5:index, %6:effect := %0) {
-        (%7:index) = index.add_in_domain %5, %3
-        (%8:vec<x16,f32>, %9:effect) = vec.load.f32_exact b1[%1, %1, %1, %1, %1, %5] step [0, 0, 0, 0, 0, 1] x16 effect %6
-        (%10:vec<x16,f32>, %11:effect) = vec.load.f32_exact b0[%1, %1, %1, %1, %1, %5] step [0, 0, 0, 0, 0, 1] x16 effect %9
-        (%12:vec<x16,f32>, %13:effect) = vec.load.f32_exact b1[%1, %1, %1, %1, %1, %7] step [0, 0, 0, 0, 0, 1] x16 effect %11
-        (%14:vec<x16,f32>) = lanes float.add %8, %10
-        (%15:vec<x16,f32>, %16:effect) = vec.load.f32_exact b0[%1, %1, %1, %1, %1, %7] step [0, 0, 0, 0, 0, 1] x16 effect %13
-        (%17:effect) = vec.store.f32_exact b2[%1, %1, %1, %1, %1, %5] step [0, 0, 0, 0, 0, 1] x16, %14 effect %16
-        (%18:vec<x16,f32>) = lanes float.add %12, %15
-        (%19:effect) = vec.store.f32_exact b2[%1, %1, %1, %1, %1, %7] step [0, 0, 0, 0, 0, 1] x16, %18 effect %17
+        (%7:index) = index.add_in_domain %5, %3  ; value b2 [1x1x1x1x16x64]
+        (%8:vec<x16,f32>, %9:effect) = vec.load.f32_exact b1[%1, %1, %1, %1, %1, %5] step [0, 0, 0, 0, 0, 1] x16 effect %6  ; value b2 [1x1x1x1x16x64]
+        (%10:vec<x16,f32>, %11:effect) = vec.load.f32_exact b0[%1, %1, %1, %1, %1, %5] step [0, 0, 0, 0, 0, 1] x16 effect %9  ; value b2 [1x1x1x1x16x64]
+        (%12:vec<x16,f32>, %13:effect) = vec.load.f32_exact b1[%1, %1, %1, %1, %1, %7] step [0, 0, 0, 0, 0, 1] x16 effect %11  ; value b2 [1x1x1x1x16x64]
+        (%14:vec<x16,f32>) = lanes float.add %8, %10  ; value b2 [1x1x1x1x16x64]
+        (%15:vec<x16,f32>, %16:effect) = vec.load.f32_exact b0[%1, %1, %1, %1, %1, %7] step [0, 0, 0, 0, 0, 1] x16 effect %13  ; value b2 [1x1x1x1x16x64]
+        (%17:effect) = vec.store.f32_exact b2[%1, %1, %1, %1, %1, %5] step [0, 0, 0, 0, 0, 1] x16, %14 effect %16  ; value b2 [1x1x1x1x16x64]
+        (%18:vec<x16,f32>) = lanes float.add %12, %15  ; value b2 [1x1x1x1x16x64]
+        (%19:effect) = vec.store.f32_exact b2[%1, %1, %1, %1, %1, %7] step [0, 0, 0, 0, 0, 1] x16, %18 effect %17  ; value b2 [1x1x1x1x16x64]
         yield %19
       }
       yield %4
@@ -185,22 +185,22 @@ let%expect_test "plans" =
     buffer b2 out f32 [1, 1, 1, 1, 9, 32]
     buffer b4 scratch f32 [1, 1, 1, 1, 9, 32]
     entry(%0:effect) {
-      (%1:index) = const 0:index
-      (%2:index) = const 9:index
-      (%3:index) = const 32:index
-      (%4:f32) = const 0x0p+0:f32
+      (%1:index) = const 0:index  ; value b2 [1x1x1x1x9x32]
+      (%2:index) = const 9:index  ; value b2 [1x1x1x1x9x32]
+      (%3:index) = const 32:index  ; value b2 [1x1x1x1x9x32]
+      (%4:f32) = const 0x0p+0:f32  ; value b2 [1x1x1x1x9x32]
       (%5:effect) = contract bf16 batch=1 m=9 n=32 k=64 a=(0,64,1) b=(0,64,1) c=(288,32,1) seed=zero paired engine=zvt a=b0 b=b1 c=b4 effect %0
-      (%6:index) = const 16:index
-      (%7:vec<x16,f32>) = vec.splat x16 %4
+      (%6:index) = const 16:index  ; value b2 [1x1x1x1x9x32]
+      (%7:vec<x16,f32>) = vec.splat x16 %4  ; value b2 [1x1x1x1x9x32]
       (%8:effect) = for %1 to %2 step 1 iter(%9:index, %10:effect := %5) {
         (%11:effect) = for %1 to %3 step 32 iter(%12:index, %13:effect := %10) {
-          (%14:index) = index.add_in_domain %12, %6
-          (%15:vec<x16,f32>, %16:effect) = vec.load.f32_exact b4[%1, %1, %1, %1, %9, %12] step [0, 0, 0, 0, 0, 1] x16 effect %13
-          (%17:vec<x16,f32>) = lanes float.add %15, %7
-          (%18:effect) = vec.store.f32_exact b2[%1, %1, %1, %1, %9, %12] step [0, 0, 0, 0, 0, 1] x16, %17 effect %16
-          (%19:vec<x16,f32>, %20:effect) = vec.load.f32_exact b4[%1, %1, %1, %1, %9, %14] step [0, 0, 0, 0, 0, 1] x16 effect %18
-          (%21:vec<x16,f32>) = lanes float.add %19, %7
-          (%22:effect) = vec.store.f32_exact b2[%1, %1, %1, %1, %9, %14] step [0, 0, 0, 0, 0, 1] x16, %21 effect %20
+          (%14:index) = index.add_in_domain %12, %6  ; value b2 [1x1x1x1x9x32]
+          (%15:vec<x16,f32>, %16:effect) = vec.load.f32_exact b4[%1, %1, %1, %1, %9, %12] step [0, 0, 0, 0, 0, 1] x16 effect %13  ; value b2 [1x1x1x1x9x32]
+          (%17:vec<x16,f32>) = lanes float.add %15, %7  ; value b2 [1x1x1x1x9x32]
+          (%18:effect) = vec.store.f32_exact b2[%1, %1, %1, %1, %9, %12] step [0, 0, 0, 0, 0, 1] x16, %17 effect %16  ; value b2 [1x1x1x1x9x32]
+          (%19:vec<x16,f32>, %20:effect) = vec.load.f32_exact b4[%1, %1, %1, %1, %9, %14] step [0, 0, 0, 0, 0, 1] x16 effect %18  ; value b2 [1x1x1x1x9x32]
+          (%21:vec<x16,f32>) = lanes float.add %19, %7  ; value b2 [1x1x1x1x9x32]
+          (%22:effect) = vec.store.f32_exact b2[%1, %1, %1, %1, %9, %14] step [0, 0, 0, 0, 0, 1] x16, %21 effect %20  ; value b2 [1x1x1x1x9x32]
           yield %22
         }
         yield %11
@@ -219,22 +219,22 @@ let%expect_test "plans" =
     buffer b2 out f32 [1, 1, 1, 1, 9, 32]
     buffer b4 scratch f32 [1, 1, 1, 1, 9, 32]
     entry(%0:effect) {
-      (%1:index) = const 0:index
-      (%2:index) = const 9:index
-      (%3:index) = const 32:index
-      (%4:f32) = const 0x0p+0:f32
+      (%1:index) = const 0:index  ; value b2 [1x1x1x1x9x32]
+      (%2:index) = const 9:index  ; value b2 [1x1x1x1x9x32]
+      (%3:index) = const 32:index  ; value b2 [1x1x1x1x9x32]
+      (%4:f32) = const 0x0p+0:f32  ; value b2 [1x1x1x1x9x32]
       (%5:effect) = contract f32 batch=1 m=9 n=32 k=64 a=(0,64,1) b=(0,64,1) c=(288,32,1) seed=zero ordered engine=zvt a=b0 b=b1 c=b4 effect %0
-      (%6:index) = const 16:index
-      (%7:vec<x16,f32>) = vec.splat x16 %4
+      (%6:index) = const 16:index  ; value b2 [1x1x1x1x9x32]
+      (%7:vec<x16,f32>) = vec.splat x16 %4  ; value b2 [1x1x1x1x9x32]
       (%8:effect) = for %1 to %2 step 1 iter(%9:index, %10:effect := %5) {
         (%11:effect) = for %1 to %3 step 32 iter(%12:index, %13:effect := %10) {
-          (%14:index) = index.add_in_domain %12, %6
-          (%15:vec<x16,f32>, %16:effect) = vec.load.f32_exact b4[%1, %1, %1, %1, %9, %12] step [0, 0, 0, 0, 0, 1] x16 effect %13
-          (%17:vec<x16,f32>) = lanes float.add %15, %7
-          (%18:effect) = vec.store.f32_exact b2[%1, %1, %1, %1, %9, %12] step [0, 0, 0, 0, 0, 1] x16, %17 effect %16
-          (%19:vec<x16,f32>, %20:effect) = vec.load.f32_exact b4[%1, %1, %1, %1, %9, %14] step [0, 0, 0, 0, 0, 1] x16 effect %18
-          (%21:vec<x16,f32>) = lanes float.add %19, %7
-          (%22:effect) = vec.store.f32_exact b2[%1, %1, %1, %1, %9, %14] step [0, 0, 0, 0, 0, 1] x16, %21 effect %20
+          (%14:index) = index.add_in_domain %12, %6  ; value b2 [1x1x1x1x9x32]
+          (%15:vec<x16,f32>, %16:effect) = vec.load.f32_exact b4[%1, %1, %1, %1, %9, %12] step [0, 0, 0, 0, 0, 1] x16 effect %13  ; value b2 [1x1x1x1x9x32]
+          (%17:vec<x16,f32>) = lanes float.add %15, %7  ; value b2 [1x1x1x1x9x32]
+          (%18:effect) = vec.store.f32_exact b2[%1, %1, %1, %1, %9, %12] step [0, 0, 0, 0, 0, 1] x16, %17 effect %16  ; value b2 [1x1x1x1x9x32]
+          (%19:vec<x16,f32>, %20:effect) = vec.load.f32_exact b4[%1, %1, %1, %1, %9, %14] step [0, 0, 0, 0, 0, 1] x16 effect %18  ; value b2 [1x1x1x1x9x32]
+          (%21:vec<x16,f32>) = lanes float.add %19, %7  ; value b2 [1x1x1x1x9x32]
+          (%22:effect) = vec.store.f32_exact b2[%1, %1, %1, %1, %9, %14] step [0, 0, 0, 0, 0, 1] x16, %21 effect %20  ; value b2 [1x1x1x1x9x32]
           yield %22
         }
         yield %11
@@ -251,22 +251,22 @@ let%expect_test "plans" =
     buffer b2 out f32 [1, 1, 1, 1, 9, 32]
     buffer b4 scratch f32 [1, 1, 1, 1, 9, 32]
     entry(%0:effect) {
-      (%1:index) = const 0:index
-      (%2:index) = const 9:index
-      (%3:index) = const 32:index
-      (%4:f32) = const 0x0p+0:f32
+      (%1:index) = const 0:index  ; value b2 [1x1x1x1x9x32]
+      (%2:index) = const 9:index  ; value b2 [1x1x1x1x9x32]
+      (%3:index) = const 32:index  ; value b2 [1x1x1x1x9x32]
+      (%4:f32) = const 0x0p+0:f32  ; value b2 [1x1x1x1x9x32]
       (%5:effect) = contract f32 batch=1 m=9 n=32 k=64 a=(0,64,1) b=(0,64,1) c=(288,32,1) seed=zero ordered engine=rvv a=b0 b=b1 c=b4 effect %0
-      (%6:index) = const 16:index
-      (%7:vec<x16,f32>) = vec.splat x16 %4
+      (%6:index) = const 16:index  ; value b2 [1x1x1x1x9x32]
+      (%7:vec<x16,f32>) = vec.splat x16 %4  ; value b2 [1x1x1x1x9x32]
       (%8:effect) = for %1 to %2 step 1 iter(%9:index, %10:effect := %5) {
         (%11:effect) = for %1 to %3 step 32 iter(%12:index, %13:effect := %10) {
-          (%14:index) = index.add_in_domain %12, %6
-          (%15:vec<x16,f32>, %16:effect) = vec.load.f32_exact b4[%1, %1, %1, %1, %9, %12] step [0, 0, 0, 0, 0, 1] x16 effect %13
-          (%17:vec<x16,f32>) = lanes float.add %15, %7
-          (%18:effect) = vec.store.f32_exact b2[%1, %1, %1, %1, %9, %12] step [0, 0, 0, 0, 0, 1] x16, %17 effect %16
-          (%19:vec<x16,f32>, %20:effect) = vec.load.f32_exact b4[%1, %1, %1, %1, %9, %14] step [0, 0, 0, 0, 0, 1] x16 effect %18
-          (%21:vec<x16,f32>) = lanes float.add %19, %7
-          (%22:effect) = vec.store.f32_exact b2[%1, %1, %1, %1, %9, %14] step [0, 0, 0, 0, 0, 1] x16, %21 effect %20
+          (%14:index) = index.add_in_domain %12, %6  ; value b2 [1x1x1x1x9x32]
+          (%15:vec<x16,f32>, %16:effect) = vec.load.f32_exact b4[%1, %1, %1, %1, %9, %12] step [0, 0, 0, 0, 0, 1] x16 effect %13  ; value b2 [1x1x1x1x9x32]
+          (%17:vec<x16,f32>) = lanes float.add %15, %7  ; value b2 [1x1x1x1x9x32]
+          (%18:effect) = vec.store.f32_exact b2[%1, %1, %1, %1, %9, %12] step [0, 0, 0, 0, 0, 1] x16, %17 effect %16  ; value b2 [1x1x1x1x9x32]
+          (%19:vec<x16,f32>, %20:effect) = vec.load.f32_exact b4[%1, %1, %1, %1, %9, %14] step [0, 0, 0, 0, 0, 1] x16 effect %18  ; value b2 [1x1x1x1x9x32]
+          (%21:vec<x16,f32>) = lanes float.add %19, %7  ; value b2 [1x1x1x1x9x32]
+          (%22:effect) = vec.store.f32_exact b2[%1, %1, %1, %1, %9, %14] step [0, 0, 0, 0, 0, 1] x16, %21 effect %20  ; value b2 [1x1x1x1x9x32]
           yield %22
         }
         yield %11

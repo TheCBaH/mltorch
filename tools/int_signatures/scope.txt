@@ -1,4 +1,5 @@
 ml:lib/attention_block
+ml:lib/band_driver
 ml:lib/band_schedule
 lib/contraction
 ml:lib/coral_estimate
@@ -47,6 +48,7 @@ ml:lib/ssa_c
 ml:lib/ssa_ir
 ml:lib/ssa_js
 ml:lib/ssa_lower
+ml:lib/ssa_of_loop
 ml:lib/ssa_wasm
 ml:lib/walk_core
 ml:lib/wasm_ir

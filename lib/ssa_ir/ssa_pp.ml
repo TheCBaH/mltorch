@@ -161,6 +161,18 @@ let rec op st (o : Ssa_op.t) =
            ~some:(fun e -> " engine=" ^ Contraction.Select.Engine.name e)
            engine)
         Ssa_id.Buffer.pp a Ssa_id.Buffer.pp b Ssa_id.Buffer.pp c
+  | Ssa_op.View_call { desc; a; b; c } ->
+      let view (v : Ssa_view_call.View.t) =
+        let at =
+          match v.Ssa_view_call.View.at with
+          | Ssa_view_call.At.Base b -> name st b
+          | Ssa_view_call.At.Rows rs ->
+              "[" ^ String.concat ", " (List.map (name st) rs) ^ "]"
+        in
+        Fmt.str "%a+%s" Ssa_id.Buffer.pp v.Ssa_view_call.View.buffer at
+      in
+      Fmt.str "view %a a=%s b=%s c=%s" Contraction.pp desc (view a) (view b)
+        (view c)
   | Ssa_op.Store { buffer; at; encode; value } ->
       Fmt.str "store.%s %a%s, %s"
         (Ssa_op.Encode.name encode)

@@ -6,4 +6,13 @@
 
 (library
  (name ssa_bridge)
- (libraries core err_trace expr fmt loop_ir native ssa_ir ssa_lower))
+ (libraries
+  core
+  err_trace
+  expr
+  fmt
+  loop_ir
+  native
+  ssa_ir
+  ssa_lower
+  ssa_of_loop))

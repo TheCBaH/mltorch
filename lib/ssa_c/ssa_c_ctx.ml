@@ -8,12 +8,16 @@ open Ssa_ir
 
 module R = Loop_ir.Loop_c_runtime
 
-type error = [ `Unsupported_lanes of int | `Unsupported_operation of string ]
+type error =
+  [ `Unsupported_lanes of int
+  | `Unsupported_operation of string
+  | `Unsupported_view_call ]
 
 let pp_error ppf : [< error ] -> unit = function
   | `Unsupported_lanes n ->
       Fmt.pf ppf "a %d-lane vector is not a power of two" n
   | `Unsupported_operation what -> Fmt.pf ppf "C has no form for %s" what
+  | `Unsupported_view_call -> Fmt.string ppf "C has no form for a view call"
 
 type t = {
   esc : error Err.Escape.t;

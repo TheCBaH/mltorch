@@ -19,6 +19,9 @@ type builder = {
   mutable id : Ssa_id.Block.t;
   mutable params : Ssa_value.t list;
   mutable body : Ssa_instr.t list;
+  (* the origin of the statement being lowered: what the loop control it makes
+     is attributed to *)
+  mutable origin : Ssa_origin.t;
   ranges : Ssa_range.t;
   accumulate : Accumulate.t;
   esc : error Err.Escape.t;
@@ -38,8 +41,7 @@ let emit b i = b.body <- i :: b.body
 
 let pure b ty op =
   let v = fresh_value b ty in
-  emit b
-    { Ssa_instr.results = [ v ]; op; token = None; origin = Ssa_origin.Unknown };
+  emit b { Ssa_instr.results = [ v ]; op; token = None; origin = b.origin };
   v
 
 (* Ends the block under construction and starts the next. *)
@@ -77,7 +79,18 @@ let lt b iv hi =
 
 let rec stmts b (ss : Ssa_region.t Ssa_stmt.t list) = List.iter (stmt b) ss
 
-and stmt b : Ssa_region.t Ssa_stmt.t -> unit = function
+and stmt b (s : Ssa_region.t Ssa_stmt.t) =
+  match s with
+  | Ssa_stmt.Instr i -> emit b i
+  | Ssa_stmt.For _ | Ssa_stmt.If _ | Ssa_stmt.Ordered_sum _ ->
+      let saved = b.origin in
+      (match Ssa_rewrite.origin_of s with
+      | Ssa_origin.Unknown -> ()
+      | o -> b.origin <- o);
+      structured b s;
+      b.origin <- saved
+
+and structured b : Ssa_region.t Ssa_stmt.t -> unit = function
   | Ssa_stmt.Instr i -> emit b i
   | Ssa_stmt.For { lo; hi; step; inits; results; body } ->
       let iv, carried =
@@ -194,6 +207,7 @@ let program ?(accumulate = Accumulate.Add) (p : Ssa_program.t) =
       id;
       params = entry.Ssa_region.params;
       body = [];
+      origin = Ssa_origin.Unknown;
       ranges = Ssa_range.analyze p;
       accumulate;
       esc;

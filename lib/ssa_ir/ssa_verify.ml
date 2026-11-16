@@ -260,6 +260,15 @@ let instr ctx scope ~live (i : Ssa_instr.t) =
       check_vector_access ctx scope a ~family ~writes:false;
       check_vector_access ctx scope b ~family ~writes:false;
       check_vector_access ctx scope c ~family:Ssa_format.Family.F32 ~writes:true
+  | Ssa_op.View_call v ->
+      let family = Ssa_op.contract_operands v.Ssa_view_call.desc in
+      List.iter
+        (fun id -> check_vector_access ctx scope id ~family ~writes:false)
+        (Ssa_view_call.reads v);
+      let c = Ssa_view_call.writes v in
+      check_vector_access ctx scope c ~family:Ssa_format.Family.F32 ~writes:true;
+      if List.exists (Ssa_id.Buffer.equal c) (Ssa_view_call.reads v) then
+        fail ctx scope (Buffer_aliased c)
   | Ssa_op.Check_gather _ | Ssa_op.Check_local _ | Ssa_op.Check_scan _
   | Ssa_op.Const _ | Ssa_op.Convert _ | Ssa_op.Index_add_in_domain _
   | Ssa_op.Index_scale_in_domain _ | Ssa_op.Local_alloc _ | Ssa_op.Local_read _
@@ -527,6 +536,27 @@ let check_proofs ctx scope =
                    last d.Contraction.m d.Contraction.c.Contraction.Output.row;
                    last d.Contraction.n d.Contraction.c.Contraction.Output.col;
                  ])
+        | Ssa_op.View_call ({ a; b; c; _ } as v) ->
+            let r = Ssa_view_call.reach v in
+            List.iter
+              (fun ((view : Ssa_view_call.View.t), reach) ->
+                match
+                  Ssa_program.find_buffer p view.Ssa_view_call.View.buffer
+                with
+                | Some bf ->
+                    List.iter
+                      (fun base ->
+                        if not (Ssa_range.view_in_bounds ranges bf ~base ~reach)
+                        then fail ctx scope (Unproven In_bounds))
+                      (Ssa_view_call.bases view)
+                | None ->
+                    fail ctx scope
+                      (Buffer_unknown view.Ssa_view_call.View.buffer))
+              [
+                (a, r.Ssa_view_call.Reach.a);
+                (b, r.Ssa_view_call.Reach.b);
+                (c, r.Ssa_view_call.Reach.c);
+              ]
         | Ssa_op.Vec_load { buffer; at; steps; lanes; _ }
         | Ssa_op.Vec_store { buffer; at; steps; lanes; _ } -> (
             match Ssa_program.find_buffer p buffer with

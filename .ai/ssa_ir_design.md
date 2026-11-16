@@ -18,12 +18,13 @@ differs from the proposal.
 
 | Library | Role | Depends on |
 |---|---|---|
-| `lib/ssa_backends` | Producers for the whole-model bundles: lowers each kernel and hands it to an emitter | `js_ast`, `loop_ir`, `native`, `ssa_c`, `ssa_ir`, `ssa_js`, `ssa_lower`, `ssa_wasm`, `wasm_ir` |
-| `lib/ssa_bridge` | Differential harness against `Kernel_eval`; `Ssa_of_loop` and `Loop_of_ssa` converters | `loop_ir`, `native`, `ssa_ir`, `ssa_lower` |
+| `lib/ssa_backends` | Producers for the whole-model bundles: lowers each kernel (directly, or through the Loop converter when asked) and hands it to an emitter | `js_ast`, `loop_ir`, `native`, `ssa_c`, `ssa_ir`, `ssa_js`, `ssa_lower`, `ssa_of_loop`, `ssa_wasm`, `wasm_ir` |
+| `lib/ssa_bridge` | Differential harness against `Kernel_eval`; the `Loop_of_ssa` converter | `loop_ir`, `native`, `ssa_ir`, `ssa_lower`, `ssa_of_loop` |
 | `lib/ssa_c` | Direct C emitter | `loop_ir`, `ssa_ir` |
 | `lib/ssa_ir` | IR: ids, types, ops, regions, builder, verifier, printer, interpreters (structured and CFG), analyses, passes, vector form | `attention_block`, `attention_layer_block`, `contraction`, `f32_math`, `norm_block` |
 | `lib/ssa_js` | Direct JavaScript emitter | `js_ast`, `loop_ir`, `ssa_ir` |
 | `lib/ssa_lower` | Direct lowering of a `Fusion_plan.t`; runs a lowered program over bound tensors | `native`, `ssa_ir` |
+| `lib/ssa_of_loop` | Loop program to structured SSA: the converter behind the structured route; a refusal is a typed construct | `loop_ir`, `native`, `ssa_ir`, `ssa_lower` |
 | `lib/ssa_wasm` | Direct WebAssembly emitter | `loop_ir`, `ssa_ir`, `wasm_ir` |
 
 Every library also depends on `core`, `err_trace`, `expr` and `fmt`. The emitters
@@ -63,6 +64,17 @@ its own name becomes its interface and hides its siblings (the lowering is
   (`Invalid_argument`), never a row.
 - A failure ends the invocation (`Err.Escape` in the interpreter). There is no
   failure terminator yet; failure is a dynamic outcome of an operation.
+- An instruction's `origin` is its provenance: `Value` names the stored value
+  whose lowering made it (buffer and the extents of its iteration domain, in
+  axis order), `Output` a buffer it stores to, `Unknown` neither. A pass keeps
+  the origin of what it moves or rewrites and gives a clone its source's. The
+  passes behind `Ssa_rewrite.program` inherit it for every instruction a rule
+  makes without one, nested loops included; precision narrowing, lane
+  expansion and the control-flow lowering carry it themselves (loop control
+  takes the origin of the loop). The tests pin, per pass, zero `Unknown` and
+  that each stored value's nest, domain included, is attributed to that value.
+  The origin is part of the printed program, so it is part of a plan's
+  subject digest.
 
 ## Scalar semantics
 
@@ -653,7 +665,9 @@ statements by lowering). The inline suite runs the depth-200 case under node.
 
 ## Loop converters
 
-Both are comparison instruments, never the permanent frontend or consumer.
+`Loop_of_ssa` is a comparison instrument, never a consumer. `Ssa_of_loop` is the
+converter of the structured route (the role record decides the route); it is
+an explicit `Ssa_backends` selection until its gate covers a model's classes.
 
 - `Ssa_of_loop` turns mutable temporaries into values: a temporary assigned in a
   loop body and live before it becomes an iteration argument, one assigned in

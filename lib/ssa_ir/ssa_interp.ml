@@ -590,6 +590,31 @@ let exec_op st (i : Ssa_instr.t) =
             ~write:(fun off x ->
               write_cell st c Ssa_op.Encode.F32_exact ~at:(Int64.to_int off)
                 (F x))
+      | Ssa_op.View_call v ->
+          (* the same evaluator as [Contract], each operand's cells moved by its
+             base: the verifier proved every cell a cell of its buffer *)
+          let c = Ssa_view_call.writes v in
+          let decode id =
+            if Ssa_id.Buffer.equal id c then Ssa_op.Decode.F32_exact
+            else
+              match v.Ssa_view_call.desc.Contraction.format with
+              | Contraction.Element.Bf16 -> Ssa_op.Decode.Bf16_to_f32
+              | Contraction.Element.F32 -> Ssa_op.Decode.F32_exact
+              | Contraction.Element.I8 _ ->
+                  invalid_arg "Ssa_interp: an integer contraction"
+          in
+          let read id off =
+            match
+              read_cell st id (buffer st id) (decode id) ~at:(Int64.to_int off)
+                ~channel:(Ssa_format.Channel.of_int 0)
+            with
+            | F x -> x
+            | E | I _ | L _ | M _ | P _ | V _ ->
+                invalid_arg "Ssa_interp: a contraction operand"
+          in
+          Ssa_view_call.eval v ~base:(int_of st) ~read ~write:(fun off x ->
+              write_cell st c Ssa_op.Encode.F32_exact ~at:(Int64.to_int off)
+                (F x))
       | Ssa_op.Const _ | Ssa_op.Convert _ | Ssa_op.Float_binary _
       | Ssa_op.Float_compare _ | Ssa_op.Float_fma _ | Ssa_op.Float_max _
       | Ssa_op.Float_unary _ | Ssa_op.I64_arith _ | Ssa_op.I64_compare _

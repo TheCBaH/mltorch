@@ -1,0 +1,19 @@
+; The band driver against the whole-tensor reference, bitwise.
+
+(library
+ (name band_driver_test)
+ (libraries
+  band_driver
+  band_schedule
+  contraction
+  err_trace
+  f32_math
+  fmt
+  machine_lower
+  ssa_c
+  ssa_ir
+  ssa_js
+  ssa_wasm)
+ (inline_tests)
+ (preprocess
+  (pps ppx_expect)))

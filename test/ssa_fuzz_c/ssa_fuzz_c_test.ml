@@ -4,18 +4,8 @@ open Ssa_fuzz.Fuzz
    A runaway generator or a slow compiler fails the run, never skips it. *)
 
 let c_seeds = max 1 (seeds / 10)
-let time_cap_s = 300.
-
-let timed f =
-  let t0 = Unix.gettimeofday () in
-  let r = f () in
-  let dt = Unix.gettimeofday () -. t0 in
-  if dt > time_cap_s then Fmt.failwith "over the time cap: %.1fs" dt;
-  r
-
-let fail_on = function
-  | Ok _ -> ()
-  | Error d -> Fmt.failwith "%a" pp_disagreement d
+let timed = Fuzz_c.timed
+let fail_on = Fuzz_c.fail_on
 
 let%expect_test "the C emitter agrees with the interpreter, or refuses" =
   let c = Fuzz_c.backend in

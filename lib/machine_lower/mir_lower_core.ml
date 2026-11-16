@@ -21,6 +21,7 @@ module Refusal = struct
     | Planning of Mir_planning.mismatch
     | Precision of Mir_planning.Precision.t
     | Type of { ty : Ssa_type.t; slice : Mir_census.Slice.t }
+    | View_call
 
   let pp fmt = function
     | Buffer_layout b ->
@@ -44,6 +45,10 @@ module Refusal = struct
     | Type { ty; slice } ->
         Fmt.pf fmt "type %a is admitted by %s" Ssa_type.pp ty
           (Mir_census.Slice.name slice)
+    | View_call ->
+        Fmt.string fmt
+          "a view call has no helper binding: the helper route takes whole \
+           buffers"
 end
 
 module Mutation = struct

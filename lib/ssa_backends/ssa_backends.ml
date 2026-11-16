@@ -17,6 +17,46 @@ end
 
 let ( let* ) = Result.bind
 
+module Frontend = struct
+  type t = Direct | Structured
+
+  let name = function Direct -> "direct" | Structured -> "structured"
+end
+
+module Refusal = struct
+  type t =
+    | Converter of Ssa_of_loop_unsupported.t
+    | Direct_lowering of Ssa_lower.Ssa_unsupported.t
+    | Loop_lowering of Loop_ir.Loop_unsupported.t
+
+  let pp ppf = function
+    | Converter u -> Fmt.pf ppf "Ssa_of_loop: %a" Ssa_of_loop_unsupported.pp u
+    | Direct_lowering u -> Ssa_lower.Ssa_unsupported.pp ppf u
+    | Loop_lowering u ->
+        Fmt.pf ppf "Loop_lower: %a" Loop_ir.Loop_unsupported.pp u
+end
+
+(* The one place an invocation's placed kernel becomes an SSA program. The
+   string boundary of this library's callers is [lower_string]. *)
+let lowered ?(frontend = Frontend.Direct) (inv : Loop_ir.Loop_bundle.invocation)
+    =
+  let placed = inv.Loop_ir.Loop_bundle.placed in
+  match frontend with
+  | Frontend.Direct -> (
+      match Err.payload (Ssa_lower.Ssa_lower_plan.lower placed) with
+      | Ok p -> Ok p
+      | Error (`Unsupported u) -> Error (Refusal.Direct_lowering u))
+  | Frontend.Structured -> (
+      match Err.payload (Loop_ir.Loop_lower.lower_structured placed) with
+      | Error (`Unsupported u) -> Error (Refusal.Loop_lowering u)
+      | Ok loop -> (
+          match Err.payload (Ssa_of_loop.convert loop) with
+          | Ok p -> Ok p
+          | Error (`Unsupported u) -> Error (Refusal.Converter u)))
+
+let lower_string ?frontend inv =
+  Result.map_error (Fmt.str "%a" Refusal.pp) (lowered ?frontend inv)
+
 (* One invocation's buffers are distinct memory: the storage plan allocates every
    output before it releases any operand, so no two buffers an invocation names
    are live in the same cell (the arena checker rejects an overlap), and the
@@ -39,12 +79,9 @@ let exact_passes =
    precision is the plan's, not whatever types its text happens to use: the
    strict pipelines hold binary32 buffers' values in binary32 but compute in
    binary64, and must not report as binary32 kernels. *)
-let prepare pipeline (inv : Loop_ir.Loop_bundle.invocation) =
-  match
-    Err.payload (Ssa_lower.Ssa_lower_plan.lower inv.Loop_ir.Loop_bundle.placed)
-  with
-  | Error (`Unsupported u) ->
-      Error (Fmt.str "%a" Ssa_lower.Ssa_unsupported.pp u)
+let prepare ?frontend pipeline (inv : Loop_ir.Loop_bundle.invocation) =
+  match lower_string ?frontend inv with
+  | Error _ as e -> e
   | Ok p -> (
       match pipeline with
       | Pipeline.Representation -> Ok (p, Loop_ir.Loop_numerics.Precision.F64)
@@ -66,18 +103,16 @@ let prepare pipeline (inv : Loop_ir.Loop_bundle.invocation) =
                (Ssa_plan.admitted (Ssa_plan.resolve ~target ~alias ~numerics p)))
       )
 
-let program pipeline inv = Result.map fst (prepare pipeline inv)
+let program ?frontend pipeline inv =
+  Result.map fst (prepare ?frontend pipeline inv)
 
 (* The resolved plan of an invocation under a policy and a target: what a
    consumer that needs the plan's own record (its numerics, precision and the
    target it was made for) takes instead of only the program. *)
-let plan ?contractions ?bf16_pairs ?(rewrite = Result.ok) ~numerics ~target inv
-    =
-  match
-    Err.payload (Ssa_lower.Ssa_lower_plan.lower inv.Loop_ir.Loop_bundle.placed)
-  with
-  | Error (`Unsupported u) ->
-      Error (Fmt.str "%a" Ssa_lower.Ssa_unsupported.pp u)
+let plan ?frontend ?contractions ?bf16_pairs ?(rewrite = Result.ok) ~numerics
+    ~target inv =
+  match lower_string ?frontend inv with
+  | Error _ as e -> e
   | Ok p -> (
       match rewrite p with
       | Error _ as e -> e
@@ -149,15 +184,15 @@ let arguments (inv : Loop_ir.Loop_bundle.invocation) (p : Ssa_program.t) ~named
 let sites (inv : Loop_ir.Loop_bundle.invocation) =
   Loop_ir.Loop_js_failure.sites inv.Loop_ir.Loop_bundle.program
 
-let c ~pipeline ~name inv =
-  let* p, precision = prepare pipeline inv in
+let c_via ~frontend ~pipeline ~name inv =
+  let* p, precision = prepare ~frontend pipeline inv in
   let* buffers = arguments inv p ~named:Ssa_c.arguments in
   match Ssa_c.kernel ~buffers ~sites:(sites inv) ~name p with
   | Ok (k, _) -> Ok { k with Loop_ir.Loop_c_kernel.precision }
   | Error e -> Error (Fmt.str "%a" Ssa_c.pp_error e)
 
-let wasm ~pipeline ~table_alloc inv =
-  let* p, precision = prepare pipeline inv in
+let wasm_via ~frontend ~pipeline ~table_alloc inv =
+  let* p, precision = prepare ~frontend pipeline inv in
   let* buffers = arguments inv p ~named:Ssa_wasm.arguments in
   let relaxed_madd =
     match pipeline with
@@ -170,12 +205,16 @@ let wasm ~pipeline ~table_alloc inv =
   | Ok k -> Ok { k with Loop_ir.Loop_wasm_module.precision }
   | Error e -> Error (Fmt.str "%a" Ssa_wasm.pp_error e)
 
-let js ~pipeline inv =
-  let* p = program pipeline inv in
+let js_via ~frontend ~pipeline inv =
+  let* p = program ~frontend pipeline inv in
   let* buffers = arguments inv p ~named:Ssa_js.arguments in
   match Ssa_js.program ~buffers ~sites:(sites inv) p with
   | Ok (ast, _) -> Ok ast
   | Error e -> Error (Fmt.str "%a" Ssa_js.pp_error e)
+
+let c = c_via ~frontend:Frontend.Direct
+let wasm = wasm_via ~frontend:Frontend.Direct
+let js = js_via ~frontend:Frontend.Direct
 
 module Coverage = struct
   type column =
@@ -208,24 +247,17 @@ module Coverage = struct
 
   let blocked_by_exact_access = "(narrowed vectorizes, exact access refuses)"
 
-  let lowered (inv : Loop_ir.Loop_bundle.invocation) =
-    match
-      Err.payload
-        (Ssa_lower.Ssa_lower_plan.lower inv.Loop_ir.Loop_bundle.placed)
-    with
-    | Error (`Unsupported u) ->
-        Error (Fmt.str "%a" Ssa_lower.Ssa_unsupported.pp u)
-    | Ok p -> Ok p
-
-  let vectorize ~target ~exact inv =
-    let* p = lowered inv in
+  let vectorize ?frontend ~target ~exact inv =
+    let* p = lower_string ?frontend inv in
     Result.map_error
       (fun r -> Fmt.str "%a" Ssa_numerics.Refusal.pp r)
       (Ssa_plan.vectorize_f32 ~alias
          ?elements:(if exact then Some [ Ssa_type.F32 ] else None)
          ~target ~exact p)
 
-  let report ~target ~exact inv = Result.map snd (vectorize ~target ~exact inv)
+  let report ?frontend ~target ~exact inv =
+    Result.map snd (vectorize ?frontend ~target ~exact inv)
+
   let iotas_key = "(iota instructions)"
 
   let rec iotas (r : Ssa_region.t) =
@@ -276,16 +308,16 @@ module Coverage = struct
                   d.Ssa_vectorize.Decision.executions) ))
          (0, 0L)
 
-  let tally column (inv : Loop_ir.Loop_bundle.invocation) =
+  let tally ?frontend column (inv : Loop_ir.Loop_bundle.invocation) =
     match column with
     | Exact_f32 target ->
-        let* narrowed = report ~target ~exact:false inv in
-        let* exact = report ~target ~exact:true inv in
+        let* narrowed = report ?frontend ~target ~exact:false inv in
+        let* exact = report ?frontend ~target ~exact:true inv in
         let n, w = exact_blocked ~narrowed ~exact in
         let t = Ssa_vectorize.tally exact in
         Ok (if n = 0 then t else merge t [ (blocked_by_exact_access, (n, w)) ])
     | Narrowed_f32 target ->
-        let* q, r = vectorize ~target ~exact:false inv in
+        let* q, r = vectorize ?frontend ~target ~exact:false inv in
         let n = iotas q.Ssa_program.entry in
         let t = Ssa_vectorize.tally r in
         Ok (if n = 0 then t else merge t [ (iotas_key, (n, 0L)) ])
@@ -297,13 +329,13 @@ module Coverage = struct
         in
         Ok (Loop_ir.Loop_vectorize.tally plan.Loop_ir.Loop_plan.report)
 
-  let bundle columns (b : Loop_ir.Loop_bundle.t) =
+  let bundle ?frontend columns (b : Loop_ir.Loop_bundle.t) =
     List.map
       (fun c ->
         let t, refused =
           List.fold_left
             (fun (t, refused) inv ->
-              match tally c inv with
+              match tally ?frontend c inv with
               | Ok u -> (merge t u, refused)
               | Error _ -> (t, refused + 1))
             ([], 0) b.Loop_ir.Loop_bundle.invocations

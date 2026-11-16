@@ -90,3 +90,13 @@ val replay : ?profile:profile -> seed:int64 -> size:int -> backend list -> unit
 
 val row_name : Kernel_eval.error -> string
 (** A failure row's kind, for counting which rows a seed range reaches. *)
+
+val generate_views : seed:int64 -> size:int -> unit -> case
+(** A program of [size + 1] view calls over the two buffers, each operand placed
+    by one base or one base per row, every base constant and inside its buffer
+    by construction. The inputs are multiples of an eighth (and the occasional
+    special), so a binary64 expansion computes the interpreter's binary32 bits.
+*)
+
+val expanded : backend -> backend
+(** The backend run on the expansion of the case's view calls. *)

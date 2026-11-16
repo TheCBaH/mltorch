@@ -1,0 +1,7 @@
+mobilenetv2_050.pt2: invocations=100 converted=100 refused=0
+  f64   compared=100 bitwise=100 oracle=100 contractions=100 vectors=100
+  neon  compared=100 bitwise=100 oracle=100 contractions=100 vectors=100
+  wasm  compared=100 bitwise=100 oracle=100 contractions=100 vectors=100
+  coral compared=100 bitwise=100 oracle=100 contractions=100 vectors=100
+  failure_sites=0 same emit verdict: c 100, js 100, wasm 100
+gate: pass

@@ -1,0 +1,51 @@
+; The converter route's gate: for every invocation of a set of hermetic graph
+; bundles, the program Ssa_of_loop makes from Loop_lower.lower_structured
+; against the direct Ssa_lower_plan program, through the SSA interpreter, the
+; policy planner and the contraction and vectorizer decisions, and a failure
+; suite through both lowerings. The expect output is the committed golden.
+
+(library
+ (name ssa_route_test)
+ (libraries
+  core
+  err_trace
+  expr
+  fmt
+  loop_ir
+  loop_ir_test
+  native
+  native_test
+  ssa_backends
+  ssa_bridge
+  ssa_bridge_test
+  ssa_ir
+  ssa_lower
+  ssa_of_loop)
+ (modules :standard \ ssa_route_pt2 ssa_route_perf model_load)
+ (inline_tests)
+ (preprocess
+  (pps ppx_expect)))
+
+; The same gate over a real model's bundle (make ssa.route.pt2.runtest): reads
+; MODEL.pt2 and prints the table committed under expected/.
+
+; ssa_route_perf is the performance row: planned kernels from both frontends,
+; paired timing, no golden (make ssa.route.pt2.perf).
+
+(executables
+ (names ssa_route_pt2 ssa_route_perf)
+ (modules ssa_route_pt2 ssa_route_perf model_load)
+ (libraries
+  core
+  err_trace
+  fmt
+  loop_c_exec
+  loop_ir
+  native
+  native_interp
+  paired_timing
+  pt2
+  ssa_backends
+  ssa_ir
+  ssa_route_test
+  unix))

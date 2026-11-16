@@ -15,3 +15,16 @@ let backend =
         | Ok outputs -> of_outputs outputs)
   in
   { name = "c"; run }
+
+let time_cap_s = 300.
+
+let timed f =
+  let t0 = Unix.gettimeofday () in
+  let r = f () in
+  let dt = Unix.gettimeofday () -. t0 in
+  if dt > time_cap_s then Fmt.failwith "over the time cap: %.1fs" dt;
+  r
+
+let fail_on = function
+  | Ok _ -> ()
+  | Error d -> Fmt.failwith "%a" pp_disagreement d

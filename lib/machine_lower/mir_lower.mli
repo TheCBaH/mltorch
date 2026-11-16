@@ -32,6 +32,9 @@ module Refusal : sig
     | Precision of Mir_planning.Precision.t
         (** binary32 arithmetic under a binary64 summary *)
     | Type of { ty : Ssa_ir.Ssa_type.t; slice : Mir_census.Slice.t }
+    | View_call
+        (** a view call: the helper route takes whole buffers, not a buffer and
+            a base *)
 
   val pp : Format.formatter -> t -> unit
 end

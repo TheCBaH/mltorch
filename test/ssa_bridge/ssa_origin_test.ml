@@ -14,7 +14,7 @@ let rec instrs_of (r : Ssa_region.t) =
     r.Ssa_region.body
 
 (* Instructions per origin, in the order the origins first appear. *)
-let attribution (p : Ssa_program.t) =
+let attribution_in instrs =
   List.fold_left
     (fun acc (i : Ssa_instr.t) ->
       let o = i.Ssa_instr.origin in
@@ -25,14 +25,18 @@ let attribution (p : Ssa_program.t) =
               if Ssa_origin.equal o o' then (o', n + 1) else (o', n))
             acc
       | None -> acc @ [ (o, 1) ])
-    []
-    (instrs_of p.Ssa_program.entry)
+    [] instrs
 
-let show name p =
+let attribution (p : Ssa_program.t) =
+  attribution_in (instrs_of p.Ssa_program.entry)
+
+let show_in name instrs =
   Fmt.pr "%s: %a@." name
     Fmt.(
       list ~sep:(any ", ") (fun ppf (o, n) -> pf ppf "%a x%d" Ssa_origin.pp o n))
-    (attribution p)
+    (attribution_in instrs)
+
+let show name p = show_in name (instrs_of p.Ssa_program.entry)
 
 let lowered plan =
   Err.or_raise ~pp_error:Ssa_lower.Ssa_lower_plan.pp_error
@@ -46,9 +50,10 @@ let%expect_test "lowering marks each stored value's instructions" =
   let only_t2 = Loop_programs.chain ~outputs:[ Loop_fixtures.tid 2 ] in
   let fused, _ = Fusion_plan.plan only_t2 in
   show "fused" (lowered fused);
-  [%expect {|
-    stored: value b1 x18, value b2 x18
-    fused: value b2 x22 |}]
+  [%expect
+    {|
+    stored: value b1 [1x1x1x1x2x1] x18, value b2 [1x1x1x1x2x1] x18
+    fused: value b2 [1x1x1x1x2x1] x22 |}]
 
 let unknown p =
   match
@@ -72,8 +77,8 @@ let%expect_test "the rewriting passes keep every origin" =
   Fmt.pr "instructions with no origin: %d@." (unknown q);
   [%expect
     {|
-    lowered: value b1 x18, value b2 x18
-    after simplify, guards, collapse: value b1 x8, value b2 x6
+    lowered: value b1 [1x1x1x1x2x1] x18, value b2 [1x1x1x1x2x1] x18
+    after simplify, guards, collapse: value b1 [1x1x1x1x2x1] x8, value b2 [1x1x1x1x2x1] x6
     instructions with no origin: 0 |}]
 
 let%expect_test "an attribution swapped between two values is seen" =
@@ -85,10 +90,11 @@ let%expect_test "an attribution swapped between two values is seen" =
      exchanged *)
   let swap (o : Ssa_origin.t) =
     match o with
-    | Ssa_origin.Value b when Ssa_id.Buffer.to_int b = 1 ->
-        Ssa_origin.Value (Ssa_id.Buffer.of_int 2)
-    | Ssa_origin.Value b when Ssa_id.Buffer.to_int b = 2 ->
-        Ssa_origin.Value (Ssa_id.Buffer.of_int 1)
+    | Ssa_origin.Value v ->
+        let n = Ssa_id.Buffer.to_int v.Ssa_origin.Value.buffer in
+        let other = if n = 1 then 2 else if n = 2 then 1 else n in
+        Ssa_origin.Value
+          { v with Ssa_origin.Value.buffer = Ssa_id.Buffer.of_int other }
     | o -> o
   in
   let rec map_region (r : Ssa_region.t) =
@@ -119,3 +125,176 @@ let%expect_test "an attribution swapped between two values is seen" =
     (totals p = totals swapped)
     (attribution p = attribution swapped);
   [%expect {| same totals: true; same attribution: false |}]
+
+(* What each pass does to the attribution. The two values are 16 and 8 wide, so
+   an instruction carries the right origin only if both its buffer and its
+   domain are its own. *)
+let store_buffer (i : Ssa_instr.t) =
+  match i.Ssa_instr.op with
+  | Ssa_op.Store { buffer; _ } | Ssa_op.Vec_store { buffer; _ } -> Some buffer
+  | _ -> None
+
+let width_of buffer = if Ssa_id.Buffer.to_int buffer = 1 then 16 else 8
+
+(* The origin is the value of [buffer], over its own domain. *)
+let owns buffer = function
+  | Ssa_origin.Value v ->
+      Ssa_id.Buffer.equal buffer v.Ssa_origin.Value.buffer
+      && List.map Core.Dim.to_int v.Ssa_origin.Value.domain
+         = [ 1; 1; 1; 1; width_of buffer; 1 ]
+  | Ssa_origin.Output _ | Ssa_origin.Unknown -> false
+
+let count f l = List.length (List.filter f l)
+
+let unknown_in instrs =
+  count
+    (fun (i : Ssa_instr.t) ->
+      Ssa_origin.equal i.Ssa_instr.origin Ssa_origin.Unknown)
+    instrs
+
+let stores_misattributed instrs =
+  count
+    (fun (i : Ssa_instr.t) ->
+      match store_buffer i with
+      | Some b -> not (owns b i.Ssa_instr.origin)
+      | None -> false)
+    instrs
+
+(* A top-level statement that stores to one buffer is that value's: every
+   instruction inside it must say so, not only the store. *)
+let nest_misattributed (p : Ssa_program.t) =
+  let entry = p.Ssa_program.entry in
+  List.fold_left
+    (fun n s ->
+      let inside = instrs_of { entry with Ssa_region.body = [ s ] } in
+      match List.sort_uniq compare (List.filter_map store_buffer inside) with
+      | [ buffer ] ->
+          n + count (fun i -> not (owns buffer i.Ssa_instr.origin)) inside
+      | _ -> n)
+    0 entry.Ssa_region.body
+
+let vector_accesses instrs =
+  count
+    (fun (i : Ssa_instr.t) ->
+      match i.Ssa_instr.op with
+      | Ssa_op.Vec_load _ | Ssa_op.Vec_store _ -> true
+      | _ -> false)
+    instrs
+
+let report name instrs =
+  Fmt.pr
+    "%s: %d instructions (%d vector accesses), %d unknown, %d stores \
+     misattributed@."
+    name (List.length instrs) (vector_accesses instrs) (unknown_in instrs)
+    (stores_misattributed instrs);
+  show_in "  by value" instrs
+
+let report_program name (p : Ssa_program.t) =
+  report name (instrs_of p.Ssa_program.entry);
+  Fmt.pr "  nests attributed to another value: %d@." (nest_misattributed p)
+
+let cfg_instrs (c : Ssa_cfg.t) =
+  List.concat_map
+    (fun (b : Ssa_cfg_block.t) -> b.Ssa_cfg_block.body)
+    c.Ssa_cfg.blocks
+
+(* Two stored values over different domains, 16 and 8 wide, the second reading
+   the first: loops long enough for a four-lane vector, and a domain that tells
+   the two values apart. *)
+let two_values () =
+  let open Loop_fixtures in
+  let ld id =
+    Expr.Value.load
+      (Expr_bridge.source_of_id (tid id))
+      (Expr_bridge.coord_of_vec6 Symbolic.out_vec)
+  in
+  let value id width src =
+    {
+      Kernel.Value.id = tid id;
+      sg = sg id (shape_w width) f32;
+      computation =
+        Region_group.Ref.Solo
+          (Region_program.pixel (Expr.Value.add (ld src) (Expr.Value.const 1.)));
+      result = Kernel.Result_conversion.Round_f32;
+    }
+  in
+  lowered
+    (Fusion_plan.default
+       (Err.or_raise ~pp_error:Kernel.pp_error
+          (Kernel.create
+             ~inputs:
+               [
+                 {
+                   Kernel.Input.id = tid 0;
+                   sg = sg 0 (shape_w 16) f32;
+                   binding = Kernel.Binding.Caller;
+                 };
+               ]
+             ~values:[ value 1 16 0; value 2 8 1 ]
+             ~outputs:[ tid 1; tid 2 ]
+             ())))
+
+let alias = Ssa_effects.Distinct_buffers
+let target = Ssa_target.forced Ssa_target.neon128
+
+let vectorized p =
+  fst
+    (Ssa_opt.run ~alias ~target ~passes:(Ssa_opt.pipeline ~target ~alias ()) p)
+
+let%expect_test "lowering carries each value's domain" =
+  report_program "lowered" (two_values ());
+  [%expect
+    {|
+    lowered: 36 instructions (0 vector accesses), 0 unknown, 0 stores misattributed
+      by value: value b1 [1x1x1x1x16x1] x18, value b2 [1x1x1x1x8x1] x18
+      nests attributed to another value: 0 |}]
+
+let%expect_test "precision keeps the value and its domain" =
+  report_program "precision" (Ssa_precision.to_f32 ~exact:true (two_values ()));
+  [%expect
+    {|
+    precision: 32 instructions (0 vector accesses), 0 unknown, 0 stores misattributed
+      by value: value b1 [1x1x1x1x16x1] x16, value b2 [1x1x1x1x8x1] x16
+      nests attributed to another value: 0 |}]
+
+let%expect_test "vectorization keeps the value and its domain" =
+  report_program "vectorized"
+    (vectorized (Ssa_precision.to_f32 ~exact:true (two_values ())));
+  [%expect
+    {|
+    vectorized: 11 instructions (4 vector accesses), 0 unknown, 0 stores misattributed
+      by value: value b1 [1x1x1x1x16x1] x7, value b2 [1x1x1x1x8x1] x4
+      nests attributed to another value: 0 |}]
+
+let%expect_test "lane expansion keeps the value and its domain" =
+  report_program "expanded"
+    (Ssa_vec_expand.program
+       (vectorized (Ssa_precision.to_f32 ~exact:true (two_values ()))));
+  [%expect
+    {|
+    expanded: 52 instructions (0 vector accesses), 0 unknown, 0 stores misattributed
+      by value: value b1 [1x1x1x1x16x1] x27, value b2 [1x1x1x1x8x1] x25
+      nests attributed to another value: 0 |}]
+
+let%expect_test "the control-flow lowering keeps the value and its domain" =
+  let p = vectorized (Ssa_precision.to_f32 ~exact:true (two_values ())) in
+  let c =
+    Err.or_raise ~pp_error:Ssa_cfg_lower.pp_error (Ssa_cfg_lower.program p)
+  in
+  report "cfg" (cfg_instrs c);
+  [%expect
+    {|
+    cfg: 17 instructions (4 vector accesses), 0 unknown, 0 stores misattributed
+      by value: value b1 [1x1x1x1x16x1] x10, value b2 [1x1x1x1x8x1] x7 |}]
+
+let%expect_test "unrolling keeps the value and its domain" =
+  let p = vectorized (Ssa_precision.to_f32 ~exact:true (two_values ())) in
+  let q, _ =
+    Ssa_opt_unroll.pass ~unroll:(Ssa_blocking.Unroll.of_int 2) ~alias p
+  in
+  report_program "unrolled" q;
+  [%expect
+    {|
+    unrolled: 23 instructions (8 vector accesses), 0 unknown, 0 stores misattributed
+      by value: value b1 [1x1x1x1x16x1] x13, value b2 [1x1x1x1x8x1] x10
+      nests attributed to another value: 0 |}]

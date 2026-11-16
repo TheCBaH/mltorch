@@ -1,0 +1,7 @@
+efficientnet_b0.pt2: invocations=254 converted=254 refused=0
+  f64   compared=254 bitwise=254 oracle=254 contractions=254 vectors=254
+  neon  compared=254 bitwise=254 oracle=254 contractions=254 vectors=254
+  wasm  compared=254 bitwise=254 oracle=254 contractions=254 vectors=254
+  coral compared=254 bitwise=254 oracle=254 contractions=254 vectors=254
+  failure_sites=0 same emit verdict: c 254, js 254, wasm 254
+gate: pass

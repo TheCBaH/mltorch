@@ -187,7 +187,7 @@ let expand_instr t (i : Ssa_instr.t) : Ssa_region.t Ssa_stmt.t list =
     | Ssa_op.Mark _ | Ssa_op.Meter_charge | Ssa_op.Meter_release _
     | Ssa_op.Meter_reserve _ | Ssa_op.Meter_reset | Ssa_op.Pool_better _
     | Ssa_op.Pred_not _ | Ssa_op.Pred_or _ | Ssa_op.Select _ | Ssa_op.Store _
-    | Ssa_op.Contract _ | Ssa_op.Attend _ ) as op ->
+    | Ssa_op.Contract _ | Ssa_op.Attend _ | Ssa_op.View_call _ ) as op ->
       [
         Ssa_stmt.Instr
           { i with Ssa_instr.op = Ssa_op.map_operands (resolve t) op; token };
@@ -195,7 +195,10 @@ let expand_instr t (i : Ssa_instr.t) : Ssa_region.t Ssa_stmt.t list =
 
 let rec stmt t : Ssa_region.t Ssa_stmt.t -> Ssa_region.t Ssa_stmt.t list =
   function
-  | Ssa_stmt.Instr i -> expand_instr t i
+  | Ssa_stmt.Instr i ->
+      List.map
+        (Ssa_rewrite.inherit_origin i.Ssa_instr.origin)
+        (expand_instr t i)
   | Ssa_stmt.For f ->
       let lo = resolve t f.lo and hi = resolve t f.hi in
       let inits = List.concat_map (flatten t) f.inits in

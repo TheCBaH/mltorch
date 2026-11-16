@@ -23,7 +23,8 @@ type error =
   | `Loop_leaves_domain
   | `Unsupported_format of Ssa_id.Buffer.t * string
   | `Unsupported_lanes of int
-  | `Unsupported_operation of string ]
+  | `Unsupported_operation of string
+  | `Unsupported_view_call ]
 
 let pp_error ppf : [< error ] -> unit = function
   | `Local_arrays_too_large n ->
@@ -38,6 +39,8 @@ let pp_error ppf : [< error ] -> unit = function
   | `Unsupported_lanes n ->
       Fmt.pf ppf "a %d-lane vector does not fill 128-bit registers" n
   | `Unsupported_operation o -> Fmt.pf ppf "%s has no WebAssembly form" o
+  | `Unsupported_view_call ->
+      Fmt.string ppf "a view call has no WebAssembly form"
 
 let static_cap = 0x4000_0000L
 

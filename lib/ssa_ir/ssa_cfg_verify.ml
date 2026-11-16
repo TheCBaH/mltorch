@@ -182,6 +182,16 @@ let check_buffers ctx block (op : Ssa_op.t) =
       check_access ctx block b ~family ~writes:false ~flat:true;
       check_access ctx block c ~family:Ssa_format.Family.F32 ~writes:true
         ~flat:true
+  | Ssa_op.View_call v ->
+      let family = Ssa_op.contract_operands v.Ssa_view_call.desc in
+      List.iter
+        (fun id -> check_access ctx block id ~family ~writes:false ~flat:true)
+        (Ssa_view_call.reads v);
+      let c = Ssa_view_call.writes v in
+      check_access ctx block c ~family:Ssa_format.Family.F32 ~writes:true
+        ~flat:true;
+      if List.exists (Ssa_id.Buffer.equal c) (Ssa_view_call.reads v) then
+        fail ctx block (Buffer_aliased c)
   | Ssa_op.Check_gather _ | Ssa_op.Check_local _ | Ssa_op.Check_scan _
   | Ssa_op.Const _ | Ssa_op.Convert _ | Ssa_op.Float_binary _
   | Ssa_op.Float_compare _ | Ssa_op.Float_fma _ | Ssa_op.Float_max _

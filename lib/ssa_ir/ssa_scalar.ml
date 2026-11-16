@@ -145,5 +145,5 @@ let eval ?(fused = true) (op : Ssa_op.t) ~(result : Ssa_type.t)
   | Ssa_op.Meter_charge | Ssa_op.Meter_release _ | Ssa_op.Meter_reserve _
   | Ssa_op.Meter_reset | Ssa_op.Store _ | Ssa_op.Vec_extract _
   | Ssa_op.Vec_insert _ | Ssa_op.Vec_iota _ | Ssa_op.Vec_load _
-  | Ssa_op.Vec_splat _ | Ssa_op.Vec_store _ ->
+  | Ssa_op.Vec_splat _ | Ssa_op.Vec_store _ | Ssa_op.View_call _ ->
       None
