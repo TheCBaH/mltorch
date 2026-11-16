@@ -2,10 +2,10 @@
    test can assert. The converter never half-converts: anything outside the
    covered slice (in particular a guard whose meaning it has no recipe for, whose
    evaluation site the SSA form must reproduce) is refused. *)
+(* @alphabetical *)
 type construct =
   | Fma
   | Guard
-  | I64
   | Index_divisor
   | Index_literal
   | Load_format of string
@@ -16,7 +16,6 @@ type t = { construct : construct }
 let construct_name = function
   | Fma -> "fused multiply-add"
   | Guard -> "guard"
-  | I64 -> "int64 value"
   | Index_divisor -> "index divisor that is not a positive index literal"
   | Index_literal -> "index literal outside the index domain"
   | Load_format f -> "load of format " ^ f

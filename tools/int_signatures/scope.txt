@@ -48,6 +48,7 @@ ml:lib/ssa_c
 ml:lib/ssa_ir
 ml:lib/ssa_js
 ml:lib/ssa_lower
+ml:lib/ssa_of_loop
 ml:lib/ssa_wasm
 ml:lib/walk_core
 ml:lib/wasm_ir

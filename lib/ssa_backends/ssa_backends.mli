@@ -7,6 +7,37 @@
     against, so the hosts and the artifact ABI are the Loop path's. A kernel the
     SSA path cannot make is [Error] with its reason: no fallback. *)
 
+(** Which lowering makes an invocation's SSA program from its placed kernel.
+    [Direct], the default, is {!Ssa_lower.Ssa_lower_plan}. [Structured] is
+    [Loop_lower.lower_structured] then {!Ssa_of_loop.convert}, before precision
+    planning, vectorization and contraction recognition: the one placed-graph
+    lowering, taken through the converter. It is an explicit selection until the
+    route gate covers every class a model uses; a construct the converter does
+    not cover is a {!Refusal}, never a fallback to [Direct]. *)
+module Frontend : sig
+  (* @alphabetical *)
+  type t = Direct | Structured
+
+  val name : t -> string
+end
+
+(** Why an invocation has no SSA program. *)
+module Refusal : sig
+  (* @alphabetical *)
+  type t =
+    | Converter of Ssa_of_loop_unsupported.t
+    | Direct_lowering of Ssa_lower.Ssa_unsupported.t
+    | Loop_lowering of Loop_ir.Loop_unsupported.t
+
+  val pp : Format.formatter -> t -> unit
+end
+
+val lowered :
+  ?frontend:Frontend.t ->
+  Loop_ir.Loop_bundle.invocation ->
+  (Ssa_ir.Ssa_program.t, Refusal.t) result
+(** The invocation's program as lowered, before any pipeline. *)
+
 (** What runs between lowering and emission, so representation, equivalent
     passes and added passes are measured separately. *)
 module Pipeline : sig
@@ -28,12 +59,14 @@ module Pipeline : sig
 end
 
 val program :
+  ?frontend:Frontend.t ->
   Pipeline.t ->
   Loop_ir.Loop_bundle.invocation ->
   (Ssa_ir.Ssa_program.t, string) result
 (** The program an invocation is emitted from. *)
 
 val plan :
+  ?frontend:Frontend.t ->
   ?contractions:bool ->
   ?bf16_pairs:bool ->
   ?rewrite:(Ssa_ir.Ssa_program.t -> (Ssa_ir.Ssa_program.t, string) result) ->
@@ -75,6 +108,29 @@ val js :
   (Js_ast.Program.t, string) result
 (** For {!Loop_ir.Loop_bundle_js.build}'s [kernel]. *)
 
+(** The three emitters' kernel producers with the lowering chosen: [c], [wasm]
+    and [js] are these with {!Frontend.Direct}. *)
+
+val c_via :
+  frontend:Frontend.t ->
+  pipeline:Pipeline.t ->
+  name:string ->
+  Loop_ir.Loop_bundle.invocation ->
+  (Loop_ir.Loop_c_kernel.t, string) result
+
+val wasm_via :
+  frontend:Frontend.t ->
+  pipeline:Pipeline.t ->
+  table_alloc:(bytes:int64 -> Loop_ir.Loop_wasm_layout.Address.t) ->
+  Loop_ir.Loop_bundle.invocation ->
+  (Loop_ir.Loop_wasm_module.kernel, string) result
+
+val js_via :
+  frontend:Frontend.t ->
+  pipeline:Pipeline.t ->
+  Loop_ir.Loop_bundle.invocation ->
+  (Js_ast.Program.t, string) result
+
 (** What the vectorizer takes of a bundle under each binary32 form: the census a
     binary32 vector plan is measured against. *)
 module Coverage : sig
@@ -105,10 +161,17 @@ module Coverage : sig
   (** In a [Narrowed_f32] tally: how many [Vec_iota] instructions the vector
       program holds (an index turned into a float per lane). *)
 
-  val tally : column -> Loop_ir.Loop_bundle.invocation -> (tally, string) result
+  val tally :
+    ?frontend:Frontend.t ->
+    column ->
+    Loop_ir.Loop_bundle.invocation ->
+    (tally, string) result
 
   val bundle :
-    column list -> Loop_ir.Loop_bundle.t -> (column * tally * int) list
+    ?frontend:Frontend.t ->
+    column list ->
+    Loop_ir.Loop_bundle.t ->
+    (column * tally * int) list
   (** Every invocation's tally summed per column, with how many invocations the
       SSA path refused. *)
 

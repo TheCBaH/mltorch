@@ -72,8 +72,8 @@ or lowering that crosses; each box is a library.
      │               │
      │ Loop_lower.lower_structured
      ▼               │
- lib/ssa_bridge      │
- Ssa_of_loop.convert │       (tests only so far; see the roles design)
+ lib/ssa_of_loop     │
+ Ssa_of_loop.convert │       (opt-in through Ssa_backends; see the roles design)
      │               │
      └───────┬───────┘
              ▼

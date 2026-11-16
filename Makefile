@@ -1,6 +1,6 @@
 .PHONY: machine.rivet.rv32.runtest rv32.pt2.runtest coralnpu.rv32.runtest coralnpu.vme.runtest compcert.rv32.install compcert.rv32.runtest model.compare.coverage js.compare.runtest rivet.compare.runtest transformers.assets.check transformers.assets.generate transformers.assets.fetch transformers.cohort.check transformers.cohort.generate transformers.cohort.fetch transformers.generate transformers.text.check transformers.text.demo transformers.gate transformers.matrix transformers.admission transformers.download transformers.open model.compare model.download model.compare.gate model.fetch.timm model.fetch.fixture transformers.replay compcert.compare.runtest compcert.embed.install compcert.embed.runtest machine.rivet.a64.conformance machine.rivet.a64.runtest machine.rivet.x64.conformance machine.rivet.x64.runtest rivet.install c.pt2.bench c.pt2.exe c.pt2.native4d.runtest c.pt2.native4d.ssa.runtest c.pt2.perf c.pt2.run c.pt2.runtest c.pt2.san c.pt2.ssa.perf c.pt2.ssa.runtest c.runtest.all c.runtest.o0 c.runtest.san benchmark.canonical benchmark.canonical.corpus \
 	benchmark.region_compute benchmark.region_pixel build check \
-	check.doc-refs check.exceptions check.file-size check.int-signatures check.libraries check.loop-freeze check.variant-order check.whitespace failure.parity.runtest libraries clean lint.zanuda lint.zanuda.list fp32.pt2.runtest fp32.pt2.census machine.a64.conformance machine.pt2.census ssa.vector.census \
+	check.doc-refs check.exceptions check.file-size check.int-signatures check.libraries check.loop-freeze check.variant-order check.whitespace failure.parity.runtest ssa.route.runtest libraries clean lint.zanuda lint.zanuda.list fp32.pt2.runtest fp32.pt2.census machine.a64.conformance machine.pt2.census ssa.vector.census \
 	expr_bench.js-benchmark expr_bench.runtest expr_order.runtest \
 	expr_probe.deep-runtest expr_probe.runtest format fp32.bench fp32.bench.wasm inference inference-runa \
 	inline-timing-report inline-timing-report-js js.build js.runtest \
@@ -758,6 +758,16 @@ check.loop-freeze:
 # neighbours.
 failure.parity.runtest:
 	opam exec -- dune build @test/ssa_bridge/runtest
+
+# The converter route's gate (Loop_lower.lower_structured then Ssa_of_loop,
+# against the direct Ssa_lower_plan): over whole-graph bundles, bitwise under
+# the SSA interpreter and against the Loop oracle at binary64 and ordered
+# binary32 (neon, wasm, zve32f128 with contractions), the same contractions and
+# vector decisions, the failure suite, and a rewritten program that must go
+# red. The committed golden is test/ssa_route/route_test.ml's expect output;
+# the refusal lines are the gap list. Hermetic, and part of `make runtest`.
+ssa.route.runtest:
+	opam exec -- dune build @test/ssa_route/runtest
 
 # Exception ratchet: every exception declared in lib/ is listed in
 # scripts/exceptions-allowlist.txt with a category; a walk exit should be an

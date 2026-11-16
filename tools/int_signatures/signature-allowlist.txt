@@ -937,7 +937,7 @@ lib/pt2/pt2_zip.ml	wire	val eocd_max_comment : int
 lib/pt2/pt2_zip.ml	wire	val raw_eocd_entry_count : string -> int option
 lib/pt2/pt2_zip.ml	as-written	val of_string : ?limits:Limits.t -> string -> (t, [> `Zip_bad_path of Path_rejection.t | `Zip_duplicate_paths of int | `Zip_encrypted_entry of Zipc.Fpath.t | `Zip_entry_too_large of Entry_bound.t | `Zip_no_eocd | `Zip_parse_failed of string | `Zip_too_many_entries of int | `Zip_total_too_large of int64 | `Zip_unsupported_method of Zipc.Fpath.t ]) Err.t
 lib/ssa_backends/ssa_backends.mli	tally	type tally = (string * (int * int64)) list
-lib/ssa_backends/ssa_backends.mli	tally	val bundle : column list -> Loop_ir.Loop_bundle.t -> (column * tally * int) list
+lib/ssa_backends/ssa_backends.mli	tally	val bundle : ?frontend:Frontend.t -> column list -> Loop_ir.Loop_bundle.t -> (column * tally * int) list
 lib/ssa_bridge/ssa_check.mli	tally	type t = { ssa_f32 : bool; loop_f32 : bool; ssa_loops : int; loop_loops : int; ssa_blocked : int; loop_blocked : int; } end
 lib/ssa_bridge/ssa_check.mli	tally	type marks = { emitters : int; keys : int; locals : int; reductions : int; scan_updates : int; scans : int; }
 lib/ssa_c/ssa_c_ctx.ml	as-written	type error = [ `Unsupported_lanes of int | `Unsupported_operation of string | `Unsupported_view_call ]

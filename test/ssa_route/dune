@@ -1,0 +1,26 @@
+; The converter route's gate: for every invocation of a set of hermetic graph
+; bundles, the program Ssa_of_loop makes from Loop_lower.lower_structured
+; against the direct Ssa_lower_plan program, through the SSA interpreter, the
+; policy planner and the contraction and vectorizer decisions, and a failure
+; suite through both lowerings. The expect output is the committed golden.
+
+(library
+ (name ssa_route_test)
+ (libraries
+  core
+  err_trace
+  expr
+  fmt
+  loop_ir
+  loop_ir_test
+  native
+  native_test
+  ssa_backends
+  ssa_bridge
+  ssa_bridge_test
+  ssa_ir
+  ssa_lower
+  ssa_of_loop)
+ (inline_tests)
+ (preprocess
+  (pps ppx_expect)))

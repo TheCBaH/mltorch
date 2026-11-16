@@ -1,7 +1,7 @@
 # Loop IR and structured SSA — roles, parity gates, retirement
 
-Libraries: loop_ir
-Status: 2026-11-12 — role rule and keep-set measured from source; the owner confirmed the retirement decision (§5) the same day
+Libraries: loop_ir, ssa_of_loop
+Status: 2026-11-16 — role rule and keep-set measured from source; the owner confirmed the retirement decision (§5) on 2026-11-12; the structured route is wired as an explicit `Ssa_backends` selection behind a hermetic gate (§6 item 2)
 
 Two middle-ends sit below `Fusion_plan`: the Loop IR (`lib/loop_ir`) and the
 structured SSA IR (`lib/ssa_*`, see the SSA design). This record fixes which one
@@ -27,12 +27,13 @@ change (§4).
 
 The placed-graph lowering has one implementation, `Loop_lower`. It reaches SSA
 through `Loop_lower.lower_structured` and `Ssa_of_loop.convert`
-(`lib/ssa_bridge`), before precision planning, vectorization and contraction
+(`lib/ssa_of_loop`), before precision planning, vectorization and contraction
 recognition. `lower_structured` is the unoptimized form
 (`lib/loop_ir/loop_lower.ml`); it never calls `Loop_opt.run`, which would drop the
-`Ordered_sum` an expanded accumulator loop needs. Today `Ssa_of_loop` is exercised
-by tests only: production SSA lowering is still `Ssa_lower_plan`, direct from the
-fusion plan. Wiring the route is open work (§6).
+`Ordered_sum` an expanded accumulator loop needs. `Ssa_of_loop` lives in its own
+library (`lib/ssa_of_loop`), so a production consumer does not take the
+comparison bridge. `Ssa_backends` selects the route with `?frontend:Structured`;
+the default is still `Ssa_lower_plan`, direct from the fusion plan (§6).
 
 ## 2. Keep-set and retirable set
 
@@ -83,7 +84,7 @@ Retirement is conditional on four gates. Each names the make target that proves 
 |---|---|---|---|
 | Capability | Does SSA run everything the Loop path runs? | `c.pt2.ssa.runtest`, `wasm.pt2.ssa.runtest`, `loop_js.bundle.pt2.ssa.runtest`; Native4D: `c.pt2.native4d.ssa.runtest`, `wasm.pt2.native4d.ssa.runtest`, `loop_js.bundle.pt2.native4d.ssa.runtest` (all bitwise against the reference, pipelines `exact` and `planned`) | per-node JS path and Region ops through SSA JS, §5.3 |
 | Numerical | Bitwise at the binary64 reference; within tolerance at relaxed binary32 | strict: the `--reference --strict --shadow` runs above; relaxed: `c.pt2.ssa.perf`, `wasm.pt2.ssa.perf` (`--shadow-numeric`, 1e-4 absolute and relative); `fp32.bench`, `fp32.bench.wasm` | the contract should be stated as "SSA against the binary64 reference", not "SSA against Loop's relaxed output" |
-| Failure behavior | Same failure row, site and limit | shared `Loop_failure` and `Loop_js_failure`; unit tests in `test/ssa_bridge` | **no whole-model or per-kernel failure-parity target.** `Ssa_of_loop` refuses a guard outside the recognised `Fail_if` pair, so the converter route cannot yet carry failures in general |
+| Failure behavior | Same failure row, site and limit | shared `Loop_failure` and `Loop_js_failure`; unit tests in `test/ssa_bridge` | the injected-failure rows run through both lowerings in `make ssa.route.runtest`; `Ssa_of_loop` refuses a guard outside the recognised `Fail_if` pair, so the converter route cannot yet carry failures in general. Not yet run: a failing kernel through a SSA emitter on the structured route, and real-model bundles |
 | Performance | SSA planned is no slower than the Loop default, within a bound | `c.pt2.bench`, `wasm.pt2.bench` (Loop only: neither passes `--ssa`) | **no SSA-against-Loop timing target.** Add `--ssa=planned` to the benches, record both columns, and define the bound (for example at most 1.05x the Loop warm run per model) |
 
 The int64 and Bool evaluator work, and a Region-authored operation such as the
@@ -166,7 +167,14 @@ and Loop emission would have caught.
 1. Move the shared symbols named in §2 out of the emitter modules.
 2. Wire `Loop_lower.lower_structured` + `Ssa_of_loop` behind a parity gate and
    cover the failure and binding classes; `Ssa_lower_plan` cannot be dropped
-   before that.
+   before that. Done so far: the gate over hermetic bundles and the injected
+   failures (`make ssa.route.runtest`; its output lists every refusal by typed
+   construct) and the three `Ssa_backends` lowering sites behind
+   `?frontend`, default `Direct`. Open: the same comparison over the
+   `PT2_MODELS_CRAM` bundles (P8 ran two, from a scratch executable, and the
+   weights are not in a fresh clone), a failing kernel through a SSA emitter on
+   the route, the Region-op models, and the performance row. The default
+   changes only when those pass.
 3. Run `ssa_js_pt2` on `fastvit_sa12`; add the `test/ssa_js` region bundle test;
    type the JS refusal.
 4. Add the failure-parity and SSA-against-Loop bench targets.

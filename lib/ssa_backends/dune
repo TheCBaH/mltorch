@@ -18,5 +18,6 @@
   ssa_ir
   ssa_js
   ssa_lower
+  ssa_of_loop
   ssa_wasm
   wasm_ir))
