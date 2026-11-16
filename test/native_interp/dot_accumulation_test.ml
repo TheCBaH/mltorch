@@ -45,13 +45,10 @@ let pt2_tensor sizes data =
   Array.iteri
     (fun i v -> Bytes.set_int32_le b (4 * i) (Int32.bits_of_float v))
     data;
-  {
-    Pt2_tensor.dtype = Pt2_dtype.Float32;
-    sizes;
-    strides = (match sizes with [ _; k ] -> [ k; 1 ] | _ -> [ 1 ]);
-    storage_offset = 0;
-    data = Pt2_storage.of_string (Bytes.to_string b);
-  }
+  Pt2_tensor.of_ints Pt2_dtype.Float32 ~sizes
+    ~strides:(match sizes with [ _; k ] -> [ k; 1 ] | _ -> [ 1 ])
+    ~storage_offset:0
+    (Pt2_storage.of_string (Bytes.to_string b))
 
 (* The exact dot product, correctly rounded to binary32. Each product of two
    binary32 values is exact in binary64; the running sum is kept as an

@@ -33,13 +33,9 @@ let aten_of_logical (v : L.t) : (Interp_decode.tensor, string) result =
   let* dtype = pt2_dtype spec in
   let sizes = shape_ints spec in
   let t =
-    {
-      Pt2_tensor.dtype;
-      sizes;
-      strides = Pt2_tensor.contiguous_strides sizes;
-      storage_offset = 0;
-      data = Pt2_storage.of_string (L.contents v);
-    }
+    Pt2_tensor.dense dtype
+      (List.map Pt2_tensor.Size.of_int sizes)
+      (Pt2_storage.of_string (L.contents v))
   in
   try Ok (Pt2_aten.to_tensor t)
   with Failure m | Aten_tensor.Error m -> Error m

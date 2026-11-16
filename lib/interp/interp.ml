@@ -228,7 +228,10 @@ let run_named archive ~inputs =
                 = Ok tensor.dtype)
             in
             check "shape"
-              (meta.sizes = List.map (fun n -> SymInt.Int n) tensor.sizes))
+              (meta.sizes
+              = List.map
+                  (fun n -> SymInt.Int (Pt2_tensor.Size.to_int n))
+                  tensor.sizes))
       inputs
   in
   let env =

@@ -302,11 +302,5 @@ let load_first_pt_tensor ?limits ?max_bytes path =
       (* Release input maps are post-transform, pre-batch tensors.  This API is
          only for selecting an external map entry for the graph CLIs; [load_pt]
          remains byte-for-byte faithful to archive-internal single tensors. *)
-      let batch_stride = Pt2_tensor.numel tensor in
-      Err.return
-        {
-          tensor with
-          Pt2_tensor.sizes = 1 :: tensor.sizes;
-          strides = batch_stride :: tensor.strides;
-        }
+      Err.return (Pt2_tensor.batched tensor)
   | [] -> Err.fail (`Empty_tensor_map path)

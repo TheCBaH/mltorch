@@ -24,10 +24,7 @@ let f32s_of_bytes s =
 let f32s_of_tensor (t : Pt2_tensor.t) =
   match Pt2_fixture.Logical.of_pt2 t with
   | Error _ -> failwith "logical tensor"
-  | Ok l ->
-      f32s_of_bytes
-        (String.init (Pt2_storage.length l.data) (fun i ->
-             Char.chr (Pt2_storage.get_uint8 l.data i)))
+  | Ok l -> f32s_of_bytes (Pt2_storage.to_string l.data)
 
 let read path = In_channel.with_open_bin path In_channel.input_all
 

@@ -67,10 +67,7 @@ let usage () =
 (* The sample of the release's [inputs.pt] the exporter picks, with the batch
    axis the model takes (the samples are single images). *)
 let sample_input ~inputs ~index (aten : P.Aten_model.t) =
-  let with_batch (t : Pt2_tensor.t) =
-    let stride = Pt2_tensor.numel t in
-    { t with Pt2_tensor.sizes = 1 :: t.sizes; strides = stride :: t.strides }
-  in
+  let with_batch = Pt2_tensor.batched in
   match Pt2_archive.load_pt_tensor_map inputs with
   | Error _ -> failwith (inputs ^ ": unreadable")
   | Ok samples -> (

@@ -78,9 +78,9 @@ let stats (t : Pt2_tensor.t) : (Stats.t, [> error ]) Err.t =
     match t.dtype with
     | Pt2_dtype.Float32 ->
         let data = t.data in
-        let n = Pt2_tensor.numel t in
+        let n = Pt2_tensor.numel_int t in
         let get i =
-          Int32.float_of_bits (Pt2_storage.get_int32_le data (i * 4))
+          Int32.float_of_bits (Pt2_storage.cell_int32_le data ~cell:i)
         in
         let v0 = get 0 in
         let rec scan i min max sum =
@@ -147,7 +147,7 @@ let tensor_spec_of archive params tensor_values name :
       Err.return
         {
           Aten_spec.Tensor_spec.dtype;
-          shape = wt.sizes;
+          shape = List.map Pt2_tensor.Size.to_int wt.sizes;
           source = Random (distribution_of_stats s);
         }
   | None -> (

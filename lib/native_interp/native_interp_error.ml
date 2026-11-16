@@ -431,7 +431,11 @@ module Rank_mismatch = struct
 end
 
 module Storage_range = struct
-  type t = { lo : int64; hi : int64; data_bytes : int }
+  type t = {
+    lo : int64;
+    hi : int64;
+    data_bytes : Core.Storage_units.Byte_size.t;
+  }
 end
 
 (* Loading a captured tensor, which is a different job from reading graph
@@ -772,8 +776,8 @@ let pp_tensor_bridge ppf : [< tensor_bridge ] -> unit = function
   | `Storage_index_overflow ->
       Fmt.string ppf "storage index range overflows a 64-bit integer"
   | `Storage_out_of_range { Storage_range.lo; hi; data_bytes } ->
-      Fmt.pf ppf "storage index range [%Ld, %Ld] is outside %d bytes of data" lo
-        hi data_bytes
+      Fmt.pf ppf "storage index range [%Ld, %Ld] is outside %a bytes of data" lo
+        hi Core.Storage_units.Byte_size.pp data_bytes
   | `Unsupported_dtype d ->
       Fmt.pf ppf "only float32/int64 are supported, got %s"
         (Pt2_dtype.to_string d)

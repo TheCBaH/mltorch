@@ -13,9 +13,7 @@ let io r =
   Result.map_error (fun e -> Format.asprintf "%a" H.File_io.pp_error e) r
 
 (* The exporter's samples are single images; the model takes a batch. *)
-let with_batch (t : Pt2_tensor.t) =
-  let stride = Pt2_tensor.numel t in
-  { t with Pt2_tensor.sizes = 1 :: t.sizes; strides = stride :: t.strides }
+let with_batch = Pt2_tensor.batched
 
 let limits : Resource_limits.t =
   {

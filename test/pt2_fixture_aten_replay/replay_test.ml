@@ -121,7 +121,7 @@ let%expect_test "logical C++ reads honor strided and offset views, exact int64"
              (List.init
                 (Bigarray.Array1.dim l.data / 8)
                 (fun i ->
-                  Int64.to_string (Pt2_storage.get_int64_le l.data (i * 8)))))
+                  Int64.to_string (Pt2_storage.cell_int64_le l.data ~cell:i))))
   in
   show offset;
   show strided;
@@ -151,8 +151,8 @@ let%expect_test "named binding checks actual input dtype and shape" =
       run
         {
           (List.assoc "x" inputs) with
-          Pt2_tensor.sizes = [ 6 ];
-          strides = [ 1 ];
+          Pt2_tensor.sizes = [ Pt2_tensor.Size.of_int 6 ];
+          strides = [ Pt2_tensor.Stride.of_int 1 ];
         });
   [%expect
     {|

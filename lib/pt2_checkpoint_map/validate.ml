@@ -86,8 +86,6 @@ let config_entry (g : graph) target =
   | Some e, None | None, Some e -> Err.return e
   | None, None -> Err.fail (`Config_missing target)
 
-let int64s = List.map Int64.of_int
-
 let check_capture (g : graph) (doc : Document.t) ~inventory (target, kind) =
   let entry = String_map.find target doc.tensors in
   let (cap : Captures.Capture.t) = String_map.find target inventory in
@@ -134,7 +132,7 @@ let check_capture (g : graph) (doc : Document.t) ~inventory (target, kind) =
              actual = entry.dtype;
            })
   in
-  let graph_shape = int64s tensor.sizes in
+  let graph_shape = List.map Pt2_tensor.Size.to_int64 tensor.sizes in
   let shape_clash against expected =
     Err.fail
       (`Shape_clash

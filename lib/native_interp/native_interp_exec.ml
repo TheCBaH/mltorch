@@ -273,14 +273,22 @@ let bind_named archive ~inputs lowered =
             if List.exists Option.is_none declared then Err.return ()
             else
               let declared = List.map Option.get declared in
-              if declared = tensor.sizes then Err.return ()
+              if
+                List.equal Int64.equal
+                  (List.map Int64.of_int declared)
+                  (List.map Pt2_tensor.Size.to_int64 tensor.sizes)
+              then Err.return ()
               else
                 fail
                   (B.Shape_mismatch
                      {
                        Native_interp_error.Shape_mismatch.name;
                        expected = List.map Aten_int.Size.of_int declared;
-                       got = List.map Aten_int.Size.of_int tensor.sizes;
+                       got =
+                         List.map
+                           (fun s ->
+                             Aten_int.Size.of_int (Pt2_tensor.Size.to_int s))
+                           tensor.sizes;
                      })
       in
       let+ packed = tensor_of_pt2 tensor in

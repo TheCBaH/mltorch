@@ -194,13 +194,7 @@ let strict_verdict = function [] -> Ok () | first :: _ -> Error first
    batch dimension is added.  Creating the leading size/stride is a view over
    the same storage, so it neither copies nor changes the external tensor-map
    contract. *)
-let with_batch (tensor : Pt2_tensor.t) =
-  let stride = Pt2_tensor.numel tensor in
-  {
-    tensor with
-    Pt2_tensor.sizes = 1 :: tensor.sizes;
-    strides = stride :: tensor.strides;
-  }
+let with_batch = Pt2_tensor.batched
 
 let exact_keys what left right =
   let left = List.map fst left and right = List.map fst right in

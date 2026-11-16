@@ -47,7 +47,7 @@ module Mismatch : sig
     | Checkpoint_shape of { checkpoint : int64 list; map : int list }
     | Graph_dtype of { graph : Pt2_dtype.t; map : string }
     | Graph_layout
-    | Graph_shape of { graph : int list; map : int list }
+    | Graph_shape of { graph : int64 list; map : int list }
 end
 
 module Source_mismatch : sig

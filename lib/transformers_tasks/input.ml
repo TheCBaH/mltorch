@@ -8,7 +8,8 @@ let tensor (l : L.t) =
   let* sizes =
     Err.List.map
       (fun n ->
-        if n > 0L && n <= 1_000_000L then Ok (Int64.to_int n)
+        if n > 0L && n <= 1_000_000L then
+          Ok (Pt2_tensor.Size.of_int (Int64.to_int n))
         else invalid "tensor extent exceeds supported bound")
       l.shape
   in
@@ -40,14 +41,7 @@ let tensor (l : L.t) =
   let* dtype =
     Err.of_option (`Metadata_invalid "unsupported input dtype") dtype
   in
-  Ok
-    {
-      Pt2_tensor.dtype;
-      sizes;
-      strides = Pt2_tensor.contiguous_strides sizes;
-      storage_offset = 0;
-      data = l.data;
-    }
+  Ok (Pt2_tensor.dense dtype sizes l.data)
 
 let logical dtype shape bytes =
   let* value =

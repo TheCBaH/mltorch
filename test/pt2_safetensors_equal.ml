@@ -30,14 +30,7 @@ let () =
         fail "%s %s: %a" label name Pt2_archive.pp_error (Err.Error.kind e)
   in
   let equal a b =
-    let n = Pt2_storage.length a in
-    n = Pt2_storage.length b
-    &&
-    let rec go i =
-      i >= n
-      || (Pt2_storage.get_uint8 a i = Pt2_storage.get_uint8 b i && go (i + 1))
-    in
-    go 0
+    String.equal (Pt2_storage.to_string a) (Pt2_storage.to_string b)
   in
   List.iter
     (fun name ->

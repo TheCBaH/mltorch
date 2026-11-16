@@ -62,7 +62,7 @@ module Mismatch = struct
     | Checkpoint_shape of { checkpoint : int64 list; map : int list }
     | Graph_dtype of { graph : Pt2_dtype.t; map : string }
     | Graph_layout
-    | Graph_shape of { graph : int list; map : int list }
+    | Graph_shape of { graph : int64 list; map : int list }
 end
 
 module Source_mismatch = struct
@@ -97,7 +97,7 @@ let pp_mismatch ppf : Mismatch.t -> unit = function
   | Graph_layout ->
       Fmt.string ppf "graph tensor is not a dense row-major buffer at offset 0"
   | Graph_shape { graph; map } ->
-      Fmt.pf ppf "graph shape %a, map says %a" pp_ints graph pp_ints map
+      Fmt.pf ppf "graph shape %a, map says %a" pp_int64s graph pp_ints map
 
 let pp_error ppf : error -> unit = function
   | `Map_decode msg -> Fmt.pf ppf "failed to decode safetensors.json: %s" msg
@@ -174,8 +174,10 @@ let check_graph_tensor name (meta : Pytorch_types.TensorMeta.t)
         mismatch (Graph_dtype { graph = graph.dtype; map = entry.dtype })
   in
   let* () =
-    if graph.sizes = entry.shape then Err.return ()
-    else mismatch (Graph_shape { graph = graph.sizes; map = entry.shape })
+    let graph_shape = List.map Pt2_tensor.Size.to_int64 graph.sizes in
+    if List.equal Int64.equal graph_shape (List.map Int64.of_int entry.shape)
+    then Err.return ()
+    else mismatch (Graph_shape { graph = graph_shape; map = entry.shape })
   in
   (* [is_contiguous] folds the sizes with an overflow check that raises for a
      tensor no buffer could hold; that is a layout the checkpoint cannot match

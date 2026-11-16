@@ -183,8 +183,14 @@ them does with the number. The audit of the exempt entries, by family:
   sequence; `Pt2_storage`'s `length` and offset arguments are a byte size and a
   byte offset. `Tensor.read_at_raw` and its siblings take the evaluator's
   `int Expr.Coord.t` callback and stay `expr-literal`. `Pt2_tensor`'s `sizes`,
-  `strides` and `storage_offset` (and the functions over them) stay open: strides
-  are signed and the loops that read them are hot.
+  `strides` and `storage_offset` are `Size.t`, `Stride.t` (signed) and
+  `Storage_units.Element_offset.t`, all `int64`-backed: a checkpoint's metadata is
+  never narrowed until `Pt2_tensor.Cells.of_tensor` has proved, in `int64` and
+  at both ends of the range, that every cell the layout reads lies in the
+  storage. The per-element loops (`Cells.iter`, `Cells.cell_at`) then run in
+  plain `int` cells, which cannot wrap on a 32-bit backend; `Pt2_storage`'s
+  `cell_*` readers take such a proven cell. `Pt2_tensor.numel` is an
+  `Element_count` and `Pt2_storage.length` a `Byte_size`.
 
 ## 2. Taxonomy
 
@@ -423,16 +429,13 @@ Types alone do not stop the next `int`. Three layers:
    multi-gigabyte placement to trigger, so neither is reachable by a model that
    builds today.
 
-   `pt2` entered last of the JS-reachable libraries, adding 3 `todo-domain`
-   entries: `Pt2_tensor.product`, `numel` and `contiguous_strides`, which do
-   extent and stride arithmetic on raw `int`s that `pt2_aten` later wraps in
-   `Dim`. Judgement calls: the decoded tensor record, the pickle rebuild
-   descriptor and the zip end-of-central-directory fields are `wire` (the archive's
+   `pt2` entered last of the JS-reachable libraries with `todo-domain` entries
+   for `Pt2_tensor`'s arithmetic and `Pt2_storage`'s byte accessors; they are
+   now typed (see the pt2 paragraph in section 1). Judgement calls: the zip end-of-central-directory fields are `wire` (the archive's
    own representation), the zip `Limits` and their fields are `budget`, and the
-   counts and paths a rejection reports are `as-written`. No 32-bit hazard was
-   found: every decoded size is bounded when decoded, and `product` folds in
-   `int64` and narrows only to the runtime's own `int` range, so on js_of_ocaml
-   it bounds to 32 bits.
+   counts and paths a rejection reports are `as-written`. Sizes and strides now
+   stay `int64` from the pickle to the layout proof, so no decoded value is
+   narrowed before it is bounded.
 
    **Scope widened to the optimization path and the language.** `ssa_ir`, `ssa_lower`,
    `machine_alloc`, `machine_ir`, `machine_lower`, `machine_check`, `machine_interp`,

@@ -69,13 +69,9 @@ let%expect_test "zip missing entry is typed" =
 
 let%expect_test "metadata: numel, contiguity, pp" =
   let mk strides =
-    {
-      Pt2_tensor.dtype = Pt2_dtype.Float32;
-      sizes = [ 2; 3 ];
-      strides;
-      storage_offset = 0;
-      data = Pt2_storage.of_string (String.make (6 * 4) '\000');
-    }
+    Pt2_tensor.of_ints Pt2_dtype.Float32 ~sizes:[ 2; 3 ] ~strides
+      ~storage_offset:0
+      (Pt2_storage.of_string (String.make (6 * 4) '\000'))
   in
   let c = mk [ 3; 1 ]
   (* row-major *)
@@ -84,7 +80,7 @@ let%expect_test "metadata: numel, contiguity, pp" =
     (* column-major *)
   in
   Format.printf "%a numel=%d contig(c)=%b contig(s)=%b@." Pt2_tensor.pp c
-    (Pt2_tensor.numel c)
+    (Pt2_tensor.numel_int c)
     (Pt2_tensor.is_contiguous c)
     (Pt2_tensor.is_contiguous s);
   [%expect {| float32[2; 3] numel=6 contig(c)=true contig(s)=false |}]
@@ -158,12 +154,16 @@ let%expect_test "pickle yields rebuild descriptor" =
   match Pt2_pickle.parse_tensor (tensor_pickle ()) with
   | Error e -> Format.printf "%a@." Pt2_pickle.pp_error (Err.Error.kind e)
   | Ok rb ->
-      Printf.printf "key=%s dtype=%s offset=%d sizes=[%s] strides=[%s]\n"
+      Format.printf "key=%s dtype=%s offset=%a sizes=[%s] strides=[%s]\n"
         rb.Pt2_pickle.storage_key
         (Pt2_dtype.to_string rb.Pt2_pickle.dtype)
-        rb.Pt2_pickle.storage_offset
-        (String.concat ";" (List.map string_of_int rb.Pt2_pickle.sizes))
-        (String.concat ";" (List.map string_of_int rb.Pt2_pickle.strides));
+        Core.Storage_units.Element_offset.pp rb.Pt2_pickle.storage_offset
+        (String.concat ";"
+           (List.map (Fmt.to_to_string Pt2_tensor.Size.pp) rb.Pt2_pickle.sizes))
+        (String.concat ";"
+           (List.map
+              (Fmt.to_to_string Pt2_tensor.Stride.pp)
+              rb.Pt2_pickle.strides));
       [%expect {| key=0 dtype=float32 offset=0 sizes=[2;2] strides=[2;1] |}]
 
 let%expect_test "pickle failures are typed" =
@@ -225,32 +225,27 @@ let%expect_test
   [%expect
     {| zero=true small=true mid=true max-signed=true high-bit=true all-ones=true |}]
 
-(* [Pt2_pickle.int_of] narrows a signed pickle integer. Pickle ints are signed,
-   so the bound is two-sided -- a value below min_int wraps exactly as one above
-   max_int does, and only checking the top would leave half the defect in place. *)
-let int_of_agrees i64 =
-  let representable =
-    Int64.compare i64 (Int64.of_int min_int) >= 0
-    && Int64.compare i64 (Int64.of_int max_int) <= 0
-  in
-  match Pt2_pickle.int_of "size" (Opickle.Value.Int i64) with
-  | Error _ -> not representable
-  | Ok v -> representable && Int64.equal (Int64.of_int v) i64
+(* A pickle size is a signed 64-bit integer and stays one: a value past this
+   backend's [int] (2^40 under js_of_ocaml) is a legal size, and only a
+   negative one is refused. Nothing is narrowed here, so the two backends agree
+   by construction. *)
+let size_accepted i64 =
+  match Pt2_pickle.size_of "size" (Opickle.Value.Int i64) with
+  | Error _ -> false
+  | Ok s -> Int64.equal (Pt2_tensor.Size.to_int64 s) i64
 
-let%expect_test "Pt2_pickle.int_of bounds both ends" =
+let%expect_test "Pt2_pickle.size_of keeps every nonnegative value" =
   Printf.printf "zero=%b small=%b negative=%b max=%b min=%b\n"
-    (int_of_agrees 0L) (int_of_agrees 42L) (int_of_agrees (-42L))
-    (int_of_agrees Int64.max_int)
-    (int_of_agrees Int64.min_int);
-  (* 2^40 is representable natively and NOT under js_of_ocaml -- the one case
-     that actually differs between the two, and the reason for the oracle. *)
+    (size_accepted 0L) (size_accepted 42L) (size_accepted (-42L))
+    (size_accepted Int64.max_int)
+    (size_accepted Int64.min_int);
   Printf.printf "2^40=%b -2^40=%b\n"
-    (int_of_agrees 1099511627776L)
-    (int_of_agrees (-1099511627776L));
+    (size_accepted 1099511627776L)
+    (size_accepted (-1099511627776L));
   [%expect
     {|
-    zero=true small=true negative=true max=true min=true
-    2^40=true -2^40=true |}]
+    zero=true small=true negative=false max=true min=false
+    2^40=true -2^40=false |}]
 
 (* An aggregate bound has to check the MULTIPLY, not just its result. Folding
    [max_int; 4] in int64 wraps to -4, which passes any range test on the final
@@ -262,33 +257,42 @@ let raises_invalid_arg f =
   match f () with exception Invalid_argument _ -> true | _ -> false
 
 let%expect_test "Pt2_tensor.numel rejects a product that overflows mid-fold" =
-  let mk sizes =
-    {
-      Pt2_tensor.dtype = Pt2_dtype.Float32;
-      sizes;
-      strides = List.map (fun _ -> 1) sizes;
-      storage_offset = 0;
-      data = Pt2_storage.empty;
-    }
+  let size i =
+    match Pt2_tensor.Size.of_int64 i with Ok s -> s | Error _ -> assert false
   in
-  Printf.printf "wraps=%b overflows-int=%b ok=%b\n"
-    (raises_invalid_arg (fun () -> Pt2_tensor.numel (mk [ max_int; 4 ])))
-    (raises_invalid_arg (fun () -> Pt2_tensor.numel (mk [ max_int; 2 ])))
-    (Pt2_tensor.numel (mk [ 2; 3; 4 ]) = 24);
-  [%expect {| wraps=true overflows-int=true ok=true |}]
+  let mk sizes =
+    Pt2_tensor.of_ints Pt2_dtype.Float32 ~sizes:[] ~strides:[] ~storage_offset:0
+      Pt2_storage.empty
+    |> fun t -> { t with Pt2_tensor.sizes = List.map size sizes }
+  in
+  let numel t =
+    Core.Storage_units.Element_count.to_int64 (Pt2_tensor.numel t)
+  in
+  Printf.printf "wraps=%b overflows=%b big=%Ld ok=%Ld\n"
+    (raises_invalid_arg (fun () -> Pt2_tensor.numel (mk [ Int64.max_int; 4L ])))
+    (raises_invalid_arg (fun () -> Pt2_tensor.numel (mk [ Int64.max_int; 2L ])))
+    (numel (mk [ 1099511627776L; 1048576L ]))
+    (numel (mk [ 2L; 3L; 4L ]));
+  [%expect {| wraps=true overflows=true big=1152921504606846976 ok=24 |}]
 
 let%expect_test "storage: copy, little-endian reads, bounds" =
   (* 11 bytes: one eight-byte word plus a three-byte tail. *)
   let s = "\x01\x02\x03\x04\x05\x06\x07\x08\xfe\xff\x80" in
   let b = Pt2_storage.of_string s in
-  Printf.printf "len=%d u8=%d,%d,%d\n" (Pt2_storage.length b)
-    (Pt2_storage.get_uint8 b 0)
-    (Pt2_storage.get_uint8 b 8)
-    (Pt2_storage.get_uint8 b 10);
+  let at n =
+    match Core.Storage_units.Byte_offset.of_int64 (Int64.of_int n) with
+    | Ok o -> o
+    | Error _ -> assert false
+  in
+  Printf.printf "len=%s u8=%d,%d,%d\n"
+    (Fmt.to_to_string Core.Storage_units.Byte_size.pp (Pt2_storage.length b))
+    (Pt2_storage.get_uint8 b (at 0))
+    (Pt2_storage.get_uint8 b (at 8))
+    (Pt2_storage.get_uint8 b (at 10));
   Printf.printf "i32=%lx i64=%Lx i32@7=%lx\n"
-    (Pt2_storage.get_int32_le b 0)
-    (Pt2_storage.get_int64_le b 0)
-    (Pt2_storage.get_int32_le b 7);
+    (Pt2_storage.get_int32_le b (at 0))
+    (Pt2_storage.get_int64_le b (at 0))
+    (Pt2_storage.get_int32_le b (at 7));
   let raises f =
     try
       ignore (f ());
@@ -296,10 +300,12 @@ let%expect_test "storage: copy, little-endian reads, bounds" =
     with Invalid_argument _ -> true
   in
   Printf.printf "oob: i32@8=%b i64@4=%b u8@11=%b\n"
-    (raises (fun () -> Pt2_storage.get_int32_le b 8))
-    (raises (fun () -> Pt2_storage.get_int64_le b 4))
-    (raises (fun () -> Pt2_storage.get_uint8 b 11));
-  Printf.printf "empty=%d\n" (Pt2_storage.length (Pt2_storage.of_string ""));
+    (raises (fun () -> Pt2_storage.get_int32_le b (at 8)))
+    (raises (fun () -> Pt2_storage.get_int64_le b (at 4)))
+    (raises (fun () -> Pt2_storage.get_uint8 b (at 11)));
+  Printf.printf "empty=%s\n"
+    (Fmt.to_to_string Core.Storage_units.Byte_size.pp
+       (Pt2_storage.length (Pt2_storage.of_string "")));
   [%expect
     {|
     len=11 u8=1,254,128

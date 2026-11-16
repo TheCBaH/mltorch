@@ -534,7 +534,11 @@ module Rank_mismatch : sig
 end
 
 module Storage_range : sig
-  type t = { lo : int64; hi : int64; data_bytes : int }
+  type t = {
+    lo : int64;
+    hi : int64;
+    data_bytes : Core.Storage_units.Byte_size.t;
+  }
 end
 
 type tensor_bridge =

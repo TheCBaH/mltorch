@@ -134,13 +134,8 @@ let strided ~sizes ~strides ?(offset = 0) values =
   List.iteri
     (fun i v -> Bytes.set_int32_le b (4 * i) (Int32.bits_of_float v))
     values;
-  {
-    Pt2_tensor.dtype = Pt2_dtype.Float32;
-    sizes;
-    strides;
-    storage_offset = offset;
-    data = Pt2_storage.of_string (Bytes.to_string b);
-  }
+  Pt2_tensor.of_ints Pt2_dtype.Float32 ~sizes ~strides ~storage_offset:offset
+    (Pt2_storage.of_string (Bytes.to_string b))
 
 let floats (l : F.Logical.t) =
   List.init
