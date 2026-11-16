@@ -11,13 +11,18 @@
   coralnpu
   coralnpu_kernels
   coralnpu_kernels_zvt
+  err_trace
+  f32_math
   fmt
+  loop_ir
   machine_lower
   machine_model
   machine_model_test
   machine_rivet_riscv32
   machine_rivet_riscv32_coral
   machine_rivet_riscv32_mir
+  native
+  native_test
   rivet.image
   ssa_backends
   ssa_ir)

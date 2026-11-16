@@ -108,3 +108,118 @@ let%expect_test "the recognizer refuses the window" =
     refused bounds
     refused bounds
     refused non_affine |}]
+
+(* ---- pool order and divisor, padding as a skipped tap ---------------------
+
+   The same oracle over three more graphs. The values are read from a flat
+   array in NHWC order; [constants] feeds the bundle's constants in creation
+   order. *)
+
+let eval g ~input ~constants =
+  let b = bundle g in
+  let bind values id = (id, tensor_of (Array.get values) (sig_of g id)) in
+  let cs = List.map2 (fun id v -> bind v id) b.constants constants in
+  let xs = List.map (bind input) b.inputs in
+  match
+    Err.or_raise ~pp_error:Loop_ir.Loop_bundle_oracle.pp_error
+      (Loop_ir.Loop_bundle_oracle.run b
+         ~constants:(fun id -> List.assoc_opt id cs)
+         ~inputs:(fun id -> List.assoc_opt id xs))
+  with
+  | [ y ] -> y
+  | _ -> failwith "one output"
+
+let values ?(channels = 1) ~w y =
+  let (Tensor.Tensor t) = y in
+  let n = (Vec6.numel t.Tensor.shape :> int) in
+  Array.init n (fun i ->
+      Tensor.read_at_raw32 y (function
+        | Axis.H -> i / channels / w
+        | W -> i / channels mod w
+        | C -> i mod channels
+        | N | T | D -> 0))
+
+let pool ~count_include_pad ~kernel ~stride ~pad:padding ~h ~w =
+  let hw v = { Core.Geometry.Hw.h = v; w = v } in
+  F.build "pool"
+    Graph_builder.(
+      let* x = input ~shape:(F.nhwc ~h ~w ~c:1) () in
+      avg_pool2d
+        {
+          Pool.AvgPool2d.ceil_mode = false;
+          count_include_pad;
+          kernel = hw (Dim.extent kernel);
+          stride = hw (Op_config.Pos.of_int stride);
+          pad = hw (Op_config.Nonneg.of_int padding);
+        }
+        x)
+
+(* [[2^24, 1], [3, -2^24]] in one window: row by row, each row summed, then the
+   rows, gives 3; column by column 5; one flat sum in row order 4. The pool
+   sums the rows' sums, and divides last. *)
+let%expect_test "average pool: nested row sums, then the divisor" =
+  let w = [| 16777216.; 1.; 3.; -16777216. |] in
+  let r32 = F32_math.round32 in
+  let ( +. ) a b = r32 (a +. b) in
+  Fmt.pr "row-nested %g, column-nested %g, flat %g@."
+    (w.(0) +. w.(1) +. (w.(2) +. w.(3)))
+    (w.(0) +. w.(2) +. (w.(1) +. w.(3)))
+    (w.(0) +. w.(1) +. w.(2) +. w.(3));
+  let y =
+    values ~w:1
+      (eval
+         (pool ~count_include_pad:true ~kernel:2 ~stride:2 ~pad:0 ~h:2 ~w:2)
+         ~input:w ~constants:[])
+  in
+  Fmt.pr "pool: %g (the row-nested sum, 3, over 4)@." y.(0);
+  [%expect
+    {|
+    row-nested 3, column-nested 5, flat 4
+    pool: 0.75 (the row-nested sum, 3, over 4) |}]
+
+(* A 2x2 window at stride 2 and padding 1 over a 2x2 input of ones: each
+   output window holds one real element. The divisor is the kernel area, 4,
+   with the padding counted, and the window's real size, 1, without. *)
+let%expect_test "average pool: the divisor under padding" =
+  List.iter
+    (fun count_include_pad ->
+      let y =
+        values ~w:2
+          (eval
+             (pool ~count_include_pad ~kernel:2 ~stride:2 ~pad:1 ~h:2 ~w:2)
+             ~input:[| 1.; 1.; 1.; 1. |] ~constants:[])
+      in
+      Fmt.pr "count_include_pad=%b: %a@." count_include_pad
+        (Fmt.array ~sep:(Fmt.any " ") Fmt.float)
+        y)
+    [ true; false ];
+  [%expect
+    {|
+    count_include_pad=true: 0.25 0.25 0.25 0.25
+    count_include_pad=false: 1 1 1 1 |}]
+
+(* Padding is not an added zero tap: a window clips to the input, so a padded
+   tap is never multiplied. Weight infinity at the corner tap would turn an
+   added zero into NaN (0 * inf); the output at that corner stays finite. *)
+let%expect_test "convolution padding skips the tap" =
+  let g =
+    F.build "padded"
+      Graph_builder.(
+        let* x = input ~shape:(F.nhwc ~h:2 ~w:2 ~c:1) () in
+        let* w = constant ~shape:(F.s 1 1 1 2 2 1) () in
+        conv2d
+          {
+            Conv.Conv2d.h = F.conv_axis ~kernel:2 ~stride:1 ~pad:1;
+            w = F.conv_axis ~kernel:2 ~stride:1 ~pad:1;
+            in_channels = Dim.extent 1;
+            groups = Op_config.Pos.of_int 1;
+          }
+          ~x ~weight:w ())
+  in
+  let y =
+    values ~w:3
+      (eval g ~input:[| 1.; 2.; 3.; 4. |]
+         ~constants:[ [| infinity; 1.; 1.; 1. |] ])
+  in
+  Fmt.pr "3x3 output: %a@." (Fmt.array ~sep:(Fmt.any " ") Fmt.float) y;
+  [%expect {| 3x3 output: 1 3 2 4 inf inf 3 inf inf |}]

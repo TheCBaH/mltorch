@@ -1103,6 +1103,25 @@ The nine local reference ELFs and three local MPACT binaries match the hashes
 in the published aarch64 results. CI verification is real but does not establish
 MPACT support for these reference programs.
 
+## Window kernels (`Rvv_window`)
+
+A convolution whose windows do not overlap (a kernel no wider than its stride, no
+padding: the stride-2 one-tap case and the 2x2, 3x3 windows) is one RVV function
+in `lib/coralnpu_kernels`, vectorized over the output channels (one e32 group of at
+most 16 lanes) with the weights prepacked channel, row, column, output channel. It
+is not a `Contraction`: the convolution's sum is nested (per channel, an inner sum
+over a kernel row's columns, folded into the rows, folded into the channels, each
+seeded `+0`, products rounded one at a time, the bias last), and a flat tap sum
+rounds differently, so the descriptor path would be wrong where the nesting
+matters. The fixture is `test/coral_window` (nested oracle 1, flat contraction 0);
+`test/machine_rivet_riscv32_coral` runs the kernel on the vme-core-mini-axi
+emulator bitwise against the Loop oracle over several windows, and a kernel that
+adds every tap into the output sum goes red there. Padding is a skipped tap in the
+reference, not an added zero (a weight of infinity on a padded tap leaves the
+output finite), and average pool sums rows then divides once, by the kernel area
+or, without `count_include_pad`, the clipped window; pins sit beside the fixture.
+Overlapping windows, padding and the matrix engine's window form are open.
+
 ## What is left open
 
 The suite's geometries beyond resident B (B by column panels with A

@@ -18,6 +18,8 @@ type t =
   | Not_paired_bf16
   | Offset_past_31_bits
   | Operand_past_dma_transfer
+  | Out_channels_past_16
+  | Overlapping_window
   | Paired_requirement
   | Panels_over_budget of {
       needed : Coral_transfer.Transfer_units.Bytes.t;
@@ -33,6 +35,7 @@ type t =
   | Too_many_output_tiles
   | Transfer_plan_mismatch
   | Vector_expression of string
+  | Window_past_input
 
 let pp fmt = function
   | Assembler what -> Fmt.string fmt what
@@ -60,6 +63,9 @@ let pp fmt = function
   | Offset_past_31_bits -> Fmt.string fmt "an offset past 31 bits"
   | Operand_past_dma_transfer ->
       Fmt.string fmt "an operand past one DMA transfer"
+  | Out_channels_past_16 ->
+      Fmt.string fmt "more output channels than one e32 m4 group holds"
+  | Overlapping_window -> Fmt.string fmt "a kernel wider than its stride"
   | Paired_requirement ->
       Fmt.string fmt
         "the paired requirement: only the matrix engine rounds pairs"
@@ -81,6 +87,7 @@ let pp fmt = function
   | Transfer_plan_mismatch ->
       Fmt.string fmt "a transfer plan checked for another contraction"
   | Vector_expression why -> Fmt.string fmt why
+  | Window_past_input -> Fmt.string fmt "a kernel past the input"
 
 let to_string r = Fmt.str "%a" pp r
 
