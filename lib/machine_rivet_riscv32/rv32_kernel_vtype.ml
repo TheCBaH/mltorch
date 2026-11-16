@@ -22,8 +22,18 @@ end
 module Lmul = struct
   type t = M1 | M2 | M4 | M8
 
-  (* Registers in a group; the Coral kernels step register numbers by it. *)
-  let factor = function M1 -> 1 | M2 -> 2 | M4 -> 4 | M8 -> 8
+  (* The first register of the group after [r]'s: the Coral kernels lay
+     operands out a group apart. *)
+  let next lmul r =
+    Rv32_kernel_reg.Vreg.of_index
+      (Rv32_kernel_reg.Vreg.index r
+      + match lmul with M1 -> 1 | M2 -> 2 | M4 -> 4 | M8 -> 8)
+
+  (* Whether [r] starts a group, which an LMUL above 1 requires. *)
+  let aligned lmul r =
+    (Rv32_kernel_reg.Vreg.index r
+    mod match lmul with M1 -> 1 | M2 -> 2 | M4 -> 4 | M8 -> 8)
+    = 0
 
   let of_factor = function
     | 1 -> Some M1

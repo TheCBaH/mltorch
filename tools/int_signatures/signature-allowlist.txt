@@ -4,7 +4,7 @@
 # [todo-domain] is a debt marker (an int that names an entity); the ceiling only goes down.
 # [ml:<dir>] scope entries also read the inferred interface of each .ml without an .mli; a library enters with an opening
 # [todo-domain] balance that is part of the ceiling, and the ceiling only goes down from there.
-@todo-domain-ceiling 16
+@todo-domain-ceiling 15
 lib/band_schedule/band_schedule.mli	defn	type t = private int
 lib/band_schedule/band_schedule.mli	defn	val of_int : int -> t
 lib/band_schedule/band_schedule.mli	defn	val to_int : t -> int
@@ -498,7 +498,6 @@ lib/machine_rivet_riscv32/rv32_kernel_reg.mli	defn	val of_index : int -> (t, [> 
 lib/machine_rivet_riscv32/rv32_kernel_reg.mli	hash	val compare : t -> t -> int
 lib/machine_rivet_riscv32/rv32_kernel_reg.mli	wire	val index : t -> int
 lib/machine_rivet_riscv32/rv32_kernel_reg.mli	defn	val of_index : int -> (t, [> `Register_index of Register_index.t ]) Err.t
-lib/machine_rivet_riscv32/rv32_kernel_vtype.ml	todo-domain	val factor : t -> int
 lib/machine_rivet_riscv32/rv32_kernel_vtype.ml	defn	val of_bits : int -> t option
 lib/machine_rivet_riscv32/rv32_kernel_vtype.ml	defn	val of_factor : int -> t option
 lib/machine_rivet_riscv32/rv32_process.ml	wire	type outcome = { exit_code : int; stdout : string; }

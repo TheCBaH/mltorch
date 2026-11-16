@@ -110,7 +110,6 @@ let li ~scratch bits =
 
 let emit ~(lmul : Machine_rivet_riscv32.Rv32_kernel_vtype.Lmul.t) ~scratch ~free
     ~inputs root =
-  let lmul = Machine_rivet_riscv32.Rv32_kernel_vtype.Lmul.factor lmul in
   try
     match
       Err.payload
@@ -122,7 +121,12 @@ let emit ~(lmul : Machine_rivet_riscv32.Rv32_kernel_vtype.Lmul.t) ~scratch ~free
           let peak = ref !live in
           List.iter
             (fun i ->
-              if i mod lmul <> 0 || i = 0 then
+              if
+                i = 0
+                || not
+                     (Machine_rivet_riscv32.Rv32_kernel_vtype.Lmul.aligned lmul
+                        (ok (Vreg.of_index i)))
+              then
                 invalid_arg
                   (Printf.sprintf "Vexpr: v%d is not a usable register group" i))
             !free;
