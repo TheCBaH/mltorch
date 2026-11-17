@@ -32,7 +32,8 @@ let rows ~alias ~(target : Ssa_target.t) =
     run =
       (fun p ->
         let q, n =
-          Ssa_opt_rows.program ~rows:target.Ssa_target.row_block ~policy:alias p
+          Ssa_opt_rows.program ~tail:target.Ssa_target.row_tail
+            ~rows:target.Ssa_target.row_block ~policy:alias p
         in
         (q, n > 0));
   }

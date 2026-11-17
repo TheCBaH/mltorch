@@ -101,6 +101,7 @@ type t = {
   fma : bool;
   relaxed_madd : bool;
   row_block : Ssa_blocking.Rows.t;
+  row_tail : bool;
   unroll : Ssa_blocking.Unroll.t;
   support : Op.t -> support;
   cost : Op.t -> float;
@@ -151,8 +152,8 @@ let expansion_overhead = 1.
    record). *)
 let rec make ?(inner_loops = fun _ -> true) ?(fma = false)
     ?(relaxed_madd = false) ?(row_block = Ssa_blocking.Rows.of_int 1)
-    ?(unroll = Ssa_blocking.Unroll.of_int 1) ~name ~vector_bits ~f64_lanes
-    ~f32_lanes ~native ~native_cost precision =
+    ?(row_tail = false) ?(unroll = Ssa_blocking.Unroll.of_int 1) ~name
+    ~vector_bits ~f64_lanes ~f32_lanes ~native ~native_cost precision =
   let lanes =
     match precision with
     | Ssa_numerics.Precision.F32 -> f32_lanes
@@ -179,12 +180,13 @@ let rec make ?(inner_loops = fun _ -> true) ?(fma = false)
     fma;
     relaxed_madd;
     row_block;
+    row_tail;
     unroll;
     support;
     cost;
     at =
       (fun p ->
-        make ~inner_loops ~fma ~relaxed_madd ~row_block ~unroll
+        make ~inner_loops ~fma ~relaxed_madd ~row_block ~row_tail ~unroll
           ~name:
             (match precision with
             | Ssa_numerics.Precision.F32 ->
@@ -259,7 +261,7 @@ let neon ~f32_lanes ~name =
       | Ssa_numerics.Precision.F32 -> true | Ssa_numerics.Precision.F64 -> false)
     ~fma:true
     ~row_block:(Ssa_blocking.Rows.of_int 2)
-    ~name ~vector_bits ~f64_lanes:4 ~f32_lanes ~native
+    ~row_tail:true ~name ~vector_bits ~f64_lanes:4 ~f32_lanes ~native
     ~native_cost:(fun ~precision ~lanes op ->
       native_cost ~vector_bits ~precision ~lanes op)
     Ssa_numerics.Precision.F64
@@ -331,6 +333,7 @@ let rec scalar =
     fma = false;
     relaxed_madd = false;
     row_block = Ssa_blocking.Rows.of_int 1;
+    row_tail = false;
     unroll = Ssa_blocking.Unroll.of_int 1;
     support = (fun _ -> Expanded);
     cost =

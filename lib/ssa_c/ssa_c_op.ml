@@ -187,35 +187,42 @@ let vtype cx ty =
 let lanes_of ty = snd (vec_parts ty)
 let elem_f32 ty = fst (vec_parts ty) = `F32
 
-(* A helper applying a scalar expression to every lane. *)
-let lane_helper cx ~prefix ~ty ~arity ~body =
+(* A helper applying a scalar expression to every lane, unrolled: a lane loop
+   left to the compiler stays a loop over memory vectors. [inline] forces the
+   helper into its caller, as the Loop emitter's arithmetic helpers are. *)
+let lane_helper ?(inline = false) cx ~prefix ~ty ~arity ~body =
   let t = vtype cx ty in
-  let n = lanes_of ty in
+  let n = Ssa_type.Lanes.to_int (lanes_of ty) in
   let fname = Printf.sprintf "%s_%s" prefix t in
   let params =
     String.concat ", "
       (List.init arity (fun i -> Printf.sprintf "%s %c" t (Char.chr (97 + i))))
   in
-  let args =
-    body (List.init arity (fun i -> Printf.sprintf "%c[k]" (Char.chr (97 + i))))
+  let lanes =
+    String.concat " "
+      (List.init n (fun k ->
+           Printf.sprintf "r[%d] = %s;" k
+             (body
+                (List.init arity (fun i ->
+                     Printf.sprintf "%c[%d]" (Char.chr (97 + i)) k)))))
   in
   vector_helper cx fname
-    (Printf.sprintf
-       "static inline %s %s(%s) { %s r; for (int k = 0; k < %s; k++) r[k] = \
-        %s; return r; }"
-       t fname params t (Ssa_type.Lanes.decimal n) args);
+    (Printf.sprintf "static inline %s%s %s(%s) { %s r; %s return r; }"
+       (if inline then "__attribute__((always_inline)) " else "")
+       t fname params t lanes);
   fname
 
 let splat_helper cx ty =
   let t = vtype cx ty in
-  let n = lanes_of ty in
+  let n = Ssa_type.Lanes.to_int (lanes_of ty) in
   let fname = "ssa_splat_" ^ t in
   let elem = match fst (vec_parts ty) with `F32 -> "float" | _ -> "double" in
   vector_helper cx fname
     (Printf.sprintf
-       "static inline %s %s(%s x) { %s r; for (int k = 0; k < %s; k++) r[k] = \
-        x; return r; }"
-       t fname elem t (Ssa_type.Lanes.decimal n));
+       "static inline __attribute__((always_inline)) %s %s(%s x) { return \
+        (%s){%s}; }"
+       t fname elem t
+       (String.concat ", " (List.init n (fun _ -> "x"))));
   fname
 
 let mask_splat_helper cx ty =
@@ -238,27 +245,38 @@ let select_helper cx ~mask_ty ~ty =
   | `F64 ->
       vector_helper cx fname
         (Printf.sprintf
-           "static inline %s %s(%s m, %s a, %s b) { return (%s)(((%s)a & m) | \
-            ((%s)b & ~m)); }"
+           "static inline __attribute__((always_inline)) %s %s(%s m, %s a, %s \
+            b) { return (%s)(((%s)a & m) | ((%s)b & ~m)); }"
            t fname mt t t t mt mt)
   | `F32 ->
       let n = lanes_of ty in
       let narrow = vector_type cx ~elem:`Mask32 n in
       vector_helper cx fname
         (Printf.sprintf
-           "static inline %s %s(%s m, %s a, %s b) { %s w = \
-            __builtin_convertvector(m, %s); return (%s)(((%s)a & w) | ((%s)b & \
-            ~w)); }"
+           "static inline __attribute__((always_inline)) %s %s(%s m, %s a, %s \
+            b) { %s w = __builtin_convertvector(m, %s); return (%s)(((%s)a & \
+            w) | ((%s)b & ~w)); }"
            t fname mt t t narrow narrow t narrow narrow)
   | `Mask ->
       vector_helper cx fname
         (Printf.sprintf
-           "static inline %s %s(%s m, %s a, %s b) { return (a & m) | (b & ~m); \
-            }"
+           "static inline __attribute__((always_inline)) %s %s(%s m, %s a, %s \
+            b) { return (a & m) | (b & ~m); }"
            t fname mt t t));
   fname
 
 let operand_ty (v : Ssa_value.t) = v.Ssa_value.ty
+
+(* A lane-wise fused multiply-add of vector type [ty], over operand names. *)
+let lane_fma cx ~ty a b c =
+  let f32 = elem_f32 ty in
+  let h =
+    lane_helper ~inline:true cx ~prefix:"ssa_vfma" ~ty ~arity:3 ~body:(function
+      | [ x; y; z ] ->
+          (if f32 then "fmaf(" else "fma(") ^ x ^ ", " ^ y ^ ", " ^ z ^ ")"
+      | _ -> assert false)
+  in
+  Printf.sprintf "%s(%s, %s, %s)" h a b c
 
 (* The result of a lane-wise operation, as an expression. *)
 let lanewise cx (inner : Ssa_op.t) ~(result : Ssa_value.t) =
@@ -294,15 +312,7 @@ let lanewise cx (inner : Ssa_op.t) ~(result : Ssa_value.t) =
           | _ -> assert false)
       in
       Printf.sprintf "%s(%s, %s)" h (n a) (n b)
-  | Ssa_op.Float_fma (a, b, c) ->
-      let f32 = elem_f32 rty in
-      let h =
-        lane_helper cx ~prefix:"ssa_vfma" ~ty:rty ~arity:3 ~body:(function
-          | [ x; y; z ] ->
-              (if f32 then "fmaf(" else "fma(") ^ x ^ ", " ^ y ^ ", " ^ z ^ ")"
-          | _ -> assert false)
-      in
-      Printf.sprintf "%s(%s, %s, %s)" h (n a) (n b) (n c)
+  | Ssa_op.Float_fma (a, b, c) -> lane_fma cx ~ty:rty (n a) (n b) (n c)
   | Ssa_op.Float_unary (op, a) ->
       let f32 = elem_f32 rty in
       let tag =
@@ -337,9 +347,24 @@ let lanewise cx (inner : Ssa_op.t) ~(result : Ssa_value.t) =
       Printf.sprintf "%s(%s, %s)" fname (n best) (n value)
   | Ssa_op.Pred_not a -> Printf.sprintf "(~%s)" (n a)
   | Ssa_op.Pred_or (a, b) -> Printf.sprintf "(%s | %s)" (n a) (n b)
-  | Ssa_op.Select (p, a, b) ->
-      let h = select_helper cx ~mask_ty:(operand_ty p) ~ty:rty in
-      Printf.sprintf "%s(%s, %s, %s)" h (n p) (n a) (n b)
+  | Ssa_op.Select (p, a, b) -> (
+      match
+        ( Ssa_id.Value.Tbl.find_opt cx.narrow_masks p.Ssa_value.id,
+          fst (vec_parts rty) )
+      with
+      | Some m, `F32 ->
+          let t = vtype cx rty in
+          let narrow = vector_type cx ~elem:`Mask32 (lanes_of rty) in
+          let fname = "ssa_vseln_" ^ t in
+          vector_helper cx fname
+            (Printf.sprintf
+               "static inline __attribute__((always_inline)) %s %s(%s w, %s a, \
+                %s b) { return (%s)(((%s)a & w) | ((%s)b & ~w)); }"
+               t fname narrow t t t narrow narrow);
+          Printf.sprintf "%s(%s, %s, %s)" fname m (n a) (n b)
+      | _ ->
+          let h = select_helper cx ~mask_ty:(operand_ty p) ~ty:rty in
+          Printf.sprintf "%s(%s, %s, %s)" h (n p) (n a) (n b))
   | _ -> invalid_arg "Ssa_c: an operation with no lane-wise form"
 
 (* ---- one instruction ---------------------------------------------------------- *)
@@ -595,6 +620,20 @@ let instr cx depth (i : Ssa_instr.t) =
   | Ssa_op.Index_scale_in_domain (k, a) ->
       let _, r = first_result cx i in
       assign cx depth r (Printf.sprintf "%s * %s" (i64_lit k) (n a))
+  | Ssa_op.Lanewise (Ssa_op.Float_compare (c, a, b))
+    when elem_f32 (operand_ty a) ->
+      (* the comparison's own 32-bit mask is kept beside the 64-bit one *)
+      let res, r = first_result cx i in
+      let m = temp cx in
+      let mt = vector_type cx ~elem:`Mask32 (lanes_of res.Ssa_value.ty) in
+      cx.decls <- (m, mt, "{0}") :: cx.decls;
+      line cx depth "%s = (%s)(%s %s %s);" m mt (name cx a)
+        (match c with Ssa_op.Compare.Eq -> "==" | Ssa_op.Compare.Lt -> "<")
+        (name cx b);
+      Ssa_id.Value.Tbl.replace cx.narrow_masks res.Ssa_value.id m;
+      assign cx depth r
+        (Printf.sprintf "__builtin_convertvector(%s, %s)" m
+           (vtype cx res.Ssa_value.ty))
   | Ssa_op.Lanewise inner ->
       let res, r = first_result cx i in
       assign cx depth r (lanewise cx inner ~result:res)

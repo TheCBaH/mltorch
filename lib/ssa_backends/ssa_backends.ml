@@ -187,7 +187,19 @@ let sites (inv : Loop_ir.Loop_bundle.invocation) =
 let c_via ~frontend ~pipeline ~name inv =
   let* p, precision = prepare ~frontend pipeline inv in
   let* buffers = arguments inv p ~named:Ssa_c.arguments in
-  match Ssa_c.kernel ~buffers ~sites:(sites inv) ~name p with
+  (* the policy that permits contraction on a target with a fused operation
+     also fuses an ordered sum's accumulation of a product, as its planned
+     loops are; the sum has no operation of its own to carry that *)
+  let accumulate =
+    match pipeline with
+    | Pipeline.Planned { numerics; target }
+      when Ssa_numerics.contraction_permitted numerics
+           && (Ssa_target.f32 target).Ssa_target.fma ->
+        Ssa_cfg_lower.Accumulate.Fuse_products
+    | Pipeline.Planned _ | Pipeline.Exact | Pipeline.Representation ->
+        Ssa_cfg_lower.Accumulate.Add
+  in
+  match Ssa_c.kernel ~buffers ~sites:(sites inv) ~accumulate ~name p with
   | Ok (k, _) -> Ok { k with Loop_ir.Loop_c_kernel.precision }
   | Error e -> Error (Fmt.str "%a" Ssa_c.pp_error e)
 

@@ -182,3 +182,30 @@ and Loop emission would have caught.
    `make check.loop-freeze` (part of `make precommit` and CI) fails on a file
    matching the patterns that is not in `scripts/loop-freeze-files.txt`, and on a
    listed file that no longer exists, so the list only goes down.
+
+### SSA-against-Loop host-C timing (measured 2026-11-17)
+
+`make ssa.loop.perf` (binary32, relaxed, NEON-128, same inputs) first showed
+the planned SSA kernels 7 to 26% slower than the Loop emitter's. Per-kernel
+timing on `mobilenetv3_small_050` and `mobilenetv2_050` put the gap in four
+places, none of them the planner's loop structure:
+
+- An `Ordered_sum` has no operation to hold a fused accumulate, so a relaxed
+  plan's dots stayed `acc + x * y` (no `fmla`). `Ssa_c.kernel ?accumulate`
+  takes the policy's decision (`Ssa_cfg_lower.Accumulate`, as the CFG lowering
+  does); `Ssa_backends.c_via` sets `Fuse_products` when the numerics permit
+  contraction on a target with a fused operation.
+- The emitter's lane helpers were loops over memory vectors. fma, splat and
+  select helpers are now unrolled and always inlined, as the Loop emitter's.
+- A binary32 comparison produced a 64-bit lane mask that the select narrowed
+  again (ReLU6 ran at half the Loop kernel's speed). The comparison now also
+  keeps its own 32-bit mask, which a binary32 select takes directly.
+- `Ssa_opt_rows` refused a row loop whose body is a vector loop followed by a
+  scalar tail (channel counts that are not a multiple of the lane count); on a
+  target with `row_tail` (NEON; an embedded target keeps its code size) the
+  tail is now run per row after the jammed vector loop when it commutes with
+  the next row's vector loop.
+
+Still open: a pointwise convolution with fewer output channels than lanes (8
+on `mobilenetv2_050`) stays scalar binary64 in SSA, where the Loop vectorizer
+runs the lanes along the pixel axis.

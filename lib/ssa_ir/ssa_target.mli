@@ -78,6 +78,10 @@ type t = {
       (** how many consecutive iterations of a scalar loop around a vector loop
           one blocked iteration covers (see {!Ssa_opt_block}); 1 is no blocking.
           Registers, not lanes, bound it: each row holds its own accumulators *)
+  row_tail : bool;
+      (** whether a row loop whose vector loop is followed by a scalar tail is
+          blocked too, the tail repeated per row (code grows by the row factor:
+          paid by a host target, not by an embedded one) *)
   unroll : Ssa_blocking.Unroll.t;
       (** how many consecutive trips of a vector loop one unrolled trip covers,
           its copies interleaved ({!Ssa_opt_unroll}); 1 is no unrolling. A

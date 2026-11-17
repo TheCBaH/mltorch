@@ -194,16 +194,16 @@ let%expect_test "vector kernels through linear scan" =
     {|
     aarch64 x * x + x, w=37: ok; 49 instructions; 3 register moves, 0 stores, 0 loads, 0 slot moves, 0 rematerialized; 0 slots (0 bytes); executed 111 instructions, 3 register moves, 0 stores, 0 reloads, 0 rematerialized
     aarch64 matmul 2x3x16: ok; 65 instructions; 22 register moves, 0 stores, 0 loads, 0 slot moves, 0 rematerialized; 0 slots (0 bytes); executed 136 instructions, 22 register moves, 0 stores, 0 reloads, 0 rematerialized
-    aarch64 matmul 5x7x33: ok; 62 instructions; 26 register moves, 0 stores, 0 loads, 0 slot moves, 0 rematerialized; 0 slots (0 bytes); executed 1821 instructions, 172 register moves, 0 stores, 0 reloads, 0 rematerialized
+    aarch64 matmul 5x7x33: ok; 154 instructions; 66 register moves, 0 stores, 0 loads, 0 slot moves, 0 rematerialized; 0 slots (0 bytes); executed 1693 instructions, 143 register moves, 0 stores, 0 reloads, 0 rematerialized
     x86_64 x * x + x, w=37: ok; 47 instructions; 4 register moves, 0 stores, 0 loads, 0 slot moves, 0 rematerialized; 0 slots (0 bytes); executed 117 instructions, 8 register moves, 0 stores, 0 reloads, 0 rematerialized
     x86_64 matmul 2x3x16: ok; 70 instructions; 30 register moves, 11 stores, 11 loads, 0 slot moves, 1 rematerialized; 11 slots (168 bytes); executed 157 instructions, 42 register moves, 23 stores, 23 reloads, 1 rematerialized
-    x86_64 matmul 5x7x33: ok; 66 instructions; 29 register moves, 5 stores, 5 loads, 0 slot moves, 4 rematerialized; 4 slots (44 bytes); executed 2173 instructions, 192 register moves, 45 stores, 45 reloads, 30 rematerialized
+    x86_64 matmul 5x7x33: ok; 169 instructions; 81 register moves, 27 stores, 27 loads, 0 slot moves, 10 rematerialized; 13 slots (176 bytes); executed 2042 instructions, 313 register moves, 222 stores, 222 reloads, 22 rematerialized
     aarch64, 3 registers x * x + x, w=37: ok; 49 instructions; 8 register moves, 13 stores, 13 loads, 0 slot moves, 1 rematerialized; 5 slots (80 bytes); executed 111 instructions, 9 register moves, 26 stores, 26 reloads, 1 rematerialized
     aarch64, 3 registers matmul 2x3x16: ok; 65 instructions; 17 register moves, 57 stores, 53 loads, 0 slot moves, 3 rematerialized; 25 slots (336 bytes); executed 136 instructions, 27 register moves, 111 stores, 108 reloads, 3 rematerialized
-    aarch64, 3 registers matmul 5x7x33: ok; 62 instructions; 18 register moves, 43 stores, 37 loads, 0 slot moves, 5 rematerialized; 19 slots (216 bytes); executed 1821 instructions, 505 register moves, 1095 stores, 1095 reloads, 26 rematerialized
+    aarch64, 3 registers matmul 5x7x33: ok; 154 instructions; 52 register moves, 120 stores, 110 loads, 0 slot moves, 12 rematerialized; 28 slots (352 bytes); executed 1693 instructions, 332 register moves, 1114 stores, 1111 reloads, 21 rematerialized
     x86_64, 3 registers x * x + x, w=37: ok; 47 instructions; 9 register moves, 14 stores, 14 loads, 0 slot moves, 1 rematerialized; 6 slots (84 bytes); executed 117 instructions, 14 register moves, 31 stores, 31 reloads, 1 rematerialized
     x86_64, 3 registers matmul 2x3x16: ok; 70 instructions; 18 register moves, 62 stores, 61 loads, 0 slot moves, 4 rematerialized; 28 slots (380 bytes); executed 157 instructions, 34 register moves, 132 stores, 132 reloads, 4 rematerialized
-    x86_64, 3 registers matmul 5x7x33: ok; 66 instructions; 19 register moves, 50 stores, 46 loads, 0 slot moves, 7 rematerialized; 21 slots (256 bytes); executed 2173 instructions, 437 register moves, 1495 stores, 1510 reloads, 36 rematerialized |}]
+    x86_64, 3 registers matmul 5x7x33: ok; 169 instructions; 51 register moves, 130 stores, 128 loads, 0 slot moves, 17 rematerialized; 29 slots (384 bytes); executed 2042 instructions, 374 register moves, 1436 stores, 1448 reloads, 29 rematerialized |}]
 
 (* What a run executed, by origin role and mnemonic: every executed
    instruction once. *)
@@ -234,14 +234,14 @@ let%expect_test "executed instructions by role and operation" =
       Tr.Ops.iter (fun k n -> Fmt.pr "  %s: %Ld@." k n) t.Tr.ops;
       [%expect
         {|
-        2173 instructions, 2173 profiled
-          address leaq: 263
-          compute addl: 125
+        2042 instructions, 2042 profiled
+          address leaq: 204
+          compute addl: 91
           compute addps: 280
           compute addss: 35
-          compute cmpl: 151
+          compute cmpl: 112
           compute event: 105
-          compute mov.i32: 4
+          compute mov.i32: 5
           compute movd.from_gpr: 1
           compute mulps: 280
           compute mulss: 35
