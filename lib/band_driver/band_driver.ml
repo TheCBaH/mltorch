@@ -6,6 +6,7 @@ module Stage = struct
   type t = { kernel : S.kernel; cin : int64; cout : int64 }
 end
 
+type mutation = Iterations_short | Step_dropped
 type refusal = Not_pointwise of string
 
 let pp_refusal ppf = function
@@ -27,6 +28,10 @@ module Position = struct
     Int64.mul (Int64.mul (Int64.of_int row) width) channels
 end
 
+module Loop = struct
+  type t = { first : S.Count.t; period : S.Count.t; iterations : S.Count.t }
+end
+
 module Program = struct
   type t = {
     program : Ssa_program.t;
@@ -34,6 +39,7 @@ module Program = struct
     weights : Ssa_id.Buffer.t list;
     output : Ssa_id.Buffer.t;
     rings : (Ssa_id.Buffer.t * S.Count.t) list;
+    loop : Loop.t option;
   }
 end
 
@@ -121,9 +127,69 @@ let whole stages ~width ~rows =
     weights;
     output = List.nth outs (n - 1);
     rings = [];
+    loop = None;
   }
 
-let program stages ~width ~rows ~block =
+(* An event as integers: its stage, its pixels, and the bases it names, the
+   read's (one, or one per pixel when [reads] is positive) then the write's. *)
+module Call = struct
+  type t = { stage : int; pixels : int64; reads : int; bases : int64 list }
+
+  (* what two calls must share to be the same body *)
+  let shape c = (c.stage, c.pixels, c.reads)
+end
+
+(* Blocks: the calls up to and including each event of the last stage. *)
+let blocks calls ~last =
+  let rec go cur acc = function
+    | [] -> List.rev (if cur = [] then acc else List.rev cur :: acc)
+    | (c : Call.t) :: rest ->
+        if c.Call.stage = last then go [] (List.rev (c :: cur) :: acc) rest
+        else go (c :: cur) acc rest
+  in
+  go [] [] calls
+
+(* The run of blocks that repeats: [iterations] repetitions of [period] blocks
+   from block [first], repetition [k] being repetition 0 with every base moved
+   by [k] times one fixed step per base. Prefers the most blocks covered, then
+   the shorter period, then the earlier start. *)
+let find_loop (bl : Call.t list array) =
+  let nb = Array.length bl in
+  let rep s p = List.concat (Array.to_list (Array.sub bl s p)) in
+  let shapes cs = List.map Call.shape cs in
+  let bases cs = List.concat_map (fun (c : Call.t) -> c.Call.bases) cs in
+  let best = ref None in
+  for p = 1 to nb / 2 do
+    for s = 0 to nb - (2 * p) do
+      let r0 = rep s p and r1 = rep (s + p) p in
+      if shapes r0 = shapes r1 then begin
+        let b0 = bases r0 in
+        let step = List.map2 Int64.sub (bases r1) b0 in
+        let ok k =
+          s + ((k + 1) * p) <= nb
+          &&
+          let r = rep (s + (k * p)) p in
+          shapes r = shapes r0
+          && bases r
+             = List.map2
+                 (fun b d -> Int64.add b (Int64.mul (Int64.of_int k) d))
+                 b0 step
+        in
+        let rec count k = if ok k then count (k + 1) else k in
+        let n = count 1 in
+        let cover = n * p in
+        let better =
+          match !best with
+          | None -> true
+          | Some (c, bp, _, _) -> cover > c || (cover = c && p < bp)
+        in
+        if n >= 2 && better then best := Some (cover, p, s, n)
+      end
+    done
+  done;
+  Option.map (fun (_, p, s, n) -> (s, p, n)) !best
+
+let program ?(looped = true) ?mutation stages ~width ~rows ~block =
   match
     List.find_opt (fun (s : Stage.t) -> not (pointwise s.Stage.kernel)) stages
   with
@@ -164,69 +230,134 @@ let program stages ~width ~rows ~block =
         find 0 stages
       in
       let stages_a = Array.of_list stages in
+      (* the operand offsets of one event, as integers *)
+      let call (e : S.event) =
+        let i = stage_index e.S.kernel in
+        let st = stages_a.(i) in
+        let cin = st.Stage.cin in
+        let plo, phi = e.S.produced in
+        let clo, chi = e.S.consumed in
+        let pixels =
+          Int64.mul (i64 (S.Row.to_int phi - S.Row.to_int plo)) width
+        in
+        let per_pixel, reads =
+          if i = 0 then
+            ( false,
+              [ Position.element (Position.Logical clo) ~width ~channels:cin ]
+            )
+          else
+            let w = Option.get windows.(i - 1) in
+            if S.Window.spans_wrap w ~lo:clo ~hi:chi then
+              (* rows that are not consecutive in the window: one base per
+                 pixel, each from its own row *)
+              ( true,
+                List.concat_map
+                  (fun d ->
+                    let r = S.Row.of_int (S.Row.to_int clo + d) in
+                    List.init (Int64.to_int width) (fun p ->
+                        Int64.add
+                          (Position.element
+                             (Position.Ring (S.Window.ring_row w r))
+                             ~width ~channels:cin)
+                          (Int64.mul (i64 p) cin)))
+                  (List.init (S.Row.to_int chi - S.Row.to_int clo) Fun.id) )
+            else
+              ( false,
+                [
+                  Position.element
+                    (Position.Ring (S.Window.ring_row w clo))
+                    ~width ~channels:cin;
+                ] )
+        in
+        let write =
+          match windows.(i) with
+          | Some w ->
+              Position.element
+                (Position.Ring (S.Window.ring_row w plo))
+                ~width ~channels:st.Stage.cout
+          | None ->
+              Position.element (Position.Logical plo) ~width
+                ~channels:st.Stage.cout
+        in
+        {
+          Call.stage = i;
+          pixels;
+          reads = (if per_pixel then List.length reads else 0);
+          bases = reads @ [ write ];
+        }
+      in
+      let calls = List.map call schedule.S.events in
+      let bl = Array.of_list (blocks calls ~last:(n - 1)) in
+      let found = if looped then find_loop bl else None in
+      (* [base] turns one integer offset of the call into an index value *)
+      let emit bld (c : Call.t) ~base =
+        let i = c.Call.stage in
+        let st = stages_a.(i) in
+        let src = if i = 0 then input else List.nth outs (i - 1) in
+        let rev = List.rev c.Call.bases in
+        let write = List.hd rev and read_bases = List.rev (List.tl rev) in
+        let read =
+          if c.Call.reads > 0 then B.Rows (List.map base read_bases)
+          else B.Base (base (List.hd read_bases))
+        in
+        B.view_call bld
+          (desc st ~pixels:c.Call.pixels)
+          ~a:(src, read)
+          ~b:(List.nth weights i, B.Base (B.index bld 0L))
+          ~c:(List.nth outs i, B.Base (base write))
+      in
       let built =
         Err.or_raise ~pp_error:Ssa_verify.pp_error
           (B.program ~buffers:bufs (fun bld ->
-               let base position ~channels =
-                 B.index bld (Position.element position ~width ~channels)
+               let run_blocks lo hi =
+                 for g = lo to hi - 1 do
+                   List.iter
+                     (fun c -> emit bld c ~base:(fun x -> B.index bld x))
+                     bl.(g)
+                 done
                in
-               List.iter
-                 (fun (e : S.event) ->
-                   let i = stage_index e.S.kernel in
-                   let st = stages_a.(i) in
-                   let cin = st.Stage.cin in
-                   let plo, phi = e.S.produced in
-                   let clo, chi = e.S.consumed in
-                   let pixels =
-                     Int64.mul (i64 (S.Row.to_int phi - S.Row.to_int plo)) width
+               match found with
+               | None -> run_blocks 0 (Array.length bl)
+               | Some (s, p, iters) ->
+                   run_blocks 0 s;
+                   let body = List.concat (Array.to_list (Array.sub bl s p)) in
+                   let next =
+                     List.concat (Array.to_list (Array.sub bl (s + p) p))
                    in
-                   let read =
-                     if i = 0 then
-                       ( input,
-                         B.Base (base (Position.Logical clo) ~channels:cin) )
-                     else
-                       let w = Option.get windows.(i - 1) in
-                       let src = List.nth outs (i - 1) in
-                       if S.Window.spans_wrap w ~lo:clo ~hi:chi then
-                         (* rows that are not consecutive in the window: one
-                            base per pixel, each from its own row *)
-                         let pixel_base r p =
-                           B.index bld
-                             (Int64.add
-                                (Position.element
-                                   (Position.Ring (S.Window.ring_row w r))
-                                   ~width ~channels:cin)
-                                (Int64.mul (i64 p) cin))
-                         in
-                         ( src,
-                           B.Rows
-                             (List.concat_map
-                                (fun d ->
-                                  let r = S.Row.of_int (S.Row.to_int clo + d) in
-                                  List.init (Int64.to_int width) (pixel_base r))
-                                (List.init
-                                   (S.Row.to_int chi - S.Row.to_int clo)
-                                   Fun.id)) )
-                       else
-                         ( src,
-                           B.Base
-                             (base
-                                (Position.Ring (S.Window.ring_row w clo))
-                                ~channels:cin) )
+                   let steps =
+                     (fun steps ->
+                       match mutation with
+                       | Some Step_dropped ->
+                           List.map (List.map (fun _ -> 0L)) steps
+                       | _ -> steps)
+                     @@ List.map2
+                          (fun (c : Call.t) (c' : Call.t) ->
+                            List.map2 Int64.sub c'.Call.bases c.Call.bases)
+                          body next
                    in
-                   let write =
-                     match windows.(i) with
-                     | Some w ->
-                         base
-                           (Position.Ring (S.Window.ring_row w plo))
-                           ~channels:st.Stage.cout
-                     | None ->
-                         base (Position.Logical plo) ~channels:st.Stage.cout
-                   in
-                   B.view_call bld (desc st ~pixels) ~a:read
-                     ~b:(List.nth weights i, B.Base (B.index bld 0L))
-                     ~c:(List.nth outs i, B.Base write))
-                 schedule.S.events))
+                   ignore
+                     (B.for_ bld ~lo:(B.index bld 0L)
+                        ~hi:
+                          (B.index bld
+                             (i64
+                                (match mutation with
+                                | Some Iterations_short -> iters - 1
+                                | _ -> iters)))
+                        ~init:B.Nil
+                        (fun b i B.Nil ->
+                          List.iter2
+                            (fun (c : Call.t) step ->
+                              let rest = ref step in
+                              emit b c ~base:(fun x ->
+                                  let d = List.hd !rest in
+                                  rest := List.tl !rest;
+                                  if Int64.equal d 0L then B.index b x
+                                  else
+                                    B.index_add b (B.index b x)
+                                      (B.index_scale b d i)))
+                            body steps;
+                          B.Nil));
+                   run_blocks (s + (p * iters)) (Array.length bl)))
       in
       Ok
         {
@@ -241,4 +372,13 @@ let program stages ~width ~rows ~block =
                   (fun w -> (List.nth outs i, S.Window.rows w))
                   windows.(i))
               (List.init n Fun.id);
+          loop =
+            Option.map
+              (fun (s, p, iters) ->
+                {
+                  Loop.first = S.Count.of_int s;
+                  period = S.Count.of_int p;
+                  iterations = S.Count.of_int iters;
+                })
+              found;
         }

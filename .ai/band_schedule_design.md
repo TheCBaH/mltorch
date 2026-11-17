@@ -1,7 +1,7 @@
 # Band schedule, view call and segment driver
 
 Libraries: band_driver, band_schedule
-Status: 2026-11-17 — schedule interpreter, view-call operation with per-row bases, pointwise driver and fuzz generator implemented; Machine IR lowering through the contraction helper, run on the generic, AArch64 and RV32 interpreters
+Status: 2026-11-17 — the driver loops over repeating blocks; schedule interpreter, view-call operation with per-row bases, pointwise driver and fuzz generator implemented; Machine IR lowering through the contraction helper, run on the generic, AArch64 and RV32 interpreters
 
 A chain of row-local kernels runs block by block: the last kernel makes `block`
 rows, each earlier kernel runs ahead in chunks of its own, and a produced row
@@ -45,6 +45,19 @@ base cannot name rows that are not consecutive in the ring. `Band_driver.whole`
 is the unbanded reference (one `Contract` per stage over complete tensors); the
 tests compare the two bitwise under the SSA interpreter.
 
+The driver emits the blocks that repeat as one loop. Events are grouped into
+blocks (up to each event of the last stage); the longest run in which
+repetition `k` of a period of blocks equals repetition 0 with every base moved
+by `k` times a fixed per-base step becomes `For` over the repetitions, the
+bases `base + i * step` (a step of zero stays a constant). Ring bases step by
+zero once the window rotation has repeated, logical bases by the rows a period
+covers. Blocks before and after the run stay unrolled; `Program.loop` names
+the run, and `~looped:false` keeps the unrolled list as the reference. The
+verifier proves each body footprint over the induction range, so the loop is as
+checked as the unrolled form. Two driver mutations (`Step_dropped`,
+`Iterations_short`) are red against the whole chain on the SSA interpreter and
+on all three Machine IR routes (`test/band_driver`, `test/machine_view_call`).
+
 ## Per-row bases
 
 An operand may be placed by one base per row of its outer axis (`At.Rows`):
@@ -87,4 +100,6 @@ operand.
 
 - A KxK stage (several rows read per output row, each with its own bases) in
   the driver; stages that are not pointwise.
-- The driver as a loop over uniform blocks, not an unrolled event list.
+- Loop bodies are reused per period of blocks; a chain whose window rotation
+  never repeats within the rows stays unrolled. A loop over blocks whose ring
+  base is computed from the induction value (no period) is not done.

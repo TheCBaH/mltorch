@@ -197,9 +197,9 @@ let elements (p : D.Program.t) id =
           (Option.get (Ssa_program.find_buffer p.D.Program.program id))
             .Ssa_buffer.extents))
 
-let band ?mutation ~name stages ~width ~rows ~block =
+let band ?mutation ?driver ~name stages ~width ~rows ~block =
   match
-    D.program stages ~width ~rows:(S.Count.of_int rows)
+    D.program ?mutation:driver stages ~width ~rows:(S.Count.of_int rows)
       ~block:(S.Span.block block)
   with
   | Error _ -> Fmt.pr "%s: driver refused@." name
@@ -284,7 +284,14 @@ let bands ?mutation () =
   band ?mutation ~name:"3 stages, 7 rows, block 2" three ~width:2L ~rows:7
     ~block:2;
   band ?mutation ~name:"3 stages, 8 rows, block 3" three ~width:3L ~rows:8
-    ~block:3
+    ~block:3;
+  (* blocks that repeat run as a loop over one body *)
+  band ?mutation ~name:"3 stages, 16 rows, block 2, looped" three ~width:3L
+    ~rows:16 ~block:2;
+  band ?mutation ~name:"3 stages, 12 rows, block 1, looped" three ~width:2L
+    ~rows:12 ~block:1;
+  band ?mutation ~name:"3 stages, 48 rows, block 3, looped" three ~width:2L
+    ~rows:48 ~block:3
 
 let rows ?mutation () =
   rows_case ?mutation ~name:"A and C rows reversed" ~batch:1 ~m:3 ~k:4 ~n:3
@@ -313,7 +320,10 @@ let%expect_test
     {|
     3 stages, 8 rows, block 2: SSA banded equal; lowered: generic equal; aarch64 equal; rv32 equal
     3 stages, 7 rows, block 2: SSA banded equal; lowered: generic equal; aarch64 equal; rv32 equal
-    3 stages, 8 rows, block 3: SSA banded equal; lowered: generic equal; aarch64 equal; rv32 equal |}]
+    3 stages, 8 rows, block 3: SSA banded equal; lowered: generic equal; aarch64 equal; rv32 equal
+    3 stages, 16 rows, block 2, looped: SSA banded equal; lowered: generic equal; aarch64 equal; rv32 equal
+    3 stages, 12 rows, block 1, looped: SSA banded equal; lowered: generic equal; aarch64 equal; rv32 equal
+    3 stages, 48 rows, block 3, looped: SSA banded equal; lowered: generic equal; aarch64 equal; rv32 equal |}]
 
 let%expect_test "per-row bases lowered through the helper route" =
   rows ();
@@ -343,6 +353,9 @@ let%expect_test "view-call lowering mutations are red" =
     3 stages, 8 rows, block 2: SSA banded equal; lowered: generic DIFFERS; aarch64 DIFFERS; rv32 DIFFERS
     3 stages, 7 rows, block 2: SSA banded equal; lowered: generic DIFFERS; aarch64 DIFFERS; rv32 DIFFERS
     3 stages, 8 rows, block 3: SSA banded equal; lowered: generic failed: defect; aarch64 failed: defect; rv32 failed: defect
+    3 stages, 16 rows, block 2, looped: SSA banded equal; lowered: generic DIFFERS; aarch64 DIFFERS; rv32 DIFFERS
+    3 stages, 12 rows, block 1, looped: SSA banded equal; lowered: generic DIFFERS; aarch64 DIFFERS; rv32 DIFFERS
+    3 stages, 48 rows, block 3, looped: SSA banded equal; lowered: generic failed: defect; aarch64 failed: defect; rv32 failed: defect
     A and C rows reversed: generic DIFFERS; aarch64 DIFFERS; rv32 DIFFERS
     B columns permuted: generic DIFFERS; aarch64 DIFFERS; rv32 DIFFERS
     A single base, C rows: generic DIFFERS; aarch64 DIFFERS; rv32 DIFFERS
@@ -351,7 +364,27 @@ let%expect_test "view-call lowering mutations are red" =
     3 stages, 8 rows, block 2: SSA banded equal; lowered: generic equal; aarch64 equal; rv32 equal
     3 stages, 7 rows, block 2: SSA banded equal; lowered: generic equal; aarch64 equal; rv32 equal
     3 stages, 8 rows, block 3: SSA banded equal; lowered: generic DIFFERS; aarch64 DIFFERS; rv32 DIFFERS
+    3 stages, 16 rows, block 2, looped: SSA banded equal; lowered: generic equal; aarch64 equal; rv32 equal
+    3 stages, 12 rows, block 1, looped: SSA banded equal; lowered: generic equal; aarch64 equal; rv32 equal
+    3 stages, 48 rows, block 3, looped: SSA banded equal; lowered: generic DIFFERS; aarch64 DIFFERS; rv32 DIFFERS
     A and C rows reversed: generic equal; aarch64 equal; rv32 equal
     B columns permuted: generic equal; aarch64 equal; rv32 equal
     A single base, C rows: generic DIFFERS; aarch64 DIFFERS; rv32 DIFFERS
     batched, all three per row: generic equal; aarch64 equal; rv32 equal |}]
+
+(* The loop's own defects: bases that do not move, a loop one repetition
+   short. The banded SSA program already differs from the whole chain; the
+   lowered routes run the same wrong program. *)
+let%expect_test "loop mutations are red on every route" =
+  List.iter
+    (fun (name, driver) ->
+      Fmt.pr "== %s@." name;
+      band ~driver ~name:"3 stages, 16 rows, block 2, looped" three ~width:3L
+        ~rows:16 ~block:2)
+    D.[ ("iterations short", Iterations_short); ("step dropped", Step_dropped) ];
+  [%expect
+    {|
+    == iterations short
+    3 stages, 16 rows, block 2, looped: SSA banded DIFFERS; lowered: generic DIFFERS; aarch64 DIFFERS; rv32 DIFFERS
+    == step dropped
+    3 stages, 16 rows, block 2, looped: SSA banded DIFFERS; lowered: generic DIFFERS; aarch64 DIFFERS; rv32 DIFFERS |}]
