@@ -7,7 +7,12 @@
    route is no slower, within the interval's resolution. Timings go to stdout
    and are not a golden.
 
-   Usage: ssa_route_perf MODEL.pt2 *)
+   With a second argument [loop] the old form is instead the Loop emitter's
+   kernel (Host.prepare's default, same numerics and target) and the new one
+   the structured SSA kernel: the SSA-against-Loop row (make ssa.loop.perf),
+   outputs compared within 1e-4 absolute and relative rather than bitwise.
+
+   Usage: ssa_route_perf MODEL.pt2 [loop] *)
 
 open Loop_ir
 module G = Graph_ir
@@ -21,6 +26,19 @@ let bits t =
   Vec6.iter tt.Tensor.shape (fun c ->
       acc := Int32.bits_of_float (Tensor.read_at t (Vec6.get c)) :: !acc);
   !acc
+
+(* The Loop and SSA relaxed kernels may order a reduction differently, so in
+   the loop row outputs are equal within atol = rtol = 1e-4 (the repo's
+   --shadow-numeric tolerance), a NaN matching only a NaN. *)
+let close a b =
+  List.length a = List.length b
+  && List.for_all2
+       (fun x y ->
+         let x = Int32.float_of_bits x and y = Int32.float_of_bits y in
+         (Float.is_nan x && Float.is_nan y)
+         || x = y
+         || Float.abs (x -. y) <= 1e-4 +. (1e-4 *. Float.abs y))
+       a b
 
 let () =
   let config =
@@ -44,18 +62,25 @@ let () =
             Ssa_ir.Ssa_target.neon128;
       }
   in
+  let against_loop = Array.length Sys.argv > 2 && Sys.argv.(2) = "loop" in
   let prepare frontend =
     let dir = Loop_c_exec.Proc.temp_dir "ssa_route_perf" in
     ( dir,
       Err.or_raise ~pp_error:Loop_c_exec.Host.pp_error
         (Loop_c_exec.Host.prepare ~vector ~numerics
-           ~kernel:(Ssa_backends.c_via ~frontend ~pipeline) ~dir b
+           ?kernel:
+             (match frontend with
+             | None -> None
+             | Some frontend -> Some (Ssa_backends.c_via ~frontend ~pipeline))
+           ~dir b
            ~constants:(fun id -> G.Tensor_id.Map.find_opt id constants)) )
   in
   let inputs = Gate.default_inputs b in
   let bind id = List.assoc_opt id inputs in
-  let d_dir, direct = prepare Ssa_backends.Frontend.Direct in
-  let s_dir, structured = prepare Ssa_backends.Frontend.Structured in
+  let d_dir, direct =
+    prepare (if against_loop then None else Some Ssa_backends.Frontend.Direct)
+  in
+  let s_dir, structured = prepare (Some Ssa_backends.Frontend.Structured) in
   Fun.protect
     ~finally:(fun () ->
       Loop_c_exec.Proc.remove_tree d_dir;
@@ -69,7 +94,11 @@ let () =
         in
         (now () -. t0, List.map bits out)
       in
-      let reference = snd (sample direct) in
+      let reference = List.concat (snd (sample direct)) in
+      let same o =
+        if against_loop then close (List.concat o) reference
+        else List.concat o = reference
+      in
       let pairs =
         List.init 18 (fun i ->
             let first_direct = i mod 2 = 0 in
@@ -78,19 +107,16 @@ let () =
             let old_time, new_time, so =
               if first_direct then (a, c, co) else (c, a, ao)
             in
-            {
-              Paired_timing.old_time;
-              new_time;
-              output_matches = so = reference;
-            })
+            { Paired_timing.old_time; new_time; output_matches = same so })
       in
       match Paired_timing.decide pairs with
       | Error _ ->
           prerr_endline "ssa_route_perf: the pairs were rejected";
           exit 2
       | Ok r ->
-          Fmt.pr "%s: %a@."
+          Fmt.pr "%s%s: %a@."
             (Filename.basename Sys.argv.(1))
+            (if against_loop then " (ssa vs loop)" else "")
             Paired_timing.pp_report r;
           if
             r.Paired_timing.decision = Paired_timing.Regression
