@@ -3,7 +3,9 @@
     loops' trip counts, which are evaluated from the program's own index
     constants and induction values (a loop whose bounds depend on data is
     counted once and reported). The hand kernels a program calls ([Contract],
-    [Attend]) are kept as their descriptors, priced by their own models. *)
+    [Attend]) are kept as their descriptors, priced by their own models. A view
+    call is the helper calls it lowers to: one per row of each axis that has a
+    base per row, with its address arithmetic counted as [Int_op]. *)
 
 (** Where a buffer's cells live. Alphabetical. *)
 module Region : sig

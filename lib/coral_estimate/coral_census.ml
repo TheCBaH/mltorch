@@ -161,6 +161,70 @@ let unit_steps (steps : int64 Expr.Coord.t) =
   in
   others <= 1 && (steps.Expr.Coord.c = 1L || others = 0)
 
+(* A view call is lowered to one helper call per row of every split axis (A's
+   and C's [m], B's [n]) of a descriptor made single there, each with the
+   address arithmetic of its three operands: a sign extension, a scale by the
+   element size, the buffer's address and the pointer sum, and an offset add
+   where the call's cells do not start at the base. *)
+let view_call ~region acc w (v : Ssa_view_call.t) =
+  let d = v.Ssa_view_call.desc in
+  let rows (x : Ssa_view_call.View.t) =
+    match x.Ssa_view_call.View.at with
+    | Ssa_view_call.At.Rows _ -> true
+    | Ssa_view_call.At.Base _ -> false
+  in
+  let split_m = rows v.Ssa_view_call.a || rows v.Ssa_view_call.c
+  and split_n = rows v.Ssa_view_call.b in
+  let sub =
+    Result.get_ok
+      (Err.payload
+         (Contraction.make ~batch:d.Contraction.batch
+            ~m:(if split_m then 1L else d.Contraction.m)
+            ~n:(if split_n then 1L else d.Contraction.n)
+            ~k:d.Contraction.k ~a:d.Contraction.a ~b:d.Contraction.b
+            ~c:d.Contraction.c ~format:d.Contraction.format
+            ~seed:d.Contraction.seed ~numerics:d.Contraction.numerics))
+  in
+  let count split n = if split then Int64.to_int n else 1 in
+  let moved (x : Ssa_view_call.View.t) ~row ~stride ~extra =
+    let by_stride =
+      match x.Ssa_view_call.View.at with
+      | Ssa_view_call.At.Base _ -> Int64.mul (Int64.of_int row) stride
+      | Ssa_view_call.At.Rows _ -> 0L
+    in
+    if Int64.equal (Int64.add by_stride extra) 0L then 4. else 5.
+  in
+  let col = d.Contraction.c.Contraction.Output.col in
+  let ops = ref 0. in
+  for i = 0 to count split_m d.Contraction.m - 1 do
+    for j = 0 to count split_n d.Contraction.n - 1 do
+      ops :=
+        !ops
+        +. moved v.Ssa_view_call.a ~row:i
+             ~stride:d.Contraction.a.Contraction.Operand.outer ~extra:0L
+        +. moved v.Ssa_view_call.b ~row:j
+             ~stride:d.Contraction.b.Contraction.Operand.outer ~extra:0L
+        +. moved v.Ssa_view_call.c ~row:i
+             ~stride:d.Contraction.c.Contraction.Output.row
+             ~extra:(Int64.mul (Int64.of_int j) col)
+    done
+  done;
+  let calls =
+    float_of_int (count split_m d.Contraction.m * count split_n d.Contraction.n)
+  in
+  let reg (x : Ssa_view_call.View.t) = region x.Ssa_view_call.View.buffer in
+  acc.contracts <-
+    bump_assoc acc.contracts
+      {
+        Contract_call.desc = sub;
+        engine = None;
+        a = reg v.Ssa_view_call.a;
+        b = reg v.Ssa_view_call.b;
+        c = reg v.Ssa_view_call.c;
+      }
+      (w *. calls);
+  bump acc Class.Int_op (w *. !ops)
+
 let instr ~region acc w (i : Ssa_instr.t) =
   let ty = result_ty i in
   let op = i.Ssa_instr.op in
@@ -181,6 +245,7 @@ let instr ~region acc w (i : Ssa_instr.t) =
             c = region c;
           }
           w
+  | Ssa_op.View_call v -> view_call ~region acc w v
   | Ssa_op.Const _ | Ssa_op.Mark _ | Ssa_op.Mark_lanes _ | Ssa_op.Local_alloc _
     ->
       ()
