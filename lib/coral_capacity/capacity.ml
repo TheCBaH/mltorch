@@ -80,3 +80,46 @@ let admit p images =
   let placed = List.rev placed and rejected = List.rev rejected in
   if placed = [] then Err.fail (`None_fit rejected)
   else Err.return { Admission.placed; rejected }
+
+module Candidate = struct
+  type t = { census : Coral_estimate.Coral_census.t; image : Image.t }
+end
+
+module Selection = struct
+  type t = {
+    cycles : float;
+    name : string;
+    placed : Placed.t;
+    ranked : (string * float) list;
+    rejected : Admission.rejection list;
+  }
+end
+
+let select p ~core ~rates (candidates : Candidate.t list) =
+  let* adm = admit p (List.map (fun (c : Candidate.t) -> c.image) candidates) in
+  let priced =
+    List.filter_map
+      (fun (c : Candidate.t) ->
+        List.assoc_opt c.image.name adm.placed
+        |> Option.map (fun placed ->
+            let cycles =
+              Coral_estimate.Coral_model.Rates.predict rates
+                (Coral_estimate.Coral_model.features ~rates core c.census)
+            in
+            (c.image.name, cycles, placed)))
+      candidates
+  in
+  let cmp (n1, c1, _) (n2, c2, _) =
+    match Float.compare c1 c2 with 0 -> String.compare n1 n2 | k -> k
+  in
+  match List.stable_sort cmp priced with
+  | [] -> Err.fail (`None_fit adm.rejected)
+  | (name, cycles, placed) :: _ as sorted ->
+      Err.return
+        {
+          Selection.cycles;
+          name;
+          placed;
+          ranked = List.map (fun (n, c, _) -> (n, c)) sorted;
+          rejected = adm.rejected;
+        }

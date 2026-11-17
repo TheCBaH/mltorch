@@ -6,4 +6,4 @@
 
 (library
  (name coral_capacity)
- (libraries coralnpu err_trace fmt))
+ (libraries coral_estimate coralnpu err_trace fmt))
