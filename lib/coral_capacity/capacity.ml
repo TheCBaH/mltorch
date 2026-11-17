@@ -61,3 +61,22 @@ let place p (image : Image.t) =
           (fun (a : Image.Allocation.t) s -> (a.name, s))
           image.allocations layout.slots;
     }
+
+module Admission = struct
+  type rejection = { name : string; reason : error }
+  type t = { placed : (string * Placed.t) list; rejected : rejection list }
+end
+
+let admit p images =
+  let placed, rejected =
+    List.fold_left
+      (fun (placed, rejected) (image : Image.t) ->
+        match Err.payload (place p image) with
+        | Ok pl -> ((image.name, pl) :: placed, rejected)
+        | Error reason ->
+            (placed, { Admission.name = image.name; reason } :: rejected))
+      ([], []) images
+  in
+  let placed = List.rev placed and rejected = List.rev rejected in
+  if placed = [] then Err.fail (`None_fit rejected)
+  else Err.return { Admission.placed; rejected }

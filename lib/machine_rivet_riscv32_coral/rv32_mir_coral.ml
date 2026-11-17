@@ -406,6 +406,36 @@ let image ?mutation ?kernel_mutation ?home ?(engine = true) ?engine_mutation
   in
   render Coral_image.pp_error (Option.value retried ~default:first)
 
+(* The assembled image as a candidate of the capacity check: its code bytes
+   (the executable segments' bytes) and one allocation per slot of its layout.
+   An image over its own configuration's instruction memory is not assembled,
+   so measure on a configuration that holds the candidate and check against
+   the target's budget with [Coral_capacity.Capacity.admit]. *)
+let candidate (i : Coral_image.t) : Coral_capacity.Image.t =
+  let code =
+    List.fold_left
+      (fun n (s : Image.segment) ->
+        if s.perms.execute then
+          Int64.add n (Int64.of_int (String.length s.bytes))
+        else n)
+      0L i.Coral_image.image.segments
+  in
+  let bytes = Coral_capacity.Data_bytes.of_int64 in
+  {
+    Coral_capacity.Image.name = i.Coral_image.profile.Coral_profile.name;
+    code = Coral_capacity.Code_bytes.of_int64 code;
+    allocations =
+      List.mapi
+        (fun n (p : Coral_layout.Placed_slot.t) ->
+          {
+            Coral_capacity.Image.Allocation.name = Fmt.str "slot%d" n;
+            align = bytes p.slot.align;
+            bytes = bytes p.slot.size;
+            placement = p.slot.placement;
+          })
+        i.Coral_image.layout.Coral_layout.slots;
+  }
+
 (* The run on the configuration's simulator: each written slot's bytes, by
    index, the status and what was measured. *)
 let simulate ?(budget = read_back_budget) ?label ?expect_cycles (c : Config.t)
@@ -520,7 +550,8 @@ let run_once ?(on_run = fun _ -> ()) ?(on_elf = fun _ -> ()) ?route_mutation
 
 let exec_of ?mutation ?kernel_mutation ?route_mutation ?registers ?engine
     ?engine_mutation ?transfer ?dma ?itcm ?on_run ?on_elf
-    ?(on_image = fun _ -> ()) ?home ?budget ?label ?expect_cycles c ~sites g =
+    ?(on_image = fun _ -> ()) ?(on_candidate = fun _ -> ()) ?home ?budget ?label
+    ?expect_cycles c ~sites g =
   let* published =
     Q.publish ?registers ~allocation:Q.Allocation.Scanned ~sites g
   in
@@ -534,6 +565,7 @@ let exec_of ?mutation ?kernel_mutation ?route_mutation ?registers ?engine
   let table_slots =
     Machine_rivet_riscv32_mir.Rv32_mir_module.slots published.Q.artifact
   in
+  on_candidate (candidate image);
   on_image
     (List.map2
        (fun (s : Table.slot) (p : Coral_layout.Placed_slot.t) ->
@@ -581,6 +613,7 @@ let exec_of ?mutation ?kernel_mutation ?route_mutation ?registers ?engine
    before the simulator starts (the run's own [guest.elf] is removed after it,
    so this is the supported copy for a disassembler; a trace needs no hook:
    [--trace_file=PATH] in {!Config.flags} reaches the RTL simulator);
+   [on_candidate] the built image as a capacity candidate ({!candidate});
    [on_image] each image's placement, when it is built (before any run): every
    table slot's Machine IR region and the role of the memory it landed in. [home] places each slot (default
    [Any]); [budget] bounds the subsystem's read-back bytes (default
@@ -592,8 +625,8 @@ let exec_of ?mutation ?kernel_mutation ?route_mutation ?registers ?engine
    ({!Dma}; default [Forbidden]), where [transfer] is a rule of one's own,
    which excludes it. *)
 let route ?mutation ?kernel_mutation ?route_mutation ?registers ?engine
-    ?engine_mutation ?transfer ?dma ?itcm ?on_run ?on_elf ?on_image ?home
-    ?budget ?label ?expect_cycles (c : Config.t) =
+    ?engine_mutation ?transfer ?dma ?itcm ?on_run ?on_elf ?on_image
+    ?on_candidate ?home ?budget ?label ?expect_cycles (c : Config.t) =
   Route.Route.Custom
     {
       Route.Custom.plan = finalize ?engine c;
@@ -602,5 +635,5 @@ let route ?mutation ?kernel_mutation ?route_mutation ?registers ?engine
         (fun ~sites g ->
           exec_of ?mutation ?kernel_mutation ?route_mutation ?registers ?engine
             ?engine_mutation ?transfer ?dma ?itcm ?on_run ?on_elf ?on_image
-            ?home ?budget ?label ?expect_cycles c ~sites g);
+            ?on_candidate ?home ?budget ?label ?expect_cycles c ~sites g);
     }

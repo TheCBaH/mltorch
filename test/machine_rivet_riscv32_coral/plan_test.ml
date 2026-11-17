@@ -84,3 +84,66 @@ let%test_unit "recording engines preserves legacy ELFs and RTL cycles" =
           Fmt.pr "  identical ELF, %Ld cycles@." after)
         [ false; true ])
     T.contraction_fixtures
+
+(* The candidate's code bytes are the assembled image's: the route hands over
+   the built image as a capacity candidate, and the target's budget is checked
+   against that size. The boundary is the measured size itself. *)
+let%expect_test "a candidate's code size against the target's budget" =
+  let module Cap = Coral_capacity in
+  let configuration = "vme-core-mini-axi" in
+  let measure engine =
+    let seen = ref [] in
+    T.check
+      ~route:
+        (C.route ~engine
+           ~on_candidate:(fun i -> seen := i :: !seen)
+           (config configuration))
+      ~pipeline ~contractions:true ~oracle:T.Fp32 ~calls:1 "candidate" graph;
+    match !seen with
+    | [ i ] -> i
+    | l -> Fmt.failwith "%d candidates" (List.length l)
+  in
+  let profile =
+    match
+      Err.payload
+        (Coral_profile.load ~dir:(Sys.getenv "CORALNPU_DATA") configuration)
+    with
+    | Ok p -> p
+    | Error e -> Fmt.failwith "%a" Coral_profile.pp_error e
+  in
+  let with_itcm bytes =
+    {
+      profile with
+      Coral_profile.regions =
+        List.map
+          (fun (r : Coral_profile.Region.t) ->
+            if r.Coral_profile.Region.role = Coral_profile.Role.Itcm then
+              { r with Coral_profile.Region.size = bytes }
+            else r)
+          profile.Coral_profile.regions;
+    }
+  in
+  let matrix = measure true and vector = measure false in
+  Fmt.pr "matrix %a, vector %a@." Cap.Code_bytes.pp matrix.Cap.Image.code
+    Cap.Code_bytes.pp vector.Cap.Image.code;
+  let code = Cap.Code_bytes.to_int64 matrix.Cap.Image.code in
+  let admit bytes =
+    match Err.payload (Cap.Capacity.admit (with_itcm bytes) [ matrix ]) with
+    | Ok a ->
+        Fmt.pr "budget %Ld: fits (%d placed)@." bytes (List.length a.placed)
+    | Error
+        (`None_fit
+           [ { Cap.Capacity.Admission.reason = `Code_over_budget o; _ } ]) ->
+        Fmt.pr "budget %Ld: %a over %a@." bytes Cap.Code_bytes.pp o.needed
+          Cap.Code_bytes.pp o.budget
+    | Error _ -> Fmt.pr "budget %Ld: other refusal@." bytes
+  in
+  admit code;
+  admit (Int64.pred code);
+  [%expect
+    {|
+    candidate (1 invocations): bitwise
+    candidate (1 invocations): bitwise
+    matrix 1608, vector 1680
+    budget 1608: fits (1 placed)
+    budget 1607: 1608 over 1607 |}]
