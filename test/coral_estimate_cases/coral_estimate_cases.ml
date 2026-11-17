@@ -458,6 +458,18 @@ module View = struct
       case "view pointwise 1 stage, 24 rows, block 2, looped" ~width:12 ~rows:24
         ~block:2
         [ stage "a" ~chunk:2 ~cin:6 ~cout:6 ];
+      case "view window 1 stage, 3x3, 16 rows, block 2, looped" ~width:6
+        ~rows:16 ~block:2
+        [ stage ~extent:3 "a" ~chunk:2 ~cin:4 ~cout:4 ];
+      case "view window 1 stage, 3x3, 24 rows, block 1, looped" ~width:8
+        ~rows:24 ~block:1
+        [ stage ~extent:3 "a" ~chunk:2 ~cin:2 ~cout:6 ];
+      case "view window 1 stage, 3x3, 20 rows, block 4, looped" ~width:5
+        ~rows:20 ~block:4
+        [ stage ~extent:3 "a" ~chunk:4 ~cin:8 ~cout:4 ];
+      case "view window 1 stage, 3x3, 16 rows, block 2, wide" ~width:12 ~rows:16
+        ~block:2
+        [ stage ~extent:3 "a" ~chunk:2 ~cin:3 ~cout:8 ];
     ]
 
   let check =
@@ -469,6 +481,9 @@ module View = struct
           stage "b" ~chunk:2 ~cin:8 ~cout:6;
           stage "c" ~chunk:2 ~cin:6 ~cout:4;
         ];
+      case ~role:Role.Check "view window 1 stage, 3x3, 18 rows, block 2, wide"
+        ~width:10 ~rows:18 ~block:2
+        [ stage ~extent:3 "a" ~chunk:2 ~cin:6 ~cout:6 ];
     ]
 
   let all = fit @ check

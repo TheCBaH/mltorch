@@ -121,16 +121,18 @@ compares its output bits with the whole chain on the SSA interpreter):
   the driver: its loops, every base's address arithmetic and the calls. Pointwise
   and 3x3 chains, unrolled and looped, are equal. The driver's three mutations
   and two native-code mutations (`Branch_sense`, `Dropped_lo12`) are red.
-- RV32 under qemu (`test/machine_rivet_riscv32_mir`): the pointwise chains,
-  unrolled and looped, are equal with the contractions as generated RVV
-  functions. A window chain adds into its output (seed `Tensor`), which the RVV
-  contraction refuses, so no window chain runs there yet.
+- RV32 under qemu (`test/machine_rivet_riscv32_mir`): the pointwise and 3x3
+  chains, unrolled and looped, are equal with the contractions as generated RVV
+  functions. A window chain adds into its output (seed `Tensor`): the RVV
+  function starts each row group from C's cells (a vector load in place of the
+  zeroing; refused for an integer product and for C carried by the DMA), and
+  the matrix engine's binary32 function loads the tile from C's rows (`vtle32`).
+  A `Seed_zeroed` mutation of each is red (qemu, and the VME RTL).
 
 ## Open
 
 - An AArch64 contraction realization (so the contraction itself runs as
-  generated AArch64, not host C) and an RVV one seeded from the output, which
-  the window chains need under qemu.
+  generated AArch64, not host C).
 - Windows with stride, padding or dilation (refused: `Unsupported_window`) and
   non-square windows; padding needs clamped consumed ranges.
 - Loop bodies are reused per period of blocks; a chain whose window rotation

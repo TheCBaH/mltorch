@@ -150,7 +150,7 @@ module View = struct
         | _ -> None)
       p.Ssa_program.buffers
 
-  let run (v : Cases.View.t) =
+  let run ?engine_mutation (v : Cases.View.t) =
     let p = Cases.View.program v in
     let inputs = inputs p in
     let want = reference p ~inputs in
@@ -176,7 +176,7 @@ module View = struct
       match
         C.route
           ~on_run:(fun r -> runs := r :: !runs)
-          ~label:v.Cases.View.name cfg
+          ?engine_mutation ~label:v.Cases.View.name cfg
       with
       | Machine_model.Mir_model_route.Route.Custom c -> (
           match
@@ -225,14 +225,16 @@ module View = struct
             o.Mir_observation.Output.cells)
         (Src.mir_outputs memory binding lowered.Mir_lower.layout)
     in
-    Fmt.pr "%s (1 invocations): %s@." v.Cases.View.name
+    Fmt.pr "%s%s (1 invocations): %s@." v.Cases.View.name
+      (if engine_mutation = None then "" else ", mutated")
       (if got = want then "bitwise" else "DIFFERS");
-    List.iteri
-      (fun i (r : C.Run.t) ->
-        wall_log v.Cases.View.name i r;
-        Fmt.pr "  [%d] cycles %Ld instret %Ld@." i r.C.Run.mcycle
-          r.C.Run.minstret)
-      (List.rev !runs)
+    if engine_mutation = None then
+      List.iteri
+        (fun i (r : C.Run.t) ->
+          wall_log v.Cases.View.name i r;
+          Fmt.pr "  [%d] cycles %Ld instret %Ld@." i r.C.Run.mcycle
+            r.C.Run.minstret)
+        (List.rev !runs)
 
   let all () =
     List.iter
@@ -562,5 +564,29 @@ let%expect_test "the view-call set" =
       [0] cycles 8568 instret 5571
     view pointwise 1 stage, 24 rows, block 2, looped (1 invocations): bitwise
       [0] cycles 6564 instret 4611
+    view window 1 stage, 3x3, 16 rows, block 2, looped (1 invocations): bitwise
+      [0] cycles 15972 instret 13169
+    view window 1 stage, 3x3, 24 rows, block 1, looped (1 invocations): bitwise
+      [0] cycles 19500 instret 16969
+    view window 1 stage, 3x3, 20 rows, block 4, looped (1 invocations): bitwise
+      [0] cycles 30876 instret 23775
+    view window 1 stage, 3x3, 16 rows, block 2, wide (1 invocations): bitwise
+      [0] cycles 16546 instret 13043
     view pointwise 3 stages, 20 rows, block 2, wide (1 invocations): bitwise
-      [0] cycles 8147 instret 5575 |}]
+      [0] cycles 8147 instret 5575
+    view window 1 stage, 3x3, 18 rows, block 2, wide (1 invocations): bitwise
+      [0] cycles 27744 instret 19171 |}]
+
+(* A window's rows after the first add into C: with the tile started from zero
+   instead of C's rows the output differs. *)
+let%expect_test "a seed mutation is red on the core" =
+  View.run
+    ~engine_mutation:Coralnpu_kernels_zvt.Zvt_contraction.Mutation.Seed_zeroed
+    (List.find
+       (fun (v : Cases.View.t) ->
+         v.Cases.View.name
+         = "view window 1 stage, 3x3, 16 rows, block 2, looped")
+       Cases.View.all);
+  Format.print_flush ();
+  [%expect
+    {| view window 1 stage, 3x3, 16 rows, block 2, looped, mutated (1 invocations): DIFFERS |}]

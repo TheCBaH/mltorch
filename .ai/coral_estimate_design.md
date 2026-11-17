@@ -413,13 +413,15 @@ band is small: the matrix-engine features fitted to large products (`tiles`,
 `rows_k`, `cols_k`) over-predicted these kernels by about 2x, and refitting the
 shared rates to them moved `softmax over W` past its limit. Features
 `zvt.f32.view.{tiles,rows_k,cols_k}.<region>` are fitted to
-`Coral_estimate_cases.View` (pointwise `Band_driver` chains, looped form, run on
-the VME RTL and bitwise the SSA interpreter's output); the shared rates move
-less than 0.1% and every held-out limit holds. One view-call case is held out
-(limit 10%).
-
-Not measured: a 3x3 window. Its rows after the first are seeded from the
-output (`Seed.Tensor`), which the core's contraction helpers refuse, so no
-window kernel runs on the RTL and the window's per-call cost is still the
-pointwise one. Unrolled chains past about 8 KiB of code (block 3, three
-stages) exceed the ITCM; the cases use blocks that loop.
+`Coral_estimate_cases.View` (pointwise and single-stage 3x3 `Band_driver`
+chains, looped form, run on the VME RTL and bitwise the SSA interpreter's
+output); the shared rates move by up to 0.25 cycles and every held-out limit
+holds. Two view-call cases are held out (limit 10% each: -4.6% pointwise, -4.2%
+window). A window's rows after the first are seeded from the output
+(`Seed.Tensor`); the matrix engine's binary32 function loads its tile from C
+for them. Adding the windows took the fit's `view.rows_k` to zero and
+`view.cols_k` from 0.65 to 3.5, and the fit cases to within about 10%
+(pointwise cases were within 5%). Not measured: a chain of a pointwise stage
+then a window (about 13 KiB of helpers, past the 8 KiB ITCM), so a window is
+priced only as a single stage. Unrolled chains past about 8 KiB of code (block
+3, three stages) exceed the ITCM; the cases use blocks that loop.
