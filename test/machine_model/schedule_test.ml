@@ -58,12 +58,25 @@ struct
               (Machine_alloc.Mir_alloc_stats.of_program (Ls.allocate s)))
       (Scan_test.kernels ())
 
+  (* Only what the sink policy moves, on the comparison route's kernels: the
+     structured route's softmax and sdpa leave it nothing to move. *)
+  let moves ~frontend () =
+    List.iter
+      (fun (name, gen, sites) ->
+        let v = X.select ~sites gen in
+        match Sch.schedule Policy.Sink v with
+        | Error r ->
+            Fmt.pr "%s %s: %a@." X.name name
+              Machine_alloc.Mir_schedule.Refusal.pp r
+        | Ok s -> Fmt.pr "%s %s: sink moves %d@." X.name name (moved v s))
+      (Scan_test.kernels ~frontend ())
+
   (* Each class dropped from the graph under the reverse order: the check
      refuses, and how often the selected verifier alone rejects the same order.
      The graph keeps a flags writer on the side of a condition range it started
      on, which is stricter than the verifier's rule: on AArch64 every writer the
      reverse order moves lands outside any range, so only the check sees it. *)
-  let mutations () =
+  let mutations ?frontend () =
     List.iter
       (fun (label, mutation) ->
         let caught =
@@ -80,7 +93,7 @@ struct
                             (Sch.reorder ~mutation Policy.Reverse v)))
                   in
                   Some (name, r, verifier))
-            (Scan_test.kernels ())
+            (Scan_test.kernels ?frontend ())
         in
         match caught with
         | [] -> Fmt.pr "%s %s: NOT CAUGHT@." X.name label
@@ -241,3 +254,35 @@ let%expect_test "sink scheduling, then linear scan" =
     x86_64, 3 registers conv/0: sink moves 8 (rev1), reverse 69
       source: 100 instructions; 15 register moves, 71 stores, 68 loads, 0 slot moves, 11 rematerialized; 27 slots (176 bytes)
       sink: 100 instructions; 15 register moves, 71 stores, 68 loads, 0 slot moves, 11 rematerialized; 27 slots (176 bytes) |}]
+
+(* The comparison route's kernels: the sink policy moves instructions in
+   softmax and sdpa (the structured route's are already compact), and dropping
+   the flags class is caught on four kernels, not the structured route's two or
+   three. *)
+let%expect_test "comparison route: sink moves and dropped dependences" =
+  let frontend = Ssa_backends.Frontend.Direct in
+  A64.moves ~frontend ();
+  X64.moves ~frontend ();
+  A64.mutations ~frontend ();
+  X64.mutations ~frontend ();
+  [%expect {|
+    aarch64 chain/0: sink moves 8
+    aarch64 chain/1: sink moves 0
+    aarch64 chain/2: sink moves 0
+    aarch64 bmm/0: sink moves 0
+    aarch64 softmax/0: sink moves 11
+    aarch64 sdpa/0: sink moves 18
+    aarch64 conv/0: sink moves 8
+    x86_64 chain/0: sink moves 8
+    x86_64 chain/1: sink moves 0
+    x86_64 chain/2: sink moves 0
+    x86_64 bmm/0: sink moves 0
+    x86_64 softmax/0: sink moves 8
+    x86_64 sdpa/0: sink moves 8
+    x86_64 conv/0: sink moves 8
+    aarch64 data: caught on 7 kernels (verifier alone: 7); first chain/0: dependence: bb1: i205 scheduled after i206, which depends on it
+    aarch64 flags: caught on 4 kernels (verifier alone: 0); first chain/0: dependence: bb4: i222 scheduled after i228, which depends on it
+    aarch64 order: caught on 6 kernels (verifier alone: 6); first chain/0: dependence: bb19: i314 scheduled after i315, which depends on it
+    x86_64 data: caught on 7 kernels (verifier alone: 7); first chain/0: dependence: bb1: i205 scheduled after i206, which depends on it
+    x86_64 flags: caught on 4 kernels (verifier alone: 0); first chain/0: dependence: bb4: i218 scheduled after i224, which depends on it
+    x86_64 order: caught on 6 kernels (verifier alone: 6); first chain/0: dependence: bb19: i317 scheduled after i318, which depends on it |}]

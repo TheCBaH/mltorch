@@ -6,7 +6,11 @@ open Machine_ir
 module M = Machine_model.Mir_model
 module F = Native_test.Graph_fixtures
 
-let kernels () =
+(* The structured route is the default; [~frontend] lowers the same graphs
+   through another route. The comparison route's kernels keep the shapes the
+   scheduling evidence (sink moves, flags-writer motion) was first measured
+   on, which the structured route's smaller kernels no longer exercise. *)
+let kernels ?frontend () =
   let one name g = (name, g) in
   [
     one "chain" (F.chain ());
@@ -42,15 +46,41 @@ let kernels () =
   ]
   |> List.concat_map (fun (name, g) ->
       let b = Model_test.bundle g in
-      let m =
-        Result.get_ok (M.prepare ~pipeline:Ssa_backends.Pipeline.Exact b)
+      let generic =
+        match frontend with
+        | None ->
+            M.generic
+              (Result.get_ok
+                 (M.prepare ~pipeline:Ssa_backends.Pipeline.Exact b))
+        | Some frontend ->
+            List.map
+              (fun inv ->
+                let p =
+                  Result.get_ok
+                    (Ssa_backends.program ~frontend Ssa_backends.Pipeline.Exact
+                       inv)
+                in
+                let planning =
+                  Mir_planning.make
+                    ~subject:(Machine_lower.Mir_lower.subject p)
+                    ~policy:"reference_f64" ~schedule:"scalar"
+                    ~precision:Mir_planning.Precision.F64
+                    ~lanes:(Mir_type.Lanes.of_int 1)
+                    ~fma:Mir_planning.Fma.Forbidden ~capabilities:[]
+                in
+                (Result.get_ok
+                   (Err.payload
+                      (Machine_lower.Mir_lower.program
+                         ~planning:(Some planning) p)))
+                  .Machine_lower.Mir_lower.program)
+              b.Loop_ir.Loop_bundle.invocations
       in
       List.mapi
         (fun k gen ->
           ( Fmt.str "%s/%d" name k,
             gen,
             M.sites (List.nth b.Loop_ir.Loop_bundle.invocations k) ))
-        (M.generic m))
+        generic)
 
 module Run
     (T : Mir_sel.TARGET)
