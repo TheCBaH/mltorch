@@ -299,41 +299,14 @@ let rec instr st (i : Ssa_instr.t) =
       with
       | Ok [] -> ()
       | _ -> invalid_arg "Mir_lower: an attention helper call")
-  | Ssa_op.View_call _ -> refuse st Refusal.View_call
-  | Ssa_op.Contract { desc; a; b; c; _ } -> (
+  | Ssa_op.View_call call -> Mir_lower_contract.view_call st call
+  | Ssa_op.Contract { desc; a; b; c; _ } ->
       (* a call to the descriptor's helper with each operand's address *)
-      let same d = String.equal (Contraction.name d) (Contraction.name desc) in
-      let rec find k = function
-        | [] -> None
-        | d :: rest -> if same d then Some k else find (k + 1) rest
-      in
-      let index =
-        match find 0 st.contracts with
-        | Some k -> k
-        | None ->
-            st.contracts <- st.contracts @ [ desc ];
-            List.length st.contracts - 1
-      in
-      let h =
-        Mir_contract.descriptor ~index:(Mir_contract.Index.of_int index) desc
-      in
       let addr id = emit st (Mir_op.Addr (entry_of st id).L.Entry.view) in
-      let args = [ addr a; addr b; addr c ] in
-      let signature = function
-        | Mir_op.Callee.Helper _ ->
-            Some
-              {
-                Mir_typing.Signature.params = h.Mir_helper.params;
-                results = [];
-              }
-        | Mir_op.Callee.Func _ -> None
-      in
-      match
-        B.op ~origin:st.origin st.bld st.cur ~signature
-          (Mir_op.Call (Mir_op.Callee.Helper h.Mir_helper.id, args))
-      with
-      | Ok [] -> ()
-      | _ -> invalid_arg "Mir_lower: a contraction helper call")
+      let pa = addr a in
+      let pb = addr b in
+      let pc = addr c in
+      Mir_lower_contract.contract_call st desc pa pb pc
   | Ssa_op.Check_access { buffer; at = Ssa_access.Coord c } ->
       coord_guards st (entry_of st buffer) c
   | Ssa_op.Const c ->

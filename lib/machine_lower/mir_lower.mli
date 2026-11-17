@@ -32,9 +32,6 @@ module Refusal : sig
     | Precision of Mir_planning.Precision.t
         (** binary32 arithmetic under a binary64 summary *)
     | Type of { ty : Ssa_ir.Ssa_type.t; slice : Mir_census.Slice.t }
-    | View_call
-        (** a view call: the helper route takes whole buffers, not a buffer and
-            a base *)
 
   val pp : Format.formatter -> t -> unit
 end
@@ -70,6 +67,9 @@ module Mutation : sig
         (** a local allocation that keeps its site's earlier bytes instead of
             starting undefined *)
     | Vector_stride  (** a lane access's stride doubled *)
+    | View_base_dropped  (** a view call's bases ignored: every cell at 0 *)
+    | View_outer_dropped
+        (** a view call's split axis not moving its single-base operands *)
     | Zero_extend  (** index widening by zero- instead of sign-extension *)
 end
 

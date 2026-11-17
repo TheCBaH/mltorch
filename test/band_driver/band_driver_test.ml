@@ -122,7 +122,8 @@ let%expect_test "a kernel that is not pointwise is refused" =
 
 (* Where a target has no form for a view call it refuses, by name; the
    expansion is how a program with one reaches such a target. *)
-let%expect_test "the targets refuse a view call, and the expansion has none" =
+let%expect_test
+    "C, JavaScript and Wasm refuse a view call; Machine IR lowers it" =
   let stages =
     [ stage "a" ~chunk:2 ~cin:2 ~cout:3; stage "b" ~chunk:2 ~cin:3 ~cout:2 ]
   in
@@ -170,5 +171,5 @@ let%expect_test "the targets refuse a view call, and the expansion has none" =
     C: C has no form for a view call
     JavaScript: a view call has no JavaScript form
     Wasm: a view call has no WebAssembly form
-    Machine IR: a view call has no helper binding: the helper route takes whole buffers
+    Machine IR: accepted
     C, expanded: accepted |}]
