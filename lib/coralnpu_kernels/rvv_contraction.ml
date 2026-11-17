@@ -9,6 +9,7 @@ module Mutation = struct
     | No_ring_wait
     | No_share
     | No_wait
+    | Seed_zeroed
     | Tail_vl
 end
 
@@ -190,9 +191,15 @@ let items esc ?mutation ?plan (d : C.t) () =
           Kernel_refusal.refuse esc Transfer_plan_mismatch;
         T.Witness.plan w
   in
-  (match d.C.seed with
-  | C.Seed.Zero -> ()
-  | C.Seed.Tensor -> Kernel_refusal.refuse esc Seeded_from_output);
+  (* a seeded product starts each row from C's cells, loaded where they are:
+     not for an integer product, whose accumulators are not C's element, nor
+     for C in a ring half the chain has not filled *)
+  let seeded = d.C.seed = C.Seed.Tensor in
+  if
+    seeded
+    && (stage.T.out = T.Out.Dma
+       || match d.C.format with C.Element.I8 _ -> true | _ -> false)
+  then Kernel_refusal.refuse esc Seeded_from_output;
   if d.C.numerics = C.Numerics.Paired then
     Kernel_refusal.refuse esc Paired_requirement;
   let n = Int64.to_int d.C.n and m = Int64.to_int d.C.m in
@@ -262,7 +269,19 @@ let items esc ?mutation ?plan (d : C.t) () =
     if Option.is_some int8 && not shared then
       Kernel_refusal.refuse esc Int_rows_too_far_apart;
     let xs = List.filteri (fun j _ -> j < nrows) [ "t1"; "t2"; "s4" ] in
-    let zero = List.map (fun v -> i "vmv.v.i" [ r v; A.imm 0 ]) accs in
+    let zero =
+      if (not seeded) || mutation = Some Mutation.Seed_zeroed then
+        List.map (fun v -> i "vmv.v.i" [ r v; A.imm 0 ]) accs
+      else
+        List.concat
+          (List.mapi
+             (fun j v ->
+               add_from "t0" "a6" (j * c_row)
+               @
+               if c_col = 4 then [ i "vle32.v" [ r v; A.mem "t0" 0 ] ]
+               else [ i "vlse32.v" [ r v; A.mem "t0" 0; r "s2" ] ])
+             accs)
+    in
     let start =
       List.concat (List.mapi (fun j p -> add_from p "a5" (j * a_outer)) ptrs)
       @ [ i "mv" [ r "a7"; r "a3" ] ]

@@ -14,10 +14,10 @@ module Art = Machine_model.Mir_artifact
 
 let ( let* ) = Result.bind
 
-let qemu ?mutation ?cpu (case : Src.Case.t) =
+let qemu ?mutation ?kernel_mutation ?cpu (case : Src.Case.t) =
   let g = case.Src.Case.lowered.Machine_lower.Mir_lower.program in
   let* published = R.publish ~allocation:R.Allocation.Scanned ~sites:[||] g in
-  let* prepared = R.prepare ?mutation published in
+  let* prepared = R.prepare ?mutation ?kernel_mutation published in
   let phys = Art.program published.R.artifact in
   let memory = Machine_interp.Mir_memory.create () in
   let* binding =
