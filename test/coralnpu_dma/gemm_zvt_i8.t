@@ -15,13 +15,13 @@ longest wait; then each block costs about what the DMA takes for A and the
 core for the tiles and C's stores, and a deeper K gives each byte more work.
 
   $ ./dma_bench.exe "$CORALNPU_SUBSYSTEM_DATA" subsystem-matrix-highmem gemm zvt-i8 b-by-dma c-by-dma 8 128 512
-  zvt i8 resident-b b-by-dma c-by-dma M=256 N=128 K=512: C as expected, 312123 cycles, 107.5 ops/cycle; 71700 waiting for B and the first block, 128048 for the rest
+  zvt i8 resident-b b-by-dma c-by-dma M=256 N=128 K=512: C as expected, 262233 cycles, 128.0 ops/cycle; 66579 waiting for B and the first block, 81381 for the rest
   $ ./dma_bench.exe "$CORALNPU_SUBSYSTEM_DATA" subsystem-matrix-highmem gemm zvt-i8 b-by-dma c-by-core 8 128 512
-  zvt i8 resident-b b-by-dma c-by-core M=256 N=128 K=512: C as expected, 225176 cycles, 149.0 ops/cycle; 71700 waiting for B and the first block, 784 for the rest
+  zvt i8 resident-b b-by-dma c-by-core M=256 N=128 K=512: C as expected, 193453 cycles, 173.5 ops/cycle; 66579 waiting for B and the first block, 329 for the rest
   $ ./dma_bench.exe "$CORALNPU_SUBSYSTEM_DATA" subsystem-matrix-highmem gemm zvt-i8 b-shared c-by-core 8 128 512
-  zvt i8 resident-b b-shared c-by-core M=256 N=128 K=512: C as expected, 183697 cycles, 182.7 ops/cycle; 9891 waiting for B and the first block, 784 for the rest
+  zvt i8 resident-b b-shared c-by-core M=256 N=128 K=512: C as expected, 153892 cycles, 218.0 ops/cycle; 17507 waiting for B and the first block, 329 for the rest
   $ ./dma_bench.exe "$CORALNPU_SUBSYSTEM_DATA" subsystem-matrix-highmem gemm zvt-i8 b-shared c-by-core 8 128 1024
-  zvt i8 resident-b b-shared c-by-core M=256 N=128 K=1024: C as expected, 331417 cycles, 202.5 ops/cycle; 19747 waiting for B and the first block, 19992 for the rest
+  zvt i8 resident-b b-shared c-by-core M=256 N=128 K=1024: C as expected, 286372 cycles, 234.3 ops/cycle; 34979 waiting for B and the first block, 329 for the rest
 
 Splitting C's rows: the core stores the first 20 of each block's 32 straight
 to SRAM, and the DMA copies the other 12 from the C ring, so neither stream
@@ -29,10 +29,10 @@ waits on the other. At N = 256 that is 256 ops a cycle, against 244.5 with the
 core storing all of C.
 
   $ ./dma_bench.exe "$CORALNPU_SUBSYSTEM_DATA" subsystem-matrix-highmem gemm zvt-i8 b-shared c-split-20 16 256 1024
-  zvt i8 resident-b b-shared c-split-20 M=512 N=256 K=1024: C as expected, 1047424 cycles, 256.3 ops/cycle; 10787 waiting for B and the first block, 11284 for the rest
+  zvt i8 resident-b b-shared c-split-20 M=512 N=256 K=1024: C as expected, 982106 cycles, 273.3 ops/cycle; 43299 waiting for B and the first block, 9732 for the rest
 
 The control, A, B and C left in SRAM, no DMA: the core's loads of every slice
 from SRAM, at about three bytes a cycle, against DTCM's twelve.
 
   $ ./dma_bench.exe "$CORALNPU_SUBSYSTEM_DATA" subsystem-matrix-highmem direct zvt-i8 8 128 512
-  zvt i8 M=256 N=128 K=512, operands in SRAM, no DMA: C as expected, 416831 cycles, 80.5 ops/cycle
+  zvt i8 M=256 N=128 K=512, operands in SRAM, no DMA: C as expected, 169501 cycles, 198.0 ops/cycle

@@ -38,6 +38,7 @@ module Mutation : sig
     | No_ring_wait  (** a block computed without waiting for its chain *)
     | No_share  (** a shared B's core part not copied *)
     | No_wait  (** the staging chain started and not waited for *)
+    | Seed_zeroed  (** a seeded product started from zero, not from C *)
     | Tail_vl  (** the last column tile one lane short *)
 end
 

@@ -802,6 +802,14 @@ ssa.loop.perf: pt2.download-cram
 	  ./_build/default/test/ssa_route/ssa_route_perf.exe $(PT2_DIR)/$$m/$$m.pt2 loop || rc=1; \
 	done; exit $$rc
 
+# The same pair as a per-invocation table: each kernel call timed inside the
+# generated model, the worst invocations and the op classes by time lost.
+ssa.loop.kernels: pt2.download-cram
+	opam exec -- dune build test/ssa_route/ssa_route_perf.exe
+	for m in $(SSA_ROUTE_MODELS); do \
+	  ./_build/default/test/ssa_route/ssa_route_perf.exe $(PT2_DIR)/$$m/$$m.pt2 loop --kernels || exit 1; \
+	done
+
 # Exception ratchet: every exception declared in lib/ is listed in
 # scripts/exceptions-allowlist.txt with a category; a walk exit should be an
 # Err.Escape, so the escape-candidate ceiling only goes down.
@@ -1773,6 +1781,7 @@ coralnpu.subsystem.download:
 CORAL_PROFILE_MODELS ?= test_convnext2 regnetx_002 mobilenetv3_small_050
 CORAL_PROFILE_CONFIGURATION ?= rvv-core-mini-highmem-axi
 CORAL_PROFILE_OUT ?= _build/coral-profile
+CORAL_PROFILE_DEADLINE ?= 3600
 coral.model.profile:
 	@test -f $(CORALNPU_DATA)/hardware-configurations.json || { \
 		echo "coral.model.profile: missing $(CORALNPU_DATA) -- run 'make coralnpu.download' first" >&2; \
@@ -1784,7 +1793,7 @@ coral.model.profile:
 		echo "== $$m"; \
 		_build/default/bin/machine_rivet_coral_model.exe data/pt2-functional/$$m/$$m.pt2 \
 			--dir=$(CORALNPU_DATA) --configuration=$(CORAL_PROFILE_CONFIGURATION) \
-			--contractions --prepack > $(CORAL_PROFILE_OUT)/$$m.txt; status=$$?; \
+			--contractions --prepack --deadline=$(CORAL_PROFILE_DEADLINE) > $(CORAL_PROFILE_OUT)/$$m.txt; status=$$?; \
 		cat $(CORAL_PROFILE_OUT)/$$m.txt; \
 		test $$status -eq 0 || exit $$status; \
 	done

@@ -29,7 +29,6 @@ type t =
   | Precision_not_paired_bf16
   | Register_or_immediate
   | Ring_block_past_dma_transfer
-  | Seeded_from_output
   | Seeded_k_padding
   | Stride_past_30_bits
   | Too_many_output_tiles
@@ -79,7 +78,6 @@ let pp fmt = function
   | Register_or_immediate -> Fmt.string fmt "a register or immediate"
   | Ring_block_past_dma_transfer ->
       Fmt.string fmt "a ring block past one DMA transfer"
-  | Seeded_from_output -> Fmt.string fmt "a contraction seeded from its output"
   | Seeded_k_padding ->
       Fmt.string fmt "a seeded k that the depth padding changes"
   | Stride_past_30_bits -> Fmt.string fmt "a stride past 30 bits"

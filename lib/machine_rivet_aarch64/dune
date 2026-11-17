@@ -9,6 +9,7 @@
 (library
  (name machine_rivet_aarch64)
  (libraries
+  contraction
   err_trace
   fmt
   machine_ir

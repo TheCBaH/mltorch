@@ -150,24 +150,30 @@ let%expect_test "held-out accuracy domain and known gaps" =
     refused;
   [%expect
     {|
-    exp 64x64: -2.3%, limit 3.0%
-    softmax over C 64x64: +0.2%, limit 2.0%
-    softmax over W 16x16: -4.7%, limit 6.0%
-    linear 32x96 k48: +1.5%, limit 2.0%
-    sdpa bf16 41x61 d32: -9.6%, limit 10.0%
-    layer, bare: -10.2%, limit 15.0%
-    layer, all flags: -4.9%, limit 9.0%
-    layer, pre layer norm, rope: +17.7%, limit 30.0%
-    layer, post rms: +4.5%, limit 10.0%
-    layer norm over C 16x64: outside accuracy gate (ordered lane fold priced as scalar extracts), error +124.2%
-    rms norm over C 16x64: outside accuracy gate (ordered lane fold priced as scalar extracts), error +108.7%
-    layer decomposed, bare: outside accuracy gate (data-dependent control flow counted heuristically), error -12.4% |}]
+    exp 64x64: -1.8%, limit 3.0%
+    softmax over C 64x64: -1.8%, limit 2.0%
+    softmax over W 16x16: -5.9%, limit 6.0%
+    linear 32x96 k48: +0.6%, limit 2.0%
+    sdpa bf16 41x61 d32: -10.0%, limit 10.0%
+    layer, bare: +4.0%, limit 15.0%
+    layer, all flags: +2.5%, limit 9.0%
+    layer, pre layer norm, rope: -1.7%, limit 30.0%
+    layer, post rms: +1.0%, limit 10.0%
+    layer norm over C 16x64: outside accuracy gate (ordered lane fold priced as scalar extracts), error +99.0%
+    rms norm over C 16x64: outside accuracy gate (ordered lane fold priced as scalar extracts), error +82.6%
+    layer decomposed, bare: outside accuracy gate (data-dependent control flow counted heuristically), error -28.0% |}]
 
-(* The band-driven view-call kernels held out of the fit. Pointwise stages
-   only: the core's contraction helpers refuse a product seeded from its own
-   output, which a 3x3 window's rows after the first are, so no window kernel
-   runs on the RTL. *)
-let view_limits = [ ("view pointwise 3 stages, 20 rows, block 2, wide", 10.) ]
+(* The band-driven view-call kernels held out of the fit: a pointwise chain, a
+   single-stage 3x3 window and a window-then-pointwise chain (the other order
+   does not fit the ITCM, so it has no measurement). *)
+let view_limits =
+  [
+    ("view chain pointwise then 3x3, 16 rows, block 2, proven", 10.);
+    ("view chain pointwise then 3x3, 32 rows, block 4, proven", 10.);
+    ("view chain 3x3 then pointwise, 16 rows, block 2", 10.);
+    ("view pointwise 3 stages, 20 rows, block 2, wide", 10.);
+    ("view window 1 stage, 3x3, 18 rows, block 2, wide", 10.);
+  ]
 
 let view_error rates (v : Cases.View.t) =
   match F.cycles v.Cases.View.name with
@@ -208,7 +214,7 @@ let%test_unit "committed rates satisfy the view-call accuracy limits" =
 
 let%test_unit "the view-call gate rejects a lost view-call cost" =
   let rates =
-    List.remove_assoc "zvt.f32.view.rows_k.dtcm" Coral_estimate.Coral_rates.vme
+    List.remove_assoc "zvt.f32.view.tiles.dtcm" Coral_estimate.Coral_rates.vme
   in
   let rejected =
     try
@@ -232,4 +238,9 @@ let%expect_test "held-out view-call accuracy" =
         limit)
     view_limits;
   [%expect
-    {| view pointwise 3 stages, 20 rows, block 2, wide: -8.2%, limit 10.0% |}]
+    {|
+      view chain pointwise then 3x3, 16 rows, block 2, proven: -8.2%, limit 10.0%
+      view chain pointwise then 3x3, 32 rows, block 4, proven: -7.7%, limit 10.0%
+      view chain 3x3 then pointwise, 16 rows, block 2: -7.9%, limit 10.0%
+      view pointwise 3 stages, 20 rows, block 2, wide: -5.6%, limit 10.0%
+      view window 1 stage, 3x3, 18 rows, block 2, wide: -4.6%, limit 10.0% |}]

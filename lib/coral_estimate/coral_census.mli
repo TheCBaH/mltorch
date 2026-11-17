@@ -18,7 +18,18 @@ end
     eight binary32 lanes counts two. Alphabetical. *)
 module Class : sig
   type t =
+    | Bf16_round
+        (** a store that rounds binary32 to bfloat16: the rounding and the
+            canonical NaN, beyond the store itself *)
     | Branch  (** a structured [if] taken or not *)
+    | Check_access
+        (** a range guard on one axis of a checked coordinate access that the
+            program still carries: a [Check_access], or a [Load] the range
+            analysis did not prove in bounds (a constant coordinate is folded
+            away) *)
+    | Check_index
+        (** an index add or scale the range analysis did not keep in the index
+            domain, lowered with an overflow guard *)
     | F32_div
     | F32_fma
     | F32_math of Expr.Value.unary_op
@@ -26,6 +37,9 @@ module Class : sig
     | F32_op  (** add, sub, mul, max, compare, select on binary32 *)
     | F32_sqrt
     | F64_op  (** any binary64 arithmetic *)
+    | Int_div
+        (** an index division by a literal, lowered to a 64-bit divide and
+            remainder and an adjustment *)
     | Int_op  (** index and int64 arithmetic, conversions, checks *)
     | Iteration  (** one trip of a loop *)
     | Load of Region.t

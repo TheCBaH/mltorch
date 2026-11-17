@@ -9,6 +9,7 @@ module Mutation = struct
     | No_ring_wait
     | No_share
     | No_wait
+    | Seed_zeroed
     | Tail_vl
 end
 
@@ -190,9 +191,10 @@ let items esc ?mutation ?plan (d : C.t) () =
           Kernel_refusal.refuse esc Transfer_plan_mismatch;
         T.Witness.plan w
   in
-  (match d.C.seed with
-  | C.Seed.Zero -> ()
-  | C.Seed.Tensor -> Kernel_refusal.refuse esc Seeded_from_output);
+  (* a seeded product starts each row from C's cells, loaded where they are:
+     the accumulators of a bfloat16 or an integer product are C's 32-bit
+     words; with C by the DMA the ring's chains carry each block's C in too *)
+  let seeded = d.C.seed = C.Seed.Tensor in
   if d.C.numerics = C.Numerics.Paired then
     Kernel_refusal.refuse esc Paired_requirement;
   let n = Int64.to_int d.C.n and m = Int64.to_int d.C.m in
@@ -262,7 +264,19 @@ let items esc ?mutation ?plan (d : C.t) () =
     if Option.is_some int8 && not shared then
       Kernel_refusal.refuse esc Int_rows_too_far_apart;
     let xs = List.filteri (fun j _ -> j < nrows) [ "t1"; "t2"; "s4" ] in
-    let zero = List.map (fun v -> i "vmv.v.i" [ r v; A.imm 0 ]) accs in
+    let zero =
+      if (not seeded) || mutation = Some Mutation.Seed_zeroed then
+        List.map (fun v -> i "vmv.v.i" [ r v; A.imm 0 ]) accs
+      else
+        List.concat
+          (List.mapi
+             (fun j v ->
+               add_from "t0" "a6" (j * c_row)
+               @
+               if c_col = 4 then [ i "vle32.v" [ r v; A.mem "t0" 0 ] ]
+               else [ i "vlse32.v" [ r v; A.mem "t0" 0; r "s2" ] ])
+             accs)
+    in
     let start =
       List.concat (List.mapi (fun j p -> add_from p "a5" (j * a_outer)) ptrs)
       @ [ i "mv" [ r "a7"; r "a3" ] ]
@@ -498,6 +512,23 @@ let items esc ?mutation ?plan (d : C.t) () =
             @ (if not c_dma then go ~src:"s7" ~dst:"s11" ~len:[]
                else
                  let no_prev = fresh () and started = fresh () in
+                 (* seeded: the block's C comes in after the other half's C
+                    has gone out of it (descriptor 2, read only after
+                    descriptor 1 has read the half it lands in) *)
+                 let c_in =
+                   if not seeded then []
+                   else
+                     let last_c = fresh () in
+                     add_from "t3" "s8" c_block
+                     @ add_from "t4" "s11" block_bytes
+                     @ c_out ~at:64 ~src:"t3" ~dst:"t4" ~bytes:c_block
+                     @ [
+                         i "li" [ r "t3"; A.imm 1 ];
+                         i "bne" [ r "s5"; r "t3"; A.sym last_c ];
+                       ]
+                     @ A.load_imm "t2" (flags (last * c_row))
+                     @ [ i "sw" [ r "t2"; A.mem "t0" 72 ]; A.label last_c ]
+                 in
                  [
                    la "t0" rd;
                    i "sw" [ r "s7"; A.mem "t0" 0 ];
@@ -514,13 +545,22 @@ let items esc ?mutation ?plan (d : C.t) () =
                      block_bytes
                  @ add_from "t1" "s8" (-c_block)
                  @ c_out ~at:32 ~src:"t3" ~dst:"t1" ~bytes:c_block
-                 @ [
-                     i "j" [ A.sym started ];
-                     A.label no_prev;
-                     i "sw" [ r "zero"; A.mem "t0" 12 ];
-                     A.label started;
-                     i "fence" [];
-                   ]
+                 @ (if seeded then
+                      [
+                        i "addi" [ r "t2"; r "t0"; A.imm 64 ];
+                        i "sw" [ r "t2"; A.mem "t0" 44 ];
+                      ]
+                    else [])
+                 @ [ i "j" [ A.sym started ]; A.label no_prev ]
+                 @ (if seeded then
+                      [
+                        i "addi" [ r "t2"; r "t0"; A.imm 64 ];
+                        i "sw" [ r "t2"; A.mem "t0" 12 ];
+                      ]
+                    else [ i "sw" [ r "zero"; A.mem "t0" 12 ] ])
+                 @ [ A.label started ]
+                 @ c_in
+                 @ [ i "fence" [] ]
                  @ A.load_imm "t4" dma_base
                  @ [
                      i "sw" [ r "t0"; A.mem "t4" dma_desc_addr ];
@@ -548,7 +588,30 @@ let items esc ?mutation ?plan (d : C.t) () =
             i "mv" [ r "s8"; r "a2" ];
             la "s6" h0;
           ]
-          @ go ~src:"s7" ~dst:"s6" ~len:first
+          @ (if seeded && c_dma then
+               (* the first block's C joins its A in the chain *)
+               [
+                 la "t0" rd;
+                 i "sw" [ r "s7"; A.mem "t0" 0 ];
+                 i "sw" [ r "s6"; A.mem "t0" 4 ];
+               ]
+               @ first
+               @ [
+                   i "sw" [ r "t1"; A.mem "t0" 8 ];
+                   i "addi" [ r "t2"; r "t0"; A.imm 32 ];
+                   i "sw" [ r "t2"; A.mem "t0" 12 ];
+                 ]
+               @ add_from "t4" "s6" block_bytes
+               @ c_out ~at:32 ~src:"s8" ~dst:"t4"
+                   ~bytes:(if blocks = 1 then last * c_row else c_block)
+               @ [ i "fence" [] ]
+               @ A.load_imm "t4" dma_base
+               @ [
+                   i "sw" [ r "t0"; A.mem "t4" dma_desc_addr ];
+                   i "li" [ r "t5"; A.imm dma_start ];
+                   i "sw" [ r "t5"; A.mem "t4" dma_ctrl ];
+                 ]
+             else go ~src:"s7" ~dst:"s6" ~len:first)
           @ middle @ wait ()
           @ [ i "mv" [ r "a0"; r "s6" ] ]
           @ (if c_dma then add_from "a2" "s6" block_bytes
@@ -595,7 +658,7 @@ let items esc ?mutation ?plan (d : C.t) () =
             A.zero half;
             A.align 32;
             A.label rd;
-            A.zero 64;
+            A.zero (if seeded && c_dma then 96 else 64);
           ],
           Some (code, fail) )
   in

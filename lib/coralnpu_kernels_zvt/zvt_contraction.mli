@@ -8,13 +8,15 @@
     ([vle32.v] or [vlse32.v], [vl] the slice's length) and one tile multiply
     adds their outer product. The rows go back by [vtse32]. It needs C's columns
     contiguous and refuses the fused requirement, which the engine does not
-    compute. *)
+    compute. A binary32 product seeded from its output loads the tile from C's
+    rows first ([vtle32]) instead of zeroing it. *)
 
 (** Fault injection for the evidence suite: each is one deliberate kernel defect
     a run must detect. No consumer passes one. *)
 module Mutation : sig
   type t =
     | Full_tn  (** a partial last column's tile written 16 columns wide *)
+    | Seed_zeroed  (** a seeded product started from zero, not from C *)
     | Swapped_operands  (** B's slice where A's goes, and A's where B's *)
 end
 

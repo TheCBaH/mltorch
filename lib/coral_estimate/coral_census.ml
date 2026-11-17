@@ -8,13 +8,17 @@ end
 
 module Class = struct
   type t =
+    | Bf16_round
     | Branch
+    | Check_access
+    | Check_index
     | F32_div
     | F32_fma
     | F32_math of Expr.Value.unary_op
     | F32_op
     | F32_sqrt
     | F64_op
+    | Int_div
     | Int_op
     | Iteration
     | Load of Region.t
@@ -44,13 +48,17 @@ module Class = struct
     | Expr.Value.Trunc -> "trunc"
 
   let name = function
+    | Bf16_round -> "bf16_round"
     | Branch -> "branch"
+    | Check_access -> "check_access"
+    | Check_index -> "check_index"
     | F32_div -> "f32_div"
     | F32_fma -> "f32_fma"
     | F32_math u -> "f32_" ^ unary u
     | F32_op -> "f32_op"
     | F32_sqrt -> "f32_sqrt"
     | F64_op -> "f64_op"
+    | Int_div -> "int_div"
     | Int_op -> "int_op"
     | Iteration -> "iteration"
     | Load r -> "load_" ^ Region.name r
@@ -105,6 +113,8 @@ type acc = {
   mutable contracts : (Contract_call.t * float) list;
   mutable attends : (Attend_call.t * float) list;
   mutable unknown : int;
+  mutable constants : Ssa_id.Value.Set.t;
+      (* the values a [Const] defines, whose axis guards need no work *)
 }
 
 let bump acc c w =
@@ -229,6 +239,22 @@ let view_call ~region acc w (v : Ssa_view_call.t) =
       (w *. calls);
   bump acc Class.View_address (w *. !ops)
 
+(* A coordinate access the range analysis did not prove in bounds is lowered
+   to one range guard per axis; an axis whose coordinate is a constant is
+   folded away. A [Load_in_bounds] and a [Check_access] the analysis removed
+   carry none, and a flat access fails in the access that follows. *)
+let access_checks acc w = function
+  | Ssa_access.Flat _ -> ()
+  | Ssa_access.Coord c ->
+      let n =
+        Expr.Coord.fold
+          (fun n (v : Ssa_value.t) ->
+            if Ssa_id.Value.Set.mem v.Ssa_value.id acc.constants then n
+            else n + 1)
+          0 c
+      in
+      bump acc Class.Check_access (w *. float_of_int n)
+
 let instr ~region acc w (i : Ssa_instr.t) =
   let ty = result_ty i in
   let op = i.Ssa_instr.op in
@@ -251,12 +277,24 @@ let instr ~region acc w (i : Ssa_instr.t) =
           }
           w
   | Ssa_op.View_call v -> view_call ~region acc w v
-  | Ssa_op.Const _ | Ssa_op.Mark _ | Ssa_op.Mark_lanes _ | Ssa_op.Local_alloc _
-    ->
-      ()
-  | Ssa_op.Load { buffer; _ } | Ssa_op.Load_in_bounds { buffer; _ } ->
+  | Ssa_op.Const _ ->
+      List.iter
+        (fun (v : Ssa_value.t) ->
+          acc.constants <- Ssa_id.Value.Set.add v.Ssa_value.id acc.constants)
+        i.Ssa_instr.results
+  | Ssa_op.Mark _ | Ssa_op.Mark_lanes _ | Ssa_op.Local_alloc _ -> ()
+  | Ssa_op.Check_access { at; _ } -> access_checks acc w at
+  | Ssa_op.Load { buffer; at; _ } ->
+      access_checks acc w at;
       bump acc (Class.Load (region buffer)) w
-  | Ssa_op.Store { buffer; _ } -> bump acc (Class.Store (region buffer)) w
+  | Ssa_op.Load_in_bounds { buffer; _ } ->
+      bump acc (Class.Load (region buffer)) w
+  | Ssa_op.Store { buffer; encode; _ } ->
+      if encode = Ssa_op.Encode.Bf16_round then bump acc Class.Bf16_round w;
+      bump acc (Class.Store (region buffer)) w
+  | Ssa_op.Index_add _ | Ssa_op.Index_scale _ -> bump acc Class.Check_index w
+  | Ssa_op.Index_ceil_div _ | Ssa_op.Index_floor_div _ ->
+      bump acc Class.Int_div w
   | Ssa_op.Local_read _ | Ssa_op.Local_write _ -> bump acc Class.Local w
   | Ssa_op.Vec_load { buffer; steps; _ } ->
       let r = region buffer in
@@ -432,6 +470,7 @@ let program ?(region = fun _ -> Region.Dtcm) (p : Ssa_program.t) =
       contracts = [];
       attends = [];
       unknown = 0;
+      constants = Ssa_id.Value.Set.empty;
     }
   in
   ignore (walk ~region acc 1. Ssa_id.Value.Map.empty p.Ssa_program.entry);

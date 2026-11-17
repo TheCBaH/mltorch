@@ -60,22 +60,81 @@ let observed (o : Machine_ir.Mir_observation.t) =
            o.Machine_ir.Mir_observation.outputs)
   | _ -> Error "the run did not succeed"
 
-let kernel ?(extent = 1) name ~chunk =
+let axis ?(extent = 1) ?(stride = 1) ?(pad = 0) ?(dilation = 1) () =
   {
-    S.name;
-    extent = S.Count.of_int extent;
-    stride = S.Count.of_int 1;
-    pad = S.Count.of_int 0;
-    dilation = S.Count.of_int 1;
-    chunk = S.Span.chunk chunk;
+    S.Axis.extent = S.Count.of_int extent;
+    stride = S.Count.of_int stride;
+    pad = S.Count.of_int pad;
+    dilation = S.Count.of_int dilation;
   }
 
-let stage ?extent name ~chunk ~cin ~cout =
+(* A stage whose row and column axes are given apart. *)
+let shaped name ~chunk ~cin ~cout ~rows ~cols =
   {
-    D.Stage.kernel = kernel ?extent name ~chunk;
+    D.Stage.kernel = { S.name; rows; cols; chunk = S.Span.chunk chunk };
     cin = i64 cin;
     cout = i64 cout;
   }
+
+let stage ?extent name ~chunk ~cin ~cout =
+  let a = axis ?extent () in
+  shaped name ~chunk ~cin ~cout ~rows:a ~cols:a
+
+(* The chain's output by nested sums, independent of the driver and of the
+   Contract chain: per output position the window's rows, then columns, then
+   channels, each product rounded to binary32 and added; a position in the
+   padding contributes nothing. The input is rows x width x cin, the weights of
+   a stage (kh * kw * cin) x cout. *)
+let oracle stages ~width ~rows ~input ~weights =
+  let cnt = S.Count.to_int in
+  let step (h, w, cur) ((st : D.Stage.t), wt) =
+    let k = st.D.Stage.kernel in
+    let ra = k.S.rows and ca = k.S.cols in
+    let cin = Int64.to_int st.D.Stage.cin
+    and cout = Int64.to_int st.D.Stage.cout in
+    let kh = cnt ra.S.Axis.extent and kw = cnt ca.S.Axis.extent in
+    let ho = cnt (S.output_height k ~input:(S.Count.of_int h)) in
+    let wo =
+      (w + (2 * cnt ca.S.Axis.pad) - cnt (S.Axis.window ca))
+      / cnt ca.S.Axis.stride
+      + 1
+    in
+    let out = Array.make (ho * wo * cout) 0. in
+    for y = 0 to ho - 1 do
+      for x = 0 to wo - 1 do
+        for o = 0 to cout - 1 do
+          let acc = ref 0. in
+          for ky = 0 to kh - 1 do
+            for kx = 0 to kw - 1 do
+              let iy =
+                (y * cnt ra.S.Axis.stride)
+                - cnt ra.S.Axis.pad
+                + (ky * cnt ra.S.Axis.dilation)
+              and ix =
+                (x * cnt ca.S.Axis.stride)
+                - cnt ca.S.Axis.pad
+                + (kx * cnt ca.S.Axis.dilation)
+              in
+              if iy >= 0 && iy < h && ix >= 0 && ix < w then
+                for c = 0 to cin - 1 do
+                  let a = cur.((((iy * w) + ix) * cin) + c)
+                  and b = wt.((((((ky * kw) + kx) * cin) + c) * cout) + o) in
+                  acc := F32_math.round32 (!acc +. F32_math.round32 (a *. b))
+                done
+            done
+          done;
+          out.((((y * wo) + x) * cout) + o) <- !acc
+        done
+      done
+    done;
+    (ho, wo, out)
+  in
+  let _, _, out =
+    List.fold_left step
+      (rows, Int64.to_int width, input)
+      (List.combine stages weights)
+  in
+  [ Array.map bits out ]
 
 type chain = {
   name : string;
@@ -98,8 +157,8 @@ let w3 = stage ~extent:3
 let point_then_window =
   [ stage "a" ~chunk:2 ~cin:2 ~cout:3; w3 "b" ~chunk:2 ~cin:3 ~cout:2 ]
 
-(* Pointwise and 3x3 chains, unrolled and looped. *)
-let chains =
+(* Pointwise and square-window chains, unrolled and looped. *)
+let square_chains =
   [
     {
       name = "pointwise 3 stages, 8 rows";
@@ -156,6 +215,85 @@ let chains =
     };
   ]
 
+(* Windows that are not square, and strides, paddings and dilations that differ
+   by axis. A channel pair per stage keeps the products small. *)
+let shaped_chains =
+  let a = axis in
+  let w name ~rows ~cols ~cin ~cout =
+    shaped name ~chunk:2 ~cin ~cout ~rows ~cols
+  in
+  let pw name ~cin ~cout = stage name ~chunk:2 ~cin ~cout in
+  [
+    {
+      name = "pointwise then 1x3 pad 1 along the columns, 14 rows";
+      stages =
+        [
+          pw "a" ~cin:2 ~cout:3;
+          w "b" ~rows:(a ()) ~cols:(a ~extent:3 ~pad:1 ()) ~cin:3 ~cout:2;
+        ];
+      width = 6L;
+      rows = 14;
+      block = 2;
+      looped = true;
+    };
+    {
+      name = "pointwise then 3x1 pad 1 along the rows, 14 rows";
+      stages =
+        [
+          pw "a" ~cin:2 ~cout:3;
+          w "b" ~rows:(a ~extent:3 ~pad:1 ()) ~cols:(a ()) ~cin:3 ~cout:2;
+        ];
+      width = 6L;
+      rows = 14;
+      block = 2;
+      looped = true;
+    };
+    {
+      name = "3x5 pad 1 by 2 then pointwise, 12 rows";
+      stages =
+        [
+          w "a" ~rows:(a ~extent:3 ~pad:1 ()) ~cols:(a ~extent:5 ~pad:2 ())
+            ~cin:2 ~cout:3;
+          pw "b" ~cin:3 ~cout:2;
+        ];
+      width = 9L;
+      rows = 12;
+      block = 2;
+      looped = true;
+    };
+    {
+      name = "3x3 stride 2 by 1 then 5x3 stride 1 by 2 pad 1, 21 rows";
+      stages =
+        [
+          w "a" ~rows:(a ~extent:3 ~stride:2 ()) ~cols:(a ~extent:3 ()) ~cin:2
+            ~cout:2;
+          w "b" ~rows:(a ~extent:5 ~pad:2 ())
+            ~cols:(a ~extent:3 ~stride:2 ~pad:1 ())
+            ~cin:2 ~cout:3;
+        ];
+      width = 11L;
+      rows = 21;
+      block = 2;
+      looped = true;
+    };
+    {
+      name = "3x3 dilation 2 by 1, pad 2 by 0, 1x1 stride 1 by 2, 20 rows";
+      stages =
+        [
+          w "a"
+            ~rows:(a ~extent:3 ~pad:2 ~dilation:2 ())
+            ~cols:(a ~extent:3 ()) ~cin:2 ~cout:2;
+          w "b" ~rows:(a ()) ~cols:(a ~stride:2 ()) ~cin:2 ~cout:2;
+        ];
+      width = 7L;
+      rows = 20;
+      block = 2;
+      looped = true;
+    };
+  ]
+
+let chains = square_chains @ shaped_chains
+
 let elements (p : D.Program.t) id =
   Int64.to_int
     (Option.get
@@ -163,8 +301,17 @@ let elements (p : D.Program.t) id =
           (Option.get (Ssa_program.find_buffer p.D.Program.program id))
             .Ssa_buffer.extents))
 
+(* {!oracle} over a program's [inputs] (buffer id to cells), the ids those of
+   [whole]. *)
+let oracle_of_inputs stages ~width ~rows ~(whole : D.Program.t) ~inputs =
+  let cells id = List.assoc (Ssa_id.Buffer.to_int id) inputs in
+  oracle stages ~width ~rows
+    ~input:(cells whole.D.Program.input)
+    ~weights:(List.map cells whole.D.Program.weights)
+
 (* [run] makes a route's output bits for the banded program over [inputs]; the
-   verdict compares them with the whole chain's. *)
+   verdict compares them with the nested sums over the same inputs (the whole
+   chain must equal them too). *)
 let verdict ?driver ~run c =
   match
     D.program ~looped:c.looped ?mutation:driver c.stages ~width:c.width
@@ -182,9 +329,14 @@ let verdict ?driver ~run c =
               Array.init (elements whole id) (fun _ -> value ()) ))
           (whole.D.Program.input :: whole.D.Program.weights)
       in
-      let want = ssa_output whole.D.Program.program ~inputs in
+      let want =
+        oracle_of_inputs c.stages ~width:c.width ~rows:c.rows ~whole ~inputs
+      in
       Fmt.str "%s, %s: %s" c.name
         (if banded.D.Program.loop = None then "unrolled" else "looped")
-        (match run banded.D.Program.program ~inputs with
-        | Error e -> e
-        | Ok got -> if got = want then "equal" else "DIFFERS")
+        (if ssa_output whole.D.Program.program ~inputs <> want then
+           "the whole chain differs from the nested sums"
+         else
+           match run banded.D.Program.program ~inputs with
+           | Error e -> e
+           | Ok got -> if got = want then "equal" else "DIFFERS")

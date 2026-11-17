@@ -15,7 +15,7 @@ let%expect_test "optimizer sweep, slice 2 of 4" =
     mul                      agree=12 failed-alike=0 instrs 288 -> 116, checked 24 -> 0, loops 72 -> 36
     ne_scalar                agree=12 failed-alike=0 instrs 264 -> 134, checked 12 -> 0, loops 72 -> 36
     permute_i64              agree=12 failed-alike=0 instrs 168 -> 62, checked 12 -> 0, loops 72 -> 36
-    reshape_i64              agree=12 failed-alike=0 instrs 1340 -> 300, checked 1020 -> 12, loops 72 -> 12
+    reshape_i64              agree=12 failed-alike=0 instrs 1340 -> 300, checked 1020 -> 0, loops 72 -> 12
     silu                     agree=12 failed-alike=0 instrs 276 -> 164, checked 24 -> 0, loops 72 -> 36
     sub                      agree=12 failed-alike=0 instrs 280 -> 122, checked 24 -> 0, loops 72 -> 40
     to_copy_float_i64        agree=12 failed-alike=0 instrs 204 -> 110, checked 12 -> 0, loops 72 -> 42

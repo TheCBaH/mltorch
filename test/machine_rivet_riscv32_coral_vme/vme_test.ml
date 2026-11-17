@@ -359,9 +359,9 @@ let%expect_test "the per-op composition of Sdpa" =
   [%expect
     {|
     sdpa composition 16x16 d16 (5 invocations): bitwise
-      cycles 74679 = 1362 + 531 + 70734 + 725 + 1327
+      cycles 74007 = 1362 + 531 + 70062 + 725 + 1327
     sdpa composition 32x32 d32 (5 invocations): bitwise
-      cycles 294457 = 4103 + 1900 + 279802 + 2693 + 5959 |}]
+      cycles 293081 = 4103 + 1900 + 278426 + 2693 + 5959 |}]
 
 (* The generated binary32 [exp] and softmax at 16x16: see {!Exp_softmax}. *)
 let%expect_test "generated exp and softmax cycles per element" =
@@ -371,15 +371,15 @@ let%expect_test "generated exp and softmax cycles per element" =
     exp 16x16, planned (1 invocations): bitwise
       cycles 12757, 49.8 per element
     softmax over C 16x16, planned (1 invocations): bitwise
-      cycles 70754, 276.4 per element
+      cycles 70082, 273.8 per element
     softmax over W 16x16, planned (1 invocations): bitwise
-      cycles 70901, 277.0 per element
+      cycles 70214, 274.3 per element
     exp 16x16, forced vector (1 invocations): bitwise
       cycles 12757, 49.8 per element
     softmax over C 16x16, forced vector (1 invocations): bitwise
-      cycles 70754, 276.4 per element
+      cycles 70082, 273.8 per element
     softmax over W 16x16, forced vector (1 invocations): bitwise
-      cycles 70901, 277.0 per element |}]
+      cycles 70214, 274.3 per element |}]
 
 (* A granted [Sdpa] on the VME core: the node is one call of the fused
    function, bitwise against the granted streaming reference, with the cycles
@@ -507,6 +507,6 @@ let%expect_test "generated norm cycles per element" =
   [%expect
     {|
     layer norm over C 16x64 (1 invocations): bitwise
-      cycles 22694, 22.2 per element
+      cycles 21422, 20.9 per element
     rms norm over C 16x64 (1 invocations): bitwise
-      cycles 12611, 12.3 per element |}]
+      cycles 12145, 11.9 per element |}]

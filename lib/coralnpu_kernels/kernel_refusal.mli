@@ -39,7 +39,6 @@ type t =
       (** a precision other than bfloat16 with paired sums *)
   | Register_or_immediate  (** a register or immediate the encoder rejects *)
   | Ring_block_past_dma_transfer  (** a ring block past one DMA transfer *)
-  | Seeded_from_output  (** a contraction seeded from its output *)
   | Seeded_k_padding  (** a seeded k that the depth padding changes *)
   | Stride_past_30_bits  (** a stride past 30 bits *)
   | Too_many_output_tiles  (** more than 256 output tiles *)

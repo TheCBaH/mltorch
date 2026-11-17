@@ -325,6 +325,12 @@ let fit =
       att ~home:Home.Ram ~tq:64 ~tk:64 ~d:64 ();
       attention "sdpa bf16 9x29 d64 masked"
         (T.sdpa_bf16_fixture ~tq:9 ~tk:29 ~d:64 ~mask:(9, 29) ());
+      (* the bfloat16 roundings between a layer's contractions, which no other
+         fit case stores *)
+      layer ~role:Role.Fit "layer, bare 16x32"
+        { bare with LF.Config.tokens = 16; width = 32; heads = 1 };
+      layer ~role:Role.Fit "layer, bare 32x64"
+        { bare with LF.Config.tokens = 32; width = 64; heads = 2 };
     ]
 
 (* The check set: shapes and compositions the rates were not fitted to. *)
@@ -399,6 +405,9 @@ module View = struct
   type t = {
     name : string;
     role : Role.t;
+    prove : bool;
+        (** run with the provable index guards removed: its kernel would not fit
+            the ITCM with them *)
     stages : D.Stage.t list;
     width : int;
     rows : int;
@@ -408,14 +417,15 @@ module View = struct
   let stage ?(extent = 1) ~chunk ~cin ~cout name =
     {
       D.Stage.kernel =
-        {
-          S.name;
-          extent = S.Count.of_int extent;
-          stride = S.Count.of_int 1;
-          pad = S.Count.of_int 0;
-          dilation = S.Count.of_int 1;
-          chunk = S.Span.chunk chunk;
-        };
+        (let axis =
+           {
+             S.Axis.extent = S.Count.of_int extent;
+             stride = S.Count.of_int 1;
+             pad = S.Count.of_int 0;
+             dilation = S.Count.of_int 1;
+           }
+         in
+         { S.name; rows = axis; cols = axis; chunk = S.Span.chunk chunk });
       cin = Int64.of_int cin;
       cout = Int64.of_int cout;
     }
@@ -431,8 +441,8 @@ module View = struct
   (* the banded program: its input and weights are the buffers to fill *)
   let program c = (driver c).D.Program.program
 
-  let case ?(role = Role.Fit) name ~width ~rows ~block stages =
-    { name; role; stages; width; rows; block }
+  let case ?(role = Role.Fit) ?(prove = false) name ~width ~rows ~block stages =
+    { name; role; prove; stages; width; rows; block }
 
   let three ~cin =
     [
@@ -458,16 +468,72 @@ module View = struct
       case "view pointwise 1 stage, 24 rows, block 2, looped" ~width:12 ~rows:24
         ~block:2
         [ stage "a" ~chunk:2 ~cin:6 ~cout:6 ];
+      case "view window 1 stage, 3x3, 16 rows, block 2, looped" ~width:6
+        ~rows:16 ~block:2
+        [ stage ~extent:3 "a" ~chunk:2 ~cin:4 ~cout:4 ];
+      case "view window 1 stage, 3x3, 24 rows, block 1, looped" ~width:8
+        ~rows:24 ~block:1
+        [ stage ~extent:3 "a" ~chunk:2 ~cin:2 ~cout:6 ];
+      case "view window 1 stage, 3x3, 20 rows, block 4, looped" ~width:5
+        ~rows:20 ~block:4
+        [ stage ~extent:3 "a" ~chunk:4 ~cin:8 ~cout:4 ];
+      case "view window 1 stage, 3x3, 16 rows, block 2, wide" ~width:12 ~rows:16
+        ~block:2
+        [ stage ~extent:3 "a" ~chunk:2 ~cin:3 ~cout:8 ];
     ]
 
   let check =
     [
+      case ~role:Role.Check ~prove:true
+        "view chain pointwise then 3x3, 16 rows, block 2, proven" ~width:6
+        ~rows:16 ~block:2
+        [
+          stage "a" ~chunk:2 ~cin:4 ~cout:4;
+          stage ~extent:3 "b" ~chunk:2 ~cin:4 ~cout:4;
+        ];
+      case ~role:Role.Check ~prove:true
+        "view chain pointwise then 3x3, 32 rows, block 4, proven" ~width:6
+        ~rows:32 ~block:4
+        [
+          stage "a" ~chunk:2 ~cin:4 ~cout:4;
+          stage ~extent:3 "b" ~chunk:2 ~cin:4 ~cout:4;
+        ];
+      case ~role:Role.Check "view chain 3x3 then pointwise, 16 rows, block 2"
+        ~width:6 ~rows:16 ~block:2
+        [
+          stage ~extent:3 "a" ~chunk:2 ~cin:4 ~cout:4;
+          stage "b" ~chunk:2 ~cin:4 ~cout:4;
+        ];
       case ~role:Role.Check "view pointwise 3 stages, 20 rows, block 2, wide"
         ~width:6 ~rows:20 ~block:2
         [
           stage "a" ~chunk:2 ~cin:4 ~cout:8;
           stage "b" ~chunk:2 ~cin:8 ~cout:6;
           stage "c" ~chunk:2 ~cin:6 ~cout:4;
+        ];
+      case ~role:Role.Check "view window 1 stage, 3x3, 18 rows, block 2, wide"
+        ~width:10 ~rows:18 ~block:2
+        [ stage ~extent:3 "a" ~chunk:2 ~cin:6 ~cout:6 ];
+    ]
+
+  (* Pointwise-then-window chains without [prove]: the kernel is 24 to 47 KB
+     (the ring arithmetic's checked 64-bit index operations), over the VME
+     core's 8 KiB ITCM, so the route refuses them and no RTL cycles exist. The
+     same chains with the guards proved away are the held-out [check] cases
+     above. These are not in [all]. *)
+  let refused =
+    [
+      case "view chain pointwise then 3x3, 16 rows, block 2, looped" ~width:6
+        ~rows:16 ~block:2
+        [
+          stage "a" ~chunk:2 ~cin:4 ~cout:4;
+          stage ~extent:3 "b" ~chunk:2 ~cin:4 ~cout:4;
+        ];
+      case "view chain pointwise then 3x3, 32 rows, block 4, looped" ~width:6
+        ~rows:32 ~block:4
+        [
+          stage "a" ~chunk:2 ~cin:4 ~cout:4;
+          stage ~extent:3 "b" ~chunk:2 ~cin:4 ~cout:4;
         ];
     ]
 

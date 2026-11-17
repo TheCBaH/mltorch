@@ -4,14 +4,15 @@ let c = Count.of_int
 let r = Row.of_int
 
 let kernel ?(stride = 1) ?(pad = 0) ?(dilation = 1) ?(chunk = 1) name extent =
-  {
-    name;
-    extent = c extent;
-    stride = c stride;
-    pad = c pad;
-    dilation = c dilation;
-    chunk = Span.chunk chunk;
-  }
+  let axis =
+    {
+      Axis.extent = c extent;
+      stride = c stride;
+      pad = c pad;
+      dilation = c dilation;
+    }
+  in
+  { name; rows = axis; cols = axis; chunk = Span.chunk chunk }
 
 let rows k ~lo ~hi ~height =
   let a, b = input_rows k ~lo:(r lo) ~hi:(r hi) ~height:(c height) in

@@ -54,14 +54,16 @@ let censuses ?(ram = fun _ -> []) (c : Cases.t) =
   | Ok _ -> Ok (List.rev !out)
 
 (* a view-call case's census: its banded program as the route finalizes it
-   (every buffer in the DTCM, where these small kernels sit) *)
+   (every buffer in the DTCM, where these small kernels sit), with the proven
+   index guards removed where the route does ([prove]) *)
 let view_census (v : Cases.View.t) =
   match
     Err.payload
       (Ssa_ir.Ssa_contract_plan.program
          ~capabilities:
            { Contraction.Select.Capabilities.matrix = true; vector = true }
-         (Cases.View.program v))
+         (let p = Cases.View.program v in
+          if v.Cases.View.prove then fst (Ssa_ir.Ssa_opt_guards.pass p) else p))
   with
   | Ok p -> CE.program p
   | Error e ->
@@ -172,6 +174,8 @@ let%expect_test "every case plans" =
     sdpa bf16 16x16 d32 bk16, in RAM: 1 invocation(s)
     sdpa bf16 64x64 d64, in RAM: 1 invocation(s)
     sdpa bf16 9x29 d64 masked: 1 invocation(s)
+    layer, bare 16x32: 1 invocation(s)
+    layer, bare 32x64: 1 invocation(s)
     exp 64x64: 1 invocation(s)
     softmax over C 64x64: 1 invocation(s)
     softmax over W 16x16: 1 invocation(s)
@@ -281,11 +285,11 @@ let%expect_test "view calls are their helper calls" =
     [ false; true ];
   [%expect
     {|
-    per_row=false: int_op 6
+    per_row=false: check_index 6
                    iteration 3
                    view_address 36
                    contract contract.f32.b1.m4.n16.k8.a0_8_1.b0_1_16.c0_16_1.zero.ordered view (dtcm dtcm dtcm) x3
-    per_row=true: int_op 30
+    per_row=true: check_index 30
                   iteration 3
                   view_address 144
                   contract contract.f32.b1.m1.n16.k8.a0_8_1.b0_1_16.c0_16_1.zero.ordered view (dtcm dtcm dtcm) x12 |}]

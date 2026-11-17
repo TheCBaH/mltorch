@@ -10,7 +10,7 @@ module C = Contraction
 module Kernel_refusal = Coralnpu_kernels.Kernel_refusal
 
 module Mutation = struct
-  type t = Full_tn | Swapped_operands
+  type t = Full_tn | Seed_zeroed | Swapped_operands
 end
 
 let tile = 16
@@ -54,8 +54,9 @@ let items esc ?mutation (d : C.t) =
       Kernel_refusal.refuse esc Fused_requirement
   | C.Numerics.Ordered, C.Element.Bf16, _ ->
       Kernel_refusal.refuse esc Bf16_ordered
-  | _, _, C.Seed.Tensor -> Kernel_refusal.refuse esc Seeded_from_output
-  | (C.Numerics.Ordered | C.Numerics.Paired), _, C.Seed.Zero -> ());
+  | (C.Numerics.Ordered | C.Numerics.Paired), _, (C.Seed.Tensor | C.Seed.Zero)
+    ->
+      ());
   (* an integer product: [vtmms] for a signed A, [vtmmu] for an unsigned one,
      [altfmt] for a signed B; four k steps a tile multiply at e8 m1, their
      slices two registers apart, into 32-bit accumulators. A bfloat16 one is
@@ -132,8 +133,27 @@ let items esc ?mutation (d : C.t) =
       | None when bf16 -> set ~tk:2 ~widen:2 ~vtype:0x1C9
       | None -> set ~tk:1 ~widen:1 ~vtype:0xD2
     in
+    (* a seeded product starts the tile from C's rows, loaded as 32-bit words
+       under the binary32 configuration (the accumulators of a bfloat16 or an
+       integer product are 32 bits too), then the compute configuration is set
+       over the loaded tile, as the stores do in reverse *)
+    let binary32 = set ~tk:1 ~widen:1 ~vtype:0xD2 in
     let configure =
-      compute_config @ msettn tn @ [ insn (Insn.Vtzero { dst = mt0 }) ]
+      if d.C.seed = C.Seed.Tensor && mutation <> Some Mutation.Seed_zeroed then
+        (if Option.is_some int8 || bf16 then binary32 else compute_config)
+        @ msettn tn
+        @ add_from Gpr.t4 c_base c_at
+        @ List.concat
+            (List.init tm (fun r ->
+                 li Gpr.t3 r
+                 @ [
+                     insn
+                       (Insn.Vtle
+                          { eew = Vtype.Sew.E32; slice = Gpr.t3; base = Gpr.t4 });
+                   ]
+                 @ add_from Gpr.t4 Gpr.t4 c_row))
+        @ if Option.is_some int8 || bf16 then compute_config else []
+      else compute_config @ msettn tn @ [ insn (Insn.Vtzero { dst = mt0 }) ]
     in
     (* [count] of a step's [tk] slices from t4 (A) and t5 (B), slice [j] at
        [j] k strides (through t0 past the first), the rest zero; then the tile multiply *)

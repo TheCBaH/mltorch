@@ -150,13 +150,13 @@ module View = struct
         | _ -> None)
       p.Ssa_program.buffers
 
-  let run (v : Cases.View.t) =
+  let run ?engine_mutation (v : Cases.View.t) =
     let p = Cases.View.program v in
     let inputs = inputs p in
     let want = reference p ~inputs in
     let cfg = config_for v.Cases.View.name in
     let p =
-      match C.finalize cfg p with
+      match C.finalize ~prove:v.Cases.View.prove cfg p with
       | Ok p -> p
       | Error e -> failwith ("finalize: " ^ e)
     in
@@ -176,7 +176,7 @@ module View = struct
       match
         C.route
           ~on_run:(fun r -> runs := r :: !runs)
-          ~label:v.Cases.View.name cfg
+          ?engine_mutation ~label:v.Cases.View.name cfg
       with
       | Machine_model.Mir_model_route.Route.Custom c -> (
           match
@@ -225,14 +225,16 @@ module View = struct
             o.Mir_observation.Output.cells)
         (Src.mir_outputs memory binding lowered.Mir_lower.layout)
     in
-    Fmt.pr "%s (1 invocations): %s@." v.Cases.View.name
+    Fmt.pr "%s%s (1 invocations): %s@." v.Cases.View.name
+      (if engine_mutation = None then "" else ", mutated")
       (if got = want then "bitwise" else "DIFFERS");
-    List.iteri
-      (fun i (r : C.Run.t) ->
-        wall_log v.Cases.View.name i r;
-        Fmt.pr "  [%d] cycles %Ld instret %Ld@." i r.C.Run.mcycle
-          r.C.Run.minstret)
-      (List.rev !runs)
+    if engine_mutation = None then
+      List.iteri
+        (fun i (r : C.Run.t) ->
+          wall_log v.Cases.View.name i r;
+          Fmt.pr "  [%d] cycles %Ld instret %Ld@." i r.C.Run.mcycle
+            r.C.Run.minstret)
+        (List.rev !runs)
 
   let all () =
     List.iter
@@ -247,6 +249,17 @@ module View = struct
             Fmt.pr "%s: raised %s@." v.Cases.View.name
               (List.hd (String.split_on_char '\n' (Printexc.to_string e))))
       Cases.View.all
+
+  (* The cases the route refuses: the message is the golden, so a chain that
+     starts to fit, or a size that moves, shows. *)
+  let refused () =
+    List.iter
+      (fun (v : Cases.View.t) ->
+        try run v
+        with e ->
+          Fmt.pr "%s: raised %s@." v.Cases.View.name
+            (List.hd (String.split_on_char '\n' (Printexc.to_string e))))
+      Cases.View.refused
 end
 
 (* The cases in parallel: one forked worker per case, at most the CPU pool's
@@ -436,13 +449,13 @@ let%expect_test "the fit set" =
     transpose 32x32, in RAM (1 invocations): bitwise
       [0] cycles 4708 instret 2252 ram 0,1
     head split 16x64, 2 heads (2 invocations): bitwise
-      [0] cycles 173009 instret 108328
+      [0] cycles 77696 instret 45811
       [1] cycles 2423 instret 1848
     head split 32x128, 4 heads (2 invocations): bitwise
-      [0] cycles 731737 instret 432548 ram 1
+      [0] cycles 334195 instret 182563 ram 1
       [1] cycles 13450 instret 7151 ram 2
     head split 49x64, 2 heads (2 invocations): bitwise
-      [0] cycles 567288 instret 337878 ram 1
+      [0] cycles 261618 instret 143294 ram 1
       [1] cycles 10318 instret 5481 ram 2
     linear 9x32 k64 (1 invocations): bitwise
       [0] cycles 4844 instret 2145
@@ -501,7 +514,11 @@ let%expect_test "the fit set" =
     sdpa bf16 64x64 d64, in RAM (1 invocations): bitwise
       [0] cycles 373801 instret 127358 ram 0,1,2,7,8
     sdpa bf16 9x29 d64 masked (1 invocations): bitwise
-      [0] cycles 44613 instret 15376 ram 2,4 |}]
+      [0] cycles 44613 instret 15376 ram 2,4
+    layer, bare 16x32 (1 invocations): bitwise
+      [0] cycles 117502 instret 80479 ram 7,8,9,10,11,12,13,14,15
+    layer, bare 32x64 (1 invocations): bitwise
+      [0] cycles 560662 instret 349048 ram 0,1,2,3,4,5,7,8,9,10,11,12,13,14,15 |}]
 
 let%expect_test "the check set" =
   parallel Cases.check;
@@ -531,17 +548,17 @@ let%expect_test "the check set" =
       [0] cycles 323484 instret 210827 ram 2,4,6,8,11,12,13,14,15,16,17,18,19,20,21,22
     layer decomposed, bare (14 invocations): bitwise
       [0] cycles 13922 instret 4945 ram 5,6
-      [1] cycles 173009 instret 108328
+      [1] cycles 77696 instret 45811
       [2] cycles 2423 instret 1848
       [3] cycles 13922 instret 4945 ram 8,9
-      [4] cycles 173009 instret 108328
+      [4] cycles 77696 instret 45811
       [5] cycles 2423 instret 1848
       [6] cycles 13922 instret 4945 ram 11,12
-      [7] cycles 173009 instret 108328
+      [7] cycles 77696 instret 45811
       [8] cycles 2423 instret 1848
       [9] cycles 956811 instret 567243
       [10] cycles 2623 instret 2074
-      [11] cycles 237237 instret 142632
+      [11] cycles 134824 instret 79138
       [12] cycles 13922 instret 4945 ram 17,18
       [13] cycles 2628 instret 2119 |}]
 
@@ -562,5 +579,43 @@ let%expect_test "the view-call set" =
       [0] cycles 8568 instret 5571
     view pointwise 1 stage, 24 rows, block 2, looped (1 invocations): bitwise
       [0] cycles 6564 instret 4611
+    view window 1 stage, 3x3, 16 rows, block 2, looped (1 invocations): bitwise
+      [0] cycles 15972 instret 13169
+    view window 1 stage, 3x3, 24 rows, block 1, looped (1 invocations): bitwise
+      [0] cycles 19500 instret 16969
+    view window 1 stage, 3x3, 20 rows, block 4, looped (1 invocations): bitwise
+      [0] cycles 30876 instret 23775
+    view window 1 stage, 3x3, 16 rows, block 2, wide (1 invocations): bitwise
+      [0] cycles 16546 instret 13043
+    view chain pointwise then 3x3, 16 rows, block 2, proven (1 invocations): bitwise
+      [0] cycles 14480 instret 9975
+    view chain pointwise then 3x3, 32 rows, block 4, proven (1 invocations): bitwise
+      [0] cycles 30488 instret 20917
+    view chain 3x3 then pointwise, 16 rows, block 2 (1 invocations): bitwise
+      [0] cycles 15511 instret 11972
     view pointwise 3 stages, 20 rows, block 2, wide (1 invocations): bitwise
-      [0] cycles 8147 instret 5575 |}]
+      [0] cycles 8147 instret 5575
+    view window 1 stage, 3x3, 18 rows, block 2, wide (1 invocations): bitwise
+      [0] cycles 27744 instret 19171 |}]
+
+let%expect_test "pointwise-then-window chains without proof exceed the ITCM" =
+  View.refused ();
+  Format.print_flush ();
+  [%expect
+    {|
+    view chain pointwise then 3x3, 16 rows, block 2, looped: raised Failure("exec: itcm: 24416 bytes needed, 8192 available")
+    view chain pointwise then 3x3, 32 rows, block 4, looped: raised Failure("exec: itcm: 46756 bytes needed, 8192 available") |}]
+
+(* A window's rows after the first add into C: with the tile started from zero
+   instead of C's rows the output differs. *)
+let%expect_test "a seed mutation is red on the core" =
+  View.run
+    ~engine_mutation:Coralnpu_kernels_zvt.Zvt_contraction.Mutation.Seed_zeroed
+    (List.find
+       (fun (v : Cases.View.t) ->
+         v.Cases.View.name
+         = "view window 1 stage, 3x3, 16 rows, block 2, looped")
+       Cases.View.all);
+  Format.print_flush ();
+  [%expect
+    {| view window 1 stage, 3x3, 16 rows, block 2, looped, mutated (1 invocations): DIFFERS |}]

@@ -413,13 +413,68 @@ band is small: the matrix-engine features fitted to large products (`tiles`,
 `rows_k`, `cols_k`) over-predicted these kernels by about 2x, and refitting the
 shared rates to them moved `softmax over W` past its limit. Features
 `zvt.f32.view.{tiles,rows_k,cols_k}.<region>` are fitted to
-`Coral_estimate_cases.View` (pointwise `Band_driver` chains, looped form, run on
-the VME RTL and bitwise the SSA interpreter's output); the shared rates move
-less than 0.1% and every held-out limit holds. One view-call case is held out
-(limit 10%).
+`Coral_estimate_cases.View` (pointwise and single-stage 3x3 `Band_driver`
+chains, looped form, run on the VME RTL and bitwise the SSA interpreter's
+output); the shared rates move by up to 0.25 cycles and every held-out limit
+holds. Two view-call cases are held out (limit 10% each: -4.6% pointwise, -4.2%
+window). A window's rows after the first are seeded from the output
+(`Seed.Tensor`); the matrix engine's binary32 function loads its tile from C
+for them. Adding the windows took the fit's `view.rows_k` to zero and
+`view.cols_k` from 0.65 to 3.5, and the fit cases to within about 10%
+(pointwise cases were within 5%). Order matters for a two-stage chain: a
+window then a pointwise stage fits the ITCM and runs on the RTL (held out, limit
+10%, -7.9%, no refit). A pointwise stage then a window needs 24,416 bytes of
+code at block 2 and 46,756 at block 4 against 8,192, and the cause is not the
+helpers (three contraction helpers, about 280 bytes each) but the kernel: its
+ring arithmetic (`index.scale`, `index.add`, `index.floor_div` per ring base) is
+checked 64-bit index arithmetic, an overflow guard and failure path apiece, and
+the unrolled prologue and epilogue repeat it (the kernel's size does not move
+with the row count, the loop is kept). `Rv32_mir_coral.finalize ~prove` runs
+`Ssa_opt_guards` first, which removes what the range analysis proves cannot
+fire: the kernels become about 1.4 and 2.7 KB, run bitwise on the VME core, and
+are held out at -8.2% and -7.7% (limit 10%) with no refit, the census pricing
+the proven program (`Cases.View.prove`). It is off by default because it also
+speeds every existing fit kernel by 5 to 33% of cycles, which the fitted rates
+were measured on; the unproven chains stay pinned as refused
+(`Coral_estimate_cases.View.refused`, and `Coral_capacity.Capacity.admit`
+rejects such an image by code size). Making it the default is a refit.
+Unrolled chains past about 8 KiB of code (block
+3, three stages) exceed the ITCM; the cases use blocks that loop.
 
-Not measured: a 3x3 window. Its rows after the first are seeded from the
-output (`Seed.Tensor`), which the core's contraction helpers refuse, so no
-window kernel runs on the RTL and the window's per-call cost is still the
-pointwise one. Unrolled chains past about 8 KiB of code (block 3, three
-stages) exceed the ITCM; the cases use blocks that loop.
+## Census after the modulus range rule
+
+A modulus rule in the range analysis proves the ring and reshape access checks
+of the head-split kernels in bounds, so their `Check_access` operations and
+the guard of every `Load` are gone from the planned program and the lowering
+emits no guards for them: the RTL cycles fell 2.2x (`head split 16x64`
+173,009 -> 77,696, instructions retired 108,328 -> 45,811) with the outputs
+still bitwise. The census was not at fault for the guards (the program it
+counts carries none), but it priced what is left wrongly, and a refit to the
+cheaper kernels put the fused layers, whose cycles did not change, 10 to 20%
+under. What the program still pays per element, and the census now separates:
+
+- `Int_div`: an index `floor_div`/`ceil_div` by a literal, lowered to a 64-bit
+  divide and remainder and an adjustment. Three per element are what the
+  head-split kernels pay (about 22 cycles each); counted as `int_op` they made
+  every other index operation look expensive.
+- `Check_access`: one range guard per axis of a `Check_access` or of a
+  `Load` the analysis did not prove in bounds (`Load_in_bounds` and a flat
+  access carry none; an axis whose coordinate is a `Const` is folded away).
+  It is zero on the head-split and layer programs, and is priced by its own
+  rate once a fit case carries it.
+- `Check_index`: an `Index_add`/`Index_scale` the analysis did not keep in the
+  index domain, lowered with an overflow guard (about 21.5 cycles).
+- `Bf16_round`: a scalar store that rounds to bfloat16, about 14 machine
+  operations beyond the store (bit pattern, rounding add, NaN test, select).
+  A layer has one per element of each projection (5120 in the 16x64 layer),
+  which the old `int_op` rate (14.2, fitted to the head-split guards) had been
+  standing in for.
+
+No fit case stored a bfloat16 rounding, so two layers joined the fit set
+(`layer, bare 16x32` and `layer, bare 32x64`, other sizes than the held-out
+layers) to identify its rate (17.0). The strided vector store had no data
+either (its fitted rate was zero, under-predicting the W-axis kernels), so it
+has a prior of 7 cycles, the strided load's ratio to a unit-stride one applied
+to the store; it is an estimate, not read from a waveform. Both choices were
+made with the held-out softmax over W (-6.6% without them) in view, and its
+margin under its limit is small.

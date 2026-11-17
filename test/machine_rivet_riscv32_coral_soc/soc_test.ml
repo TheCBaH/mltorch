@@ -52,10 +52,10 @@ let%expect_test "Zve32f bundles on the subsystem and standalone" =
       cycles 1601 on the subsystem, 1601 standalone (+0)
     softmax over H, W=32, subsystem (1 invocations): bitwise
     softmax over H, W=32, standalone (1 invocations): bitwise
-      cycles 213975 on the subsystem, 213975 standalone (+0)
+      cycles 209854 on the subsystem, 209854 standalone (+0)
     layer_norm over H, W=32, subsystem (1 invocations): bitwise
     layer_norm over H, W=32, standalone (1 invocations): bitwise
-      cycles 50476 on the subsystem, 50380 standalone (+96)
+      cycles 42125 on the subsystem, 42125 standalone (+0)
     conv, batch norm, relu to C=32, subsystem (3 invocations): bitwise
     conv, batch norm, relu to C=32, standalone (3 invocations): bitwise
       cycles 23643 on the subsystem, 23709 standalone (-66) |}]

@@ -15,7 +15,8 @@
    [--lowered] runs the PT2 import unchanged instead.
 
    argv: <model.pt2> --dir=<extracted emulators archive>
-   --configuration=<name> [--contractions] [--prepack] [--lowered] *)
+   --configuration=<name> [--contractions] [--prepack] [--lowered]
+   [--deadline=SECONDS]   (per invocation, default 3600) *)
 
 open Loop_ir
 module M = Machine_model.Mir_model
@@ -44,6 +45,7 @@ let () =
   and configuration = ref None
   and contractions = ref false
   and prepack = ref false
+  and deadline = ref 3600.
   and lowered_graph = ref false in
   let args =
     List.filter
@@ -57,6 +59,9 @@ let () =
             false
         | [ "--contractions" ] ->
             contractions := true;
+            false
+        | [ "--deadline"; d ] when float_of_string_opt d <> None ->
+            deadline := float_of_string d;
             false
         | [ "--prepack" ] ->
             prepack := true;
@@ -124,7 +129,7 @@ let () =
             {
               C.Config.dir;
               configuration;
-              deadline = 3600.;
+              deadline = !deadline;
               flags =
                 (match profile.Coral_profile.simulator with
                 | Coral_profile.Simulator.Rtl -> [ "--cycles=2000000000" ]
@@ -218,5 +223,6 @@ let () =
   | _ ->
       prerr_endline
         "usage: machine_rivet_coral_model <model.pt2> --dir=DIR \
-         --configuration=NAME [--contractions] [--prepack] [--lowered]";
+         --configuration=NAME [--contractions] [--prepack] [--lowered]\n\
+        \         [--deadline=SECONDS]";
       exit 2

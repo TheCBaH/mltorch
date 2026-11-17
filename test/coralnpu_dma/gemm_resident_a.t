@@ -8,32 +8,32 @@ descriptor a row (c-by-dma). The cycles are the whole call's, prologue
 included; the waits the cycles the core spent polling the DMA.
 
 RVV INT8 on the 32 KiB-DTCM SoC: N = 512 is eight panels of 64 lanes, and B,
-64 KiB, twice the DTCM. The blocks hide B's panels, and C by the DMA beats the
-core's stores to SRAM; the control, the peak kernel reading A, B and C in
-SRAM, is three times slower.
+64 KiB, twice the DTCM. The blocks hide B's panels, and C by the DMA is within
+2% of the core's stores to SRAM; the control, the peak kernel reading A, B and
+C in SRAM, is about 40% slower.
 
   $ ./dma_bench.exe "$CORALNPU_SUBSYSTEM_DATA" subsystem-matrix-normal gemm rvv-i8 resident-a/64 a-shared c-by-dma 16 512 128
-  rvv i8 resident-a/64 a-shared c-by-dma M=32 N=512 K=128: C as expected, 148370 cycles, 28.3 ops/cycle; 6923 waiting for A and the first panel, 4016 for the rest
+  rvv i8 resident-a/64 a-shared c-by-dma M=32 N=512 K=128: C as expected, 147502 cycles, 28.4 ops/cycle; 6951 waiting for A and the first panel, 3499 for the rest
   $ ./dma_bench.exe "$CORALNPU_SUBSYSTEM_DATA" subsystem-matrix-normal gemm rvv-i8 resident-a/64 a-shared c-by-core 16 512 128
-  rvv i8 resident-a/64 a-shared c-by-core M=32 N=512 K=128: C as expected, 154678 cycles, 27.1 ops/cycle; 6923 waiting for A and the first panel, 140 for the rest
+  rvv i8 resident-a/64 a-shared c-by-core M=32 N=512 K=128: C as expected, 145073 cycles, 28.9 ops/cycle; 6951 waiting for A and the first panel, 133 for the rest
   $ ./dma_bench.exe "$CORALNPU_SUBSYSTEM_DATA" subsystem-matrix-normal direct rvv-i8 16 512 128
-  rvv i8 M=32 N=512 K=128, operands in SRAM, no DMA: C as expected, 433983 cycles, 9.7 ops/cycle
+  rvv i8 M=32 N=512 K=128, operands in SRAM, no DMA: C as expected, 201807 cycles, 20.8 ops/cycle
 
 RVV BF16 -> FP32, N = 1024 as 32 panels of 32 lanes, at the rate the peak
 suite measures with every operand in DTCM (12.6).
 
   $ ./dma_bench.exe "$CORALNPU_SUBSYSTEM_DATA" subsystem-matrix-normal gemm rvv-bf16 resident-a/32 a-shared c-by-dma 8 1024 128
-  rvv bf16 resident-a/32 a-shared c-by-dma M=24 N=1024 K=128: C as expected, 518720 cycles, 12.1 ops/cycle; 6783 waiting for A and the first panel, 3530 for the rest
+  rvv bf16 resident-a/32 a-shared c-by-dma M=24 N=1024 K=128: C as expected, 523924 cycles, 12.0 ops/cycle; 7081 waiting for A and the first panel, 3123 for the rest
 
 Zvt INT8 -> INT32 on the 32 KiB SoC: a 32-row A is 4 KiB, and B's panels
 stream at the DMA's rate, which bounds the step.
 
   $ ./dma_bench.exe "$CORALNPU_SUBSYSTEM_DATA" subsystem-matrix-normal gemm zvt-i8 resident-a/32 a-shared c-by-core 1 1024 128
-  zvt i8 resident-a/32 a-shared c-by-core M=32 N=1024 K=128: C as expected, 125666 cycles, 66.8 ops/cycle; 3339 waiting for A and the first panel, 43183 for the rest
+  zvt i8 resident-a/32 a-shared c-by-core M=32 N=1024 K=128: C as expected, 113333 cycles, 74.0 ops/cycle; 3623 waiting for A and the first panel, 60078 for the rest
 
 Zvt INT8 on the 1 MiB SoC, with a 1 MiB B that no DTCM holds: A is 128 KiB,
 and a step's multiplies and stores of C take about what the DMA needs for the
 next panel.
 
   $ ./dma_bench.exe "$CORALNPU_SUBSYSTEM_DATA" subsystem-matrix-highmem gemm zvt-i8 resident-a/32 a-shared c-by-core 4 1024 1024
-  zvt i8 resident-a/32 a-shared c-by-core M=128 N=1024 K=1024: C as expected, 1152274 cycles, 233.0 ops/cycle; 19747 waiting for A and the first panel, 88319 for the rest
+  zvt i8 resident-a/32 a-shared c-by-core M=128 N=1024 K=1024: C as expected, 988866 cycles, 271.5 ops/cycle; 34979 waiting for A and the first panel, 1240 for the rest

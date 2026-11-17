@@ -17,6 +17,7 @@
   machine_lower
   machine_source_test
   coralnpu
+  coralnpu_kernels_zvt
   coralnpu_rv32
   fmt
   machine_model

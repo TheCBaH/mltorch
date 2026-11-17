@@ -36,8 +36,8 @@ Where it is handled:
 
 ## The driver
 
-`Band_driver.program` turns a schedule of stages (square window of side
-`extent`, stride 1, no padding or dilation; extent 1 is pointwise) into an
+`Band_driver.program` turns a schedule of stages (a window of `kh` rows by `kw` columns, each
+axis with its own stride, padding and dilation in `Band_schedule.Axis.t`; 1x1 is pointwise) into an
 ordinary SSA program: for a pointwise stage one view call per event, its bases the element
 offsets of the rows the event reads and writes. The first stage reads and the
 last writes whole tensors; each intermediate is a ring buffer of its window's
@@ -58,6 +58,23 @@ verifier proves each body footprint over the induction range, so the loop is as
 checked as the unrolled form. Two driver mutations (`Step_dropped`,
 `Iterations_short`) are red against the whole chain on the SSA interpreter and
 on all three Machine IR routes (`test/band_driver`, `test/machine_view_call`).
+
+A ring base that wraps does not step by a constant. It is emitted as
+`rest + slot * ((a*i + b) mod slots)`, a slot being the rows one call's
+footprint covers (one row for a window read, the produced chunk for a write
+into a ring a multiple of it), the modulus built from existing index
+operations as `t + (-slots) * floor_div slots t`. `Ssa_range` recognises that
+exact shape (the same value in both terms, a positive literal) and bounds it by
+`[0, slots - 1]`, which the interval over the three operations cannot give, so
+`view_in_bounds` proves the footprint from the slot count alone; a modulus past
+the ring is `Unproven In_bounds`. No new operation exists, so both SSA
+interpreters, expansion and the Machine IR lowering (`Index_floor_div` already
+lowers) carry it unchanged. A multi-row contiguous read that straddles a wrap
+differs in shape from one that does not, so the loop is also searched over the
+blocks with every multi-row ring read split per row (the form the wrapping read
+already takes); it is used only where it covers more blocks, and the blocks
+outside the loop keep the single read. Mutations `Ring_modulus_short` (wrong
+slot, red on the whole chain) and `Ring_modulus_long` (verifier refuses).
 
 A window stage (`extent` K > 1) makes `width - K + 1` pixels per row; its
 reduction is `K * cin` (a window row's K pixels of channels are contiguous, the
@@ -121,18 +138,52 @@ compares its output bits with the whole chain on the SSA interpreter):
   the driver: its loops, every base's address arithmetic and the calls. Pointwise
   and 3x3 chains, unrolled and looped, are equal. The driver's three mutations
   and two native-code mutations (`Branch_sense`, `Dropped_lo12`) are red.
-- RV32 under qemu (`test/machine_rivet_riscv32_mir`): the pointwise chains,
-  unrolled and looped, are equal with the contractions as generated RVV
-  functions. A window chain adds into its output (seed `Tensor`), which the RVV
-  contraction refuses, so no window chain runs there yet.
+- RV32 under qemu (`test/machine_rivet_riscv32_mir`): the pointwise and 3x3
+  chains, unrolled and looped, are equal with the contractions as generated RVV
+  functions. A window chain adds into its output (seed `Tensor`): the RVV
+  function starts each row group from C's cells (a vector load in place of the
+  zeroing; refused for an integer product and for C carried by the DMA), and
+  the matrix engine's binary32 function loads the tile from C's rows (`vtle32`).
+  A `Seed_zeroed` mutation of each is red (qemu, and the VME RTL).
 
 ## Open
 
 - An AArch64 contraction realization (so the contraction itself runs as
-  generated AArch64, not host C) and an RVV one seeded from the output, which
-  the window chains need under qemu.
-- Windows with stride, padding or dilation (refused: `Unsupported_window`) and
-  non-square windows; padding needs clamped consumed ranges.
-- Loop bodies are reused per period of blocks; a chain whose window rotation
-  never repeats within the rows stays unrolled. A loop over blocks whose ring
-  base is computed from the induction value (no period) is not done.
+  generated AArch64, not host C).
+- (Settled, unrolled is right.) A chain with fewer than two repetitions of any
+  block run (for example `block 3, 8 rows`) stays unrolled: a loop reuses one
+  body across repetitions, so with no two blocks of one shape and affine bases
+  a loop would be one trip, the same view calls behind an induction value. The
+  driver's sweep (blocks 1 to 6, rows 1 to 24, a pointwise and a 3x3 chain)
+  has every unrolled case equal in view calls to the loop form and every
+  looped case strictly smaller; forcing a one-trip loop on the unrolled cases
+  turns that test red. The ring rotation itself no longer needs a period.
+
+### Stride, padding and dilation
+
+A stage with any of them is one view call per output row and window position,
+over the output pixels that position reaches; the plain stride-1 window keeps
+one call per row over `extent` contiguous columns. A position in the padding is
+skipped, not added as a zero (the semantic table's convolution row: a zero
+would turn an infinite weight into NaN), so rows outside the producer are never
+read, a column's calls cover only the pixels whose input column is inside, and
+a pixel's first call (not the first call of the row) seeds with zero while the
+rest add into it. A pixel with no position in the input is refused
+(`Empty_window`). The consumed ranges are the schedule's clamped ranges.
+`Padding_read_edge` (a padded row read from the nearest producer row) and
+`Stride_dropped` are red in the driver and view-call suites; a nested binary32
+sum that skips padded taps equals `whole`.
+
+### Non-square windows and per-axis parameters
+
+A kernel carries two `Band_schedule.Axis.t` (extent, stride, pad, dilation):
+`rows`, the axis the schedule bands over, and `cols`, which only the driver
+reads. A plain window (column stride 1, no column padding or dilation) is `kh`
+row calls each reducing `kw * cin`; its weights are `(kh * kw * cin) x cout`
+with position `ky * kw + kx`. The row axis only moves which rows a call reads,
+so a stage is pointwise (one call per event over every pixel) only when both
+axes are 1 with no row stride or padding; a 1x1 with a column stride is a
+windowed stage. `Axes_swapped` and `Padding_axes_swapped` are red against an
+independent nested-sum oracle (the band-driver test library's `oracle`), on the
+SSA interpreter and the generic, AArch64 and RV32 Machine IR routes; the chains
+cover 1x3, 3x1, 3x5, mixed strides, and a row dilation with a column stride.

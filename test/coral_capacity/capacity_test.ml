@@ -180,6 +180,35 @@ let%expect_test "candidates: the over-budget one is rejected, the rest placed" =
     rejected big: code: 8193 bytes needed, 8192 budget
     none fit: big 8193 over 8192 |}]
 
+(* The route's own ITCM requirements for banded view-call chains on the VME
+   core (the refusal sizes of test/coral_estimate_rtl): a pointwise stage then
+   a 3x3 window needs 24,416 bytes at block 2 and 46,756 at block 4, so the
+   chain is refused whatever it would cost; the window then pointwise order
+   fits and was measured, and so does this one with its provable index guards
+   removed ([~prove]). *)
+let%expect_test "pointwise-then-window chains are refused by code size" =
+  let chain name code =
+    { (Witness.pointwise_mobilenetv2_050 ~code) with Image.name }
+  in
+  (match
+     Err.payload
+       (Capacity.admit rtl
+          [
+            chain "pointwise then 3x3, block 4" (Code_bytes.of_int64 46_756L);
+            chain "pointwise then 3x3, block 2" (Code_bytes.of_int64 24_416L);
+          ])
+   with
+  | Error (`None_fit rs) ->
+      List.iter
+        (fun (r : Capacity.Admission.rejection) ->
+          Fmt.pr "rejected %s: %a@." r.name Capacity.pp_error r.reason)
+        rs
+  | Ok _ | Error _ -> Fmt.pr "not refused@.");
+  [%expect
+    {|
+    rejected pointwise then 3x3, block 4: code: 46756 bytes needed, 8192 budget
+    rejected pointwise then 3x3, block 2: code: 24416 bytes needed, 8192 budget |}]
+
 (* Three candidates for one segment: [dear] and [cheap] fit, [big] is over the
    ITCM budget; [twin] costs what [cheap] does. Cost is the fitted VME rates
    over a census of f32 operations alone. *)
@@ -224,10 +253,10 @@ let%expect_test "select: the cheapest candidate that fits" =
   | Error _ -> Fmt.pr "none fit@.");
   [%expect
     {|
-    chose cheap (47.11)
-      cheap 47.11
-      twin 47.11
-      dear 4711.00
+    chose cheap (19.97)
+      cheap 19.97
+      twin 19.97
+      dear 1997.00
     rejected big: code: 8193 bytes needed, 8192 budget |}];
   match Err.payload (select [ List.hd cands ]) with
   | Error (`None_fit [ { Capacity.Admission.name; _ } ]) ->
