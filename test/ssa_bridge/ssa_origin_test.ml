@@ -298,3 +298,59 @@ let%expect_test "unrolling keeps the value and its domain" =
     unrolled: 23 instructions (8 vector accesses), 0 unknown, 0 stores misattributed
       by value: value b1 [1x1x1x1x16x1] x13, value b2 [1x1x1x1x8x1] x10
       nests attributed to another value: 0 |}]
+
+(* One matmul value through blocking, row blocking and contraction: every
+   instruction a pass makes or moves keeps the value and its domain, so a pass
+   that attributed its new instructions to another value, or to none, shows. *)
+let matmul () =
+  lowered (Fusion_plan.default (Ssa_fixtures.matmul_kernel ~m:4 ~k:5 ~n:8))
+
+let report_matmul name instrs =
+  Fmt.pr "%s: %d instructions, %d unknown@." name (List.length instrs)
+    (unknown_in instrs);
+  show_in "  by value" instrs
+
+let%expect_test "blocking keeps the value and its domain" =
+  let q, _ =
+    Ssa_opt.run ~alias
+      ~passes:
+        [
+          Ssa_opt.simplify;
+          Ssa_opt.guards;
+          Ssa_opt.simplify;
+          Ssa_opt.hoist ~alias;
+          Ssa_opt.block ~alias ~group:Ssa_opt_block.Auto;
+        ]
+      (matmul ())
+  in
+  report_matmul "blocked" (instrs_of q.Ssa_program.entry);
+  [%expect
+    {|
+    blocked: 43 instructions, 0 unknown
+      by value: value b2 [1x1x1x4x8x1] x43 |}]
+
+let%expect_test "row blocking keeps the value and its domain" =
+  let v, _ = Ssa_opt.run ~alias ~target:Ssa_target.wasm128 (matmul ()) in
+  let q, n =
+    Ssa_opt_rows.program ~rows:(Ssa_blocking.Rows.of_int 2) ~policy:alias v
+  in
+  Fmt.pr "%d block(s)@." n;
+  report_matmul "rows" (instrs_of q.Ssa_program.entry);
+  [%expect
+    {|
+    1 block(s)
+    rows: 28 instructions, 0 unknown
+      by value: value b2 [1x1x1x4x8x1] x28 |}]
+
+let%expect_test "contraction keeps the value and its domain" =
+  let q, found =
+    Ssa_contract.program ~numerics:Contraction.Numerics.Ordered
+      (Ssa_plan.binary32_scalar (matmul ()))
+  in
+  Fmt.pr "%d contraction(s)@." (List.length found);
+  report_matmul "contracted" (instrs_of q.Ssa_program.entry);
+  [%expect
+    {|
+    1 contraction(s)
+    contracted: 9 instructions, 0 unknown
+      by value: value b2 [1x1x1x4x8x1] x9 |}]
