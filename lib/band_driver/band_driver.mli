@@ -1,10 +1,16 @@
-(** The driver of a band schedule as an SSA program. A stage is a pointwise
-    contraction over the pixels of a row ([cin] channels in, [cout] out, weights
-    [cin x cout]); the schedule says which rows each stage makes when, and the
-    driver issues one {!Ssa_ir.Ssa_view_call} per event, its operands' bases the
+(** The driver of a band schedule as an SSA program. A stage is a contraction
+    over the pixels of a row ([cin] channels in, [cout] out) of a square window
+    of side [extent] (1 is pointwise), stride 1, no padding: its output is
+    [extent - 1] rows and columns smaller, its weights
+    [(extent * extent * cin) x cout] with the window's row [t] at row offset
+    [t * extent * cin]. The schedule says which rows each stage makes when, and
+    the driver issues {!Ssa_ir.Ssa_view_call}s, their operands' bases the
     element offsets of the rows the event reads and writes: an intermediate
     value is a rolling window of rows ({!Band_schedule.Window}), the first
-    stage's input and the last stage's output are whole tensors. *)
+    stage's input and the last stage's output are whole tensors. A window is one
+    call per output row and row it reads, each past the first adding into the
+    output (seed [Tensor]), so the sum runs row by row, then column and channel,
+    as in {!whole}. *)
 
 open Ssa_ir
 
@@ -14,9 +20,8 @@ end
 
 (** Why a chain has no driver. *)
 type refusal =
-  | Not_pointwise of string
-      (** the stage's kernel is not extent 1, stride 1, no padding, dilation 1
-      *)
+  | Unsupported_window of string
+      (** the stage's kernel is not stride 1 with no padding and dilation 1 *)
 
 val pp_refusal : Format.formatter -> refusal -> unit
 
@@ -48,6 +53,8 @@ end
 type mutation =
   | Iterations_short  (** the loop stops one repetition early *)
   | Step_dropped  (** the bases do not move between repetitions *)
+  | Window_offset_dropped
+      (** a window reads its first row of the ring for every row it covers *)
 
 val program :
   ?looped:bool ->
@@ -63,6 +70,7 @@ val program :
 
 val whole :
   Stage.t list -> width:int64 -> rows:Band_schedule.Count.t -> Program.t
-(** The reference: the same stages as one {!Ssa_op.Contract} each over whole
-    tensors, intermediates complete. The buffer ids of [input], [weights] and
-    [output] are those of {!program}; [rings] is empty. *)
+(** The reference: the same stages over whole tensors, intermediates complete:
+    one {!Ssa_op.Contract} each, a window one view call per output row and row
+    it reads at logical rows. The buffer ids of [input], [weights] and [output]
+    are those of {!program}; [rings] is empty. *)

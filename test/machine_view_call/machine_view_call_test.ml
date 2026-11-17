@@ -177,18 +177,22 @@ let verdict ?mutation ~name p ~inputs ~want =
               ]))
 
 (* Banded pointwise chains from the driver against the whole Contract chain. *)
-let kernel name ~chunk =
+let kernel ?(extent = 1) name ~chunk =
   {
     S.name;
-    extent = S.Count.of_int 1;
+    extent = S.Count.of_int extent;
     stride = S.Count.of_int 1;
     pad = S.Count.of_int 0;
     dilation = S.Count.of_int 1;
     chunk = S.Span.chunk chunk;
   }
 
-let stage name ~chunk ~cin ~cout =
-  { D.Stage.kernel = kernel name ~chunk; cin = i64 cin; cout = i64 cout }
+let stage ?extent name ~chunk ~cin ~cout =
+  {
+    D.Stage.kernel = kernel ?extent name ~chunk;
+    cin = i64 cin;
+    cout = i64 cout;
+  }
 
 let elements (p : D.Program.t) id =
   Int64.to_int
@@ -293,6 +297,23 @@ let bands ?mutation () =
   band ?mutation ~name:"3 stages, 48 rows, block 3, looped" three ~width:2L
     ~rows:48 ~block:3
 
+(* 3x3 stages read a ring of producer rows, one product per window row. *)
+let windows ?mutation () =
+  let w3 = stage ~extent:3 in
+  band ?mutation ~name:"pointwise then 3x3, 10 rows, block 2, looped"
+    [ stage "a" ~chunk:2 ~cin:2 ~cout:3; w3 "b" ~chunk:2 ~cin:3 ~cout:2 ]
+    ~width:5L ~rows:10 ~block:2;
+  band ?mutation ~name:"3x3, pointwise, 3x3, 20 rows, block 2, looped"
+    [
+      w3 "a" ~chunk:2 ~cin:2 ~cout:3;
+      stage "b" ~chunk:2 ~cin:3 ~cout:2;
+      w3 "c" ~chunk:2 ~cin:2 ~cout:2;
+    ]
+    ~width:6L ~rows:20 ~block:2;
+  band ?mutation ~name:"3x3 then 3x3, 9 rows, block 3"
+    [ w3 "a" ~chunk:1 ~cin:2 ~cout:2; w3 "b" ~chunk:1 ~cin:2 ~cout:3 ]
+    ~width:5L ~rows:9 ~block:3
+
 let rows ?mutation () =
   rows_case ?mutation ~name:"A and C rows reversed" ~batch:1 ~m:3 ~k:4 ~n:3
     ~a_rows:(`Rows [ 8; 4; 0 ])
@@ -325,6 +346,15 @@ let%expect_test
     3 stages, 12 rows, block 1, looped: SSA banded equal; lowered: generic equal; aarch64 equal; rv32 equal
     3 stages, 48 rows, block 3, looped: SSA banded equal; lowered: generic equal; aarch64 equal; rv32 equal |}]
 
+let%expect_test
+    "banded 3x3 chains lowered through the helper route equal the whole chain" =
+  windows ();
+  [%expect
+    {|
+    pointwise then 3x3, 10 rows, block 2, looped: SSA banded equal; lowered: generic equal; aarch64 equal; rv32 equal
+    3x3, pointwise, 3x3, 20 rows, block 2, looped: SSA banded equal; lowered: generic equal; aarch64 equal; rv32 equal
+    3x3 then 3x3, 9 rows, block 3: SSA banded equal; lowered: generic equal; aarch64 equal; rv32 equal |}]
+
 let%expect_test "per-row bases lowered through the helper route" =
   rows ();
   [%expect
@@ -341,6 +371,7 @@ let%expect_test "view-call lowering mutations are red" =
     (fun (name, mutation) ->
       Fmt.pr "== %s@." name;
       bands ~mutation ();
+      windows ~mutation ();
       rows ~mutation ())
     Machine_lower.Mir_lower.Mutation.
       [
@@ -356,6 +387,9 @@ let%expect_test "view-call lowering mutations are red" =
     3 stages, 16 rows, block 2, looped: SSA banded equal; lowered: generic DIFFERS; aarch64 DIFFERS; rv32 DIFFERS
     3 stages, 12 rows, block 1, looped: SSA banded equal; lowered: generic DIFFERS; aarch64 DIFFERS; rv32 DIFFERS
     3 stages, 48 rows, block 3, looped: SSA banded equal; lowered: generic failed: defect; aarch64 failed: defect; rv32 failed: defect
+    pointwise then 3x3, 10 rows, block 2, looped: SSA banded equal; lowered: generic DIFFERS; aarch64 DIFFERS; rv32 DIFFERS
+    3x3, pointwise, 3x3, 20 rows, block 2, looped: SSA banded equal; lowered: generic failed: defect; aarch64 failed: defect; rv32 failed: defect
+    3x3 then 3x3, 9 rows, block 3: SSA banded equal; lowered: generic DIFFERS; aarch64 DIFFERS; rv32 DIFFERS
     A and C rows reversed: generic DIFFERS; aarch64 DIFFERS; rv32 DIFFERS
     B columns permuted: generic DIFFERS; aarch64 DIFFERS; rv32 DIFFERS
     A single base, C rows: generic DIFFERS; aarch64 DIFFERS; rv32 DIFFERS
@@ -367,10 +401,23 @@ let%expect_test "view-call lowering mutations are red" =
     3 stages, 16 rows, block 2, looped: SSA banded equal; lowered: generic equal; aarch64 equal; rv32 equal
     3 stages, 12 rows, block 1, looped: SSA banded equal; lowered: generic equal; aarch64 equal; rv32 equal
     3 stages, 48 rows, block 3, looped: SSA banded equal; lowered: generic DIFFERS; aarch64 DIFFERS; rv32 DIFFERS
+    pointwise then 3x3, 10 rows, block 2, looped: SSA banded equal; lowered: generic equal; aarch64 equal; rv32 equal
+    3x3, pointwise, 3x3, 20 rows, block 2, looped: SSA banded equal; lowered: generic equal; aarch64 equal; rv32 equal
+    3x3 then 3x3, 9 rows, block 3: SSA banded equal; lowered: generic equal; aarch64 equal; rv32 equal
     A and C rows reversed: generic equal; aarch64 equal; rv32 equal
     B columns permuted: generic equal; aarch64 equal; rv32 equal
     A single base, C rows: generic DIFFERS; aarch64 DIFFERS; rv32 DIFFERS
     batched, all three per row: generic equal; aarch64 equal; rv32 equal |}]
+
+(* The window's own defect: every row of a window reads the first. *)
+let%expect_test "a dropped window offset is red on every route" =
+  let w3 = stage ~extent:3 in
+  band ~driver:D.Window_offset_dropped
+    ~name:"pointwise then 3x3, 10 rows, block 2, looped"
+    [ stage "a" ~chunk:2 ~cin:2 ~cout:3; w3 "b" ~chunk:2 ~cin:3 ~cout:2 ]
+    ~width:5L ~rows:10 ~block:2;
+  [%expect
+    {| pointwise then 3x3, 10 rows, block 2, looped: SSA banded DIFFERS; lowered: generic DIFFERS; aarch64 DIFFERS; rv32 DIFFERS |}]
 
 (* The loop's own defects: bases that do not move, a loop one repetition
    short. The banded SSA program already differs from the whole chain; the
