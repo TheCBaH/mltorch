@@ -6,7 +6,7 @@ module G = Graph_ir
 
 let err pp x = Err.or_raise ~pp_error:pp x
 
-let load ?config path =
+let load_with_ops ?config path =
   let archive = err Pt2_archive.pp_error (Pt2_archive.open_pt2 path) in
   let lowered =
     err Native_interp.pp_error (Native_interp.lower_archive archive)
@@ -31,4 +31,15 @@ let load ?config path =
       t.constants
       (Constant_store.materialized store)
   in
-  (err Loop_bundle.pp_error (Loop_bundle.build ?config t.graph), constants)
+  let ops =
+    List.map
+      (fun (n : G.node) ->
+        ( n.G.Node.id,
+          (G.op_name n.G.Node.op, Fmt.str "%a" (G.pp_op t.graph) n.G.Node.op) ))
+      (G.nodes t.graph)
+  in
+  (err Loop_bundle.pp_error (Loop_bundle.build ?config t.graph), constants, ops)
+
+let load ?config path =
+  let b, constants, _ = load_with_ops ?config path in
+  (b, constants)

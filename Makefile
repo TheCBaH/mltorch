@@ -802,6 +802,14 @@ ssa.loop.perf: pt2.download-cram
 	  ./_build/default/test/ssa_route/ssa_route_perf.exe $(PT2_DIR)/$$m/$$m.pt2 loop || rc=1; \
 	done; exit $$rc
 
+# The same pair as a per-invocation table: each kernel call timed inside the
+# generated model, the worst invocations and the op classes by time lost.
+ssa.loop.kernels: pt2.download-cram
+	opam exec -- dune build test/ssa_route/ssa_route_perf.exe
+	for m in $(SSA_ROUTE_MODELS); do \
+	  ./_build/default/test/ssa_route/ssa_route_perf.exe $(PT2_DIR)/$$m/$$m.pt2 loop --kernels || exit 1; \
+	done
+
 # Exception ratchet: every exception declared in lib/ is listed in
 # scripts/exceptions-allowlist.txt with a category; a walk exit should be an
 # Err.Escape, so the escape-candidate ceiling only goes down.

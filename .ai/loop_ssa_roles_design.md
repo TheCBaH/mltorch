@@ -206,6 +206,22 @@ places, none of them the planner's loop structure:
   tail is now run per row after the jammed vector loop when it commutes with
   the next row's vector loop.
 
+`make ssa.loop.kernels` (`ssa_route_perf MODEL.pt2 loop --kernels`) times
+each kernel call inside the generated model (the call alone, median of warm
+repeats, then of 5 alternating processes) and lists the invocations and the op
+classes by time lost. After the fixes above the remaining gap is 2.2 to 2.6% of
+kernel time on both models, spread over pointwise convolutions (1x1, 16 or 80
+or 160 output channels: 5 to 11% each, about 60% of the gap) and ReLU6 (5 to
+6%, about 15% on `mobilenetv2_050`). Two candidate causes were tried and
+measured to change nothing, so they are not the gap: the SSA kernels keep
+one-trip window loops (an `Ordered_sum` the guards pass does not collapse) and
+a second gather of the same weights per jammed row; with both removed the
+inner loop is the same operations as the Loop kernel's, and the 1x1 loop still
+carries about 15% more instructions, almost all stack spills of the 16-lane
+accumulators (`row_block` 1 and 4 are 24% and 5% slower overall, so 2 is the
+plan's right choice). What remains is register allocation of the same dataflow,
+not a planner decision.
+
 Still open: a pointwise convolution with fewer output channels than lanes (8
 on `mobilenetv2_050`) stays scalar binary64 in SSA, where the Loop vectorizer
 runs the lanes along the pixel axis.
