@@ -116,12 +116,14 @@ let isolated (f : unit -> ('a, string) result) : ('a, string) result =
 
 (* The artifact in this process: bound regions written, the kernel called, every
    bound region read back into a fresh memory the observation decodes. *)
-let native_full ?mutation
+let native_full ?mutation ?(extra = fun _ -> Ok [])
     ?(runtime = Machine_rivet_aarch64.Rivet_a64_runtime.System_libm) ?probe case
     ~sites ({ artifact; _ } as b) =
   let phys = Art.program artifact in
   let module Rt = Machine_rivet_aarch64.Rivet_a64_route in
   let* kernel, modules = Rt.modules ?mutation ~runtime artifact in
+  let* more = extra artifact in
+  let modules = modules @ more in
   let* loaded =
     match probe with
     | None -> Rt.load ~entry:kernel modules
@@ -206,8 +208,8 @@ let native_full ?mutation
            [ Mir_datum.Bits (Int64.logand status 0xFFFF_FFFFL) ]),
       violations )
 
-let native ?mutation ?runtime case ~sites b =
-  Result.map fst (native_full ?mutation ?runtime case ~sites b)
+let native ?mutation ?extra ?runtime case ~sites b =
+  Result.map fst (native_full ?mutation ?extra ?runtime case ~sites b)
 
 (* The native observation against the interpreter's: a one-line verdict. *)
 let compare ?mutation ?runtime ?select_mutation ?frame_mutation ?pad ?probe

@@ -106,13 +106,31 @@ calls (A and C rows, B columns, a single-base operand beside per-row ones,
 batched) through `Mir_lower` and runs them on the generic, AArch64 and RV32
 interpreters (the contraction helper bound to its model), bitwise equal to the
 SSA interpreter, which equals the whole `Contract` chain. Two lowering
-mutations (`View_base_dropped`, `View_outer_dropped`) each turn it red. Not yet
-run under qemu or on hardware: the interpreted routes only. The per-row form
-costs one helper call per row of the axis, since a helper takes one address per
-operand.
+mutations (`View_base_dropped`, `View_outer_dropped`) each turn it red. The per-row
+form costs one helper call per row of the axis, since a helper takes one address
+per operand.
+
+Real targets (`test/band_driver/band_chains.ml` holds the chains; each target
+compares its output bits with the whole chain on the SSA interpreter):
+
+- AArch64, natively on the host CPU (`test/machine_rivet_aarch64`, built only on
+  an AArch64 host): the banded program is selected, allocated and published, and
+  its Rivet image run in process. The route generates no contraction code, so
+  each descriptor is host C (ordered binary32, no contraction) bound to the
+  artifact's `mlt_contract_*` symbol by a trampoline. What runs on the CPU is
+  the driver: its loops, every base's address arithmetic and the calls. Pointwise
+  and 3x3 chains, unrolled and looped, are equal. The driver's three mutations
+  and two native-code mutations (`Branch_sense`, `Dropped_lo12`) are red.
+- RV32 under qemu (`test/machine_rivet_riscv32_mir`): the pointwise chains,
+  unrolled and looped, are equal with the contractions as generated RVV
+  functions. A window chain adds into its output (seed `Tensor`), which the RVV
+  contraction refuses, so no window chain runs there yet.
 
 ## Open
 
+- An AArch64 contraction realization (so the contraction itself runs as
+  generated AArch64, not host C) and an RVV one seeded from the output, which
+  the window chains need under qemu.
 - Windows with stride, padding or dilation (refused: `Unsupported_window`) and
   non-square windows; padding needs clamped consumed ranges.
 - Loop bodies are reused per period of blocks; a chain whose window rotation
