@@ -1,7 +1,7 @@
 # Band schedule, view call and segment driver
 
 Libraries: band_driver, band_schedule
-Status: 2026-11-17 — the driver loops over repeating blocks; schedule interpreter, view-call operation with per-row bases, pointwise driver and fuzz generator implemented; Machine IR lowering through the contraction helper, run on the generic, AArch64 and RV32 interpreters
+Status: 2026-11-17 — the driver loops over repeating blocks and runs KxK window stages; schedule interpreter, view-call operation with per-row bases, pointwise driver and fuzz generator implemented; Machine IR lowering through the contraction helper, run on the generic, AArch64 and RV32 interpreters
 
 A chain of row-local kernels runs block by block: the last kernel makes `block`
 rows, each earlier kernel runs ahead in chunks of its own, and a produced row
@@ -36,8 +36,9 @@ Where it is handled:
 
 ## The driver
 
-`Band_driver.program` turns a schedule of pointwise stages (extent 1, stride 1)
-into an ordinary SSA program: one view call per event, its bases the element
+`Band_driver.program` turns a schedule of stages (square window of side
+`extent`, stride 1, no padding or dilation; extent 1 is pointwise) into an
+ordinary SSA program: for a pointwise stage one view call per event, its bases the element
 offsets of the rows the event reads and writes. The first stage reads and the
 last writes whole tensors; each intermediate is a ring buffer of its window's
 rows. A read that straddles a window's end is refused (`Read_spans_wrap`): one
@@ -57,6 +58,20 @@ verifier proves each body footprint over the induction range, so the loop is as
 checked as the unrolled form. Two driver mutations (`Step_dropped`,
 `Iterations_short`) are red against the whole chain on the SSA interpreter and
 on all three Machine IR routes (`test/band_driver`, `test/machine_view_call`).
+
+A window stage (`extent` K > 1) makes `width - K + 1` pixels per row; its
+reduction is `K * cin` (a window row's K pixels of channels are contiguous, the
+output pixels `cin` apart), its weights `(K * K * cin) x cout`. An event is one
+call per output row and window row `t`, A at the ring row (or logical row of
+the whole input) `r + t`, B at `t * K * cin * cout`, C at row `r`; the calls
+after the first have seed `Tensor` and add into C, so the sum runs window row,
+then column, then channel. Each call reads one row, so a window never needs
+per-pixel bases, and a ring read cannot wrap. `Band_driver.whole` runs a window
+stage as the same calls at logical rows over whole tensors (a `Contract` has no
+base, so a window is not a single `Contract`); pointwise stages stay one
+`Contract`. The third driver mutation, `Window_offset_dropped` (every window
+row reads the first), is red on the SSA interpreter and on the three Machine IR
+routes.
 
 ## Per-row bases
 
@@ -91,15 +106,33 @@ calls (A and C rows, B columns, a single-base operand beside per-row ones,
 batched) through `Mir_lower` and runs them on the generic, AArch64 and RV32
 interpreters (the contraction helper bound to its model), bitwise equal to the
 SSA interpreter, which equals the whole `Contract` chain. Two lowering
-mutations (`View_base_dropped`, `View_outer_dropped`) each turn it red. Not yet
-run under qemu or on hardware: the interpreted routes only. The per-row form
-costs one helper call per row of the axis, since a helper takes one address per
-operand.
+mutations (`View_base_dropped`, `View_outer_dropped`) each turn it red. The per-row
+form costs one helper call per row of the axis, since a helper takes one address
+per operand.
+
+Real targets (`test/band_driver/band_chains.ml` holds the chains; each target
+compares its output bits with the whole chain on the SSA interpreter):
+
+- AArch64, natively on the host CPU (`test/machine_rivet_aarch64`, built only on
+  an AArch64 host): the banded program is selected, allocated and published, and
+  its Rivet image run in process. The route generates no contraction code, so
+  each descriptor is host C (ordered binary32, no contraction) bound to the
+  artifact's `mlt_contract_*` symbol by a trampoline. What runs on the CPU is
+  the driver: its loops, every base's address arithmetic and the calls. Pointwise
+  and 3x3 chains, unrolled and looped, are equal. The driver's three mutations
+  and two native-code mutations (`Branch_sense`, `Dropped_lo12`) are red.
+- RV32 under qemu (`test/machine_rivet_riscv32_mir`): the pointwise chains,
+  unrolled and looped, are equal with the contractions as generated RVV
+  functions. A window chain adds into its output (seed `Tensor`), which the RVV
+  contraction refuses, so no window chain runs there yet.
 
 ## Open
 
-- A KxK stage (several rows read per output row, each with its own bases) in
-  the driver; stages that are not pointwise.
+- An AArch64 contraction realization (so the contraction itself runs as
+  generated AArch64, not host C) and an RVV one seeded from the output, which
+  the window chains need under qemu.
+- Windows with stride, padding or dilation (refused: `Unsupported_window`) and
+  non-square windows; padding needs clamped consumed ranges.
 - Loop bodies are reused per period of blocks; a chain whose window rotation
   never repeats within the rows stays unrolled. A loop over blocks whose ring
   base is computed from the induction value (no period) is not done.

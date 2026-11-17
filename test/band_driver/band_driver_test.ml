@@ -8,19 +8,19 @@ module D = Band_driver
 
 let count = S.Count.of_int
 
-let kernel name ~chunk =
+let kernel ?(extent = 1) name ~chunk =
   {
     S.name;
-    extent = count 1;
+    extent = count extent;
     stride = count 1;
     pad = count 0;
     dilation = count 1;
     chunk = S.Span.chunk chunk;
   }
 
-let stage name ~chunk ~cin ~cout =
+let stage ?extent name ~chunk ~cin ~cout =
   {
-    D.Stage.kernel = kernel name ~chunk;
+    D.Stage.kernel = kernel ?extent name ~chunk;
     cin = Int64.of_int cin;
     cout = Int64.of_int cout;
   }
@@ -138,13 +138,80 @@ let%expect_test "banded pointwise chains equal the whole-tensor chain" =
     3 stages, 48 rows, block 3: windows 2 4; loop 4 blocks x 4 from block 0; equals the whole-tensor Contracts; unrolled equal
     1 stage, 5 rows, block 5: windows ; loop none; equals the whole-tensor Contracts; unrolled equal |}]
 
-let%expect_test "a kernel that is not pointwise is refused" =
-  let k = { (kernel "w" ~chunk:1) with S.extent = count 3 } in
-  case ~name:"window"
+let%expect_test "a kernel with stride or padding is refused" =
+  let k = { (kernel "w" ~chunk:1) with S.stride = count 2 } in
+  case ~name:"stride"
     [ { D.Stage.kernel = k; cin = 1L; cout = 1L } ]
     ~width:2L ~rows:6 ~block:2;
   [%expect
-    {| window: refused: w is not a pointwise kernel (extent 1, stride 1, no padding) |}]
+    {| stride: refused: w is not a stride 1 kernel without padding or dilation (the rows a window reads are not consecutive producer rows) |}]
+
+(* A 3x3 stage reads a ring of producer rows, three at a time. *)
+let windowed =
+  [
+    stage "a" ~chunk:2 ~cin:2 ~cout:3;
+    stage ~extent:3 "b" ~chunk:2 ~cin:3 ~cout:2;
+  ]
+
+let window_chains =
+  let w3 = stage ~extent:3 in
+  [
+    ("pointwise then 3x3, 10 rows, block 2", windowed, 5L, 10, 2);
+    ("pointwise then 3x3, 11 rows, block 3", windowed, 6L, 11, 3);
+    ( "3x3 then pointwise, 12 rows, block 2",
+      [ w3 "a" ~chunk:2 ~cin:2 ~cout:3; stage "b" ~chunk:2 ~cin:3 ~cout:2 ],
+      5L,
+      12,
+      2 );
+    ( "3x3, pointwise, 3x3, 20 rows, block 2",
+      [
+        w3 "a" ~chunk:2 ~cin:2 ~cout:3;
+        stage "b" ~chunk:2 ~cin:3 ~cout:2;
+        w3 "c" ~chunk:2 ~cin:2 ~cout:2;
+      ],
+      6L,
+      20,
+      2 );
+    ( "3x3 then 3x3, 30 rows, block 1",
+      [ w3 "a" ~chunk:1 ~cin:2 ~cout:2; w3 "b" ~chunk:1 ~cin:2 ~cout:3 ],
+      5L,
+      30,
+      1 );
+    ( "one 3x3 stage, 9 rows, block 4",
+      [ w3 "a" ~chunk:1 ~cin:2 ~cout:2 ],
+      4L,
+      9,
+      4 );
+  ]
+
+let%expect_test "banded 3x3 chains equal the whole-tensor chain" =
+  List.iter
+    (fun (name, stages, width, rows, block) ->
+      case ~name stages ~width ~rows ~block)
+    window_chains;
+  [%expect
+    {|
+    pointwise then 3x3, 10 rows, block 2: windows 4; loop 6 blocks x 2 from block 1; equals the whole-tensor Contracts; unrolled equal
+    pointwise then 3x3, 11 rows, block 3: windows 6; loop 3 blocks x 2 from block 1; equals the whole-tensor Contracts; unrolled equal
+    3x3 then pointwise, 12 rows, block 2: windows 2; loop 1 blocks x 5 from block 0; equals the whole-tensor Contracts; unrolled equal
+    3x3, pointwise, 3x3, 20 rows, block 2: windows 2 4; loop 12 blocks x 3 from block 1; equals the whole-tensor Contracts; unrolled equal
+    3x3 then 3x3, 30 rows, block 1: windows 3; loop 9 blocks x 8 from block 1; equals the whole-tensor Contracts; unrolled equal
+    one 3x3 stage, 9 rows, block 4: windows ; loop 3 blocks x 7 from block 0; equals the whole-tensor Contracts; unrolled equal |}]
+
+(* Reading the window's first row for every row it covers is seen. *)
+let%expect_test "a dropped window offset is red" =
+  List.iter
+    (fun (name, stages, width, rows, block) ->
+      case ~mutation:D.Window_offset_dropped ~name stages ~width ~rows ~block)
+    window_chains;
+  [%expect
+    {|
+    pointwise then 3x3, 10 rows, block 2: windows 4; loop 6 blocks x 2 from block 1; DIFFERS; unrolled equal
+    pointwise then 3x3, 11 rows, block 3: windows 6; loop 3 blocks x 2 from block 1; DIFFERS; unrolled equal
+    3x3 then pointwise, 12 rows, block 2: windows 2; loop 1 blocks x 5 from block 0; DIFFERS; unrolled equal
+    3x3, pointwise, 3x3, 20 rows, block 2: windows 2 4; loop 12 blocks x 3 from block 1; DIFFERS; unrolled equal
+    3x3 then 3x3, 30 rows, block 1: windows 3; loop 9 blocks x 8 from block 1; DIFFERS; unrolled equal
+    one 3x3 stage, 9 rows, block 4: windows ; loop 3 blocks x 7 from block 0; DIFFERS; unrolled equal |}]
 
 (* Where a target has no form for a view call it refuses, by name; the
    expansion is how a program with one reaches such a target. *)

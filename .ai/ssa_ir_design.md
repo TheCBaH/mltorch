@@ -364,7 +364,18 @@ its own name becomes its interface and hides its siblings (the lowering is
   and a body the target prices out. A vector's element is its scalar's (a
   load's is its decode's result), and `?elements` names the elements a vector
   body may hold: a loop whose vector form needs another stays scalar with
-  `Element_not_admitted` (masks are always admitted). Exact binary32 reads and
+  `Element_not_admitted` (masks are always admitted). **The lane axis is the
+  innermost loop that qualifies, else the next one out**: a convolution with
+  fewer output channels than lanes is `Too_short` on the channel loop and its
+  lanes run along the pixel loop, the inner channel and reduction loops
+  carried per lane. That needs the window bounds, clamped by the pixel
+  position, to count as uniform: with `Ssa_target.point_uniform` (NEON only;
+  Wasm and Zve32f unmeasured) an index value the ranges pin to one value
+  (a 1x1 kernel's `clamp_low (-x)` and `min 1 (n - x)`) is uniform though
+  computed from the induction value, so the pixel loop is no longer
+  `Non_affine_access`. Folding such values to constants in `Ssa_opt.guards`
+  instead was tried: it changed many optimizer goldens and measured no faster.
+  Exact binary32 reads and
   writes (`F32_exact`) vectorize like any other access, and so does a
   dequantizing read, except a per-channel one whose channel varies across the
   lanes (`Channel_varies`: its parameters would be a gather); an integer read

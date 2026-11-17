@@ -5,7 +5,7 @@
     counted once and reported). The hand kernels a program calls ([Contract],
     [Attend]) are kept as their descriptors, priced by their own models. A view
     call is the helper calls it lowers to: one per row of each axis that has a
-    base per row, with its address arithmetic counted as [Int_op]. *)
+    base per row, with its address arithmetic counted as [View_address]. *)
 
 (** Where a buffer's cells live. Alphabetical. *)
 module Region : sig
@@ -40,6 +40,9 @@ module Class : sig
     | Vec_other  (** splat, extract, insert, iota, masks *)
     | Vec_store of Region.t
     | Vec_store_strided of Region.t
+    | View_address
+        (** the integer operations that place a view call's operands: the
+            address arithmetic, apart from a loop's own index arithmetic *)
 
   val compare : t -> t -> int
   val name : t -> string
@@ -52,6 +55,9 @@ module Contract_call : sig
     engine : Contraction.Select.Engine.t option;
         (** The implementation selected in final SSA. [None] is a legacy,
             unfinalized program whose engine the cost model still chooses. *)
+    view : bool;
+        (** One of the helper calls a view call lowers to: a small product on
+            offset rows, priced apart from a whole-buffer contraction's. *)
     a : Region.t;
     b : Region.t;
     c : Region.t;

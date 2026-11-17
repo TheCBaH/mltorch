@@ -521,8 +521,8 @@ let%expect_test "binary32 vector plans under gcc" =
     max sqrt exp div forced  vector loops 1; = oracle true; = scalar true; 2 copies
     matmul 4x5x32    priced  vector loops 1; = oracle true; = scalar true; 4 copies
     matmul 4x5x32    forced  vector loops 1; = oracle true; = scalar true; 4 copies
-    matmul 3x7x19    priced  vector loops 1; = oracle true; = scalar true; 2 copies
-    matmul 3x7x19    forced  vector loops 1; = oracle true; = scalar true; 2 copies |}]
+    matmul 3x7x19    priced  vector loops 1; = oracle true; = scalar true; 6 copies
+    matmul 3x7x19    forced  vector loops 1; = oracle true; = scalar true; 6 copies |}]
 
 (* Narrow storage read straight to binary32 under [Fp32_ordered], scalar and
    vectorized (forced neon128): every 16th binary16 and bfloat16 encoding,

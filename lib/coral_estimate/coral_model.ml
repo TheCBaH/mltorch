@@ -41,7 +41,9 @@ let contract (core : Core.t) (call : Coral_census.Contract_call.t) w =
       let cols_k = Int64.mul b (Int64.mul (Int64.mul d.Contraction.n mt) k) in
       let p =
         Printf.sprintf "zvt.%s%s" (format_name d)
-          (if core.Core.packed d then ".packed" else "")
+          (if call.Coral_census.Contract_call.view then ".view"
+           else if core.Core.packed d then ".packed"
+           else "")
       in
       [
         (p ^ ".call", w);

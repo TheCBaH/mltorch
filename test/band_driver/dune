@@ -2,6 +2,7 @@
 
 (library
  (name band_driver_test)
+ (modules band_driver_test)
  (libraries
   band_driver
   band_schedule
@@ -9,6 +10,7 @@
   err_trace
   f32_math
   fmt
+  machine_ir
   machine_lower
   ssa_c
   ssa_ir
@@ -17,3 +19,17 @@
  (inline_tests)
  (preprocess
   (pps ppx_expect)))
+
+; The driver chains as data, shared with the suites that run them on a target.
+
+(library
+ (name band_chains)
+ (modules band_chains)
+ (libraries
+  band_driver
+  band_schedule
+  err_trace
+  f32_math
+  fmt
+  machine_ir
+  ssa_ir))

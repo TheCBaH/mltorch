@@ -106,7 +106,7 @@ let fp32_vector ?(alias = Ssa_effects.Conservative) ?contract ?bf16
                ~unroll:(Ssa_target.f32 target).Ssa_target.unroll ~alias q)
         in
         let q, blocked =
-          Ssa_opt_rows.program
+          Ssa_opt_rows.program ~tail:(Ssa_target.f32 target).Ssa_target.row_tail
             ~rows:(Ssa_target.f32 target).Ssa_target.row_block ~policy:alias q
         in
         let q = run ~alias (after ~alias) q in
@@ -160,7 +160,8 @@ let reference ~alias ~numerics ~refusal ?target (p : Ssa_program.t) =
         fst (Ssa_opt_unroll.pass ~unroll:target.Ssa_target.unroll ~alias q)
       in
       let q, blocked =
-        Ssa_opt_rows.program ~rows:target.Ssa_target.row_block ~policy:alias q
+        Ssa_opt_rows.program ~tail:target.Ssa_target.row_tail
+          ~rows:target.Ssa_target.row_block ~policy:alias q
       in
       {
         numerics;
@@ -210,8 +211,8 @@ let simd_fp32 ~alias ~numerics ~target (p : Ssa_program.t) =
             (Ssa_opt_unroll.pass ~unroll:f32_target.Ssa_target.unroll ~alias q)
         in
         let q, blocked =
-          Ssa_opt_rows.program ~rows:f32_target.Ssa_target.row_block
-            ~policy:alias q
+          Ssa_opt_rows.program ~tail:f32_target.Ssa_target.row_tail
+            ~rows:f32_target.Ssa_target.row_block ~policy:alias q
         in
         let q = run ~alias (after ~alias) q in
         {

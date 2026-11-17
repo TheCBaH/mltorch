@@ -22,6 +22,7 @@ val arguments : Ssa_ir.Ssa_program.t -> Ssa_ir.Ssa_buffer.t list
 val kernel :
   ?buffers:Ssa_ir.Ssa_buffer.t list ->
   ?sites:Loop_ir.Loop_failure.t array ->
+  ?accumulate:Ssa_ir.Ssa_cfg_lower.Accumulate.t ->
   name:string ->
   Ssa_ir.Ssa_program.t ->
   (Loop_ir.Loop_c_kernel.t * Loop_ir.Loop_failure.t array, error) result
@@ -33,4 +34,8 @@ val kernel :
     index of the first entry that names the same failure and local variable, one
     past the end if none does (a check the table's own program proved can never
     fire, which a decoder reports as a defect), and the table is what is
-    returned. *)
+    returned. [accumulate] (default [Add]) is how an ordered sum takes its term,
+    as {!Ssa_ir.Ssa_cfg_lower.accumulate}: under [Fuse_products] a term the body
+    makes as one product becomes [fma (x, y, acc)], one rounding a step. The
+    caller sets it from the numerics policy; it is the program's contraction
+    decision for the one place the program has no operation to hold it. *)

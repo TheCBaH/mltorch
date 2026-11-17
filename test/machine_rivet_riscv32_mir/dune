@@ -7,6 +7,8 @@
 (library
  (name machine_rivet_riscv32_mir_test)
  (libraries
+  band_chains
+  band_driver
   coralnpu_kernels
   fmt
   loop_ir

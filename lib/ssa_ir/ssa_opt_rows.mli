@@ -19,15 +19,20 @@
 
     Applied to a loop with constant bounds that directly holds one vector loop
     whose body is setup, one ordered sum and its stores. A row loop with a
-    remainder loop beside the vector loop is left as it was. *)
+    remainder loop beside the vector loop is left as it was unless [tail]. *)
 
 val program :
+  ?tail:bool ->
   rows:Ssa_blocking.Rows.t ->
   policy:Ssa_effects.policy ->
   Ssa_program.t ->
   Ssa_program.t * int
 (** [rows] is the target's block factor ({!Ssa_target.t}[.row_block]); fewer
-    than two blocks nothing. The result and how many loops were blocked. *)
+    than two blocks nothing. [tail] (default [false]) also takes a row loop
+    whose vector loop is followed by a scalar loop (the lanes a vector width
+    leaves): the tail is repeated per row after the jammed vector loop, which
+    grows the code by the rows factor; {!Ssa_target.t}[.row_tail] says whether a
+    target pays for it. The result and how many loops were blocked. *)
 
 (** Why a row loop was left alone. *)
 type refusal =
@@ -44,6 +49,7 @@ type refusal =
 val refusal_name : refusal -> string
 
 val analyze :
+  ?tail:bool ->
   rows:Ssa_blocking.Rows.t ->
   policy:Ssa_effects.policy ->
   Ssa_program.t ->

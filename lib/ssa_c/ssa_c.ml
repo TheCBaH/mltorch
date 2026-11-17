@@ -173,7 +173,32 @@ and stmt cx depth ~limits (s : Ssa_region.t Ssa_stmt.t) =
         ivn bound ivn;
       region cx (depth + 2) ~limits body;
       let term = List.hd body.Ssa_region.yields in
-      line cx (depth + 2) "%s = %s + %s;" acc acc (name cx term);
+      let product =
+        List.find_map
+          (function
+            | Ssa_stmt.Instr { Ssa_instr.results = [ r ]; op; _ }
+              when Ssa_id.Value.equal r.Ssa_value.id term.Ssa_value.id -> (
+                match op with
+                | Ssa_op.Float_binary (Expr.Value.Mul, x, y)
+                | Ssa_op.Lanewise (Ssa_op.Float_binary (Expr.Value.Mul, x, y))
+                  ->
+                    Some (x, y)
+                | _ -> None)
+            | _ -> None)
+          body.Ssa_region.body
+      in
+      (match (cx.accumulate, product, term.Ssa_value.ty) with
+      | Ssa_cfg_lower.Accumulate.Fuse_products, Some (x, y), Ssa_type.Vec _ ->
+          line cx (depth + 2) "%s = %s;" acc
+            (Ssa_c_op.lane_fma cx ~ty:term.Ssa_value.ty (name cx x) (name cx y)
+               acc)
+      | ( Ssa_cfg_lower.Accumulate.Fuse_products,
+          Some (x, y),
+          Ssa_type.Scalar ((Ssa_type.F32 | Ssa_type.F64) as e) ) ->
+          line cx (depth + 2) "%s = %s(%s, %s, %s);" acc
+            (if e = Ssa_type.F32 then "fmaf" else "fma")
+            (name cx x) (name cx y) acc
+      | _ -> line cx (depth + 2) "%s = %s + %s;" acc acc (name cx term));
       line cx (depth + 1) "}";
       (match results with
       | sum :: _ ->
@@ -182,7 +207,7 @@ and stmt cx depth ~limits (s : Ssa_region.t Ssa_stmt.t) =
       | [] -> ());
       line cx depth "}"
 
-let kernel ?buffers ?sites ~name:fname (p : Ssa_program.t) =
+let kernel ?buffers ?sites ?accumulate ~name:fname (p : Ssa_program.t) =
   (match Err.payload (Ssa_verify.check p) with
   | Ok () -> ()
   | Error e ->
@@ -193,7 +218,7 @@ let kernel ?buffers ?sites ~name:fname (p : Ssa_program.t) =
   Err.export ~pos:__POS__ ~pp_error
   @@ Err.Escape.with_escape
   @@ fun esc ->
-  let cx = Ssa_c_ctx.create ?site_table:sites ~esc buffers in
+  let cx = Ssa_c_ctx.create ?site_table:sites ?accumulate ~esc buffers in
   let params, limits =
     let params =
       List.map

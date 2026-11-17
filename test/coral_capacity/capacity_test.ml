@@ -179,3 +179,58 @@ let%expect_test "candidates: the over-budget one is rejected, the rest placed" =
     placed mobilenetv2_050 pointwise 8 -> 48 at 112x112
     rejected big: code: 8193 bytes needed, 8192 budget
     none fit: big 8193 over 8192 |}]
+
+(* Three candidates for one segment: [dear] and [cheap] fit, [big] is over the
+   ITCM budget; [twin] costs what [cheap] does. Cost is the fitted VME rates
+   over a census of f32 operations alone. *)
+let census ops =
+  {
+    Coral_estimate.Coral_census.counts =
+      [ (Coral_estimate.Coral_census.Class.F32_op, ops) ];
+    contracts = [];
+    attends = [];
+    bodies = [];
+    unknown = 0;
+  }
+
+let candidate ?(code = fused) name ops =
+  {
+    Capacity.Candidate.census = census ops;
+    image = { (Witness.pointwise_mobilenetv2_050 ~code) with Image.name };
+  }
+
+let core = Coral_estimate.Coral_model.Core.vme ~packed:(fun _ -> false)
+
+let select cands =
+  Capacity.select rtl ~core ~rates:Coral_estimate.Coral_rates.vme cands
+
+let%expect_test "select: the cheapest candidate that fits" =
+  let cands =
+    [
+      candidate ~code:(Code_bytes.of_int64 8_193L) "big" 1.;
+      candidate "dear" 1000.;
+      candidate "twin" 10.;
+      candidate "cheap" 10.;
+    ]
+  in
+  (match Err.payload (select cands) with
+  | Ok s ->
+      Fmt.pr "chose %s (%.2f)@." s.name s.cycles;
+      List.iter (fun (n, c) -> Fmt.pr "  %s %.2f@." n c) s.ranked;
+      List.iter
+        (fun (r : Capacity.Admission.rejection) ->
+          Fmt.pr "rejected %s: %a@." r.name Capacity.pp_error r.reason)
+        s.rejected
+  | Error _ -> Fmt.pr "none fit@.");
+  [%expect
+    {|
+    chose cheap (47.11)
+      cheap 47.11
+      twin 47.11
+      dear 4711.00
+    rejected big: code: 8193 bytes needed, 8192 budget |}];
+  match Err.payload (select [ List.hd cands ]) with
+  | Error (`None_fit [ { Capacity.Admission.name; _ } ]) ->
+      Fmt.pr "none fit: %s@." name;
+      [%expect {| none fit: big |}]
+  | Ok _ | Error _ -> Fmt.pr "not the typed refusal@."

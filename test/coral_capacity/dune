@@ -4,7 +4,7 @@
 (library
  (name coral_capacity_test)
  (modules capacity_test)
- (libraries coral_capacity coralnpu err_trace fmt)
+ (libraries coral_capacity coral_estimate coralnpu err_trace fmt)
  (inline_tests
   (deps ../coralnpu/fragment.json))
  (preprocess
@@ -17,7 +17,7 @@
 (executable
  (name witness_placed)
  (modules witness_placed)
- (libraries coral_capacity coralnpu err_trace fmt))
+ (libraries coral_capacity coral_estimate coralnpu err_trace fmt))
 
 (cram
  (applies_to witness)

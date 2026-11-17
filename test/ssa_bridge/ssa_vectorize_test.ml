@@ -534,3 +534,59 @@ let%expect_test "wide values of a narrowed vector plan" =
     {|
     narrowed form: v20 : vec<x16,f64> = vec.load, v24 : vec<x16,f64> = lanes.convert.f32_to_f64
     fp32 vector: [] |}]
+
+(* ---- a bound the ranges pin to one value -------------------------------------- *)
+
+(* A convolution window's bounds are clamped by the output position, so they are
+   computed from the iteration, but for a 1x1 kernel the ranges pin them to the
+   constants 0 and 1. A target that counts such a value as uniform vectorizes
+   the pixel loop around the window; one that does not keeps it scalar, as
+   [index.clamp_low] of an affine value is not itself affine. *)
+let window_loop =
+  loop ~trips:16 (fun bld w ->
+      let lo = B.index_clamp_low bld (B.index_scale bld (-1L) w) in
+      let hi =
+        B.index_min bld (idx bld 1)
+          (B.index_add bld (idx bld 16) (B.index_scale bld (-1L) w))
+      in
+      let sum =
+        B.ordered_sum bld ~lo ~hi ~seed:(B.f64 bld 0.) (fun bld k ->
+            B.mark bld Ssa_mark.Reduction;
+            load_at bld 0 (B.index_add bld w k))
+      in
+      store_at bld 1 w sum)
+
+let%expect_test
+    "a bound the ranges pin to one value keeps the loop vectorizable" =
+  let p = prepared window_loop in
+  let neon = Ssa_target.with_inner_loops true Ssa_target.neon128 in
+  let wide t = Ssa_target.f32 (Ssa_target.forced t) in
+  List.iter
+    (fun (name, t) ->
+      Fmt.pr "%s: " name;
+      decisions ~target:(wide t) p)
+    [
+      ("point uniform", Ssa_target.with_point_uniform true neon);
+      ("not point uniform", Ssa_target.with_point_uniform false neon);
+      ("neon128", Ssa_target.neon128);
+    ];
+  let vec =
+    fst
+      (Ssa_vectorize.program ~alias
+         ~target:
+           (Ssa_target.with_point_uniform true
+              (Ssa_target.with_inner_loops true
+                 (Ssa_target.forced Ssa_target.neon128)))
+         p)
+  in
+  let expanded = Ssa_vec_expand.program vec in
+  let reference = run_cells p input in
+  Fmt.pr "vector=%b expansion=%b@."
+    (same_cells reference (run_cells vec input))
+    (same_cells reference (run_cells expanded input));
+  [%expect
+    {|
+    point uniform: vectorized (16 trips)
+    not point uniform: scalar: non_affine_access
+    neon128: vectorized (16 trips)
+    vector=true expansion=true |}]

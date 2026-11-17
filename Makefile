@@ -793,6 +793,15 @@ ssa.route.pt2.perf: pt2.download-cram
 	  ./_build/default/test/ssa_route/ssa_route_perf.exe $(PT2_DIR)/$$m/$$m.pt2 || exit 1; \
 	done
 
+# The SSA-against-Loop row: the Loop emitter's kernel (old) against the
+# structured planned SSA kernel (new), same numerics and target, same pairing
+# and pass rule as ssa.route.pt2.perf.
+ssa.loop.perf: pt2.download-cram
+	opam exec -- dune build test/ssa_route/ssa_route_perf.exe
+	rc=0; for m in $(SSA_ROUTE_MODELS); do \
+	  ./_build/default/test/ssa_route/ssa_route_perf.exe $(PT2_DIR)/$$m/$$m.pt2 loop || rc=1; \
+	done; exit $$rc
+
 # Exception ratchet: every exception declared in lib/ is listed in
 # scripts/exceptions-allowlist.txt with a category; a walk exit should be an
 # Err.Escape, so the escape-candidate ceiling only goes down.

@@ -8,8 +8,16 @@
  (libraries
   core
   err_trace
+  band_driver
+  band_chains
+  band_schedule
+  contraction
+  ctypes
+  ctypes.foreign
   expr
+  f32_math
   fmt
+  loop_c_exec
   loop_ir
   loop_ir_test
   machine_alloc

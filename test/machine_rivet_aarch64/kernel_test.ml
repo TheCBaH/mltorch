@@ -394,8 +394,8 @@ let%expect_test "vector kernels: the forms they use, and GNU's reading of them"
     ~bind:(bind_data ~shape (vdata 37));
   [%expect
     {|
-    82 vector instructions, 0 fmla, 0 fmadd, 0 ld1r; agree (2 segments, 1168 bytes, 5 symbols)
-    82 vector instructions, 0 fmla, 0 fmadd, 0 ld1r; agree (2 segments, 1168 bytes, 5 symbols)
+    230 vector instructions, 0 fmla, 0 fmadd, 0 ld1r; agree (2 segments, 2916 bytes, 5 symbols)
+    230 vector instructions, 0 fmla, 0 fmadd, 0 ld1r; agree (2 segments, 2916 bytes, 5 symbols)
     28 vector instructions, 0 fmla, 0 fmadd, 0 ld1r; agree (2 segments, 548 bytes, 4 symbols) |}]
 
 let%expect_test "contracted vector kernels, natively and with the ABI probe" =

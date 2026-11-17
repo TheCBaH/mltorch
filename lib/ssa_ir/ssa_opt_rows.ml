@@ -21,6 +21,9 @@ type shape = {
   h : Ssa_value.t;
   setup : Ssa_region.t Ssa_stmt.t list;
   inner : inner;
+  tail : Ssa_region.t Ssa_stmt.t option;
+      (** a scalar loop after the vector one (the lanes a vector width leaves),
+          run once per row after the jammed vector loop *)
 }
 
 let pure_instrs stmts =
@@ -53,7 +56,7 @@ let refusal_name = function
   | Trips_unknown -> "the row count is not a constant"
 
 (* The loop and what it holds, or the condition that failed. *)
-let recognize ~policy ranges (s : Ssa_region.t Ssa_stmt.t) :
+let recognize ~tail:allow_tail ~policy ranges (s : Ssa_region.t Ssa_stmt.t) :
     (shape, refusal) result =
   let ( let* ) = Result.bind in
   let need why = function Some x -> Ok x | None -> Error why in
@@ -77,11 +80,13 @@ let recognize ~policy ranges (s : Ssa_region.t Ssa_stmt.t) :
       in
       (* [setup], one loop, nothing else *)
       let rec split acc = function
-        | (Ssa_stmt.For _ as v) :: [] -> Some (List.rev acc, v)
+        | (Ssa_stmt.For _ as v) :: [] -> Some (List.rev acc, v, None)
+        | (Ssa_stmt.For _ as v) :: [ (Ssa_stmt.For _ as t) ] when allow_tail ->
+            Some (List.rev acc, v, Some t)
         | (Ssa_stmt.Instr _ as i) :: rest -> split (i :: acc) rest
         | _ -> None
       in
-      let* setup, v = need Shape (split [] body.Ssa_region.body) in
+      let* setup, v, tail = need Shape (split [] body.Ssa_region.body) in
       if not (pure_instrs setup) then Error Shape
       else
         match v with
@@ -91,7 +96,7 @@ let recognize ~policy ranges (s : Ssa_region.t Ssa_stmt.t) :
               hi = vhi;
               step;
               inits = [ _ ];
-              results = [ _ ];
+              results = [ vres ];
               body = vbody;
             } -> (
             let* iv =
@@ -128,7 +133,8 @@ let recognize ~policy ranges (s : Ssa_region.t Ssa_stmt.t) :
                   if not (pure_instrs pre && instrs_only post) then Error Shape
                   else
                     let derived =
-                      Ssa_opt_block.derived_from h (setup @ pre @ post)
+                      Ssa_opt_block.derived_from h
+                        (setup @ pre @ post @ Option.to_list tail)
                     in
                     let is_h (v : Ssa_value.t) = Ssa_value.equal v h in
                     let depends (v : Ssa_value.t) =
@@ -154,6 +160,83 @@ let recognize ~policy ranges (s : Ssa_region.t Ssa_stmt.t) :
                            (fun v -> is_h v || not (depends v))
                            components
                     in
+                    (* The tail runs after every row's vector loop instead of
+                       between them, so it must commute with the next row's
+                       vector loop: no buffer one reads the other may write,
+                       and its stores are per row as the vector loop's are. *)
+                    let tail_ok =
+                      match tail with
+                      | None -> Ok ()
+                      | Some
+                          (Ssa_stmt.For
+                             {
+                               lo = tlo;
+                               hi = thi;
+                               step = 1L;
+                               inits = [ tinit ];
+                               results = [ _ ];
+                               body = tbody;
+                             }) -> (
+                          let ts = Ssa_effects.of_region tbody in
+                          let reads_written (a : Ssa_effects.summary)
+                              (w : Ssa_effects.summary) =
+                            Ssa_id.Buffer.Set.exists
+                              (fun b -> Ssa_effects.may_write policy w b)
+                              a.Ssa_effects.reads
+                          in
+                          let rec tail_stores stmts =
+                            List.fold_left
+                              (fun acc s ->
+                                match (acc, s) with
+                                | None, _ -> None
+                                | ( Some l,
+                                    Ssa_stmt.Instr
+                                      {
+                                        Ssa_instr.op =
+                                          ( Ssa_op.Store
+                                              { at = Ssa_access.Coord c; _ }
+                                          | Ssa_op.Vec_store { at = c; _ } );
+                                        _;
+                                      } ) ->
+                                    Some (Expr.Coord.to_list c :: l)
+                                | ( Some _,
+                                    Ssa_stmt.Instr
+                                      { Ssa_instr.op = Ssa_op.Store _; _ } ) ->
+                                    None
+                                | Some l, Ssa_stmt.Instr _ -> Some l
+                                | ( Some l,
+                                    ( Ssa_stmt.For { body; _ }
+                                    | Ssa_stmt.Ordered_sum { body; _ } ) ) ->
+                                    Option.map
+                                      (fun m -> m @ l)
+                                      (tail_stores body.Ssa_region.body)
+                                | Some l, Ssa_stmt.If { then_; else_; _ } ->
+                                    Option.bind
+                                      (tail_stores then_.Ssa_region.body)
+                                      (fun a ->
+                                        Option.map
+                                          (fun b -> a @ b @ l)
+                                          (tail_stores else_.Ssa_region.body)))
+                              (Some []) stmts
+                          in
+                          if not (Ssa_value.equal tinit vres) then Error Shape
+                          else if ts.Ssa_effects.may_fail then Error May_fail
+                          else if ts.Ssa_effects.meter || ts.Ssa_effects.locals
+                          then Error Meter_or_locals
+                          else if depends tlo || depends thi then
+                            Error Bounds_vary
+                          else if
+                            reads_written ts ts || reads_written ts summary
+                            || reads_written summary ts
+                          then Error Reads_written_buffer
+                          else
+                            match tail_stores tbody.Ssa_region.body with
+                            | Some (_ :: _ as l) when List.for_all independent l
+                              ->
+                                Ok ()
+                            | Some _ | None -> Error Stores_not_independent)
+                      | Some _ -> Error Shape
+                    in
                     if
                       depends sum_lo || depends sum_hi || depends vlo
                       || depends vhi
@@ -166,6 +249,7 @@ let recognize ~policy ranges (s : Ssa_region.t Ssa_stmt.t) :
                     else if stores = [] || not (List.for_all independent stores)
                     then Error Stores_not_independent
                     else
+                      let* () = tail_ok in
                       Ok
                         {
                           trips;
@@ -173,6 +257,7 @@ let recognize ~policy ranges (s : Ssa_region.t Ssa_stmt.t) :
                           hi = hi_c;
                           h;
                           setup;
+                          tail;
                           inner =
                             {
                               lo = vlo;
@@ -255,12 +340,26 @@ let build t ~factor (shape : shape) (original : Ssa_region.t Ssa_stmt.t) ~inits
           };
       }
   in
+  (* each row's tail after the jammed vector loop, chained on the effect *)
+  let tails, final =
+    match shape.tail with
+    | None -> ([], v_results)
+    | Some original_tail ->
+        List.fold_left
+          (fun (acc, eff) (_, cl) ->
+            match Ssa_clone.stmt cl original_tail with
+            | Ssa_stmt.For f ->
+                ( acc @ [ Ssa_stmt.For { f with inits = [ eff ] } ],
+                  List.hd f.results )
+            | _ -> invalid_arg "Ssa_opt_rows: the tail is a loop")
+          ([], v_results) rows
+  in
   let outer_body =
     {
       Ssa_region.id = Ssa_clone.fresh_region (Ssa_clone.create t ~subst:[]);
       params = [ h'; eff' ];
-      body = List.concat_map fst rows @ [ vloop ];
-      yields = [ v_results ];
+      body = List.concat_map fst rows @ (vloop :: tails);
+      yields = [ final ];
     }
   in
   let e_full = Ssa_rewrite.fresh t Ssa_type.Effect in
@@ -311,7 +410,7 @@ let build t ~factor (shape : shape) (original : Ssa_region.t Ssa_stmt.t) ~inits
   | _ -> invalid_arg "Ssa_opt_rows: the loop's results");
   [ lo_i; fhi_i; full ] @ rest
 
-let program ~rows ~policy (p : Ssa_program.t) =
+let program ?(tail = false) ~rows ~policy (p : Ssa_program.t) =
   let rows = (rows : Ssa_blocking.Rows.t :> int) in
   let blocked = ref 0 in
   if rows < 2 then (p, 0)
@@ -320,7 +419,7 @@ let program ~rows ~policy (p : Ssa_program.t) =
     let rule t (s : Ssa_region.t Ssa_stmt.t) =
       match s with
       | Ssa_stmt.For { inits; results; _ } -> (
-          match recognize ~policy ranges s with
+          match recognize ~tail ~policy ranges s with
           | Ok shape ->
               (* a body that carries several accumulators leaves registers for
                  fewer rows; this one carries one *)
@@ -336,7 +435,7 @@ let program ~rows ~policy (p : Ssa_program.t) =
     (q, !blocked)
 
 (* Every loop that is a candidate by its outer shape and what became of it. *)
-let analyze ~rows ~policy (p : Ssa_program.t) =
+let analyze ?(tail = false) ~rows ~policy (p : Ssa_program.t) =
   let rows = (rows : Ssa_blocking.Rows.t :> int) in
   let ranges = Ssa_range.analyze p in
   let out = ref [] in
@@ -344,7 +443,7 @@ let analyze ~rows ~policy (p : Ssa_program.t) =
   and stmt (s : Ssa_region.t Ssa_stmt.t) =
     (match s with
     | Ssa_stmt.For { body; _ } -> (
-        match recognize ~policy ranges s with
+        match recognize ~tail ~policy ranges s with
         | Ok shape ->
             let factor = Stdlib.min (Int64.to_int shape.trips) rows in
             out :=

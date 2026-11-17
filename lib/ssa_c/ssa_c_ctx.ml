@@ -37,10 +37,19 @@ type t = {
   out : Buffer.t;
   buffers : Ssa_buffer.t list;
   site_table : Loop_ir.Loop_failure.t array option;
+  accumulate : Ssa_ir.Ssa_cfg_lower.Accumulate.t;
+      (** how an ordered sum takes its term, as for the CFG lowering *)
+  narrow_masks : string Ssa_ir.Ssa_id.Value.Tbl.t;
+      (** a mask made by a binary32 comparison, by the variable that also holds
+          it in the comparison's own 32-bit lanes: a select over binary32 lanes
+          takes that one, where the 64-bit mask would be narrowed again *)
 }
 
-let create ?site_table ~esc buffers =
+let create ?site_table ?(accumulate = Ssa_ir.Ssa_cfg_lower.Accumulate.Add) ~esc
+    buffers =
   {
+    accumulate;
+    narrow_masks = Ssa_ir.Ssa_id.Value.Tbl.create 8;
     esc;
     names = Ssa_ir.Ssa_id.Value.Tbl.create 64;
     decls = [];

@@ -66,6 +66,12 @@ type t = {
   inner_loops : bool;
       (** whether a vector loop may hold inner loops (reductions run per lane in
           lockstep): measured to pay on Wasm and to lose on native C *)
+  point_uniform : bool;
+      (** whether an index value the program's ranges pin to one value counts as
+          uniform across the lanes even when it is computed from the induction
+          value (a window bound clamped by the padding, which a 1x1 kernel makes
+          constant): the pixel axis of a convolution with fewer output channels
+          than lanes then vectorizes. Off where unmeasured *)
   fma : bool;
       (** whether the target has a guaranteed fused multiply-add the plan may
           use under a policy that permits contraction: native NEON does (through
@@ -78,6 +84,10 @@ type t = {
       (** how many consecutive iterations of a scalar loop around a vector loop
           one blocked iteration covers (see {!Ssa_opt_block}); 1 is no blocking.
           Registers, not lanes, bound it: each row holds its own accumulators *)
+  row_tail : bool;
+      (** whether a row loop whose vector loop is followed by a scalar tail is
+          blocked too, the tail repeated per row (code grows by the row factor:
+          paid by a host target, not by an embedded one) *)
   unroll : Ssa_blocking.Unroll.t;
       (** how many consecutive trips of a vector loop one unrolled trip covers,
           its copies interleaved ({!Ssa_opt_unroll}); 1 is no unrolling. A
@@ -132,6 +142,9 @@ val forced : t -> t
 val with_inner_loops : bool -> t -> t
 (** The same target with vector loops that hold inner loops allowed or not, at
     every precision. *)
+
+val with_point_uniform : bool -> t -> t
+(** The same target with {!t.point_uniform} set, at every precision. *)
 
 val with_row_block : Ssa_blocking.Rows.t -> t -> t
 (** The same target with another row-block factor, at every precision. *)

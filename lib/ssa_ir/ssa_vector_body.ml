@@ -97,11 +97,17 @@ let float_result (r : Ssa_value.t) =
   | Ssa_type.Scalar (Ssa_type.F32 | Ssa_type.F64 | Ssa_type.Pred) -> true
   | _ -> false
 
-let classify_instr esc kinds (i : Ssa_instr.t) =
+let classify_instr ~point esc kinds (i : Ssa_instr.t) =
   let op = i.Ssa_instr.op in
   let result () = List.hd i.Ssa_instr.results in
   let kind v = kind_of kinds v in
   match op with
+  | Ssa_op.Index_add_in_domain _ | Ssa_op.Index_ceil_div _
+  | Ssa_op.Index_clamp_low _ | Ssa_op.Index_floor_div _ | Ssa_op.Index_max _
+  | Ssa_op.Index_min _ | Ssa_op.Index_scale_in_domain _
+    when point (result ()) ->
+      (* total and pure, and the same value in every lane whatever its operands *)
+      set kinds (result ()) Uni
   | Ssa_op.Const _ -> set kinds (result ()) Uni
   | Ssa_op.Index_add_in_domain (a, b) ->
       set kinds (result ()) (add_kinds esc (kind a) (kind b))
@@ -176,8 +182,9 @@ let classify_instr esc kinds (i : Ssa_instr.t) =
 (* The kind of a carried value: a vector once anything that can reach it is one.
    Iterated to a fixed point, because a yield that varies makes its parameter
    vary, which can make another yield vary in turn. *)
-let rec classify_stmt esc kinds : Ssa_region.t Ssa_stmt.t -> unit = function
-  | Ssa_stmt.Instr i -> classify_instr esc kinds i
+let rec classify_stmt ~point esc kinds : Ssa_region.t Ssa_stmt.t -> unit =
+  function
+  | Ssa_stmt.Instr i -> classify_instr ~point esc kinds i
   | Ssa_stmt.If _ -> refuse esc Reason.Branch
   | Ssa_stmt.For f -> (
       if kind_of kinds f.lo <> Uni || kind_of kinds f.hi <> Uni then
@@ -194,7 +201,7 @@ let rec classify_stmt esc kinds : Ssa_region.t Ssa_stmt.t -> unit = function
               | Aff _ -> refuse esc Reason.Non_affine_access)
             carried f.inits;
           let rec fix () =
-            List.iter (classify_stmt esc kinds) f.body.Ssa_region.body;
+            List.iter (classify_stmt ~point esc kinds) f.body.Ssa_region.body;
             let changed = ref false in
             List.iter2
               (fun p y ->
@@ -218,7 +225,7 @@ let rec classify_stmt esc kinds : Ssa_region.t Ssa_stmt.t -> unit = function
       (match f.body.Ssa_region.params with
       | iv :: _ -> set kinds iv Uni
       | [] -> invalid_arg "Ssa_vectorize: a sum without an induction value");
-      List.iter (classify_stmt esc kinds) f.body.Ssa_region.body;
+      List.iter (classify_stmt ~point esc kinds) f.body.Ssa_region.body;
       let term = List.hd f.body.Ssa_region.yields in
       let k =
         match (kind_of kinds f.seed, kind_of kinds term) with

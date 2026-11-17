@@ -47,3 +47,32 @@ val admit :
   (Admission.t, [> `None_fit of Admission.rejection list ]) Err.t
 (** Each image through {!place}, in order, keyed by its name. [`None_fit] when
     the list is empty or none was placed. *)
+
+(** A candidate for selection: an image and the census of the program it runs.
+*)
+module Candidate : sig
+  type t = { census : Coral_estimate.Coral_census.t; image : Image.t }
+end
+
+module Selection : sig
+  type t = {
+    cycles : float;  (** the estimate of the chosen candidate *)
+    name : string;
+    placed : Placed.t;
+    ranked : (string * float) list;
+        (** every placed candidate and its estimate, cheapest first *)
+    rejected : Admission.rejection list;
+  }
+end
+
+val select :
+  Coral_profile.t ->
+  core:Coral_estimate.Coral_model.Core.t ->
+  rates:Coral_estimate.Coral_model.Rates.t ->
+  Candidate.t list ->
+  (Selection.t, [> `None_fit of Admission.rejection list ]) Err.t
+(** {!admit} the images, price each placed candidate's census with
+    {!Coral_estimate.Coral_model.features} and
+    {!Coral_estimate.Coral_model.Rates.predict}, and choose the cheapest. Equal
+    estimates go to the name that sorts first, then to the earlier candidate.
+    [`None_fit] as {!admit}. *)
