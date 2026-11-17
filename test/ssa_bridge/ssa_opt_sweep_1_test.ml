@@ -13,11 +13,11 @@ let%expect_test "optimizer sweep, slice 1 of 4" =
     eye                      agree=12 failed-alike=0 instrs 252 -> 138, checked 24 -> 0, loops 72 -> 36
     gelu                     agree=12 failed-alike=0 instrs 388 -> 238, checked 36 -> 0, loops 72 -> 36
     hardtanh                 agree=12 failed-alike=0 instrs 336 -> 132, checked 48 -> 0, loops 72 -> 36
-    lstm                     agree=12 failed-alike=0 instrs 16376 -> 5724, checked 3972 -> 192, loops 492 -> 484
+    lstm                     agree=12 failed-alike=0 instrs 16376 -> 5676, checked 3972 -> 0, loops 492 -> 484
     mean                     agree=12 failed-alike=0 instrs 328 -> 156, checked 12 -> 0, loops 100 -> 48
     mul_scalar_i64           agree=12 failed-alike=0 instrs 204 -> 102, checked 12 -> 0, loops 72 -> 36
     permute                  agree=12 failed-alike=0 instrs 192 -> 78, checked 12 -> 0, loops 72 -> 28
-    reshape                  agree=12 failed-alike=0 instrs 1348 -> 284, checked 1020 -> 12, loops 72 -> 12
+    reshape                  agree=12 failed-alike=0 instrs 1348 -> 284, checked 1020 -> 0, loops 72 -> 12
     sigmoid                  agree=12 failed-alike=0 instrs 276 -> 162, checked 12 -> 0, loops 72 -> 32
     sqrt                     agree=12 failed-alike=0 instrs 204 -> 104, checked 12 -> 0, loops 72 -> 38
     to_copy_bool             agree=12 failed-alike=0 instrs 264 -> 130, checked 12 -> 0, loops 72 -> 36

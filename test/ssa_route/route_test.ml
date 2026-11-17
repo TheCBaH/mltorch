@@ -390,5 +390,23 @@ let%expect_test
     b.Loop_ir.Loop_bundle.invocations;
   [%expect
     {|
-    invocation 0: direct instrs=23 checked=1, structured instrs=23 checked=1
+    invocation 0: direct instrs=23 checked=0, structured instrs=23 checked=0
     invocation 1: direct instrs=9 checked=0, structured instrs=9 checked=0 |}]
+
+(* The head split above is proved in bounds by range analysis alone (a
+   modulus of the coordinate), so it no longer exercises the repeated check.
+   A gather's coordinate is data, which no range can prove: the converter's
+   guard and the load it guards make the same check, and the structured
+   program must carry the one the load makes, no more than the direct one. *)
+let%expect_test "a gather's guard is not checked twice through the route" =
+  let open Loop_ir_test in
+  let open Failure_cases in
+  let plan = Fusion_plan.default Loop_programs.gather_kernel in
+  let checked = function
+    | Ok p -> (S.Ssa_stats.of_program p).S.Ssa_stats.checked
+    | Error e -> failwith e
+  in
+  Fmt.pr "direct checked=%d, structured checked=%d@."
+    (checked (Ok (direct plan)))
+    (checked (structured plan));
+  [%expect {| direct checked=4, structured checked=4 |}]
