@@ -122,7 +122,9 @@ let schedule ~(target : Ssa_target.t) info t (s : Ssa_region.t Ssa_stmt.t) =
         let stmts = Ssa_clone.stmts cl f.body.Ssa_region.body in
         let term' = Ssa_clone.value cl term
         and chain' = Ssa_clone.value cl chain in
-        List.iter (classify_stmt (body_escape esc) kinds) stmts;
+        List.iter
+          (classify_stmt ~point:(fun _ -> false) (body_escape esc) kinds)
+          stmts;
         if kind_of kinds term' <> Vec then keep esc Reason.Term_uniform;
         let out, v =
           in_region cx (fun () ->
@@ -362,7 +364,9 @@ let ordered ~(target : Ssa_target.t) info t (s : Ssa_region.t Ssa_stmt.t) =
         let stmts = Ssa_clone.stmts cl f.body.Ssa_region.body in
         let term' = Ssa_clone.value cl term
         and chain' = Ssa_clone.value cl chain in
-        List.iter (classify_stmt (body_escape esc) kinds) stmts;
+        List.iter
+          (classify_stmt ~point:(fun _ -> false) (body_escape esc) kinds)
+          stmts;
         if kind_of kinds term' <> Vec then keep esc Reason.Term_uniform;
         let out, v =
           in_region cx (fun () ->

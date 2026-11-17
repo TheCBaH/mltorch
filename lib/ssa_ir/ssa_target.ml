@@ -98,6 +98,7 @@ type t = {
   precision : Ssa_numerics.Precision.t;
   lanes : Ssa_type.Lanes.t;
   inner_loops : bool;
+  point_uniform : bool;
   fma : bool;
   relaxed_madd : bool;
   row_block : Ssa_blocking.Rows.t;
@@ -150,10 +151,11 @@ let expansion_overhead = 1.
    own sequential sum: measured on native NEON, eight lanes gave 1.5x over
    scalar binary64 on a dense matvec and sixteen 2.9x (see the fp32 design
    record). *)
-let rec make ?(inner_loops = fun _ -> true) ?(fma = false)
-    ?(relaxed_madd = false) ?(row_block = Ssa_blocking.Rows.of_int 1)
-    ?(row_tail = false) ?(unroll = Ssa_blocking.Unroll.of_int 1) ~name
-    ~vector_bits ~f64_lanes ~f32_lanes ~native ~native_cost precision =
+let rec make ?(inner_loops = fun _ -> true) ?(point_uniform = false)
+    ?(fma = false) ?(relaxed_madd = false)
+    ?(row_block = Ssa_blocking.Rows.of_int 1) ?(row_tail = false)
+    ?(unroll = Ssa_blocking.Unroll.of_int 1) ~name ~vector_bits ~f64_lanes
+    ~f32_lanes ~native ~native_cost precision =
   let lanes =
     match precision with
     | Ssa_numerics.Precision.F32 -> f32_lanes
@@ -177,6 +179,7 @@ let rec make ?(inner_loops = fun _ -> true) ?(fma = false)
     precision;
     lanes = Ssa_type.Lanes.of_int lanes;
     inner_loops = inner_loops precision;
+    point_uniform;
     fma;
     relaxed_madd;
     row_block;
@@ -186,7 +189,8 @@ let rec make ?(inner_loops = fun _ -> true) ?(fma = false)
     cost;
     at =
       (fun p ->
-        make ~inner_loops ~fma ~relaxed_madd ~row_block ~row_tail ~unroll
+        make ~inner_loops ~point_uniform ~fma ~relaxed_madd ~row_block ~row_tail
+          ~unroll
           ~name:
             (match precision with
             | Ssa_numerics.Precision.F32 ->
@@ -259,7 +263,7 @@ let neon ~f32_lanes ~name =
   make
     ~inner_loops:(function
       | Ssa_numerics.Precision.F32 -> true | Ssa_numerics.Precision.F64 -> false)
-    ~fma:true
+    ~point_uniform:true ~fma:true
     ~row_block:(Ssa_blocking.Rows.of_int 2)
     ~row_tail:true ~name ~vector_bits ~f64_lanes:4 ~f32_lanes ~native
     ~native_cost:(fun ~precision ~lanes op ->
@@ -330,6 +334,7 @@ let rec scalar =
     precision = Ssa_numerics.Precision.F64;
     lanes = Ssa_type.Lanes.of_int 1;
     inner_loops = false;
+    point_uniform = false;
     fma = false;
     relaxed_madd = false;
     row_block = Ssa_blocking.Rows.of_int 1;
@@ -353,6 +358,13 @@ let rec forced t =
 
 let rec with_inner_loops inner_loops t =
   { t with inner_loops; at = (fun p -> with_inner_loops inner_loops (t.at p)) }
+
+let rec with_point_uniform point_uniform t =
+  {
+    t with
+    point_uniform;
+    at = (fun p -> with_point_uniform point_uniform (t.at p));
+  }
 
 let rec with_row_block row_block t =
   { t with row_block; at = (fun p -> with_row_block row_block (t.at p)) }

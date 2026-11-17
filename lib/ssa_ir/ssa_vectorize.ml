@@ -56,7 +56,14 @@ let attempt ~policy ~elements ~(target : Ssa_target.t) info t
         let iv = List.hd f.body.Ssa_region.params in
         let kinds = Ssa_id.Value.Tbl.create 64 in
         set kinds iv (Aff 1L);
-        List.iter (classify_stmt esc kinds) f.body.Ssa_region.body;
+        let point (v : Ssa_value.t) =
+          target.Ssa_target.point_uniform
+          &&
+          match Ssa_range.range info.ranges v with
+          | Ssa_range.Range r -> Int64.equal r.lo r.hi
+          | Ssa_range.Empty -> false
+        in
+        List.iter (classify_stmt ~point esc kinds) f.body.Ssa_region.body;
         check_memory esc ~policy f.body.Ssa_region.body;
         let cx =
           make_ctx ~esc ~t ~program:info.program ~kinds ~consts:info.consts
