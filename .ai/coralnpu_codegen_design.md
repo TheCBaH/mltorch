@@ -245,7 +245,14 @@ rows' A values load by `flw` before B's row (`vle32.v` contiguous, else
 `vlse32.v`); C stores by `vse32.v`/`vsse32.v`. It saves `s0`-`s3`, uses only
 caller-saved registers otherwise, and leaves the vector configuration
 undefined, which the module writer already assumes after a call. A seed from
-the output is refused (the rewrite never makes one). Under qemu at VLEN 128
+the output loads each row group's accumulators from C's own 32-bit words
+(binary32, bfloat16 and integer products alike: the accumulator is C's
+element), so the sum continues in the reference's rounding order. The matrix
+engine's function does the same: the tile is loaded under the binary32
+configuration, then the compute configuration is set over it, as the stores
+do in reverse. With C by the DMA each ring chain also carries the incoming
+block's C into the half, after the other half's C has gone out of it (one
+descriptor chain, in that order, since both use the same half). Under qemu at VLEN 128
 and 1024 every matrix-product fixture is bitwise against its policy's
 oracle; A's row stride off by one element and a last tile one lane short are
 caught.
