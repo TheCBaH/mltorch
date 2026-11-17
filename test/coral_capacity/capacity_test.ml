@@ -224,10 +224,10 @@ let%expect_test "select: the cheapest candidate that fits" =
   | Error _ -> Fmt.pr "none fit@.");
   [%expect
     {|
-    chose cheap (47.11)
-      cheap 47.11
-      twin 47.11
-      dear 4711.00
+    chose cheap (19.97)
+      cheap 19.97
+      twin 19.97
+      dear 1997.00
     rejected big: code: 8193 bytes needed, 8192 budget |}];
   match Err.payload (select [ List.hd cands ]) with
   | Error (`None_fit [ { Capacity.Admission.name; _ } ]) ->

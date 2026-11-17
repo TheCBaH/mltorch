@@ -137,6 +137,7 @@ let priors =
     ("class.vec_load_dtcm", 4.);
     ("class.vec_load_ram", 7.);
     ("class.vec_store_dtcm", 4.);
+    ("class.vec_store_strided_dtcm", 7.);
     ("class.vec_store_ram", 8.);
   ]
 
@@ -196,58 +197,60 @@ let%expect_test "rates" =
   List.iter (fun (k, v) -> Fmt.pr "%-28s %10.3f@." k v) rates;
   [%expect
     {|
-    attend.dwork.ram                  0.338
-    attend.out.ram                   98.356
-    attend.qblocks.dtcm            7188.629
-    attend.qblocks.ram             3590.839
-    attend.scores                    56.956
-    attend.stage_q.dtcm               7.934
-    attend.stage_q.ram                3.002
-    class.f32_cos                   276.220
-    class.f32_div                    16.357
-    class.f32_exp                   181.587
-    class.f32_log                   416.675
-    class.f32_op                      4.711
-    class.f32_sin                   271.899
-    class.f32_sqrt                   23.235
-    class.int_op                     14.233
-    class.iteration                   0.615
-    class.load_dtcm                   4.125
-    class.load_ram                    5.669
-    class.store_dtcm                  3.110
-    class.store_ram                   7.262
-    class.vec_cos                   352.962
-    class.vec_exp                   191.735
-    class.vec_f32_div                 9.126
-    class.vec_load_dtcm               3.230
-    class.vec_load_ram                6.069
-    class.vec_load_strided_dtcm       6.602
-    class.vec_load_strided_ram        9.461
-    class.vec_log                   427.713
-    class.vec_other                  11.957
-    class.vec_sin                   347.462
-    class.vec_sqrt                   11.918
-    class.vec_store_dtcm              3.577
-    class.vec_store_ram               6.997
-    class.vec_store_strided_dtcm     11.787
-    overlap                           0.635
-    zvt.bf16.cols_k.ram               1.480
-    zvt.bf16.packed.call           3130.602
-    zvt.bf16.packed.cols_k.dtcm       0.009
-    zvt.bf16.packed.rows_k.dtcm       0.490
-    zvt.bf16.packed.rows_k.ram        0.553
-    zvt.bf16.packed.tiles.ram       134.701
-    zvt.bf16.rows_k.dtcm              0.939
-    zvt.bf16.rows_k.ram               1.099
-    zvt.bf16.tiles.ram               75.792
-    zvt.f32.cols_k.dtcm               1.478
-    zvt.f32.cols_k.ram                1.587
-    zvt.f32.rows_k.dtcm               0.815
-    zvt.f32.rows_k.ram                0.994
-    zvt.f32.tiles.dtcm              100.273
-    zvt.f32.tiles.ram               164.889
-    zvt.f32.view.cols_k.dtcm          3.504
-    zvt.f32.view.tiles.dtcm         118.384 |}]
+    attend.dwork.ram                  0.389
+    attend.kblocks.ram              290.797
+    attend.out.ram                   65.100
+    attend.qblocks.dtcm           11408.419
+    attend.qblocks.ram             4809.113
+    attend.scores                    57.510
+    class.bf16_round                 17.016
+    class.check_index                21.516
+    class.f32_cos                   273.381
+    class.f32_div                    13.637
+    class.f32_exp                   178.747
+    class.f32_log                   413.835
+    class.f32_op                      1.997
+    class.f32_sin                   269.059
+    class.f32_sqrt                   20.396
+    class.int_div                    22.244
+    class.iteration                   3.333
+    class.load_dtcm                   4.120
+    class.load_ram                    5.656
+    class.store_dtcm                  3.109
+    class.store_ram                   7.227
+    class.vec_cos                   351.730
+    class.vec_exp                   192.589
+    class.vec_f32_div                 7.578
+    class.vec_load_dtcm               3.542
+    class.vec_load_ram                6.269
+    class.vec_load_strided_dtcm       6.271
+    class.vec_load_strided_ram       10.103
+    class.vec_log                   426.480
+    class.vec_other                  13.198
+    class.vec_sin                   346.230
+    class.vec_sqrt                   10.685
+    class.vec_store_dtcm              3.818
+    class.vec_store_ram               7.454
+    class.vec_store_strided_dtcm      6.998
+    overlap                           0.768
+    zvt.bf16.cols_k.ram               1.365
+    zvt.bf16.packed.call           2662.899
+    zvt.bf16.packed.cols_k.dtcm       0.126
+    zvt.bf16.packed.rows_k.dtcm       0.684
+    zvt.bf16.packed.rows_k.ram        0.776
+    zvt.bf16.rows_k.dtcm              1.038
+    zvt.bf16.rows_k.ram               1.184
+    zvt.bf16.tiles.ram              153.267
+    zvt.f32.call                     20.103
+    zvt.f32.cols_k.dtcm               1.431
+    zvt.f32.cols_k.ram                1.542
+    zvt.f32.rows_k.dtcm               0.868
+    zvt.f32.rows_k.ram                1.036
+    zvt.f32.tiles.dtcm              125.102
+    zvt.f32.tiles.ram               189.896
+    zvt.f32.view.cols_k.dtcm          3.045
+    zvt.f32.view.rows_k.dtcm          0.201
+    zvt.f32.view.tiles.dtcm         106.645 |}]
 
 let%expect_test "committed predictions on fit and check sets" =
   List.iter report Cases.all;
@@ -255,119 +258,121 @@ let%expect_test "committed predictions on fit and check sets" =
   [%expect
     {|
     cos 16x16                          measured      23061 predicted      23035   -0.1%
-    cos 16x16, scalar                  measured      72794 predicted      72732   -0.1%
+    cos 16x16, scalar                  measured      72794 predicted      72743   -0.1%
     cos 32x32                          measured      92037 predicted      92140   +0.1%
-    cos 32x32, scalar                  measured     290659 predicted     290907   +0.1%
-    exp 16x16                          measured      12757 predicted      12717   -0.3%
-    exp 16x16, scalar                  measured      48575 predicted      48506   -0.1%
-    exp 32x32                          measured      50821 predicted      50866   +0.1%
-    exp 32x32, scalar                  measured     193727 predicted     194003   +0.1%
+    cos 32x32, scalar                  measured     290659 predicted     290864   +0.1%
+    exp 16x16                          measured      12757 predicted      12850   +0.7%
+    exp 16x16, scalar                  measured      48575 predicted      48516   -0.1%
+    exp 32x32                          measured      50821 predicted      51400   +1.1%
+    exp 32x32, scalar                  measured     193727 predicted     193959   +0.1%
     log 16x16                          measured      27845 predicted      27819   -0.1%
-    log 16x16, scalar                  measured     108751 predicted     108688   -0.1%
+    log 16x16, scalar                  measured     108751 predicted     108699   +0.0%
     log 32x32                          measured     111173 predicted     111276   +0.1%
-    log 32x32, scalar                  measured     434482 predicted     434733   +0.1%
+    log 32x32, scalar                  measured     434482 predicted     434689   +0.0%
     sin 16x16                          measured      22709 predicted      22683   -0.1%
-    sin 16x16, scalar                  measured      71689 predicted      71626   -0.1%
+    sin 16x16, scalar                  measured      71689 predicted      71636   -0.1%
     sin 32x32                          measured      90629 predicted      90732   +0.1%
-    sin 32x32, scalar                  measured     286229 predicted     286483   +0.1%
+    sin 32x32, scalar                  measured     286229 predicted     286439   +0.1%
     sqrt 16x16                         measured       1234 predicted       1208   -2.1%
-    sqrt 16x16, scalar                 measured       8035 predicted       7968   -0.8%
+    sqrt 16x16, scalar                 measured       8035 predicted       7979   -0.7%
     sqrt 32x32                         measured       4738 predicted       4833   +2.0%
-    sqrt 32x32, scalar                 measured      31589 predicted      31851   +0.8%
-    add 16x64                          measured       2628 predicted       3045  +15.9%
-    add 16x64, scalar                  measured      18690 predicted      17096   -8.5%
-    add 32x128                         measured      16452 predicted      18588  +13.0%
-    add 32x128, scalar                 measured      82402 predicted      91696  +11.3%
-    div 16x64                          measured       4972 predicted       4945   -0.5%
-    div 16x64, scalar                  measured      30861 predicted      29022   -6.0%
-    div 32x128                         measured      20694 predicted      20255   -2.1%
-    div 32x128, scalar                 measured     131098 predicted     139398   +6.3%
-    mul 16x64                          measured       2628 predicted       3045  +15.9%
-    mul 16x64, scalar                  measured      18690 predicted      17096   -8.5%
-    mul 32x128                         measured      16452 predicted      18588  +13.0%
-    mul 32x128, scalar                 measured      82402 predicted      91696  +11.3%
-    x*2 16x64                          measured       1899 predicted       2266  +19.3%
-    x*2 16x64, scalar                  measured      15592 predicted      12872  -17.4%
-    x*2 32x128                         measured      11340 predicted      12421   +9.5%
-    x*2 32x128, scalar                 measured      61833 predicted      68476  +10.7%
-    x*x+x 16x64                        measured       5253 predicted       6089  +15.9%
-    x*x+x 16x64, scalar                measured      34274 predicted      29969  -12.6%
-    x*x+x 32x128                       measured      30853 predicted      34268  +11.1%
-    x*x+x 32x128, scalar               measured     144227 predicted     160172  +11.1%
-    x+y+z 16x64                        measured       5256 predicted       6089  +15.9%
-    x+y+z 16x64, scalar                measured      37380 predicted      34193   -8.5%
-    x+y+z 32x128                       measured      32904 predicted      37175  +13.0%
-    x+y+z 32x128, scalar               measured     164804 predicted     183393  +11.3%
-    add 16x64, in RAM                  measured       4676 predicted       5374  +14.9%
-    add 32x128, in RAM                 measured      18500 predicted      21495  +16.2%
-    div 16x64, in RAM                  measured       5735 predicted       5791   +1.0%
-    div 32x128, in RAM                 measured      22741 predicted      23163   +1.9%
-    exp 32x32, in RAM                  measured      51845 predicted      50344   -2.9%
-    add 16x64, scalar, in RAM          measured      22802 predicted      24510   +7.5%
-    softmax over C 16x16               measured      34255 predicted      35236   +2.9%
-    softmax over C 32x32               measured     134651 predicted     136332   +1.2%
-    sum over C 16x64                   measured       1828 predicted       1825   -0.2%
-    sum over C 32x128                  measured       7040 predicted       7061   +0.3%
-    sum over W 16x64                   measured       1516 predicted        974  -35.8%
-    transpose 32x32                    measured       3172 predicted       3101   -2.2%
-    transpose 64x64                    measured      15492 predicted      15865   +2.4%
+    sqrt 32x32, scalar                 measured      31589 predicted      31808   +0.7%
+    add 16x64                          measured       2628 predicted       2898  +10.3%
+    add 16x64, scalar                  measured      18690 predicted      17133   -8.3%
+    add 32x128                         measured      16452 predicted      18106  +10.1%
+    add 32x128, scalar                 measured      82402 predicted      91583  +11.1%
+    div 16x64                          measured       4972 predicted       4944   -0.6%
+    div 16x64, scalar                  measured      30861 predicted      29052   -5.9%
+    div 32x128                         measured      20694 predicted      20333   -1.7%
+    div 32x128, scalar                 measured     131098 predicted     139260   +6.2%
+    mul 16x64                          measured       2628 predicted       2898  +10.3%
+    mul 16x64, scalar                  measured      18690 predicted      17133   -8.3%
+    mul 32x128                         measured      16452 predicted      18106  +10.1%
+    mul 32x128, scalar                 measured      82402 predicted      91583  +11.1%
+    x*2 16x64                          measured       1899 predicted       2044   +7.6%
+    x*2 16x64, scalar                  measured      15592 predicted      12914  -17.2%
+    x*2 32x128                         measured      11340 predicted      11739   +3.5%
+    x*2 32x128, scalar                 measured      61833 predicted      68416  +10.6%
+    x*x+x 16x64                        measured       5253 predicted       5795  +10.3%
+    x*x+x 16x64, scalar                measured      34274 predicted      30046  -12.3%
+    x*x+x 32x128                       measured      30853 predicted      33420   +8.3%
+    x*x+x 32x128, scalar               measured     144227 predicted     159998  +10.9%
+    x+y+z 16x64                        measured       5256 predicted       5795  +10.3%
+    x+y+z 16x64, scalar                measured      37380 predicted      34265   -8.3%
+    x+y+z 32x128                       measured      32904 predicted      36212  +10.1%
+    x+y+z 32x128, scalar               measured     164804 predicted     183165  +11.1%
+    add 16x64, in RAM                  measured       4676 predicted       5225  +11.7%
+    add 32x128, in RAM                 measured      18500 predicted      20898  +13.0%
+    div 16x64, in RAM                  measured       5735 predicted       5781   +0.8%
+    div 32x128, in RAM                 measured      22741 predicted      23125   +1.7%
+    exp 32x32, in RAM                  measured      51845 predicted      50331   -2.9%
+    add 16x64, scalar, in RAM          measured      22802 predicted      24495   +7.4%
+    softmax over C 16x16               measured      34255 predicted      34837   +1.7%
+    softmax over C 32x32               measured     134651 predicted     134174   -0.4%
+    sum over C 16x64                   measured       1828 predicted       1903   +4.1%
+    sum over C 32x128                  measured       7040 predicted       7390   +5.0%
+    sum over W 16x64                   measured       1516 predicted       1247  -17.7%
+    transpose 32x32                    measured       3172 predicted       2796  -11.9%
+    transpose 64x64                    measured      15492 predicted      14694   -5.1%
     transpose 32x32, in RAM            measured       4708 predicted       4708   +0.0%
-    head split 16x64, 2 heads          measured     175432 predicted     157462  -10.2%
-    head split 32x128, 4 heads         measured     745187 predicted     649294  -12.9%
-    head split 49x64, 2 heads          measured     577606 predicted     497837  -13.8%
-    linear 9x32 k64                    measured       4844 predicted       4843   +0.0%
-    linear 16x64 k64                   measured      13922 predicted      13929   +0.1%
-    linear 64x64 k64                   measured      57286 predicted      57360   +0.1%
-    linear 16x128 k32                  measured      18302 predicted      18409   +0.6%
-    linear 32x32 k128                  measured      23374 predicted      23349   -0.1%
-    linear 48x80 k32                   measured      34395 predicted      34159   -0.7%
-    linear bf16 9x32 k64               measured       4191 predicted       4391   +4.8%
-    linear bf16 16x64 k64              measured      10403 predicted       9591   -7.8%
-    linear bf16 64x64 k64              measured      28186 predicted      28681   +1.8%
-    linear bf16 32x128 k32             measured      23631 predicted      24721   +4.6%
-    linear bf16 48x48 k48              measured      16482 predicted      16138   -2.1%
-    sdpa bf16 32x32 d32                measured      87661 predicted      80825   -7.8%
-    sdpa bf16 64x64 d64                measured     373801 predicted     373735   +0.0%
-    sdpa bf16 16x48 d32                measured      66169 predicted      69574   +5.1%
-    sdpa bf16 16x16 d32 bk16           measured      25113 predicted      25832   +2.9%
-    sdpa bf16 32x64 d64 bk16           measured     202773 predicted     204164   +0.7%
-    sdpa bf16 64x32 d32                measured     175305 predicted     174239   -0.6%
-    linear 9x32 k64, in RAM            measured       5853 predicted       5853   +0.0%
-    linear 32x32 k64, in RAM           measured      15120 predicted      15119   +0.0%
-    linear bf16 16x256 k64             measured      52692 predicted      52681   +0.0%
-    linear bf16 32x128 k128            measured      95847 predicted      95826   +0.0%
-    linear bf16 49x512 k64             measured     391657 predicted     391587   +0.0%
-    linear bf16 16x256 k64, in RAM     measured      58806 predicted      58805   +0.0%
-    linear bf16 16x64 k64, in RAM      measured      10595 predicted       9812   -7.4%
-    linear bf16 64x64 k64, in RAM      measured      28314 predicted      29713   +4.9%
-    sdpa bf16 32x32 d32, in RAM        measured      88109 predicted      85949   -2.5%
-    sdpa bf16 16x16 d32 bk16, in RAM   measured      25273 predicted      25625   +1.4%
-    sdpa bf16 64x64 d64, in RAM        measured     373801 predicted     373735   +0.0%
-    sdpa bf16 9x29 d64 masked          measured      44613 predicted      44475   -0.3%
-    exp 64x64                          measured     207173 predicted     202417   -2.3%
-    softmax over C 64x64               measured     534046 predicted     535056   +0.2%
-    softmax over W 16x16               measured      70214 predicted      66907   -4.7%
-    layer norm over C 16x64            measured      21422 predicted      48078 +124.4%
-    rms norm over C 16x64              measured      12145 predicted      25373 +108.9%
-    linear 32x96 k48                   measured      32529 predicted      33017   +1.5%
-    sdpa bf16 41x61 d32                measured     241225 predicted     218164   -9.6%
-    layer, bare                        measured     243406 predicted     218645  -10.2%
-    layer, all flags                   measured     282593 predicted     268911   -4.8%
-    layer, pre layer norm, rope        measured     387522 predicted     456643  +17.8%
-    layer, post rms                    measured     323484 predicted     338270   +4.6%
-    layer decomposed, bare             measured    1781283 predicted    1562472  -12.3%
-    view pointwise 3 stages, 16 rows, block 2, looped measured       3979 predicted       4030   +1.3%
-    view pointwise 3 stages, 12 rows, block 1, looped measured       3773 predicted       4072   +7.9%
-    view pointwise 3 stages, 32 rows, block 1, looped measured      11803 predicted      10859   -8.0%
-    view pointwise 2 stages, 32 rows, block 4, looped measured      10352 predicted      11425  +10.4%
-    view pointwise 2 stages, 16 rows, block 2, looped measured       8568 predicted       7837   -8.5%
-    view pointwise 1 stage, 24 rows, block 2, looped measured       6564 predicted       6559   -0.1%
-    view window 1 stage, 3x3, 16 rows, block 2, looped measured      15972 predicted      14436   -9.6%
-    view window 1 stage, 3x3, 24 rows, block 1, looped measured      19500 predicted      19910   +2.1%
-    view window 1 stage, 3x3, 20 rows, block 4, looped measured      30876 predicted      27643  -10.5%
-    view window 1 stage, 3x3, 16 rows, block 2, wide measured      16546 predicted      17968   +8.6%
-    view pointwise 3 stages, 20 rows, block 2, wide measured       8147 predicted       7771   -4.6%
-    view window 1 stage, 3x3, 18 rows, block 2, wide measured      27744 predicted      26590   -4.2% |}]
+    head split 16x64, 2 heads          measured      80119 predicted      81413   +1.6%
+    head split 32x128, 4 heads         measured     347645 predicted     346123   -0.4%
+    head split 49x64, 2 heads          measured     271936 predicted     265079   -2.5%
+    linear 9x32 k64                    measured       4844 predicted       4844   +0.0%
+    linear 16x64 k64                   measured      13922 predicted      13922   +0.0%
+    linear 64x64 k64                   measured      57286 predicted      57289   +0.0%
+    linear 16x128 k32                  measured      18302 predicted      18302   +0.0%
+    linear 32x32 k128                  measured      23374 predicted      23371   +0.0%
+    linear 48x80 k32                   measured      34395 predicted      34392   +0.0%
+    linear bf16 9x32 k64               measured       4191 predicted       4352   +3.8%
+    linear bf16 16x64 k64              measured      10403 predicted       9707   -6.7%
+    linear bf16 64x64 k64              measured      28186 predicted      28615   +1.5%
+    linear bf16 32x128 k32             measured      23631 predicted      23937   +1.3%
+    linear bf16 48x48 k48              measured      16482 predicted      16699   +1.3%
+    sdpa bf16 32x32 d32                measured      87661 predicted      81707   -6.8%
+    sdpa bf16 64x64 d64                measured     373801 predicted     375763   +0.5%
+    sdpa bf16 16x48 d32                measured      66169 predicted      70299   +6.2%
+    sdpa bf16 16x16 d32 bk16           measured      25113 predicted      26131   +4.1%
+    sdpa bf16 32x64 d64 bk16           measured     202773 predicted     202244   -0.3%
+    sdpa bf16 64x32 d32                measured     175305 predicted     171747   -2.0%
+    linear 9x32 k64, in RAM            measured       5853 predicted       5852   +0.0%
+    linear 32x32 k64, in RAM           measured      15120 predicted      15118   +0.0%
+    linear bf16 16x256 k64             measured      52692 predicted      52685   +0.0%
+    linear bf16 32x128 k128            measured      95847 predicted      95832   +0.0%
+    linear bf16 49x512 k64             measured     391657 predicted     391597   +0.0%
+    linear bf16 16x256 k64, in RAM     measured      58806 predicted      58800   +0.0%
+    linear bf16 16x64 k64, in RAM      measured      10595 predicted       9567   -9.7%
+    linear bf16 64x64 k64, in RAM      measured      28314 predicted      30122   +6.4%
+    sdpa bf16 32x32 d32, in RAM        measured      88109 predicted      86003   -2.4%
+    sdpa bf16 16x16 d32 bk16, in RAM   measured      25273 predicted      25092   -0.7%
+    sdpa bf16 64x64 d64, in RAM        measured     373801 predicted     375763   +0.5%
+    sdpa bf16 9x29 d64 masked          measured      44613 predicted      45020   +0.9%
+    layer, bare 16x32                  measured     117502 predicted     127461   +8.5%
+    layer, bare 32x64                  measured     560662 predicted     503940  -10.1%
+    exp 64x64                          measured     207173 predicted     203462   -1.8%
+    softmax over C 64x64               measured     534046 predicted     524209   -1.8%
+    softmax over W 16x16               measured      70214 predicted      66054   -5.9%
+    layer norm over C 16x64            measured      21422 predicted      42622  +99.0%
+    rms norm over C 16x64              measured      12145 predicted      22177  +82.6%
+    linear 32x96 k48                   measured      32529 predicted      32736   +0.6%
+    sdpa bf16 41x61 d32                measured     241225 predicted     217146  -10.0%
+    layer, bare                        measured     243406 predicted     253034   +4.0%
+    layer, all flags                   measured     282593 predicted     289701   +2.5%
+    layer, pre layer norm, rope        measured     387522 predicted     380833   -1.7%
+    layer, post rms                    measured     323484 predicted     326712   +1.0%
+    layer decomposed, bare             measured    1392931 predicted    1002631  -28.0%
+    view pointwise 3 stages, 16 rows, block 2, looped measured       3979 predicted       3995   +0.4%
+    view pointwise 3 stages, 12 rows, block 1, looped measured       3773 predicted       4019   +6.5%
+    view pointwise 3 stages, 32 rows, block 1, looped measured      11803 predicted      10948   -7.2%
+    view pointwise 2 stages, 32 rows, block 4, looped measured      10352 predicted      11187   +8.1%
+    view pointwise 2 stages, 16 rows, block 2, looped measured       8568 predicted       7863   -8.2%
+    view pointwise 1 stage, 24 rows, block 2, looped measured       6564 predicted       6610   +0.7%
+    view window 1 stage, 3x3, 16 rows, block 2, looped measured      15972 predicted      14684   -8.1%
+    view window 1 stage, 3x3, 24 rows, block 1, looped measured      19500 predicted      20505   +5.2%
+    view window 1 stage, 3x3, 20 rows, block 4, looped measured      30876 predicted      27033  -12.4%
+    view window 1 stage, 3x3, 16 rows, block 2, wide measured      16546 predicted      18108   +9.4%
+    view pointwise 3 stages, 20 rows, block 2, wide measured       8147 predicted       7694   -5.6%
+    view window 1 stage, 3x3, 18 rows, block 2, wide measured      27744 predicted      26478   -4.6% |}]
 
 (* The committed rates are this fit: a change of the calibration data shows
    here first. *)
@@ -412,4 +417,4 @@ let%expect_test "predicted where measured elsewhere" =
             (percent ~predicted:p ~measured:m))
     Cases.elsewhere;
   [%expect
-    {| fastvit 49 x 512, 16 x 32: measured 40109063 predicted 18967331 -52.7% |}]
+    {| fastvit 49 x 512, 16 x 32: measured 40109063 predicted 19691015 -50.9% |}]

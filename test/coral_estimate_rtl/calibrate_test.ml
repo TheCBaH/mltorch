@@ -438,13 +438,13 @@ let%expect_test "the fit set" =
     transpose 32x32, in RAM (1 invocations): bitwise
       [0] cycles 4708 instret 2252 ram 0,1
     head split 16x64, 2 heads (2 invocations): bitwise
-      [0] cycles 173009 instret 108328
+      [0] cycles 77696 instret 45811
       [1] cycles 2423 instret 1848
     head split 32x128, 4 heads (2 invocations): bitwise
-      [0] cycles 731737 instret 432548 ram 1
+      [0] cycles 334195 instret 182563 ram 1
       [1] cycles 13450 instret 7151 ram 2
     head split 49x64, 2 heads (2 invocations): bitwise
-      [0] cycles 567288 instret 337878 ram 1
+      [0] cycles 261618 instret 143294 ram 1
       [1] cycles 10318 instret 5481 ram 2
     linear 9x32 k64 (1 invocations): bitwise
       [0] cycles 4844 instret 2145
@@ -503,7 +503,11 @@ let%expect_test "the fit set" =
     sdpa bf16 64x64 d64, in RAM (1 invocations): bitwise
       [0] cycles 373801 instret 127358 ram 0,1,2,7,8
     sdpa bf16 9x29 d64 masked (1 invocations): bitwise
-      [0] cycles 44613 instret 15376 ram 2,4 |}]
+      [0] cycles 44613 instret 15376 ram 2,4
+    layer, bare 16x32 (1 invocations): bitwise
+      [0] cycles 117502 instret 80479 ram 7,8,9,10,11,12,13,14,15
+    layer, bare 32x64 (1 invocations): bitwise
+      [0] cycles 560662 instret 349048 ram 0,1,2,3,4,5,7,8,9,10,11,12,13,14,15 |}]
 
 let%expect_test "the check set" =
   parallel Cases.check;
@@ -533,17 +537,17 @@ let%expect_test "the check set" =
       [0] cycles 323484 instret 210827 ram 2,4,6,8,11,12,13,14,15,16,17,18,19,20,21,22
     layer decomposed, bare (14 invocations): bitwise
       [0] cycles 13922 instret 4945 ram 5,6
-      [1] cycles 173009 instret 108328
+      [1] cycles 77696 instret 45811
       [2] cycles 2423 instret 1848
       [3] cycles 13922 instret 4945 ram 8,9
-      [4] cycles 173009 instret 108328
+      [4] cycles 77696 instret 45811
       [5] cycles 2423 instret 1848
       [6] cycles 13922 instret 4945 ram 11,12
-      [7] cycles 173009 instret 108328
+      [7] cycles 77696 instret 45811
       [8] cycles 2423 instret 1848
       [9] cycles 956811 instret 567243
       [10] cycles 2623 instret 2074
-      [11] cycles 237237 instret 142632
+      [11] cycles 134824 instret 79138
       [12] cycles 13922 instret 4945 ram 17,18
       [13] cycles 2628 instret 2119 |}]
 

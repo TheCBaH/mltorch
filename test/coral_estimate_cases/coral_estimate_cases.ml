@@ -325,6 +325,12 @@ let fit =
       att ~home:Home.Ram ~tq:64 ~tk:64 ~d:64 ();
       attention "sdpa bf16 9x29 d64 masked"
         (T.sdpa_bf16_fixture ~tq:9 ~tk:29 ~d:64 ~mask:(9, 29) ());
+      (* the bfloat16 roundings between a layer's contractions, which no other
+         fit case stores *)
+      layer ~role:Role.Fit "layer, bare 16x32"
+        { bare with LF.Config.tokens = 16; width = 32; heads = 1 };
+      layer ~role:Role.Fit "layer, bare 32x64"
+        { bare with LF.Config.tokens = 32; width = 64; heads = 2 };
     ]
 
 (* The check set: shapes and compositions the rates were not fitted to. *)

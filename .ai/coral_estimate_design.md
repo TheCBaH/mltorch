@@ -425,3 +425,41 @@ for them. Adding the windows took the fit's `view.rows_k` to zero and
 then a window (about 13 KiB of helpers, past the 8 KiB ITCM), so a window is
 priced only as a single stage. Unrolled chains past about 8 KiB of code (block
 3, three stages) exceed the ITCM; the cases use blocks that loop.
+
+## Census after the modulus range rule
+
+A modulus rule in the range analysis proves the ring and reshape access checks
+of the head-split kernels in bounds, so their `Check_access` operations and
+the guard of every `Load` are gone from the planned program and the lowering
+emits no guards for them: the RTL cycles fell 2.2x (`head split 16x64`
+173,009 -> 77,696, instructions retired 108,328 -> 45,811) with the outputs
+still bitwise. The census was not at fault for the guards (the program it
+counts carries none), but it priced what is left wrongly, and a refit to the
+cheaper kernels put the fused layers, whose cycles did not change, 10 to 20%
+under. What the program still pays per element, and the census now separates:
+
+- `Int_div`: an index `floor_div`/`ceil_div` by a literal, lowered to a 64-bit
+  divide and remainder and an adjustment. Three per element are what the
+  head-split kernels pay (about 22 cycles each); counted as `int_op` they made
+  every other index operation look expensive.
+- `Check_access`: one range guard per axis of a `Check_access` or of a
+  `Load` the analysis did not prove in bounds (`Load_in_bounds` and a flat
+  access carry none; an axis whose coordinate is a `Const` is folded away).
+  It is zero on the head-split and layer programs, and is priced by its own
+  rate once a fit case carries it.
+- `Check_index`: an `Index_add`/`Index_scale` the analysis did not keep in the
+  index domain, lowered with an overflow guard (about 21.5 cycles).
+- `Bf16_round`: a scalar store that rounds to bfloat16, about 14 machine
+  operations beyond the store (bit pattern, rounding add, NaN test, select).
+  A layer has one per element of each projection (5120 in the 16x64 layer),
+  which the old `int_op` rate (14.2, fitted to the head-split guards) had been
+  standing in for.
+
+No fit case stored a bfloat16 rounding, so two layers joined the fit set
+(`layer, bare 16x32` and `layer, bare 32x64`, other sizes than the held-out
+layers) to identify its rate (17.0). The strided vector store had no data
+either (its fitted rate was zero, under-predicting the W-axis kernels), so it
+has a prior of 7 cycles, the strided load's ratio to a unit-stride one applied
+to the store; it is an estimate, not read from a waveform. Both choices were
+made with the held-out softmax over W (-6.6% without them) in view, and its
+margin under its limit is small.

@@ -172,6 +172,8 @@ let%expect_test "every case plans" =
     sdpa bf16 16x16 d32 bk16, in RAM: 1 invocation(s)
     sdpa bf16 64x64 d64, in RAM: 1 invocation(s)
     sdpa bf16 9x29 d64 masked: 1 invocation(s)
+    layer, bare 16x32: 1 invocation(s)
+    layer, bare 32x64: 1 invocation(s)
     exp 64x64: 1 invocation(s)
     softmax over C 64x64: 1 invocation(s)
     softmax over W 16x16: 1 invocation(s)
@@ -281,11 +283,11 @@ let%expect_test "view calls are their helper calls" =
     [ false; true ];
   [%expect
     {|
-    per_row=false: int_op 6
+    per_row=false: check_index 6
                    iteration 3
                    view_address 36
                    contract contract.f32.b1.m4.n16.k8.a0_8_1.b0_1_16.c0_16_1.zero.ordered view (dtcm dtcm dtcm) x3
-    per_row=true: int_op 30
+    per_row=true: check_index 30
                   iteration 3
                   view_address 144
                   contract contract.f32.b1.m1.n16.k8.a0_8_1.b0_1_16.c0_16_1.zero.ordered view (dtcm dtcm dtcm) x12 |}]

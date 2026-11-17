@@ -150,18 +150,18 @@ let%expect_test "held-out accuracy domain and known gaps" =
     refused;
   [%expect
     {|
-    exp 64x64: -2.3%, limit 3.0%
-    softmax over C 64x64: +0.2%, limit 2.0%
-    softmax over W 16x16: -4.7%, limit 6.0%
-    linear 32x96 k48: +1.5%, limit 2.0%
-    sdpa bf16 41x61 d32: -9.6%, limit 10.0%
-    layer, bare: -10.2%, limit 15.0%
-    layer, all flags: -4.8%, limit 9.0%
-    layer, pre layer norm, rope: +17.8%, limit 30.0%
-    layer, post rms: +4.6%, limit 10.0%
-    layer norm over C 16x64: outside accuracy gate (ordered lane fold priced as scalar extracts), error +124.4%
-    rms norm over C 16x64: outside accuracy gate (ordered lane fold priced as scalar extracts), error +108.9%
-    layer decomposed, bare: outside accuracy gate (data-dependent control flow counted heuristically), error -12.3% |}]
+    exp 64x64: -1.8%, limit 3.0%
+    softmax over C 64x64: -1.8%, limit 2.0%
+    softmax over W 16x16: -5.9%, limit 6.0%
+    linear 32x96 k48: +0.6%, limit 2.0%
+    sdpa bf16 41x61 d32: -10.0%, limit 10.0%
+    layer, bare: +4.0%, limit 15.0%
+    layer, all flags: +2.5%, limit 9.0%
+    layer, pre layer norm, rope: -1.7%, limit 30.0%
+    layer, post rms: +1.0%, limit 10.0%
+    layer norm over C 16x64: outside accuracy gate (ordered lane fold priced as scalar extracts), error +99.0%
+    rms norm over C 16x64: outside accuracy gate (ordered lane fold priced as scalar extracts), error +82.6%
+    layer decomposed, bare: outside accuracy gate (data-dependent control flow counted heuristically), error -28.0% |}]
 
 (* The band-driven view-call kernels held out of the fit: a pointwise chain and
    a single-stage 3x3 window. *)
@@ -235,5 +235,5 @@ let%expect_test "held-out view-call accuracy" =
     view_limits;
   [%expect
     {|
-      view pointwise 3 stages, 20 rows, block 2, wide: -4.6%, limit 10.0%
-      view window 1 stage, 3x3, 18 rows, block 2, wide: -4.2%, limit 10.0% |}]
+      view pointwise 3 stages, 20 rows, block 2, wide: -5.6%, limit 10.0%
+      view window 1 stage, 3x3, 18 rows, block 2, wide: -4.6%, limit 10.0% |}]
