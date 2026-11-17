@@ -3,8 +3,8 @@
    the contraction helper route, selected, allocated and published for AArch64,
    run natively through Rivet, and its output bits compared with the
    whole-tensor chain on the SSA interpreter ({!Band_driver.whole}). The
-   contraction itself is host C ({!Contract_host}); the native code is the
-   driver's loops, every base's address arithmetic and the calls. *)
+   contraction helpers are the route's own generated code
+   ({!Machine_rivet_aarch64.Rivet_a64_contraction}). *)
 
 module Src = Machine_source_test.Mir_source
 module H = Native_harness
@@ -21,9 +21,7 @@ let native ?mutation (p : Ssa_ir.Ssa_program.t) ~inputs =
       match H.build case ~sites:[||] with
       | Error e -> Error ("not built: " ^ e)
       | Ok b -> (
-          match
-            H.native ?mutation ~extra:Contract_host.extra case ~sites:[||] b
-          with
+          match H.native ?mutation case ~sites:[||] b with
           | Error e -> Error ("native: " ^ e)
           | Ok o -> C.observed o))
 
@@ -81,3 +79,59 @@ let%expect_test "native code mutations are red" =
     pointwise 3 stages, 16 rows, looped: the run did not succeed
     == lo12 dropped
     pointwise 3 stages, 16 rows, looped: DIFFERS |}]
+
+(* A defect in the generated contraction: the seed not read from C (the taps of
+   a window accumulate into it), or the product and sum fused (one rounding in
+   place of two). *)
+let%expect_test "contraction mutations are red" =
+  let pw = List.nth C.chains 4 in
+  List.iter
+    (fun (name, mutation) ->
+      Fmt.pr "== %s@." name;
+      Fmt.pr "%s@." (C.verdict ~run:(native ~mutation) pw))
+    Machine_rivet_aarch64.Rivet_a64_form.Mutation.
+      [
+        ("seed dropped", Contraction_seed_dropped); ("fused", Contraction_fused);
+      ];
+  [%expect
+    {|
+    == seed dropped
+    pointwise then 3x3, 10 rows, looped: DIFFERS
+    == fused
+    pointwise then 3x3, 10 rows, looped: DIFFERS |}]
+
+(* Operands and rounding orders the route does not realize are typed refusals. *)
+let%expect_test "unrealized contractions are refused" =
+  let module K = Contraction in
+  let make format numerics =
+    let op = { K.Operand.batch = 0L; outer = 4L; k = 1L } in
+    match
+      Err.payload
+        (K.make ~batch:1L ~m:2L ~n:2L ~k:4L ~a:op ~b:op
+           ~c:{ K.Output.batch = 0L; row = 2L; col = 1L }
+           ~format ~seed:K.Seed.Zero ~numerics)
+    with
+    | Ok d -> d
+    | Error _ -> assert false
+  in
+  List.iter
+    (fun d ->
+      Fmt.pr "%a@."
+        (Fmt.result ~ok:(Fmt.any "realized")
+           ~error:Machine_rivet_aarch64.Rivet_a64_refusal.pp)
+        (Err.payload
+           (Machine_rivet_aarch64.Rivet_a64_contraction.module_ [ d ])))
+    [
+      make K.Element.F32 K.Numerics.Ordered;
+      make K.Element.F32 K.Numerics.Fused_sequential;
+      make K.Element.Bf16 K.Numerics.Ordered;
+      make
+        (K.Element.I8 { a = K.Sign.Signed; b = K.Sign.Signed })
+        K.Numerics.Ordered;
+    ];
+  [%expect
+    {|
+    realized
+    no AArch64 contraction under fused_sequential numerics
+    no AArch64 contraction over bf16 operands
+    no AArch64 contraction over i8ss operands |}]

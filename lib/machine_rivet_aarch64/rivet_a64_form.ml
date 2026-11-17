@@ -18,6 +18,9 @@ module Mutation = struct
   type t =
     | Branch_sense  (** a fall-through branch tested with the taken sense *)
     | Commuted_sub  (** a subtraction's operands swapped *)
+    | Contraction_fused  (** a contraction's product and sum fused into one *)
+    | Contraction_seed_dropped
+        (** a contraction accumulating from zero, not from C *)
     | Dropped_lo12  (** a symbol's low twelve bits left out of its address *)
     | Narrow_spill  (** a 64-bit spill or reload moved as 32 bits *)
     | Wrong_lane  (** a lane access on the neighbouring lane *)

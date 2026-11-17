@@ -6,6 +6,12 @@ open Machine_ir
 type t =
   | Address_offset of { symbol : string; addend : int64 }
       (** a symbol offset the form cannot carry *)
+  | Contraction_format of Contraction.Element.t
+      (** a contraction over operands this route does not realize *)
+  | Contraction_numerics of Contraction.Numerics.t
+      (** a contraction under a rounding order this route does not realize *)
+  | Contraction_stride of int64
+      (** a contraction stride, in elements, past what a byte step carries *)
   | Cpu_feature of string  (** a feature this CPU does not report *)
   | Cpu_unknown  (** a CPU whose features cannot be read *)
   | Form of string  (** a selected form Rivet has no instruction for *)
@@ -24,6 +30,14 @@ type t =
 let pp fmt = function
   | Address_offset { symbol; addend } ->
       Fmt.pf fmt "symbol %s+%Ld: an offset no form carries" symbol addend
+  | Contraction_format e ->
+      Fmt.pf fmt "no AArch64 contraction over %s operands"
+        (Contraction.Element.name e)
+  | Contraction_numerics n ->
+      Fmt.pf fmt "no AArch64 contraction under %s numerics"
+        (Contraction.Numerics.name n)
+  | Contraction_stride s ->
+      Fmt.pf fmt "contraction stride %Ld is past what a byte step carries" s
   | Cpu_feature f -> Fmt.pf fmt "this CPU does not report feature %s" f
   | Cpu_unknown -> Fmt.string fmt "this CPU's features cannot be read"
   | Form f -> Fmt.pf fmt "no Rivet instruction for %s" f

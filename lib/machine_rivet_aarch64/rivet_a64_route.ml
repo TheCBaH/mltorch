@@ -124,6 +124,16 @@ let modules ?mutation ?binding ~runtime artifact =
            (render Rivet_a64_refusal.pp)
            (Err.payload Rivet_a64_exp.module_))
   in
+  let* generated =
+    match Rivet_a64_contraction.of_artifact artifact with
+    | [] -> Ok []
+    | ds ->
+        Result.map
+          (fun m -> [ m ])
+          (Result.map_error
+             (render Rivet_a64_refusal.pp)
+             (Err.payload (Rivet_a64_contraction.module_ ?mutation ds)))
+  in
   let main =
     (List.find
        (fun (f : (_, _) Mir_phys.Func.t) ->
@@ -136,7 +146,7 @@ let modules ?mutation ?binding ~runtime artifact =
     | Some M.Table -> Rivet_a64_table.entry
     | Some M.Image_resident | None -> main
   in
-  Ok (entry, (modul :: host) @ owned)
+  Ok (entry, (modul :: host) @ owned @ generated)
 
 (* Typed modules as a loaded image entered at [entry]. *)
 let load ~entry modules =
