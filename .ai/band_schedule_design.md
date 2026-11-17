@@ -59,6 +59,23 @@ checked as the unrolled form. Two driver mutations (`Step_dropped`,
 `Iterations_short`) are red against the whole chain on the SSA interpreter and
 on all three Machine IR routes (`test/band_driver`, `test/machine_view_call`).
 
+A ring base that wraps does not step by a constant. It is emitted as
+`rest + slot * ((a*i + b) mod slots)`, a slot being the rows one call's
+footprint covers (one row for a window read, the produced chunk for a write
+into a ring a multiple of it), the modulus built from existing index
+operations as `t + (-slots) * floor_div slots t`. `Ssa_range` recognises that
+exact shape (the same value in both terms, a positive literal) and bounds it by
+`[0, slots - 1]`, which the interval over the three operations cannot give, so
+`view_in_bounds` proves the footprint from the slot count alone; a modulus past
+the ring is `Unproven In_bounds`. No new operation exists, so both SSA
+interpreters, expansion and the Machine IR lowering (`Index_floor_div` already
+lowers) carry it unchanged. A multi-row contiguous read that straddles a wrap
+differs in shape from one that does not, so the loop is also searched over the
+blocks with every multi-row ring read split per row (the form the wrapping read
+already takes); it is used only where it covers more blocks, and the blocks
+outside the loop keep the single read. Mutations `Ring_modulus_short` (wrong
+slot, red on the whole chain) and `Ring_modulus_long` (verifier refuses).
+
 A window stage (`extent` K > 1) makes `width - K + 1` pixels per row; its
 reduction is `K * cin` (a window row's K pixels of channels are contiguous, the
 output pixels `cin` apart), its weights `(K * K * cin) x cout`. An event is one
@@ -135,12 +152,9 @@ compares its output bits with the whole chain on the SSA interpreter):
   generated AArch64, not host C).
 - Non-square windows and per-axis stride, padding or dilation (one value per
   kernel now).
-- Loop bodies are reused per period of blocks; a chain whose window rotation
-  never repeats within the rows stays unrolled. A loop over blocks whose ring
-  base is computed from the induction value (no period) is not done: the base
-  is `(a*i + b) mod rows * stride`, a modulo form the verifier's footprint
-  proof (affine bases only) has no rule for, so it needs a new proof, not a
-  driver change.
+- A chain with fewer than two repetitions of any block run (for example a
+  short chain whose blocks all differ, `block 3, 8 rows`) stays unrolled; the
+  ring rotation itself no longer needs a period.
 
 ### Stride, padding and dilation
 

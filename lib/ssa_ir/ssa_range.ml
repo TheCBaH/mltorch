@@ -212,6 +212,22 @@ let rec upper_facts defs (hi : Ssa_value.t) =
               | Some _ | None -> plain)
           | None -> plain))
 
+(* [x + (-m) * floor (x / m)], the floor modulus of [x] by a positive literal
+   [m]: the modulus when [s] is that second term of the sum with [x]. Its value
+   is in [0, m - 1] whatever [x] is, which no interval over the three operations
+   separately can see. *)
+let modulus defs (x : Ssa_value.t) (s : Ssa_value.t) =
+  match definition defs s with
+  | Some (Ssa_op.Index_scale (k, q) | Ssa_op.Index_scale_in_domain (k, q))
+    when Int64.compare k 0L < 0 -> (
+      match definition defs q with
+      | Some (Ssa_op.Index_floor_div (m, x'))
+        when Int64.equal m (Int64.neg k)
+             && Ssa_id.Value.equal x.Ssa_value.id x'.Ssa_value.id ->
+          Some m
+      | Some _ | None -> None)
+  | Some _ | None -> None
+
 let of_type (v : Ssa_value.t) =
   match v.Ssa_value.ty with
   | Ssa_type.Scalar Ssa_type.Index -> domain
@@ -245,7 +261,17 @@ let analyze (p : Ssa_program.t) =
         set_result (point n)
     | Ssa_op.Convert (Ssa_op.Convert.Index_to_i64, a) -> set_result (get a)
     | Ssa_op.Index_add (a, b) | Ssa_op.Index_add_in_domain (a, b) ->
-        set_result (checked (add (get a) (get b)))
+        let sum = checked (add (get a) (get b)) in
+        let residue =
+          match
+            match modulus !defs a b with
+            | Some m -> Some m
+            | None -> modulus !defs b a
+          with
+          | Some m -> Range { lo = 0L; hi = Int64.pred m }
+          | None -> domain
+        in
+        set_result (meet sum residue)
     | Ssa_op.Index_scale (k, a) | Ssa_op.Index_scale_in_domain (k, a) ->
         set_result (checked (scale k (get a)))
     | Ssa_op.Index_clamp_low a ->

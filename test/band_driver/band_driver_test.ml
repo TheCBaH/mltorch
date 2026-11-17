@@ -133,7 +133,7 @@ let%expect_test "banded pointwise chains equal the whole-tensor chain" =
     3 stages, 7 rows, block 2: windows 2 2; loop 1 blocks x 3 from block 0; equals the whole-tensor Contracts; unrolled equal
     3 stages, 8 rows, block 3: windows 2 4; loop none; equals the whole-tensor Contracts; unrolled equal
     3 stages, 16 rows, block 2: windows 2 2; loop 1 blocks x 8 from block 0; equals the whole-tensor Contracts; unrolled equal
-    3 stages, 23 rows, block 3: windows 2 4; loop none; equals the whole-tensor Contracts; unrolled equal
+    3 stages, 23 rows, block 3: windows 2 4; loop 2 blocks x 3 from block 0; equals the whole-tensor Contracts; unrolled equal
     3 stages, 12 rows, block 1: windows 2 2; loop 2 blocks x 6 from block 0; equals the whole-tensor Contracts; unrolled equal
     3 stages, 48 rows, block 3: windows 2 4; loop 4 blocks x 4 from block 0; equals the whole-tensor Contracts; unrolled equal
     1 stage, 5 rows, block 5: windows ; loop none; equals the whole-tensor Contracts; unrolled equal |}]
@@ -191,11 +191,11 @@ let%expect_test "banded 3x3 chains equal the whole-tensor chain" =
     window_chains;
   [%expect
     {|
-    pointwise then 3x3, 10 rows, block 2: windows 4; loop 6 blocks x 2 from block 1; equals the whole-tensor Contracts; unrolled equal
+    pointwise then 3x3, 10 rows, block 2: windows 4; loop 6 blocks x 3 from block 1; equals the whole-tensor Contracts; unrolled equal
     pointwise then 3x3, 11 rows, block 3: windows 6; loop 3 blocks x 2 from block 1; equals the whole-tensor Contracts; unrolled equal
     3x3 then pointwise, 12 rows, block 2: windows 2; loop 1 blocks x 5 from block 0; equals the whole-tensor Contracts; unrolled equal
-    3x3, pointwise, 3x3, 20 rows, block 2: windows 2 4; loop 12 blocks x 3 from block 1; equals the whole-tensor Contracts; unrolled equal
-    3x3 then 3x3, 30 rows, block 1: windows 3; loop 9 blocks x 8 from block 1; equals the whole-tensor Contracts; unrolled equal
+    3x3, pointwise, 3x3, 20 rows, block 2: windows 2 4; loop 6 blocks x 7 from block 1; equals the whole-tensor Contracts; unrolled equal
+    3x3 then 3x3, 30 rows, block 1: windows 3; loop 3 blocks x 25 from block 1; equals the whole-tensor Contracts; unrolled equal
     one 3x3 stage, 9 rows, block 4: windows ; loop 3 blocks x 7 from block 0; equals the whole-tensor Contracts; unrolled equal |}]
 
 (* Reading the window's first row for every row it covers is seen. *)
@@ -206,11 +206,11 @@ let%expect_test "a dropped window offset is red" =
     window_chains;
   [%expect
     {|
-    pointwise then 3x3, 10 rows, block 2: windows 4; loop 6 blocks x 2 from block 1; DIFFERS; unrolled equal
+    pointwise then 3x3, 10 rows, block 2: windows 4; loop 6 blocks x 3 from block 1; DIFFERS; unrolled equal
     pointwise then 3x3, 11 rows, block 3: windows 6; loop 3 blocks x 2 from block 1; DIFFERS; unrolled equal
     3x3 then pointwise, 12 rows, block 2: windows 2; loop 1 blocks x 5 from block 0; DIFFERS; unrolled equal
-    3x3, pointwise, 3x3, 20 rows, block 2: windows 2 4; loop 12 blocks x 3 from block 1; DIFFERS; unrolled equal
-    3x3 then 3x3, 30 rows, block 1: windows 3; loop 9 blocks x 8 from block 1; DIFFERS; unrolled equal
+    3x3, pointwise, 3x3, 20 rows, block 2: windows 2 4; loop 6 blocks x 7 from block 1; DIFFERS; unrolled equal
+    3x3 then 3x3, 30 rows, block 1: windows 3; loop 3 blocks x 25 from block 1; DIFFERS; unrolled equal
     one 3x3 stage, 9 rows, block 4: windows ; loop 3 blocks x 7 from block 0; DIFFERS; unrolled equal |}]
 
 (* Where a target has no form for a view call it refuses, by name; the
@@ -291,6 +291,42 @@ let%expect_test "loop mutations are red" =
     == step dropped
     3 stages, 16 rows, block 2: windows 2 2; loop 1 blocks x 8 from block 0; DIFFERS; unrolled equal |}]
 
+(* A chain whose ring rotation has no period in its blocks loops over the
+   induction value, [(a * i + b) mod slots]. Its defects: a modulus one short
+   reads the wrong slot, one long leaves the ring and the verifier refuses the
+   program, and bases that do not move repeat the first repetition. *)
+let%expect_test "ring modulus mutations are red" =
+  let three =
+    [
+      stage "a" ~chunk:2 ~cin:2 ~cout:3;
+      stage "b" ~chunk:2 ~cin:3 ~cout:4;
+      stage "c" ~chunk:2 ~cin:4 ~cout:2;
+    ]
+  in
+  List.iter
+    (fun (name, mutation) ->
+      Fmt.pr "== %s@." name;
+      match
+        case ~mutation ~name:"3 stages, 23 rows, block 3" three ~width:2L
+          ~rows:23 ~block:3
+      with
+      | () -> ()
+      | exception Err.Exn.E _ -> Fmt.pr "refused by the verifier@.")
+    D.
+      [
+        ("modulus long", Ring_modulus_long);
+        ("modulus short", Ring_modulus_short);
+        ("step dropped", Step_dropped);
+      ];
+  [%expect
+    {|
+    == modulus long
+    refused by the verifier
+    == modulus short
+    3 stages, 23 rows, block 3: windows 2 4; loop 2 blocks x 3 from block 0; DIFFERS; unrolled equal
+    == step dropped
+    3 stages, 23 rows, block 3: windows 2 4; loop 2 blocks x 3 from block 0; DIFFERS; unrolled equal |}]
+
 (* Stride, padding and dilation. *)
 let strided_chains =
   let w3 = stage ~extent:3 in
@@ -358,10 +394,10 @@ let%expect_test "banded strided and padded chains equal the whole-tensor chain"
   [%expect
     {|
     pointwise then 3x3 stride 2, 11 rows, block 2: windows 6; loop none; equals the whole-tensor Contracts; unrolled equal
-    pointwise then 3x3 stride 2, 41 rows, block 2: windows 6; loop 72 blocks x 2 from block 1; equals the whole-tensor Contracts; unrolled equal
-    pointwise then 3x3 pad 1, 10 rows, block 2: windows 6; loop 20 blocks x 2 from block 3; equals the whole-tensor Contracts; unrolled equal
-    3x3 pad 1 then 3x3 pad 1, 24 rows, block 2: windows 6; loop 60 blocks x 3 from block 3; equals the whole-tensor Contracts; unrolled equal
-    3x3 stride 2 pad 1 then 3x3 pad 1, 21 rows, block 1: windows 3; loop 40 blocks x 2 from block 3; equals the whole-tensor Contracts; unrolled equal
+    pointwise then 3x3 stride 2, 41 rows, block 2: windows 6; loop 18 blocks x 8 from block 1; equals the whole-tensor Contracts; unrolled equal
+    pointwise then 3x3 pad 1, 10 rows, block 2: windows 6; loop 20 blocks x 3 from block 3; equals the whole-tensor Contracts; unrolled equal
+    3x3 pad 1 then 3x3 pad 1, 24 rows, block 2: windows 6; loop 20 blocks x 9 from block 3; equals the whole-tensor Contracts; unrolled equal
+    3x3 stride 2 pad 1 then 3x3 pad 1, 21 rows, block 1: windows 3; loop 10 blocks x 8 from block 3; equals the whole-tensor Contracts; unrolled equal
     3x3 dilation 2 pad 2 then pointwise stride 2, 14 rows, block 2: windows 4; loop 2 blocks x 2 from block 1; equals the whole-tensor Contracts; unrolled equal
     one 3x3 stride 2 pad 1 stage, 9 rows, block 2: windows ; loop 10 blocks x 4 from block 3; equals the whole-tensor Contracts; unrolled equal |}]
 
@@ -385,14 +421,14 @@ let%expect_test "stride and padding mutations are red" =
   [%expect
     {|
     == padding read from the edge
-    pointwise then 3x3 pad 1, 10 rows, block 2: windows 6; loop 20 blocks x 2 from block 1; DIFFERS; unrolled equal
+    pointwise then 3x3 pad 1, 10 rows, block 2: windows 6; loop 20 blocks x 3 from block 4; DIFFERS; unrolled equal
     3x3 pad 1 then 3x3 pad 1, 24 rows, block 2: windows 6; loop 100 blocks x 2 from block 1; DIFFERS; unrolled equal
-    3x3 stride 2 pad 1 then 3x3 pad 1, 21 rows, block 1: windows 3; loop 40 blocks x 2 from block 1; DIFFERS; unrolled equal
+    3x3 stride 2 pad 1 then 3x3 pad 1, 21 rows, block 1: windows 3; loop 10 blocks x 8 from block 4; DIFFERS; unrolled equal
     3x3 dilation 2 pad 2 then pointwise stride 2, 14 rows, block 2: windows 4; loop 2 blocks x 2 from block 0; DIFFERS; unrolled equal
     one 3x3 stride 2 pad 1 stage, 9 rows, block 2: windows ; loop 10 blocks x 4 from block 4; DIFFERS; unrolled equal
     == stride dropped
     pointwise then 3x3 stride 2, 11 rows, block 2: windows 6; loop none; DIFFERS; unrolled equal
-    pointwise then 3x3 stride 2, 41 rows, block 2: windows 6; loop 72 blocks x 2 from block 1; DIFFERS; unrolled equal |}]
+    pointwise then 3x3 stride 2, 41 rows, block 2: windows 6; loop 18 blocks x 8 from block 1; DIFFERS; unrolled equal |}]
 
 (* The whole chain itself, against a nested binary32 sum that skips a tap in
    the padding (the semantic table's convolution row). *)

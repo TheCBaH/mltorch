@@ -34,7 +34,8 @@ val pp_refusal : Format.formatter -> refusal -> unit
 
 (** The repeated part of a banded program: from block [first], [iterations]
     repetitions of [period] blocks, one body of view calls whose bases move by a
-    fixed step per repetition. Blocks before and after it are unrolled. *)
+    fixed step per repetition, or round their ring by a modulus of the induction
+    value. Blocks before and after it are unrolled. *)
 module Loop : sig
   type t = {
     first : Band_schedule.Count.t;
@@ -62,6 +63,10 @@ type mutation =
   | Padding_read_edge
       (** a window row in the padding reads the nearest producer row instead of
           being skipped *)
+  | Ring_modulus_long
+      (** a ring base wraps at one row more than the ring holds *)
+  | Ring_modulus_short
+      (** a ring base wraps at one row fewer than the ring holds *)
   | Step_dropped  (** the bases do not move between repetitions *)
   | Stride_dropped  (** a window steps by one pixel and row, not its stride *)
   | Window_offset_dropped
@@ -76,8 +81,11 @@ val program :
   block:Band_schedule.Span.block Band_schedule.Span.t ->
   (Program.t, refusal) result
 (** A run of blocks that repeats becomes a loop over one body, so a view-call
-    body is reused per repetition; [~looped:false] keeps every event unrolled.
-    Raises [Invalid_argument] as {!Band_schedule.run} does. *)
+    body is reused per repetition; [~looped:false] keeps every event unrolled. A
+    base that wraps round its ring (no period in the rotation) is read through
+    the induction value, [(a * i + b) mod rows], a form {!Ssa_ir.Ssa_range}
+    proves inside the ring. Raises [Invalid_argument] as {!Band_schedule.run}
+    does. *)
 
 val whole :
   Stage.t list -> width:int64 -> rows:Band_schedule.Count.t -> Program.t

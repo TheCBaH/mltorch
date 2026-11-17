@@ -230,3 +230,98 @@ let%expect_test "a row base that leaves the buffer, or a short list, is refused"
     {|
     r0, stmt10: a proof of an access staying in its buffer cannot be re-derived
     builder: Ssa_builder: a view's row bases are not as many as the axis they place |}]
+
+(* A ring read through the induction value: call [i] reads the [(2i + 1) mod
+   slots]th slot of A, a slot being the two rows the call covers, and writes
+   its own two rows of C. The modulus is the value less [modulus] times its
+   floor quotient, the form the range analysis proves in [0, modulus). The
+   unrolled form names each slot as a constant. *)
+let ring_program ?(looped = true) ~slots ~modulus ~calls () =
+  let m = 2 and k = 3 and n = 2 in
+  let buffers =
+    [
+      F.buffer 0 ~h:(i64 (m * slots)) ~w:(i64 k) Ssa_format.F32 Ssa_buffer.Input;
+      F.buffer 1 ~h:(i64 k) ~w:(i64 n) Ssa_format.F32 Ssa_buffer.Input;
+      F.buffer 2
+        ~h:(i64 (m * calls))
+        ~w:(i64 n) Ssa_format.F32 Ssa_buffer.Output;
+    ]
+  in
+  B.program ~buffers (fun bld ->
+      let call bld ~slot ~at =
+        B.view_call bld (desc ~m ~k ~n)
+          ~a:(F.buf 0, B.Base slot)
+          ~b:(F.buf 1, B.Base (B.index bld 0L))
+          ~c:(F.buf 2, B.Base (B.index_scale bld (i64 (m * n)) at))
+      in
+      if looped then
+        ignore
+          (B.for_ bld ~lo:(B.index bld 0L)
+             ~hi:(B.index bld (i64 calls))
+             ~init:B.Nil
+             (fun bld i B.Nil ->
+               let t =
+                 B.index_add bld (B.index_scale bld 2L i) (B.index bld 1L)
+               in
+               let q = B.index_floor_div bld (i64 modulus) t in
+               let r =
+                 B.index_add bld t (B.index_scale bld (i64 (-modulus)) q)
+               in
+               call bld ~slot:(B.index_scale bld (i64 (m * k)) r) ~at:i;
+               B.Nil))
+      else
+        for i = 0 to calls - 1 do
+          call bld
+            ~slot:(B.index bld (i64 (m * k * (((2 * i) + 1) mod slots))))
+            ~at:(B.index bld (i64 i))
+        done)
+
+let%expect_test
+    "a base modulo the ring is proved inside it, and equals the unrolled calls"
+    =
+  let slots = 3 and calls = 7 in
+  let a = Array.init (2 * slots * 3) (fun _ -> value ())
+  and b = Array.init 6 (fun _ -> value ()) in
+  let nc = 2 * calls * 2 in
+  let build ?looped modulus =
+    Err.or_raise ~pp_error:Ssa_verify.pp_error
+      (ring_program ?looped ~slots ~modulus ~calls ())
+  in
+  let want = run (build ~looped:false slots) ~a ~b ~nc in
+  let p = build slots in
+  let cfg =
+    Err.or_raise ~pp_error:Ssa_cfg_lower.pp_error (Ssa_cfg_lower.program p)
+  in
+  let memory =
+    F.memory
+      [ (0, F.floats a); (1, F.floats b); (2, F.floats (Array.make nc 0.)) ]
+  in
+  Err.or_raise ~pp_error:Ssa_cfg_interp.pp_error
+    (Ssa_cfg_interp.run cfg ~memory);
+  let cfg_got =
+    match Ssa_id.Buffer.Map.find (F.buf 2) memory with
+    | Ssa_memory.Floats cs -> cs
+    | _ -> assert false
+  in
+  let verdict got = if same want got then "equal" else "DIFFERS" in
+  Fmt.pr "interpreter %s; CFG executor %s; expanded %s@."
+    (verdict (run p ~a ~b ~nc))
+    (verdict cfg_got)
+    (verdict
+       (run
+          (Ssa_precision.to_f32 ~exact:true (Ssa_expand_view_call.program p))
+          ~a ~b ~nc));
+  [%expect {| interpreter equal; CFG executor equal; expanded equal |}]
+
+let%expect_test "a modulus past the ring is refused" =
+  let show modulus =
+    match Err.payload (ring_program ~slots:3 ~modulus ~calls:7 ()) with
+    | Ok _ -> Fmt.pr "modulus %d: accepted@." modulus
+    | Error e -> Fmt.pr "modulus %d: %a@." modulus Ssa_verify.pp_error e
+  in
+  List.iter show [ 2; 3; 4 ];
+  [%expect
+    {|
+    modulus 2: accepted
+    modulus 3: accepted
+    modulus 4: r0, stmt9: a proof of an access staying in its buffer cannot be re-derived |}]

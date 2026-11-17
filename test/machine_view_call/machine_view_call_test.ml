@@ -295,7 +295,10 @@ let bands ?mutation () =
   band ?mutation ~name:"3 stages, 12 rows, block 1, looped" three ~width:2L
     ~rows:12 ~block:1;
   band ?mutation ~name:"3 stages, 48 rows, block 3, looped" three ~width:2L
-    ~rows:48 ~block:3
+    ~rows:48 ~block:3;
+  (* a rotation with no period: the ring is read through the induction value *)
+  band ?mutation ~name:"3 stages, 23 rows, block 3, ring modulus" three
+    ~width:2L ~rows:23 ~block:3
 
 (* 3x3 stages read a ring of producer rows, one product per window row. *)
 let windows ?mutation () =
@@ -371,7 +374,8 @@ let%expect_test
     3 stages, 8 rows, block 3: SSA banded equal; lowered: generic equal; aarch64 equal; rv32 equal
     3 stages, 16 rows, block 2, looped: SSA banded equal; lowered: generic equal; aarch64 equal; rv32 equal
     3 stages, 12 rows, block 1, looped: SSA banded equal; lowered: generic equal; aarch64 equal; rv32 equal
-    3 stages, 48 rows, block 3, looped: SSA banded equal; lowered: generic equal; aarch64 equal; rv32 equal |}]
+    3 stages, 48 rows, block 3, looped: SSA banded equal; lowered: generic equal; aarch64 equal; rv32 equal
+    3 stages, 23 rows, block 3, ring modulus: SSA banded equal; lowered: generic equal; aarch64 equal; rv32 equal |}]
 
 let%expect_test
     "banded 3x3 chains lowered through the helper route equal the whole chain" =
@@ -426,6 +430,7 @@ let%expect_test "view-call lowering mutations are red" =
     3 stages, 16 rows, block 2, looped: SSA banded equal; lowered: generic DIFFERS; aarch64 DIFFERS; rv32 DIFFERS
     3 stages, 12 rows, block 1, looped: SSA banded equal; lowered: generic DIFFERS; aarch64 DIFFERS; rv32 DIFFERS
     3 stages, 48 rows, block 3, looped: SSA banded equal; lowered: generic failed: defect; aarch64 failed: defect; rv32 failed: defect
+    3 stages, 23 rows, block 3, ring modulus: SSA banded equal; lowered: generic DIFFERS; aarch64 DIFFERS; rv32 DIFFERS
     pointwise then 3x3, 10 rows, block 2, looped: SSA banded equal; lowered: generic DIFFERS; aarch64 DIFFERS; rv32 DIFFERS
     3x3, pointwise, 3x3, 20 rows, block 2, looped: SSA banded equal; lowered: generic failed: defect; aarch64 failed: defect; rv32 failed: defect
     3x3 then 3x3, 9 rows, block 3: SSA banded equal; lowered: generic DIFFERS; aarch64 DIFFERS; rv32 DIFFERS
@@ -444,6 +449,7 @@ let%expect_test "view-call lowering mutations are red" =
     3 stages, 16 rows, block 2, looped: SSA banded equal; lowered: generic equal; aarch64 equal; rv32 equal
     3 stages, 12 rows, block 1, looped: SSA banded equal; lowered: generic equal; aarch64 equal; rv32 equal
     3 stages, 48 rows, block 3, looped: SSA banded equal; lowered: generic DIFFERS; aarch64 DIFFERS; rv32 DIFFERS
+    3 stages, 23 rows, block 3, ring modulus: SSA banded equal; lowered: generic failed: defect; aarch64 failed: defect; rv32 failed: defect
     pointwise then 3x3, 10 rows, block 2, looped: SSA banded equal; lowered: generic equal; aarch64 equal; rv32 equal
     3x3, pointwise, 3x3, 20 rows, block 2, looped: SSA banded equal; lowered: generic equal; aarch64 equal; rv32 equal
     3x3 then 3x3, 9 rows, block 3: SSA banded equal; lowered: generic equal; aarch64 equal; rv32 equal

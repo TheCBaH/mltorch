@@ -9,6 +9,8 @@ end
 type mutation =
   | Iterations_short
   | Padding_read_edge
+  | Ring_modulus_long
+  | Ring_modulus_short
   | Step_dropped
   | Stride_dropped
   | Window_offset_dropped
@@ -334,6 +336,63 @@ let whole stages ~width ~rows =
 (* An event as integers: its stage, the row of its window it reads, its pixels,
    and the bases it names, the read's (one, or one per pixel when [reads] is
    positive) then the write's. *)
+module Kind = struct
+  (* Where a base lies: in a whole tensor, or in a window's ring of [rows] rows
+     of [stride] elements, the call's footprint covering [span] rows from it. *)
+  type t = Plain | Ring of { rows : int; stride : int64; span : int }
+end
+
+(* How a base moves over the repetitions of a loop body: by a fixed step, or
+   around its ring, [rest + stride * ((a * k + b) mod rows)] at repetition
+   [k]. *)
+module Model = struct
+  type t =
+    | Affine of int64
+    | Ring of { rest : int64; stride : int64; rows : int; a : int; b : int }
+
+  let predict m ~base k =
+    match m with
+    | Affine d -> Int64.add base (Int64.mul (Int64.of_int k) d)
+    | Ring r ->
+        Int64.add r.rest
+          (Int64.mul r.stride (Int64.of_int (((r.a * k) + r.b) mod r.rows)))
+
+  (* The model of a base that is [b0] then [b1] in the first two repetitions.
+     A ring base follows its ring when its footprint of [span] rows always
+     starts at a multiple of [span] rows, so that the ring's [rows / span]
+     slots are whole: the proof that a call never leaves the buffer reaches
+     only the slot's first cell plus the footprint. Any other base is
+     affine. *)
+  let derive (kind : Kind.t) b0 b1 =
+    let affine = Affine (Int64.sub b1 b0) in
+    match kind with
+    | Kind.Plain -> affine
+    | Kind.Ring { rows; stride; span } ->
+        let slot = Int64.mul stride (i64 span) in
+        let slots = rows / span in
+        let at b = Int64.rem b slot and q b = Int64.div b slot in
+        if
+          slots > 1
+          && rows mod span = 0
+          && Int64.compare b0 0L >= 0
+          && Int64.compare b1 0L >= 0
+          && Int64.equal (at b0) (at b1)
+          && Int64.compare (at b0) stride < 0
+          && Int64.compare (q b0) (i64 slots) < 0
+          && Int64.compare (q b1) (i64 slots) < 0
+        then
+          let q0 = Int64.to_int (q b0) and q1 = Int64.to_int (q b1) in
+          Ring
+            {
+              rest = at b0;
+              stride = slot;
+              rows = slots;
+              a = (q1 - q0 + slots) mod slots;
+              b = q0;
+            }
+        else affine
+end
+
 module Call = struct
   type t = {
     stage : int;
@@ -344,6 +403,7 @@ module Call = struct
     pixels : int64;
     reads : int;
     bases : int64 list;
+    kinds : Kind.t list;  (** one per base *)
   }
 
   (* what two calls must share to be the same body *)
@@ -362,8 +422,9 @@ let blocks calls ~last =
 
 (* The run of blocks that repeats: [iterations] repetitions of [period] blocks
    from block [first], repetition [k] being repetition 0 with every base moved
-   by [k] times one fixed step per base. Prefers the most blocks covered, then
-   the shorter period, then the earlier start. *)
+   as its {!Model.t} says. Prefers the most blocks covered, then the shorter
+   period, then the earlier start. Returns the run and, per base of one body,
+   its model: a ring base that never wraps in the run is affine. *)
 let find_loop (bl : Call.t list array) =
   let nb = Array.length bl in
   let rep s p = List.concat (Array.to_list (Array.sub bl s p)) in
@@ -375,7 +436,13 @@ let find_loop (bl : Call.t list array) =
       let r0 = rep s p and r1 = rep (s + p) p in
       if shapes r0 = shapes r1 then begin
         let b0 = bases r0 in
-        let step = List.map2 Int64.sub (bases r1) b0 in
+        let kinds = List.concat_map (fun (c : Call.t) -> c.Call.kinds) r0 in
+        let models =
+          List.map2
+            (fun k (x, y) -> Model.derive k x y)
+            kinds
+            (List.combine b0 (bases r1))
+        in
         let ok k =
           s + ((k + 1) * p) <= nb
           &&
@@ -383,8 +450,8 @@ let find_loop (bl : Call.t list array) =
           shapes r = shapes r0
           && bases r
              = List.map2
-                 (fun b d -> Int64.add b (Int64.mul (Int64.of_int k) d))
-                 b0 step
+                 (fun (m, b) _ -> Model.predict m ~base:b k)
+                 (List.combine models b0) b0
         in
         let rec count k = if ok k then count (k + 1) else k in
         let n = count 1 in
@@ -392,13 +459,33 @@ let find_loop (bl : Call.t list array) =
         let better =
           match !best with
           | None -> true
-          | Some (c, bp, _, _) -> cover > c || (cover = c && p < bp)
+          | Some (c, bp, _, _, _) -> cover > c || (cover = c && p < bp)
         in
-        if n >= 2 && better then best := Some (cover, p, s, n)
+        if n >= 2 && better then begin
+          let step = List.map2 (fun x y -> Int64.sub y x) b0 (bases r1) in
+          let affine_all (m, (b, d)) =
+            match m with
+            | Model.Affine _ -> m
+            | Model.Ring _ ->
+                let fits =
+                  List.for_all
+                    (fun k ->
+                      Int64.equal
+                        (Model.predict m ~base:b k)
+                        (Model.predict (Model.Affine d) ~base:b k))
+                    (List.init n Fun.id)
+                in
+                if fits then Model.Affine d else m
+          in
+          let models =
+            List.map affine_all (List.combine models (List.combine b0 step))
+          in
+          best := Some (cover, p, s, n, models)
+        end
       end
     done
   done;
-  Option.map (fun (_, p, s, n) -> (s, p, n)) !best
+  Option.map (fun (_, p, s, n, models) -> (s, p, n, models)) !best
 
 (* The first stage with an output pixel no window position reaches. *)
 let empty_window stages ~width ~rows =
@@ -462,7 +549,7 @@ let program ?(looped = true) ?mutation stages ~width ~rows ~block =
       let stages_a = Array.of_list stages in
       (* the calls of one event, as integers: one over all its pixels, or for
          a window one per output row and row of the window it reads *)
-      let call (e : S.event) =
+      let call ~uniform (e : S.event) =
         let i = stage_index e.S.kernel in
         let st = stages_a.(i) in
         let cin = st.Stage.cin in
@@ -481,6 +568,21 @@ let program ?(looped = true) ?mutation stages ~width ~rows ~block =
         in
         let write row =
           Position.element (write_row row) ~width:wout ~channels:st.Stage.cout
+        in
+        let ring_kind w ~stride ~span =
+          Kind.Ring { rows = S.Count.to_int (S.Window.rows w); stride; span }
+        in
+        let read_kind ~span =
+          if i = 0 then Kind.Plain
+          else
+            ring_kind
+              (Option.get windows.(i - 1))
+              ~stride:(Int64.mul win cin) ~span
+        in
+        let write_kind ~span =
+          match windows.(i) with
+          | Some w -> ring_kind w ~stride:(Int64.mul wout st.Stage.cout) ~span
+          | None -> Kind.Plain
         in
         if not (S.Count.to_int st.Stage.kernel.S.extent = 1 && plain st) then
           let hin =
@@ -509,6 +611,7 @@ let program ?(looped = true) ?mutation stages ~width ~rows ~block =
                           (write (S.Row.of_int r))
                           (Int64.mul t.Tap.x st.Stage.cout);
                       ];
+                    kinds = [ read_kind ~span:1; write_kind ~span:1 ];
                   })
                 (fst (taps ?mutation st ~hin ~win ~wout ~r)))
             (List.init
@@ -518,6 +621,7 @@ let program ?(looped = true) ?mutation stages ~width ~rows ~block =
           let pixels =
             Int64.mul (i64 (S.Row.to_int phi - S.Row.to_int plo)) wout
           in
+          let write_span = S.Row.to_int phi - S.Row.to_int plo in
           let per_pixel, reads =
             if i = 0 then
               ( false,
@@ -527,7 +631,10 @@ let program ?(looped = true) ?mutation stages ~width ~rows ~block =
                 ] )
             else
               let w = Option.get windows.(i - 1) in
-              if S.Window.spans_wrap w ~lo:clo ~hi:chi then
+              if
+                if uniform then S.Row.to_int chi - S.Row.to_int clo > 1
+                else S.Window.spans_wrap w ~lo:clo ~hi:chi
+              then
                 (* rows that are not consecutive in the window: one base per
                    pixel, each from its own row *)
                 ( true,
@@ -555,12 +662,39 @@ let program ?(looped = true) ?mutation stages ~width ~rows ~block =
               pixels;
               reads = (if per_pixel then List.length reads else 0);
               bases = reads @ [ write plo ];
+              kinds =
+                List.map
+                  (fun _ ->
+                    read_kind
+                      ~span:
+                        (if per_pixel then 1
+                         else S.Row.to_int chi - S.Row.to_int clo))
+                  reads
+                @ [ write_kind ~span:write_span ];
             };
           ]
       in
-      let calls = List.concat_map call schedule.S.events in
-      let bl = Array.of_list (blocks calls ~last:(n - 1)) in
-      let found = if looped then find_loop bl else None in
+      let blocks_of ~uniform =
+        Array.of_list
+          (blocks
+             (List.concat_map (call ~uniform) schedule.S.events)
+             ~last:(n - 1))
+      in
+      let bl = blocks_of ~uniform:false in
+      (* the loop may read a ring row by row at every call, so that a call
+         reading across a wrap has the shape of one that does not; the blocks
+         outside it keep the single read *)
+      let found =
+        if not looped then None
+        else
+          let cover = function None -> 0 | Some (_, p, n, _) -> p * n in
+          let plain = find_loop bl in
+          let uniform_blocks = blocks_of ~uniform:true in
+          let uniform = find_loop uniform_blocks in
+          if cover uniform > cover plain then
+            Option.map (fun l -> (uniform_blocks, l)) uniform
+          else Option.map (fun l -> (bl, l)) plain
+      in
       (* [base] turns one integer offset of the call into an index value *)
       let emit bld (c : Call.t) ~base =
         let i = c.Call.stage in
@@ -593,22 +727,34 @@ let program ?(looped = true) ?mutation stages ~width ~rows ~block =
                in
                match found with
                | None -> run_blocks 0 (Array.length bl)
-               | Some (s, p, iters) ->
+               | Some (loop_blocks, (s, p, iters, models)) ->
                    run_blocks 0 s;
-                   let body = List.concat (Array.to_list (Array.sub bl s p)) in
-                   let next =
-                     List.concat (Array.to_list (Array.sub bl (s + p) p))
+                   let body =
+                     List.concat (Array.to_list (Array.sub loop_blocks s p))
                    in
-                   let steps =
-                     (fun steps ->
-                       match mutation with
-                       | Some Step_dropped ->
-                           List.map (List.map (fun _ -> 0L)) steps
-                       | _ -> steps)
-                     @@ List.map2
-                          (fun (c : Call.t) (c' : Call.t) ->
-                            List.map2 Int64.sub c'.Call.bases c.Call.bases)
-                          body next
+                   let models =
+                     List.map
+                       (fun (m : Model.t) ->
+                         match (mutation, m) with
+                         | Some Step_dropped, Model.Affine _ -> Model.Affine 0L
+                         | Some Step_dropped, Model.Ring r ->
+                             Model.Ring { r with a = 0 }
+                         | Some Ring_modulus_long, Model.Ring r ->
+                             Model.Ring { r with rows = r.rows + 1 }
+                         | Some Ring_modulus_short, Model.Ring r ->
+                             Model.Ring { r with rows = max 1 (r.rows - 1) }
+                         | _ -> m)
+                       models
+                   in
+                   let per_call =
+                     let rest = ref models in
+                     List.map
+                       (fun (c : Call.t) ->
+                         let n = List.length c.Call.bases in
+                         let ms = List.filteri (fun i _ -> i < n) !rest in
+                         rest := List.filteri (fun i _ -> i >= n) !rest;
+                         ms)
+                       body
                    in
                    ignore
                      (B.for_ bld ~lo:(B.index bld 0L)
@@ -621,16 +767,39 @@ let program ?(looped = true) ?mutation stages ~width ~rows ~block =
                         ~init:B.Nil
                         (fun b i B.Nil ->
                           List.iter2
-                            (fun (c : Call.t) step ->
-                              let rest = ref step in
+                            (fun (c : Call.t) ms ->
+                              let rest = ref ms in
                               emit b c ~base:(fun x ->
-                                  let d = List.hd !rest in
+                                  let m = List.hd !rest in
                                   rest := List.tl !rest;
-                                  if Int64.equal d 0L then B.index b x
-                                  else
-                                    B.index_add b (B.index b x)
-                                      (B.index_scale b d i)))
-                            body steps;
+                                  match m with
+                                  | Model.Affine 0L -> B.index b x
+                                  | Model.Affine d ->
+                                      B.index_add b (B.index b x)
+                                        (B.index_scale b d i)
+                                  | Model.Ring r ->
+                                      (* [(a * i + b) mod rows], as the value
+                                         less rows times its floor quotient,
+                                         the form the range analysis proves
+                                         within [0, rows) *)
+                                      let t =
+                                        B.index_add b
+                                          (B.index_scale b (i64 r.a) i)
+                                          (B.index b (i64 r.b))
+                                      in
+                                      let q =
+                                        B.index_floor_div b (i64 r.rows) t
+                                      in
+                                      let m =
+                                        B.index_add b t
+                                          (B.index_scale b
+                                             (Int64.neg (i64 r.rows))
+                                             q)
+                                      in
+                                      B.index_add b
+                                        (B.index_scale b r.stride m)
+                                        (B.index b r.rest)))
+                            body per_call;
                           B.Nil));
                    run_blocks (s + (p * iters)) (Array.length bl)))
       in
@@ -649,7 +818,7 @@ let program ?(looped = true) ?mutation stages ~width ~rows ~block =
               (List.init n Fun.id);
           loop =
             Option.map
-              (fun (s, p, iters) ->
+              (fun (_, (s, p, iters, _)) ->
                 {
                   Loop.first = S.Count.of_int s;
                   period = S.Count.of_int p;
