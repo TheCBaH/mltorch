@@ -1,7 +1,7 @@
 (* A view call lowers to contraction helper calls on offset addresses (one call
    per row where bases are given per row). The lowered program, on the generic,
    AArch64 and RV32 interpreters, computes the bits of the SSA interpreter,
-   which the banded-versus-whole tests tie to the whole-tensor Contract chain. *)
+   which the banded-versus-nested-sum tests tie to an independent nested sum. *)
 
 open Ssa_ir
 open Machine_ir
@@ -178,14 +178,15 @@ let verdict ?mutation ~name p ~inputs ~want =
 
 (* Banded pointwise chains from the driver against the whole Contract chain. *)
 let kernel ?(extent = 1) ?(stride = 1) ?(pad = 0) ?(dilation = 1) name ~chunk =
-  {
-    S.name;
-    extent = S.Count.of_int extent;
-    stride = S.Count.of_int stride;
-    pad = S.Count.of_int pad;
-    dilation = S.Count.of_int dilation;
-    chunk = S.Span.chunk chunk;
-  }
+  let axis =
+    {
+      S.Axis.extent = S.Count.of_int extent;
+      stride = S.Count.of_int stride;
+      pad = S.Count.of_int pad;
+      dilation = S.Count.of_int dilation;
+    }
+  in
+  { S.name; rows = axis; cols = axis; chunk = S.Span.chunk chunk }
 
 let stage ?extent ?stride ?pad ?dilation name ~chunk ~cin ~cout =
   {
@@ -215,7 +216,12 @@ let band ?mutation ?driver ~name stages ~width ~rows ~block =
           (fun id -> (Ssa_id.Buffer.to_int id, cells id))
           (whole.D.Program.input :: whole.D.Program.weights)
       in
-      let want = ssa_output whole.D.Program.program ~inputs in
+      (* the nested sums, not the whole chain, are the reference *)
+      let want =
+        Band_chains.oracle_of_inputs stages ~width ~rows ~whole ~inputs
+      in
+      if ssa_output whole.D.Program.program ~inputs <> want then
+        Fmt.pr "%s: the whole chain differs from the nested sums@." name;
       Fmt.pr "%s: SSA banded %s; " name
         (if ssa_output banded.D.Program.program ~inputs = want then "equal"
          else "DIFFERS");
@@ -344,6 +350,18 @@ let strided ?mutation () =
     ]
     ~width:7L ~rows:14 ~block:2
 
+(* Non-square windows and per-axis stride, padding and dilation. *)
+let shaped ?mutation ?driver () =
+  List.iter
+    (fun (c : Band_chains.chain) ->
+      try
+        band ?mutation ?driver ~name:c.Band_chains.name c.Band_chains.stages
+          ~width:c.Band_chains.width ~rows:c.Band_chains.rows
+          ~block:c.Band_chains.block
+      with Err.Exn.E _ ->
+        Fmt.pr "%s: refused by the verifier@." c.Band_chains.name)
+    Band_chains.shaped_chains
+
 let rows ?mutation () =
   rows_case ?mutation ~name:"A and C rows reversed" ~batch:1 ~m:3 ~k:4 ~n:3
     ~a_rows:(`Rows [ 8; 4; 0 ])
@@ -397,6 +415,44 @@ let%expect_test
     3x3 pad 1 then 3x3 pad 1, 24 rows, block 2, looped: SSA banded equal; lowered: generic equal; aarch64 equal; rv32 equal
     3x3 dilation 2 pad 2 then pointwise stride 2, 14 rows, block 2: SSA banded equal; lowered: generic equal; aarch64 equal; rv32 equal |}]
 
+let%expect_test
+    "banded non-square and per-axis chains lowered through the helper route \
+     equal the nested sums" =
+  shaped ();
+  [%expect
+    {|
+    pointwise then 1x3 pad 1 along the columns, 14 rows: SSA banded equal; lowered: generic equal; aarch64 equal; rv32 equal
+    pointwise then 3x1 pad 1 along the rows, 14 rows: SSA banded equal; lowered: generic equal; aarch64 equal; rv32 equal
+    3x5 pad 1 by 2 then pointwise, 12 rows: SSA banded equal; lowered: generic equal; aarch64 equal; rv32 equal
+    3x3 stride 2 by 1 then 5x3 stride 1 by 2 pad 1, 21 rows: SSA banded equal; lowered: generic equal; aarch64 equal; rv32 equal
+    3x3 dilation 2 by 1, pad 2 by 0, 1x1 stride 1 by 2, 20 rows: SSA banded equal; lowered: generic equal; aarch64 equal; rv32 equal |}]
+
+(* The driver's axis defects reach every route as a wrong program. *)
+let%expect_test "axis mutations are red on every route" =
+  List.iter
+    (fun (name, driver) ->
+      Fmt.pr "== %s@." name;
+      shaped ~driver ())
+    D.
+      [
+        ("axes swapped", Axes_swapped);
+        ("padding axes swapped", Padding_axes_swapped);
+      ];
+  [%expect
+    {|
+    == axes swapped
+    pointwise then 1x3 pad 1 along the columns, 14 rows: SSA banded DIFFERS; lowered: generic DIFFERS; aarch64 DIFFERS; rv32 DIFFERS
+    pointwise then 3x1 pad 1 along the rows, 14 rows: refused by the verifier
+    3x5 pad 1 by 2 then pointwise, 12 rows: SSA banded DIFFERS; lowered: generic DIFFERS; aarch64 DIFFERS; rv32 DIFFERS
+    3x3 stride 2 by 1 then 5x3 stride 1 by 2 pad 1, 21 rows: SSA banded DIFFERS; lowered: generic DIFFERS; aarch64 DIFFERS; rv32 DIFFERS
+    3x3 dilation 2 by 1, pad 2 by 0, 1x1 stride 1 by 2, 20 rows: SSA banded DIFFERS; lowered: generic DIFFERS; aarch64 DIFFERS; rv32 DIFFERS
+    == padding axes swapped
+    pointwise then 1x3 pad 1 along the columns, 14 rows: SSA banded DIFFERS; lowered: generic DIFFERS; aarch64 DIFFERS; rv32 DIFFERS
+    pointwise then 3x1 pad 1 along the rows, 14 rows: SSA banded DIFFERS; lowered: generic DIFFERS; aarch64 DIFFERS; rv32 DIFFERS
+    3x5 pad 1 by 2 then pointwise, 12 rows: SSA banded DIFFERS; lowered: generic DIFFERS; aarch64 DIFFERS; rv32 DIFFERS
+    3x3 stride 2 by 1 then 5x3 stride 1 by 2 pad 1, 21 rows: SSA banded DIFFERS; lowered: generic failed: defect; aarch64 failed: defect; rv32 failed: defect
+    3x3 dilation 2 by 1, pad 2 by 0, 1x1 stride 1 by 2, 20 rows: SSA banded DIFFERS; lowered: generic DIFFERS; aarch64 DIFFERS; rv32 DIFFERS |}]
+
 let%expect_test "per-row bases lowered through the helper route" =
   rows ();
   [%expect
@@ -415,6 +471,7 @@ let%expect_test "view-call lowering mutations are red" =
       bands ~mutation ();
       windows ~mutation ();
       strided ~mutation ();
+      shaped ~mutation ();
       rows ~mutation ())
     Machine_lower.Mir_lower.Mutation.
       [
@@ -438,6 +495,11 @@ let%expect_test "view-call lowering mutations are red" =
     pointwise then 3x3 pad 1, 10 rows, block 2, looped: SSA banded equal; lowered: generic DIFFERS; aarch64 DIFFERS; rv32 DIFFERS
     3x3 pad 1 then 3x3 pad 1, 24 rows, block 2, looped: SSA banded equal; lowered: generic failed: defect; aarch64 failed: defect; rv32 failed: defect
     3x3 dilation 2 pad 2 then pointwise stride 2, 14 rows, block 2: SSA banded equal; lowered: generic failed: defect; aarch64 failed: defect; rv32 failed: defect
+    pointwise then 1x3 pad 1 along the columns, 14 rows: SSA banded equal; lowered: generic DIFFERS; aarch64 DIFFERS; rv32 DIFFERS
+    pointwise then 3x1 pad 1 along the rows, 14 rows: SSA banded equal; lowered: generic DIFFERS; aarch64 DIFFERS; rv32 DIFFERS
+    3x5 pad 1 by 2 then pointwise, 12 rows: SSA banded equal; lowered: generic failed: defect; aarch64 failed: defect; rv32 failed: defect
+    3x3 stride 2 by 1 then 5x3 stride 1 by 2 pad 1, 21 rows: SSA banded equal; lowered: generic DIFFERS; aarch64 DIFFERS; rv32 DIFFERS
+    3x3 dilation 2 by 1, pad 2 by 0, 1x1 stride 1 by 2, 20 rows: SSA banded equal; lowered: generic DIFFERS; aarch64 DIFFERS; rv32 DIFFERS
     A and C rows reversed: generic DIFFERS; aarch64 DIFFERS; rv32 DIFFERS
     B columns permuted: generic DIFFERS; aarch64 DIFFERS; rv32 DIFFERS
     A single base, C rows: generic DIFFERS; aarch64 DIFFERS; rv32 DIFFERS
@@ -457,6 +519,11 @@ let%expect_test "view-call lowering mutations are red" =
     pointwise then 3x3 pad 1, 10 rows, block 2, looped: SSA banded equal; lowered: generic equal; aarch64 equal; rv32 equal
     3x3 pad 1 then 3x3 pad 1, 24 rows, block 2, looped: SSA banded equal; lowered: generic equal; aarch64 equal; rv32 equal
     3x3 dilation 2 pad 2 then pointwise stride 2, 14 rows, block 2: SSA banded equal; lowered: generic equal; aarch64 equal; rv32 equal
+    pointwise then 1x3 pad 1 along the columns, 14 rows: SSA banded equal; lowered: generic equal; aarch64 equal; rv32 equal
+    pointwise then 3x1 pad 1 along the rows, 14 rows: SSA banded equal; lowered: generic equal; aarch64 equal; rv32 equal
+    3x5 pad 1 by 2 then pointwise, 12 rows: SSA banded equal; lowered: generic equal; aarch64 equal; rv32 equal
+    3x3 stride 2 by 1 then 5x3 stride 1 by 2 pad 1, 21 rows: SSA banded equal; lowered: generic equal; aarch64 equal; rv32 equal
+    3x3 dilation 2 by 1, pad 2 by 0, 1x1 stride 1 by 2, 20 rows: SSA banded equal; lowered: generic equal; aarch64 equal; rv32 equal
     A and C rows reversed: generic equal; aarch64 equal; rv32 equal
     B columns permuted: generic equal; aarch64 equal; rv32 equal
     A single base, C rows: generic DIFFERS; aarch64 DIFFERS; rv32 DIFFERS

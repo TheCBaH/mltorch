@@ -35,12 +35,21 @@ module Span = struct
   let pp = Fmt.int
 end
 
+module Axis = struct
+  type t = {
+    extent : Count.t;
+    stride : Count.t;
+    pad : Count.t;
+    dilation : Count.t;
+  }
+
+  let window a = Count.of_int (((a.extent - 1) * a.dilation) + 1)
+end
+
 type kernel = {
   name : string;
-  extent : Count.t;
-  stride : Count.t;
-  pad : Count.t;
-  dilation : Count.t;
+  rows : Axis.t;
+  cols : Axis.t;
   chunk : Span.chunk Span.t;
 }
 
@@ -52,16 +61,18 @@ type event = {
 
 type t = { events : event list; windows : Count.t list }
 
-let window k = ((k.extent - 1) * k.dilation) + 1
-
 let output_height k ~input =
-  let w = window k in
-  if input + (2 * k.pad) < w then 0
-  else ((input + (2 * k.pad) - w) / k.stride) + 1
+  let a = k.rows in
+  let w = Count.to_int (Axis.window a) in
+  if input + (2 * a.Axis.pad) < w then 0
+  else ((input + (2 * a.Axis.pad) - w) / a.Axis.stride) + 1
 
 let input_rows k ~lo ~hi ~height =
-  let a = (lo * k.stride) - k.pad in
-  let b = ((hi - 1) * k.stride) - k.pad + window k in
+  let r = k.rows in
+  let a = (lo * r.Axis.stride) - r.Axis.pad in
+  let b =
+    ((hi - 1) * r.Axis.stride) - r.Axis.pad + Count.to_int (Axis.window r)
+  in
   (max 0 a, min height b)
 
 let invalid what = invalid_arg ("Band_schedule.run: " ^ what)

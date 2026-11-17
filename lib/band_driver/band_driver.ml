@@ -7,7 +7,9 @@ module Stage = struct
 end
 
 type mutation =
+  | Axes_swapped
   | Iterations_short
+  | Padding_axes_swapped
   | Padding_read_edge
   | Ring_modulus_long
   | Ring_modulus_short
@@ -55,24 +57,41 @@ end
 
 let id = Ssa_id.Buffer.of_int
 let i64 = Int64.of_int
-let extent (st : Stage.t) = i64 (S.Count.to_int st.Stage.kernel.S.extent)
-let stride (st : Stage.t) = S.Count.to_int st.Stage.kernel.S.stride
-let pad (st : Stage.t) = S.Count.to_int st.Stage.kernel.S.pad
-let dilation (st : Stage.t) = S.Count.to_int st.Stage.kernel.S.dilation
+let rows_axis (st : Stage.t) = st.Stage.kernel.S.rows
+let cols_axis (st : Stage.t) = st.Stage.kernel.S.cols
+let count c = S.Count.to_int c
+let kh (st : Stage.t) = count (rows_axis st).S.Axis.extent
+let kw (st : Stage.t) = count (cols_axis st).S.Axis.extent
 
-(* A stage whose window is [extent] contiguous columns of [extent] consecutive
-   rows over every pixel (stride apart): one call per row and row it reads. *)
-let plain (st : Stage.t) = stride st = 1 && pad st = 0 && dilation st = 1
+(* A stage whose window is [kw] contiguous columns of [kh] consecutive rows
+   over every pixel (a column stride of 1, none of the column padding or
+   dilation): one call per row it reads. The row axis does not matter here: it
+   only moves which rows are read. *)
+let plain (st : Stage.t) =
+  let c = cols_axis st in
+  count c.S.Axis.stride = 1
+  && count c.S.Axis.pad = 0
+  && count c.S.Axis.dilation = 1
 
-(* The width of a stage's output over [win] pixels, as the rows' formula. *)
+(* A stage that reads one pixel for each it makes. *)
+let pointwise (st : Stage.t) =
+  let r = rows_axis st in
+  kh st = 1
+  && kw st = 1
+  && plain st
+  && count r.S.Axis.stride = 1
+  && count r.S.Axis.pad = 0
+
+(* The width of a stage's output over [win] pixels, as the rows' formula over
+   the column axis. *)
 let output_width (st : Stage.t) ~win =
-  let window =
-    Int64.add (Int64.mul (Int64.sub (extent st) 1L) (i64 (dilation st))) 1L
-  in
+  let c = cols_axis st in
   Int64.add
     (Int64.div
-       (Int64.sub (Int64.add win (Int64.of_int (2 * pad st))) window)
-       (i64 (stride st)))
+       (Int64.sub
+          (Int64.add win (Int64.of_int (2 * count c.S.Axis.pad)))
+          (i64 (count (S.Axis.window c))))
+       (i64 (count c.S.Axis.stride)))
     1L
 
 (* The product of one stage over [pixels] pixels of one row of its input: A is
@@ -126,18 +145,39 @@ end
    A window position outside the input (padding) is skipped, not added as a
    zero; the second component says every output pixel has a tap. *)
 let taps ?mutation (st : Stage.t) ~hin ~win ~wout ~r =
-  let k = S.Count.to_int st.Stage.kernel.S.extent in
-  let s = match mutation with Some Stride_dropped -> 1 | _ -> stride st in
-  let p = pad st and d = dilation st in
+  let ra, ca =
+    match mutation with
+    | Some Axes_swapped -> (cols_axis st, rows_axis st)
+    | _ -> (rows_axis st, cols_axis st)
+  in
+  let ca_pad =
+    match mutation with
+    | Some Padding_axes_swapped -> ra.S.Axis.pad
+    | _ -> ca.S.Axis.pad
+  in
+  let ra_pad =
+    match mutation with
+    | Some Padding_axes_swapped -> (cols_axis st).S.Axis.pad
+    | _ -> ra.S.Axis.pad
+  in
+  let khh = count ra.S.Axis.extent and k = count ca.S.Axis.extent in
+  let sr, sc =
+    match mutation with
+    | Some Stride_dropped -> (1, 1)
+    | _ -> (count ra.S.Axis.stride, count ca.S.Axis.stride)
+  in
+  let pr = count ra_pad and pc = count ca_pad in
+  let dr = count ra.S.Axis.dilation and dc = count ca.S.Axis.dilation in
+  let s = sc in
   let wout_i = Int64.to_int wout in
   let seen = Array.make wout_i false in
   let out = ref [] in
   let add t = out := t :: !out in
-  for ky = 0 to k - 1 do
+  for ky = 0 to khh - 1 do
     let ky_d =
-      match mutation with Some Window_offset_dropped -> 0 | _ -> ky * d
+      match mutation with Some Window_offset_dropped -> 0 | _ -> ky * dr
     in
-    let row0 = (r * s) - p + ky_d in
+    let row0 = (r * sr) - pr + ky_d in
     let row =
       match mutation with
       | Some Padding_read_edge -> max 0 (min (hin - 1) row0)
@@ -159,7 +199,7 @@ let taps ?mutation (st : Stage.t) ~hin ~win ~wout ~r =
         Array.fill seen 0 wout_i true)
       else
         for kx = 0 to k - 1 do
-          let o = i64 ((kx * d) - p) and s64 = i64 s in
+          let o = i64 ((kx * dc) - pc) and s64 = i64 s in
           let xl =
             if Int64.compare o 0L >= 0 then 0
             else
@@ -245,8 +285,8 @@ let layout stages ~width ~rows ~out_rows =
         buffer (1 + i)
           ~pixels:
             (Int64.mul
-               (extent stages.(i))
-               (Int64.mul (extent stages.(i)) stages.(i).Stage.cin))
+               (i64 (kh stages.(i) * kw stages.(i)))
+               stages.(i).Stage.cin)
           ~channels:stages.(i).Stage.cout Ssa_buffer.Input)
   in
   let outs =
@@ -282,7 +322,7 @@ let whole stages ~width ~rows =
                let hin =
                  if i = 0 then rows else (fun (_, _, h) -> h) shape.(i - 1)
                in
-               if S.Count.to_int st.Stage.kernel.S.extent = 1 && plain st then
+               if pointwise st then
                  B.contract bld
                    (desc st
                       ~pixels:(Int64.mul (i64 h) wout)
@@ -584,7 +624,7 @@ let program ?(looped = true) ?mutation stages ~width ~rows ~block =
           | Some w -> ring_kind w ~stride:(Int64.mul wout st.Stage.cout) ~span
           | None -> Kind.Plain
         in
-        if not (S.Count.to_int st.Stage.kernel.S.extent = 1 && plain st) then
+        if not (pointwise st) then
           let hin =
             if i = 0 then rows_i else (fun (_, _, h) -> h) shape.(i - 1)
           in

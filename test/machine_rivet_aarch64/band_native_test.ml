@@ -37,7 +37,12 @@ let%expect_test "banded chains run natively equal the whole chain" =
     pointwise 3 stages, 12 rows, block 1, looped: equal
     pointwise then 3x3, 10 rows, unrolled: equal
     pointwise then 3x3, 10 rows, looped: equal
-    3x3, pointwise, 3x3, 20 rows, looped: equal |}]
+    3x3, pointwise, 3x3, 20 rows, looped: equal
+    pointwise then 1x3 pad 1 along the columns, 14 rows, looped: equal
+    pointwise then 3x1 pad 1 along the rows, 14 rows, looped: equal
+    3x5 pad 1 by 2 then pointwise, 12 rows, looped: equal
+    3x3 stride 2 by 1 then 5x3 stride 1 by 2 pad 1, 21 rows, looped: equal
+    3x3 dilation 2 by 1, pad 2 by 0, 1x1 stride 1 by 2, 20 rows, looped: equal |}]
 
 (* The driver's own defects reach the CPU as a wrong program: a window reading
    the first row of its ring for every row, bases that do not move between

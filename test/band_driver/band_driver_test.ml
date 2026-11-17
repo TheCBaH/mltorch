@@ -9,14 +9,15 @@ module D = Band_driver
 let count = S.Count.of_int
 
 let kernel ?(extent = 1) ?(stride = 1) ?(pad = 0) ?(dilation = 1) name ~chunk =
-  {
-    S.name;
-    extent = count extent;
-    stride = count stride;
-    pad = count pad;
-    dilation = count dilation;
-    chunk = S.Span.chunk chunk;
-  }
+  let axis =
+    {
+      S.Axis.extent = count extent;
+      stride = count stride;
+      pad = count pad;
+      dilation = count dilation;
+    }
+  in
+  { S.name; rows = axis; cols = axis; chunk = S.Span.chunk chunk }
 
 let stage ?extent ?stride ?pad ?dilation name ~chunk ~cin ~cout =
   {
@@ -478,3 +479,81 @@ let%expect_test "the whole reference skips padded taps" =
      then "equal"
      else "DIFFERS");
   [%expect {| equal |}]
+
+(* Windows that are not square and strides, paddings and dilations that differ
+   by axis, against an independent nested sum (the chain's own whole-tensor
+   program too), looped and unrolled. *)
+let shaped_case ?mutation (c : Band_chains.chain) =
+  let rows = count c.Band_chains.rows
+  and block = S.Span.block c.Band_chains.block in
+  let stages = c.Band_chains.stages and width = c.Band_chains.width in
+  let verdict =
+    match
+      ( D.program ?mutation stages ~width ~rows ~block,
+        D.program ~looped:false ?mutation stages ~width ~rows ~block )
+    with
+    | exception Err.Exn.E _ -> "refused by the verifier"
+    | Error r, _ | _, Error r -> Fmt.str "refused: %a" D.pp_refusal r
+    | Ok banded, Ok unrolled -> (
+        let whole = D.whole stages ~width ~rows in
+        let cells id = Array.init (elements whole id) (fun _ -> value ()) in
+        let input = cells whole.D.Program.input in
+        let weights = List.map cells whole.D.Program.weights in
+        let want =
+          List.hd
+            (Band_chains.oracle stages ~width ~rows:(S.Count.to_int rows) ~input
+               ~weights)
+        in
+        let bits_of p = Array.map Band_chains.bits (run p ~input ~weights) in
+        let eq p = if bits_of p = want then "equal" else "DIFFERS" in
+        match (eq whole, eq banded, eq unrolled) with
+        | exception Err.Exn.E _ -> "refused by the verifier"
+        | w, b, u ->
+            Fmt.str "loop %s; whole %s; banded %s; unrolled %s"
+              (if banded.D.Program.loop = None then "none" else "yes")
+              w b u)
+  in
+  Fmt.pr "%s: %s@." c.Band_chains.name verdict
+
+let%expect_test "non-square and per-axis windows equal the nested sums" =
+  List.iter (fun c -> shaped_case c) Band_chains.shaped_chains;
+  [%expect
+    {|
+    pointwise then 1x3 pad 1 along the columns, 14 rows: loop yes; whole equal; banded equal; unrolled equal
+    pointwise then 3x1 pad 1 along the rows, 14 rows: loop yes; whole equal; banded equal; unrolled equal
+    3x5 pad 1 by 2 then pointwise, 12 rows: loop yes; whole equal; banded equal; unrolled equal
+    3x3 stride 2 by 1 then 5x3 stride 1 by 2 pad 1, 21 rows: loop yes; whole equal; banded equal; unrolled equal
+    3x3 dilation 2 by 1, pad 2 by 0, 1x1 stride 1 by 2, 20 rows: loop yes; whole equal; banded equal; unrolled equal |}]
+
+let%expect_test "axis mutations are red" =
+  let chains = Band_chains.shaped_chains in
+  List.iter
+    (fun (name, mutation, chains) ->
+      Fmt.pr "== %s@." name;
+      List.iter (fun c -> shaped_case ~mutation c) chains)
+    D.
+      [
+        ("axes swapped", Axes_swapped, chains);
+        ("padding axes swapped", Padding_axes_swapped, chains);
+        (* the chains with a stride *)
+        ( "stride dropped",
+          Stride_dropped,
+          List.filteri (fun i _ -> i >= 3) chains );
+      ];
+  [%expect
+    {|
+    == axes swapped
+    pointwise then 1x3 pad 1 along the columns, 14 rows: loop yes; whole equal; banded DIFFERS; unrolled DIFFERS
+    pointwise then 3x1 pad 1 along the rows, 14 rows: refused by the verifier
+    3x5 pad 1 by 2 then pointwise, 12 rows: loop yes; whole equal; banded DIFFERS; unrolled DIFFERS
+    3x3 stride 2 by 1 then 5x3 stride 1 by 2 pad 1, 21 rows: loop yes; whole equal; banded DIFFERS; unrolled DIFFERS
+    3x3 dilation 2 by 1, pad 2 by 0, 1x1 stride 1 by 2, 20 rows: loop yes; whole equal; banded DIFFERS; unrolled DIFFERS
+    == padding axes swapped
+    pointwise then 1x3 pad 1 along the columns, 14 rows: loop yes; whole equal; banded DIFFERS; unrolled DIFFERS
+    pointwise then 3x1 pad 1 along the rows, 14 rows: loop yes; whole equal; banded DIFFERS; unrolled DIFFERS
+    3x5 pad 1 by 2 then pointwise, 12 rows: loop yes; whole equal; banded DIFFERS; unrolled DIFFERS
+    3x3 stride 2 by 1 then 5x3 stride 1 by 2 pad 1, 21 rows: loop yes; whole equal; banded DIFFERS; unrolled DIFFERS
+    3x3 dilation 2 by 1, pad 2 by 0, 1x1 stride 1 by 2, 20 rows: loop yes; whole equal; banded DIFFERS; unrolled DIFFERS
+    == stride dropped
+    3x3 stride 2 by 1 then 5x3 stride 1 by 2 pad 1, 21 rows: loop yes; whole equal; banded DIFFERS; unrolled DIFFERS
+    3x3 dilation 2 by 1, pad 2 by 0, 1x1 stride 1 by 2, 20 rows: loop yes; whole equal; banded DIFFERS; unrolled DIFFERS |}]

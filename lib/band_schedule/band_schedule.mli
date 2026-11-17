@@ -53,21 +53,29 @@ module Span : sig
   val pp : Format.formatter -> 'role t -> unit
 end
 
+(** One axis of a kernel's window: its rows or its columns. *)
+module Axis : sig
+  type t = {
+    extent : Count.t;  (** the window's size [K] along the axis, at least 1 *)
+    stride : Count.t;  (** at least 1 *)
+    pad : Count.t;
+    dilation : Count.t;  (** at least 1 *)
+  }
+
+  val window : t -> Count.t
+  (** [(K - 1) * d + 1], the positions one output position reads. *)
+end
+
 type kernel = {
   name : string;
-  extent : Count.t;  (** the window's size [K], at least 1 *)
-  stride : Count.t;  (** at least 1 *)
-  pad : Count.t;
-  dilation : Count.t;  (** at least 1 *)
+  rows : Axis.t;  (** the axis the schedule bands over *)
+  cols : Axis.t;  (** along a row's pixels; the schedule never reads it *)
   chunk : Span.chunk Span.t;
       (** rows it produces a call when it runs ahead; at least 1 *)
 }
 
-val window : kernel -> Count.t
-(** [(K - 1) * d + 1], the rows one output row reads. *)
-
 val output_height : kernel -> input:Count.t -> Count.t
-(** The output rows of a kernel over [input] rows:
+(** The output rows of a kernel over [input] rows, by its row axis:
     [(input + 2 pad - window) / stride + 1], zero when the window does not fit.
 *)
 

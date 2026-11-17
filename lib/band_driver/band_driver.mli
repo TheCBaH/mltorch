@@ -1,22 +1,23 @@
 (** The driver of a band schedule as an SSA program. A stage is a contraction
-    over the pixels of a row ([cin] channels in, [cout] out) of a square window
-    of side [extent] (1 is pointwise) with the kernel's stride, dilation and
-    zero padding on both axes: its output has the rows and columns
-    {!Band_schedule.output_height} gives, its weights
-    [(extent * extent * cin) x cout] with the window's row [t] at row offset
-    [t * extent * cin]. A window position in the padding is skipped, not added
-    as a zero: the rows outside the producer's extent are not read and
-    contribute nothing, so the call making an output pixel's first product seeds
-    it with zero and the rest add into it. The schedule says which rows each
-    stage makes when, and the driver issues {!Ssa_ir.Ssa_view_call}s, their
-    operands' bases the element offsets of the rows the event reads and writes:
-    an intermediate value is a rolling window of rows ({!Band_schedule.Window}),
-    the first stage's input and the last stage's output are whole tensors. A
-    window is one call per output row and row it reads (one per column too when
-    dilation or padding keeps the columns from being contiguous, over the output
-    pixels that column reaches), each past a pixel's first adding into the
-    output (seed [Tensor]), so the sum runs row by row, then column and channel,
-    as in {!whole}. *)
+    over the pixels of a row ([cin] channels in, [cout] out) of a window of [kh]
+    rows by [kw] columns (the extents of the kernel's row and column axes; 1 by
+    1 is pointwise), each axis with its own stride, dilation and zero padding:
+    its output has the rows {!Band_schedule.output_height} gives and the columns
+    the column axis gives by the same formula, its weights
+    [(kh * kw * cin) x cout] with the window's row [t] at row offset
+    [t * kw * cin]. A window position in the padding is skipped, not added as a
+    zero: the rows outside the producer's extent are not read and contribute
+    nothing, so the call making an output pixel's first product seeds it with
+    zero and the rest add into it. The schedule says which rows each stage makes
+    when, and the driver issues {!Ssa_ir.Ssa_view_call}s, their operands' bases
+    the element offsets of the rows the event reads and writes: an intermediate
+    value is a rolling window of rows ({!Band_schedule.Window}), the first
+    stage's input and the last stage's output are whole tensors. A window is one
+    call per output row and row it reads (one per column too when dilation or
+    padding keeps the columns from being contiguous, over the output pixels that
+    column reaches), each past a pixel's first adding into the output (seed
+    [Tensor]), so the sum runs row by row, then column and channel, as in
+    {!whole}. *)
 
 open Ssa_ir
 
@@ -59,7 +60,11 @@ end
 (** Deliberate defects of the loop for the evidence suite; no consumer applies
     one. Alphabetical. *)
 type mutation =
+  | Axes_swapped
+      (** a window reads its row axis as its column axis and the reverse *)
   | Iterations_short  (** the loop stops one repetition early *)
+  | Padding_axes_swapped
+      (** the row padding is the column axis's and the reverse *)
   | Padding_read_edge
       (** a window row in the padding reads the nearest producer row instead of
           being skipped *)

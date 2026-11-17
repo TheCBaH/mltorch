@@ -4,6 +4,7 @@
  (name band_driver_test)
  (modules band_driver_test)
  (libraries
+  band_chains
   band_driver
   band_schedule
   contraction

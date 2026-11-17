@@ -408,14 +408,15 @@ module View = struct
   let stage ?(extent = 1) ~chunk ~cin ~cout name =
     {
       D.Stage.kernel =
-        {
-          S.name;
-          extent = S.Count.of_int extent;
-          stride = S.Count.of_int 1;
-          pad = S.Count.of_int 0;
-          dilation = S.Count.of_int 1;
-          chunk = S.Span.chunk chunk;
-        };
+        (let axis =
+           {
+             S.Axis.extent = S.Count.of_int extent;
+             stride = S.Count.of_int 1;
+             pad = S.Count.of_int 0;
+             dilation = S.Count.of_int 1;
+           }
+         in
+         { S.name; rows = axis; cols = axis; chunk = S.Span.chunk chunk });
       cin = Int64.of_int cin;
       cout = Int64.of_int cout;
     }

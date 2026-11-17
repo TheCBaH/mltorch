@@ -36,8 +36,8 @@ Where it is handled:
 
 ## The driver
 
-`Band_driver.program` turns a schedule of stages (square window of side
-`extent`, with the kernel's stride, padding and dilation; extent 1 is pointwise) into an
+`Band_driver.program` turns a schedule of stages (a window of `kh` rows by `kw` columns, each
+axis with its own stride, padding and dilation in `Band_schedule.Axis.t`; 1x1 is pointwise) into an
 ordinary SSA program: for a pointwise stage one view call per event, its bases the element
 offsets of the rows the event reads and writes. The first stage reads and the
 last writes whole tensors; each intermediate is a ring buffer of its window's
@@ -150,8 +150,6 @@ compares its output bits with the whole chain on the SSA interpreter):
 
 - An AArch64 contraction realization (so the contraction itself runs as
   generated AArch64, not host C).
-- Non-square windows and per-axis stride, padding or dilation (one value per
-  kernel now).
 - A chain with fewer than two repetitions of any block run (for example a
   short chain whose blocks all differ, `block 3, 8 rows`) stays unrolled; the
   ring rotation itself no longer needs a period.
@@ -170,3 +168,17 @@ rest add into it. A pixel with no position in the input is refused
 `Padding_read_edge` (a padded row read from the nearest producer row) and
 `Stride_dropped` are red in the driver and view-call suites; a nested binary32
 sum that skips padded taps equals `whole`.
+
+### Non-square windows and per-axis parameters
+
+A kernel carries two `Band_schedule.Axis.t` (extent, stride, pad, dilation):
+`rows`, the axis the schedule bands over, and `cols`, which only the driver
+reads. A plain window (column stride 1, no column padding or dilation) is `kh`
+row calls each reducing `kw * cin`; its weights are `(kh * kw * cin) x cout`
+with position `ky * kw + kx`. The row axis only moves which rows a call reads,
+so a stage is pointwise (one call per event over every pixel) only when both
+axes are 1 with no row stride or padding; a 1x1 with a column stride is a
+windowed stage. `Axes_swapped` and `Padding_axes_swapped` are red against an
+independent nested-sum oracle (the band-driver test library's `oracle`), on the
+SSA interpreter and the generic, AArch64 and RV32 Machine IR routes; the chains
+cover 1x3, 3x1, 3x5, mixed strides, and a row dilation with a column stride.
