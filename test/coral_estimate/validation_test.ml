@@ -159,6 +159,77 @@ let%expect_test "held-out accuracy domain and known gaps" =
     layer, all flags: -4.9%, limit 9.0%
     layer, pre layer norm, rope: +17.7%, limit 30.0%
     layer, post rms: +4.5%, limit 10.0%
-    layer norm over C 16x64: outside accuracy gate (ordered lane fold priced as scalar extracts), error +124.3%
-    rms norm over C 16x64: outside accuracy gate (ordered lane fold priced as scalar extracts), error +108.8%
+    layer norm over C 16x64: outside accuracy gate (ordered lane fold priced as scalar extracts), error +124.2%
+    rms norm over C 16x64: outside accuracy gate (ordered lane fold priced as scalar extracts), error +108.7%
     layer decomposed, bare: outside accuracy gate (data-dependent control flow counted heuristically), error -12.4% |}]
+
+(* The band-driven view-call kernels held out of the fit. Pointwise stages
+   only: the core's contraction helpers refuse a product seeded from its own
+   output, which a 3x3 window's rows after the first are, so no window kernel
+   runs on the RTL. *)
+let view_limits = [ ("view pointwise 3 stages, 20 rows, block 2, wide", 10.) ]
+
+let view_error rates (v : Cases.View.t) =
+  match F.cycles v.Cases.View.name with
+  | None -> Fmt.failwith "%s: missing measurement" v.Cases.View.name
+  | Some ys ->
+      let measured = List.fold_left ( +. ) 0. ys in
+      let predicted =
+        List.fold_left ( +. ) 0.
+          (List.map (CM.Rates.predict rates) (F.view_features ~rates v))
+      in
+      100. *. (predicted -. measured) /. measured
+
+let check_views rates =
+  List.iter
+    (fun (name, limit) ->
+      let v =
+        List.find
+          (fun (v : Cases.View.t) -> v.Cases.View.name = name)
+          Cases.View.all
+      in
+      if v.Cases.View.role <> Cases.Role.Check then
+        Fmt.failwith "%s: accuracy gate must be held out of fitting" name;
+      let miss = view_error rates v in
+      if not (Float.abs miss <= limit) then
+        Fmt.failwith "%s: error %+.2f%% exceeds %.1f%%" name miss limit)
+    view_limits
+
+let%test_unit "every held-out view-call case has a limit" =
+  assert (
+    List.sort compare (List.map fst view_limits)
+    = List.sort compare
+        (List.map
+           (fun (v : Cases.View.t) -> v.Cases.View.name)
+           Cases.View.check))
+
+let%test_unit "committed rates satisfy the view-call accuracy limits" =
+  check_views Coral_estimate.Coral_rates.vme
+
+let%test_unit "the view-call gate rejects a lost view-call cost" =
+  let rates =
+    List.remove_assoc "zvt.f32.view.rows_k.dtcm" Coral_estimate.Coral_rates.vme
+  in
+  let rejected =
+    try
+      check_views rates;
+      false
+    with Failure _ -> true
+  in
+  assert rejected
+
+let%expect_test "held-out view-call accuracy" =
+  let rates = Coral_estimate.Coral_rates.vme in
+  List.iter
+    (fun (name, limit) ->
+      let v =
+        List.find
+          (fun (v : Cases.View.t) -> v.Cases.View.name = name)
+          Cases.View.all
+      in
+      Fmt.pr "%s: %+.1f%%, limit %.1f%%@." name
+        ((Float.round (10. *. view_error rates v) /. 10.) +. 0.)
+        limit)
+    view_limits;
+  [%expect
+    {| view pointwise 3 stages, 20 rows, block 2, wide: -8.2%, limit 10.0% |}]

@@ -6,6 +6,8 @@
  (name coral_estimate_cases)
  (libraries
   attention_block
+  band_driver
+  band_schedule
   fmt
   machine_model
   machine_model_test

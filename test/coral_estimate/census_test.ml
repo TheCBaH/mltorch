@@ -53,6 +53,21 @@ let censuses ?(ram = fun _ -> []) (c : Cases.t) =
   | Error rs -> Error (Fmt.str "%a" Fmt.(list ~sep:(any "; ") M.Refusal.pp) rs)
   | Ok _ -> Ok (List.rev !out)
 
+(* a view-call case's census: its banded program as the route finalizes it
+   (every buffer in the DTCM, where these small kernels sit) *)
+let view_census (v : Cases.View.t) =
+  match
+    Err.payload
+      (Ssa_ir.Ssa_contract_plan.program
+         ~capabilities:
+           { Contraction.Select.Capabilities.matrix = true; vector = true }
+         (Cases.View.program v))
+  with
+  | Ok p -> CE.program p
+  | Error e ->
+      Fmt.failwith "%s: %a" v.Cases.View.name Ssa_ir.Ssa_contract_plan.pp_error
+        e
+
 let%expect_test "every case plans" =
   List.iter
     (fun (c : Cases.t) ->
@@ -264,10 +279,13 @@ let%expect_test "view calls are their helper calls" =
       let c = census ~per_row in
       Fmt.pr "per_row=%b: %a@." per_row CE.pp c)
     [ false; true ];
-  [%expect {|
-    per_row=false: int_op 42
+  [%expect
+    {|
+    per_row=false: int_op 6
                    iteration 3
-                   contract contract.f32.b1.m4.n16.k8.a0_8_1.b0_1_16.c0_16_1.zero.ordered (dtcm dtcm dtcm) x3
-    per_row=true: int_op 174
+                   view_address 36
+                   contract contract.f32.b1.m4.n16.k8.a0_8_1.b0_1_16.c0_16_1.zero.ordered view (dtcm dtcm dtcm) x3
+    per_row=true: int_op 30
                   iteration 3
-                  contract contract.f32.b1.m1.n16.k8.a0_8_1.b0_1_16.c0_16_1.zero.ordered (dtcm dtcm dtcm) x12 |}]
+                  view_address 144
+                  contract contract.f32.b1.m1.n16.k8.a0_8_1.b0_1_16.c0_16_1.zero.ordered view (dtcm dtcm dtcm) x12 |}]

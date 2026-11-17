@@ -385,3 +385,91 @@ let elsewhere =
   ]
 
 let all = fit @ check
+
+(* Band-driven view-call kernels: a chain of pointwise and 3x3 stages run
+   block by block ({!Band_driver}), every stage's products issued as view
+   calls on offset rows, the repeating blocks as one loop. Not graphs, so they
+   have their own type; they run through the same contraction helper calls the
+   route realizes, and the census counts them as the helper calls and address
+   arithmetic they lower to. *)
+module View = struct
+  module D = Band_driver
+  module S = Band_schedule
+
+  type t = {
+    name : string;
+    role : Role.t;
+    stages : D.Stage.t list;
+    width : int;
+    rows : int;
+    block : int;
+  }
+
+  let stage ?(extent = 1) ~chunk ~cin ~cout name =
+    {
+      D.Stage.kernel =
+        {
+          S.name;
+          extent = S.Count.of_int extent;
+          stride = S.Count.of_int 1;
+          pad = S.Count.of_int 0;
+          dilation = S.Count.of_int 1;
+          chunk = S.Span.chunk chunk;
+        };
+      cin = Int64.of_int cin;
+      cout = Int64.of_int cout;
+    }
+
+  let driver c =
+    match
+      D.program c.stages ~width:(Int64.of_int c.width)
+        ~rows:(S.Count.of_int c.rows) ~block:(S.Span.block c.block)
+    with
+    | Ok p -> p
+    | Error r -> Fmt.failwith "%s: %a" c.name D.pp_refusal r
+
+  (* the banded program: its input and weights are the buffers to fill *)
+  let program c = (driver c).D.Program.program
+
+  let case ?(role = Role.Fit) name ~width ~rows ~block stages =
+    { name; role; stages; width; rows; block }
+
+  let three ~cin =
+    [
+      stage "a" ~chunk:2 ~cin ~cout:3;
+      stage "b" ~chunk:2 ~cin:3 ~cout:4;
+      stage "c" ~chunk:2 ~cin:4 ~cout:2;
+    ]
+
+  let fit =
+    [
+      case "view pointwise 3 stages, 16 rows, block 2, looped" ~width:3 ~rows:16
+        ~block:2 (three ~cin:2);
+      case "view pointwise 3 stages, 12 rows, block 1, looped" ~width:2 ~rows:12
+        ~block:1 (three ~cin:2);
+      case "view pointwise 3 stages, 32 rows, block 1, looped" ~width:6 ~rows:32
+        ~block:1 (three ~cin:2);
+      case "view pointwise 2 stages, 32 rows, block 4, looped" ~width:8 ~rows:32
+        ~block:4
+        [ stage "a" ~chunk:4 ~cin:8 ~cout:8; stage "b" ~chunk:4 ~cin:8 ~cout:8 ];
+      case "view pointwise 2 stages, 16 rows, block 2, looped" ~width:16
+        ~rows:16 ~block:2
+        [ stage "a" ~chunk:2 ~cin:4 ~cout:8; stage "b" ~chunk:2 ~cin:8 ~cout:4 ];
+      case "view pointwise 1 stage, 24 rows, block 2, looped" ~width:12 ~rows:24
+        ~block:2
+        [ stage "a" ~chunk:2 ~cin:6 ~cout:6 ];
+    ]
+
+  let check =
+    [
+      case ~role:Role.Check "view pointwise 3 stages, 20 rows, block 2, wide"
+        ~width:6 ~rows:20 ~block:2
+        [
+          stage "a" ~chunk:2 ~cin:4 ~cout:8;
+          stage "b" ~chunk:2 ~cin:8 ~cout:6;
+          stage "c" ~chunk:2 ~cin:6 ~cout:4;
+        ];
+    ]
+
+  let all = fit @ check
+end

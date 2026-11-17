@@ -93,6 +93,162 @@ let run (c : Cases.t) =
          else " ram " ^ String.concat "," (List.map string_of_int ram)))
     (List.combine (List.rev !runs) (List.rev !rams))
 
+(* A view-call case: the banded program planned as the route plans it, run on
+   the core, its output bitwise the SSA interpreter's. The inputs are the
+   case's own deterministic values. *)
+module View = struct
+  open Ssa_ir
+  open Machine_ir
+  open Machine_interp
+  open Machine_lower
+  module Src = Machine_source_test.Mir_source
+
+  let inputs (p : Ssa_program.t) =
+    let lcg = ref 5 in
+    let value () =
+      lcg := ((!lcg * 1103515245) + 12345) land 0x3FFFFFFF;
+      F32_math.round32 (float_of_int ((!lcg / 7 mod 4001) - 2000) /. 977.)
+    in
+    List.filter_map
+      (fun (b : Ssa_buffer.t) ->
+        match b.Ssa_buffer.role with
+        | Ssa_buffer.Input ->
+            let n =
+              Int64.to_int
+                (Option.get (Ssa_buffer.elements b.Ssa_buffer.extents))
+            in
+            Some ((b.Ssa_buffer.id :> int), Array.init n (fun _ -> value ()))
+        | _ -> None)
+      p.Ssa_program.buffers
+
+  let bits x =
+    Int64.logand (Int64.of_int32 (Int32.bits_of_float x)) 0xFFFF_FFFFL
+
+  let reference (p : Ssa_program.t) ~inputs =
+    let memory =
+      List.fold_left
+        (fun m (b : Ssa_buffer.t) ->
+          let cells =
+            match List.assoc_opt (b.Ssa_buffer.id :> int) inputs with
+            | Some c -> c
+            | None ->
+                Array.make
+                  (Int64.to_int
+                     (Option.get (Ssa_buffer.elements b.Ssa_buffer.extents)))
+                  0.
+          in
+          Ssa_id.Buffer.Map.add b.Ssa_buffer.id (Ssa_memory.Floats cells) m)
+        Ssa_id.Buffer.Map.empty p.Ssa_program.buffers
+    in
+    Err.or_raise ~pp_error:Ssa_interp.pp_error (Ssa_interp.run p ~memory);
+    List.filter_map
+      (fun (b : Ssa_buffer.t) ->
+        match
+          (b.Ssa_buffer.role, Ssa_id.Buffer.Map.find b.Ssa_buffer.id memory)
+        with
+        | Ssa_buffer.Output, Ssa_memory.Floats cs -> Some (Array.map bits cs)
+        | _ -> None)
+      p.Ssa_program.buffers
+
+  let run (v : Cases.View.t) =
+    let p = Cases.View.program v in
+    let inputs = inputs p in
+    let want = reference p ~inputs in
+    let cfg = config_for v.Cases.View.name in
+    let p =
+      match C.finalize cfg p with
+      | Ok p -> p
+      | Error e -> failwith ("finalize: " ^ e)
+    in
+    let planning =
+      Mir_planning.make ~subject:(Mir_lower.subject p) ~policy:"reference_f64"
+        ~schedule:"scalar" ~precision:Mir_planning.Precision.F32
+        ~lanes:(Mir_type.Lanes.of_int 1) ~fma:Mir_planning.Fma.Forbidden
+        ~capabilities:[]
+    in
+    let lowered =
+      match Err.payload (Mir_lower.program ~planning:(Some planning) p) with
+      | Ok l -> l
+      | Error r -> Fmt.failwith "lower: %a" Mir_lower.Refusal.pp r
+    in
+    let runs = ref [] in
+    let exec =
+      match
+        C.route
+          ~on_run:(fun r -> runs := r :: !runs)
+          ~label:v.Cases.View.name cfg
+      with
+      | Machine_model.Mir_model_route.Route.Custom c -> (
+          match
+            c.Machine_model.Mir_model_route.Custom.exec ~sites:[||]
+              lowered.Mir_lower.program
+          with
+          | Ok e -> e
+          | Error e -> failwith ("exec: " ^ e))
+      | _ -> assert false
+    in
+    let memory = Mir_memory.create () in
+    let binding =
+      match
+        exec.Machine_model.Mir_model_route.Exec.instantiate memory
+          ~shared:(fun _ -> None)
+      with
+      | Ok b -> b
+      | Error e -> failwith e
+    in
+    List.iter
+      (fun (e : Mir_layout_map.Entry.t) ->
+        let b = e.Mir_layout_map.Entry.buffer in
+        match List.assoc_opt (b.Ssa_buffer.id :> int) inputs with
+        | None -> ()
+        | Some cells ->
+            Mir_memory.write_string memory
+              (Option.get
+                 (Mir_interp.Binding.instance binding
+                    e.Mir_layout_map.Entry.region))
+              ~offset:0L
+              (Src.pack_cells b (Ssa_memory.Floats cells)))
+      lowered.Mir_lower.layout;
+    (match
+       exec.Machine_model.Mir_model_route.Exec.run memory binding ~invocation:0l
+     with
+    | Mir_observation.Status.Unsupported e -> Fmt.failwith "unsupported: %s" e
+    | _ -> ());
+    let got =
+      List.map
+        (fun (o : Mir_observation.Output.t) ->
+          Array.map
+            (function
+              | Some (c : Mir_const.t) ->
+                  Int64.logand c.Mir_const.bits 0xFFFF_FFFFL
+              | None -> -1L)
+            o.Mir_observation.Output.cells)
+        (Src.mir_outputs memory binding lowered.Mir_lower.layout)
+    in
+    Fmt.pr "%s (1 invocations): %s@." v.Cases.View.name
+      (if got = want then "bitwise" else "DIFFERS");
+    List.iteri
+      (fun i (r : C.Run.t) ->
+        wall_log v.Cases.View.name i r;
+        Fmt.pr "  [%d] cycles %Ld instret %Ld@." i r.C.Run.mcycle
+          r.C.Run.minstret)
+      (List.rev !runs)
+
+  let all () =
+    List.iter
+      (fun (v : Cases.View.t) ->
+        if
+          match only with
+          | None -> true
+          | Some n -> String.starts_with ~prefix:n v.Cases.View.name
+        then
+          try run v
+          with e ->
+            Fmt.pr "%s: raised %s@." v.Cases.View.name
+              (List.hd (String.split_on_char '\n' (Printexc.to_string e))))
+      Cases.View.all
+end
+
 (* The cases in parallel: one forked worker per case, at most the CPU pool's
    size at once (each simulator also holds its own slots), each writing its
    report to a file of its own; the reports are printed in case order, so the
@@ -388,3 +544,23 @@ let%expect_test "the check set" =
       [11] cycles 237237 instret 142632
       [12] cycles 13922 instret 4945 ram 17,18
       [13] cycles 2628 instret 2119 |}]
+
+let%expect_test "the view-call set" =
+  View.all ();
+  Format.print_flush ();
+  [%expect
+    {|
+    view pointwise 3 stages, 16 rows, block 2, looped (1 invocations): bitwise
+      [0] cycles 3979 instret 3247
+    view pointwise 3 stages, 12 rows, block 1, looped (1 invocations): bitwise
+      [0] cycles 3773 instret 3223
+    view pointwise 3 stages, 32 rows, block 1, looped (1 invocations): bitwise
+      [0] cycles 11803 instret 9655
+    view pointwise 2 stages, 32 rows, block 4, looped (1 invocations): bitwise
+      [0] cycles 10352 instret 6275
+    view pointwise 2 stages, 16 rows, block 2, looped (1 invocations): bitwise
+      [0] cycles 8568 instret 5571
+    view pointwise 1 stage, 24 rows, block 2, looped (1 invocations): bitwise
+      [0] cycles 6564 instret 4611
+    view pointwise 3 stages, 20 rows, block 2, wide (1 invocations): bitwise
+      [0] cycles 8147 instret 5575 |}]

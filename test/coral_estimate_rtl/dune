@@ -7,7 +7,15 @@
 (library
  (name coral_estimate_rtl_test)
  (libraries
+  band_driver
+  band_schedule
+  coral_estimate
   coral_estimate_cases
+  err_trace
+  machine_interp
+  machine_ir
+  machine_lower
+  machine_source_test
   coralnpu
   coralnpu_rv32
   fmt

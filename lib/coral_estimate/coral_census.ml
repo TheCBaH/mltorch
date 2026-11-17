@@ -29,6 +29,7 @@ module Class = struct
     | Vec_other
     | Vec_store of Region.t
     | Vec_store_strided of Region.t
+    | View_address
 
   let compare = Stdlib.compare
 
@@ -64,6 +65,7 @@ module Class = struct
     | Vec_other -> "vec_other"
     | Vec_store r -> "vec_store_" ^ Region.name r
     | Vec_store_strided r -> "vec_store_strided_" ^ Region.name r
+    | View_address -> "view_address"
 end
 
 module M = Map.Make (Class)
@@ -72,6 +74,7 @@ module Contract_call = struct
   type t = {
     desc : Contraction.t;
     engine : Contraction.Select.Engine.t option;
+    view : bool;
     a : Region.t;
     b : Region.t;
     c : Region.t;
@@ -218,12 +221,13 @@ let view_call ~region acc w (v : Ssa_view_call.t) =
       {
         Contract_call.desc = sub;
         engine = None;
+        view = true;
         a = reg v.Ssa_view_call.a;
         b = reg v.Ssa_view_call.b;
         c = reg v.Ssa_view_call.c;
       }
       (w *. calls);
-  bump acc Class.Int_op (w *. !ops)
+  bump acc Class.View_address (w *. !ops)
 
 let instr ~region acc w (i : Ssa_instr.t) =
   let ty = result_ty i in
@@ -240,6 +244,7 @@ let instr ~region acc w (i : Ssa_instr.t) =
           {
             Contract_call.desc;
             engine;
+            view = false;
             a = region a;
             b = region b;
             c = region c;
@@ -465,7 +470,8 @@ let pp ppf (t : t) =
     t.counts;
   List.iter
     (fun ((c : Contract_call.t), w) ->
-      Fmt.pf ppf "@,contract %s%s (%s %s %s) x%.0f" (Contraction.name c.desc)
+      Fmt.pf ppf "@,contract %s%s%s (%s %s %s) x%.0f" (Contraction.name c.desc)
+        (if c.view then " view" else "")
         (Option.fold ~none:""
            ~some:(fun e -> " engine=" ^ Contraction.Select.Engine.name e)
            c.engine)
