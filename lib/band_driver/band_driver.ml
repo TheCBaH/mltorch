@@ -6,14 +6,20 @@ module Stage = struct
   type t = { kernel : S.kernel; cin : int64; cout : int64 }
 end
 
-type mutation = Iterations_short | Step_dropped | Window_offset_dropped
-type refusal = Unsupported_window of string
+type mutation =
+  | Iterations_short
+  | Padding_read_edge
+  | Step_dropped
+  | Stride_dropped
+  | Window_offset_dropped
+
+type refusal = Empty_window of string
 
 let pp_refusal ppf = function
-  | Unsupported_window k ->
+  | Empty_window k ->
       Fmt.pf ppf
-        "%s is not a stride 1 kernel without padding or dilation (the rows a \
-         window reads are not consecutive producer rows)"
+        "%s has an output pixel whose window lies wholly in the padding (it \
+         would be left unwritten)"
         k
 
 (* A row of a tensor as the driver addresses it: a row of a whole tensor, or a
@@ -47,39 +53,149 @@ end
 
 let id = Ssa_id.Buffer.of_int
 let i64 = Int64.of_int
-
-let supported (k : S.kernel) =
-  S.Count.to_int k.S.stride = 1
-  && S.Count.to_int k.S.pad = 0
-  && S.Count.to_int k.S.dilation = 1
-
 let extent (st : Stage.t) = i64 (S.Count.to_int st.Stage.kernel.S.extent)
+let stride (st : Stage.t) = S.Count.to_int st.Stage.kernel.S.stride
+let pad (st : Stage.t) = S.Count.to_int st.Stage.kernel.S.pad
+let dilation (st : Stage.t) = S.Count.to_int st.Stage.kernel.S.dilation
+
+(* A stage whose window is [extent] contiguous columns of [extent] consecutive
+   rows over every pixel (stride apart): one call per row and row it reads. *)
+let plain (st : Stage.t) = stride st = 1 && pad st = 0 && dilation st = 1
+
+(* The width of a stage's output over [win] pixels, as the rows' formula. *)
+let output_width (st : Stage.t) ~win =
+  let window =
+    Int64.add (Int64.mul (Int64.sub (extent st) 1L) (i64 (dilation st))) 1L
+  in
+  Int64.add
+    (Int64.div
+       (Int64.sub (Int64.add win (Int64.of_int (2 * pad st))) window)
+       (i64 (stride st)))
+    1L
 
 (* The product of one stage over [pixels] pixels of one row of its input: A is
-   pixels x (extent * cin), the pixel's [extent] columns of channels being
-   contiguous and the pixels [cin] apart; B one row of the weights,
-   (extent * cin) x cout; C pixels x cout. A window of several rows is one such
-   product per row, each past the first adding into C ([tap] is the row's
-   position in the window); a pointwise stage's one row covers every pixel the
-   event makes. *)
-let desc (st : Stage.t) ~pixels ~tap =
+   pixels x (cols * cin), the pixel's [cols] columns of channels being
+   contiguous and the pixels [stride] pixels apart; B [cols] rows of the
+   weights, (cols * cin) x cout; C pixels x cout. A window of several rows is
+   one such product per row (and, under padding or dilation, per column), each
+   but a pixel's first adding into C ([first]); a pointwise stage's one row
+   covers every pixel the event makes. *)
+let desc (st : Stage.t) ~pixels ~cols ~stride ~first =
   Result.get_ok
     (Err.payload
        (Contraction.make ~batch:1L ~m:pixels ~n:st.Stage.cout
-          ~k:(Int64.mul (extent st) st.Stage.cin)
-          ~a:{ Contraction.Operand.batch = 0L; outer = st.Stage.cin; k = 1L }
+          ~k:(Int64.mul (i64 cols) st.Stage.cin)
+          ~a:
+            {
+              Contraction.Operand.batch = 0L;
+              outer = Int64.mul (i64 stride) st.Stage.cin;
+              k = 1L;
+            }
           ~b:{ Contraction.Operand.batch = 0L; outer = 1L; k = st.Stage.cout }
           ~c:{ Contraction.Output.batch = 0L; row = st.Stage.cout; col = 1L }
           ~format:Contraction.Element.F32
           ~seed:
-            (if tap = 0 then Contraction.Seed.Zero else Contraction.Seed.Tensor)
+            (if first then Contraction.Seed.Zero else Contraction.Seed.Tensor)
           ~numerics:Contraction.Numerics.Ordered))
 
-(* Where tap [tap]'s weights start in the stage's weight buffer. *)
-let tap_weights (st : Stage.t) ~tap =
-  Int64.mul
-    (Int64.mul (i64 tap) (Int64.mul (extent st) st.Stage.cin))
-    st.Stage.cout
+(* Where the weights of window position [wtap] (row * extent + column) start in
+   the stage's weight buffer. *)
+let tap_weights (st : Stage.t) ~wtap =
+  Int64.mul (Int64.mul (i64 wtap) st.Stage.cin) st.Stage.cout
+
+(* One product of a window over one output row: the input row it reads, the
+   window positions it covers, the input column of the first output pixel it
+   makes and that pixel, and whether it starts those pixels' sums. *)
+module Tap = struct
+  type t = {
+    row : int;
+    wtap : int;
+    cols : int;
+    col : int64;
+    x : int64;
+    pixels : int64;
+    first : bool;
+    stride : int;
+  }
+end
+
+(* The products making output row [r] of a stage over [hin] input rows of [win]
+   pixels, [wout] pixels out, in the order of the sum: window row, then column.
+   A window position outside the input (padding) is skipped, not added as a
+   zero; the second component says every output pixel has a tap. *)
+let taps ?mutation (st : Stage.t) ~hin ~win ~wout ~r =
+  let k = S.Count.to_int st.Stage.kernel.S.extent in
+  let s = match mutation with Some Stride_dropped -> 1 | _ -> stride st in
+  let p = pad st and d = dilation st in
+  let wout_i = Int64.to_int wout in
+  let seen = Array.make wout_i false in
+  let out = ref [] in
+  let add t = out := t :: !out in
+  for ky = 0 to k - 1 do
+    let ky_d =
+      match mutation with Some Window_offset_dropped -> 0 | _ -> ky * d
+    in
+    let row0 = (r * s) - p + ky_d in
+    let row =
+      match mutation with
+      | Some Padding_read_edge -> max 0 (min (hin - 1) row0)
+      | _ -> row0
+    in
+    if row >= 0 && row < hin then
+      if plain st then (
+        add
+          {
+            Tap.row;
+            wtap = ky * k;
+            cols = k;
+            col = 0L;
+            x = 0L;
+            pixels = wout;
+            first = not seen.(0);
+            stride = s;
+          };
+        Array.fill seen 0 wout_i true)
+      else
+        for kx = 0 to k - 1 do
+          let o = i64 ((kx * d) - p) and s64 = i64 s in
+          let xl =
+            if Int64.compare o 0L >= 0 then 0
+            else
+              Int64.to_int
+                (Int64.div (Int64.add (Int64.neg o) (Int64.sub s64 1L)) s64)
+          in
+          let reach = Int64.sub (Int64.sub win 1L) o in
+          let xh =
+            if Int64.compare reach 0L < 0 then 0
+            else min wout_i (Int64.to_int (Int64.div reach s64) + 1)
+          in
+          (* maximal runs of pixels with the same seed *)
+          let x = ref xl in
+          while !x < xh do
+            let first = not seen.(!x) in
+            let e = ref !x in
+            while !e < xh && seen.(!e) = not first do
+              incr e
+            done;
+            add
+              {
+                Tap.row;
+                wtap = (ky * k) + kx;
+                cols = 1;
+                col = Int64.add (Int64.mul (i64 !x) s64) o;
+                x = i64 !x;
+                pixels = i64 (!e - !x);
+                first;
+                stride = s;
+              };
+            for q = !x to !e - 1 do
+              seen.(q) <- true
+            done;
+            x := !e
+          done
+        done
+  done;
+  (List.rev !out, Array.for_all Fun.id seen)
 
 (* Per stage, the width of its input and of its output, and the rows of its
    output over [rows] input rows. *)
@@ -90,10 +206,12 @@ let shapes stages ~width ~rows =
        (fun (st : Stage.t) ->
          let k = st.Stage.kernel in
          let win = !w in
-         let wout = Int64.sub win (Int64.sub (extent st) 1L) in
+         let wout = output_width st ~win in
          if Int64.compare wout 1L < 0 then
            invalid_arg "Band_driver: a window wider than its input";
          h := S.output_height k ~input:!h;
+         if S.Count.to_int !h < 1 then
+           invalid_arg "Band_driver: a window taller than its input";
          w := wout;
          (win, wout, S.Count.to_int !h))
        stages)
@@ -159,33 +277,48 @@ let whole stages ~width ~rows =
              (fun i (st : Stage.t) ->
                let src = if i = 0 then input else List.nth outs (i - 1) in
                let win, wout, h = shape.(i) in
-               let k = S.Count.to_int st.Stage.kernel.S.extent in
-               if k = 1 then
+               let hin =
+                 if i = 0 then rows else (fun (_, _, h) -> h) shape.(i - 1)
+               in
+               if S.Count.to_int st.Stage.kernel.S.extent = 1 && plain st then
                  B.contract bld
-                   (desc st ~pixels:(Int64.mul (i64 h) wout) ~tap:0)
+                   (desc st
+                      ~pixels:(Int64.mul (i64 h) wout)
+                      ~cols:1 ~stride:1 ~first:true)
                    ~a:src ~b:(List.nth weights i) ~c:(List.nth outs i)
                else
-                 (* a window is one product per output row and row of it,
-                    over whole tensors *)
+                 (* a window is one product per output row and window
+                    position, over whole tensors *)
                  for r = 0 to h - 1 do
-                   for tap = 0 to k - 1 do
-                     let at x = B.Base (B.index bld x) in
-                     B.view_call bld
-                       (desc st ~pixels:wout ~tap)
-                       ~a:
-                         ( src,
-                           at
-                             (Position.element
-                                (Position.Logical (S.Row.of_int (r + tap)))
-                                ~width:win ~channels:st.Stage.cin) )
-                       ~b:(List.nth weights i, at (tap_weights st ~tap))
-                       ~c:
-                         ( List.nth outs i,
-                           at
-                             (Position.element
-                                (Position.Logical (S.Row.of_int r))
-                                ~width:wout ~channels:st.Stage.cout) )
-                   done
+                   let ts, covered = taps st ~hin ~win ~wout ~r in
+                   if not covered then
+                     invalid_arg "Band_driver: an output pixel with no tap";
+                   List.iter
+                     (fun (t : Tap.t) ->
+                       let at x = B.Base (B.index bld x) in
+                       B.view_call bld
+                         (desc st ~pixels:t.Tap.pixels ~cols:t.Tap.cols
+                            ~stride:t.Tap.stride ~first:t.Tap.first)
+                         ~a:
+                           ( src,
+                             at
+                               (Int64.add
+                                  (Position.element
+                                     (Position.Logical (S.Row.of_int t.Tap.row))
+                                     ~width:win ~channels:st.Stage.cin)
+                                  (Int64.mul t.Tap.col st.Stage.cin)) )
+                         ~b:
+                           ( List.nth weights i,
+                             at (tap_weights st ~wtap:t.Tap.wtap) )
+                         ~c:
+                           ( List.nth outs i,
+                             at
+                               (Int64.add
+                                  (Position.element
+                                     (Position.Logical (S.Row.of_int r))
+                                     ~width:wout ~channels:st.Stage.cout)
+                                  (Int64.mul t.Tap.x st.Stage.cout)) ))
+                     ts
                  done)
              stages))
   in
@@ -204,14 +337,17 @@ let whole stages ~width ~rows =
 module Call = struct
   type t = {
     stage : int;
-    tap : int;
+    wtap : int;
+    cols : int;
+    first : bool;
+    stride : int;
     pixels : int64;
     reads : int;
     bases : int64 list;
   }
 
   (* what two calls must share to be the same body *)
-  let shape c = (c.stage, c.tap, c.pixels, c.reads)
+  let shape c = (c.stage, c.wtap, c.cols, c.first, c.stride, c.pixels, c.reads)
 end
 
 (* Blocks: the calls up to and including each event of the last stage. *)
@@ -264,11 +400,26 @@ let find_loop (bl : Call.t list array) =
   done;
   Option.map (fun (_, p, s, n) -> (s, p, n)) !best
 
+(* The first stage with an output pixel no window position reaches. *)
+let empty_window stages ~width ~rows =
+  let shape = shapes stages ~width ~rows in
+  let rec go i = function
+    | [] -> None
+    | (st : Stage.t) :: rest ->
+        let win, wout, h = shape.(i) in
+        let hin = if i = 0 then rows else (fun (_, _, h) -> h) shape.(i - 1) in
+        if
+          List.exists
+            (fun r -> not (snd (taps st ~hin ~win ~wout ~r)))
+            (List.init h Fun.id)
+        then Some st
+        else go (i + 1) rest
+  in
+  go 0 stages
+
 let program ?(looped = true) ?mutation stages ~width ~rows ~block =
-  match
-    List.find_opt (fun (s : Stage.t) -> not (supported s.Stage.kernel)) stages
-  with
-  | Some s -> Error (Unsupported_window s.Stage.kernel.S.name)
+  match empty_window stages ~width ~rows:(S.Count.to_int rows) with
+  | Some s -> Error (Empty_window s.Stage.kernel.S.name)
   | None ->
       let n = List.length stages in
       let kernels = List.map (fun (s : Stage.t) -> s.Stage.kernel) stages in
@@ -331,29 +482,35 @@ let program ?(looped = true) ?mutation stages ~width ~rows ~block =
         let write row =
           Position.element (write_row row) ~width:wout ~channels:st.Stage.cout
         in
-        if S.Count.to_int st.Stage.kernel.S.extent > 1 then
+        if not (S.Count.to_int st.Stage.kernel.S.extent = 1 && plain st) then
+          let hin =
+            if i = 0 then rows_i else (fun (_, _, h) -> h) shape.(i - 1)
+          in
           List.concat_map
             (fun r ->
-              List.init (S.Count.to_int st.Stage.kernel.S.extent) (fun tap ->
-                  let row =
-                    S.Row.of_int
-                      (S.Row.to_int (S.Row.of_int r)
-                      +
-                      match mutation with
-                      | Some Window_offset_dropped -> 0
-                      | _ -> tap)
-                  in
+              List.map
+                (fun (t : Tap.t) ->
                   {
                     Call.stage = i;
-                    tap;
-                    pixels = wout;
+                    wtap = t.Tap.wtap;
+                    cols = t.Tap.cols;
+                    first = t.Tap.first;
+                    stride = t.Tap.stride;
+                    pixels = t.Tap.pixels;
                     reads = 0;
                     bases =
                       [
-                        Position.element (read_row row) ~width:win ~channels:cin;
-                        write (S.Row.of_int r);
+                        Int64.add
+                          (Position.element
+                             (read_row (S.Row.of_int t.Tap.row))
+                             ~width:win ~channels:cin)
+                          (Int64.mul t.Tap.col cin);
+                        Int64.add
+                          (write (S.Row.of_int r))
+                          (Int64.mul t.Tap.x st.Stage.cout);
                       ];
-                  }))
+                  })
+                (fst (taps ?mutation st ~hin ~win ~wout ~r)))
             (List.init
                (S.Row.to_int phi - S.Row.to_int plo)
                (fun d -> S.Row.to_int plo + d))
@@ -391,7 +548,10 @@ let program ?(looped = true) ?mutation stages ~width ~rows ~block =
           [
             {
               Call.stage = i;
-              tap = 0;
+              wtap = 0;
+              cols = 1;
+              first = true;
+              stride = 1;
               pixels;
               reads = (if per_pixel then List.length reads else 0);
               bases = reads @ [ write plo ];
@@ -413,11 +573,12 @@ let program ?(looped = true) ?mutation stages ~width ~rows ~block =
           else B.Base (base (List.hd read_bases))
         in
         B.view_call bld
-          (desc st ~pixels:c.Call.pixels ~tap:c.Call.tap)
+          (desc st ~pixels:c.Call.pixels ~cols:c.Call.cols ~stride:c.Call.stride
+             ~first:c.Call.first)
           ~a:(src, read)
           ~b:
             ( List.nth weights i,
-              B.Base (B.index bld (tap_weights st ~tap:c.Call.tap)) )
+              B.Base (B.index bld (tap_weights st ~wtap:c.Call.wtap)) )
           ~c:(List.nth outs i, B.Base (base write))
       in
       let built =

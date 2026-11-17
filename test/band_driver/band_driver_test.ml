@@ -8,19 +8,19 @@ module D = Band_driver
 
 let count = S.Count.of_int
 
-let kernel ?(extent = 1) name ~chunk =
+let kernel ?(extent = 1) ?(stride = 1) ?(pad = 0) ?(dilation = 1) name ~chunk =
   {
     S.name;
     extent = count extent;
-    stride = count 1;
-    pad = count 0;
-    dilation = count 1;
+    stride = count stride;
+    pad = count pad;
+    dilation = count dilation;
     chunk = S.Span.chunk chunk;
   }
 
-let stage ?extent name ~chunk ~cin ~cout =
+let stage ?extent ?stride ?pad ?dilation name ~chunk ~cin ~cout =
   {
-    D.Stage.kernel = kernel ?extent name ~chunk;
+    D.Stage.kernel = kernel ?extent ?stride ?pad ?dilation name ~chunk;
     cin = Int64.of_int cin;
     cout = Int64.of_int cout;
   }
@@ -138,13 +138,13 @@ let%expect_test "banded pointwise chains equal the whole-tensor chain" =
     3 stages, 48 rows, block 3: windows 2 4; loop 4 blocks x 4 from block 0; equals the whole-tensor Contracts; unrolled equal
     1 stage, 5 rows, block 5: windows ; loop none; equals the whole-tensor Contracts; unrolled equal |}]
 
-let%expect_test "a kernel with stride or padding is refused" =
-  let k = { (kernel "w" ~chunk:1) with S.stride = count 2 } in
-  case ~name:"stride"
+let%expect_test "a window wholly in the padding is refused" =
+  let k = kernel ~extent:1 ~pad:1 "w" ~chunk:1 in
+  case ~name:"1x1 pad 1"
     [ { D.Stage.kernel = k; cin = 1L; cout = 1L } ]
     ~width:2L ~rows:6 ~block:2;
   [%expect
-    {| stride: refused: w is not a stride 1 kernel without padding or dilation (the rows a window reads are not consecutive producer rows) |}]
+    {| 1x1 pad 1: refused: w has an output pixel whose window lies wholly in the padding (it would be left unwritten) |}]
 
 (* A 3x3 stage reads a ring of producer rows, three at a time. *)
 let windowed =
@@ -290,3 +290,155 @@ let%expect_test "loop mutations are red" =
     3 stages, 16 rows, block 2: windows 2 2; loop 1 blocks x 8 from block 0; DIFFERS; unrolled equal
     == step dropped
     3 stages, 16 rows, block 2: windows 2 2; loop 1 blocks x 8 from block 0; DIFFERS; unrolled equal |}]
+
+(* Stride, padding and dilation. *)
+let strided_chains =
+  let w3 = stage ~extent:3 in
+  [
+    ( "pointwise then 3x3 stride 2, 11 rows, block 2",
+      [
+        stage "a" ~chunk:2 ~cin:2 ~cout:3;
+        w3 ~stride:2 "b" ~chunk:2 ~cin:3 ~cout:2;
+      ],
+      7L,
+      11,
+      2 );
+    ( "pointwise then 3x3 stride 2, 41 rows, block 2",
+      [
+        stage "a" ~chunk:2 ~cin:2 ~cout:3;
+        w3 ~stride:2 "b" ~chunk:2 ~cin:3 ~cout:2;
+      ],
+      7L,
+      41,
+      2 );
+    ( "pointwise then 3x3 pad 1, 10 rows, block 2",
+      [
+        stage "a" ~chunk:2 ~cin:2 ~cout:3; w3 ~pad:1 "b" ~chunk:2 ~cin:3 ~cout:2;
+      ],
+      5L,
+      10,
+      2 );
+    ( "3x3 pad 1 then 3x3 pad 1, 24 rows, block 2",
+      [
+        w3 ~pad:1 "a" ~chunk:2 ~cin:2 ~cout:3;
+        w3 ~pad:1 "b" ~chunk:2 ~cin:3 ~cout:2;
+      ],
+      5L,
+      24,
+      2 );
+    ( "3x3 stride 2 pad 1 then 3x3 pad 1, 21 rows, block 1",
+      [
+        w3 ~stride:2 ~pad:1 "a" ~chunk:1 ~cin:2 ~cout:2;
+        w3 ~pad:1 "b" ~chunk:1 ~cin:2 ~cout:3;
+      ],
+      9L,
+      21,
+      1 );
+    ( "3x3 dilation 2 pad 2 then pointwise stride 2, 14 rows, block 2",
+      [
+        w3 ~dilation:2 ~pad:2 "a" ~chunk:2 ~cin:2 ~cout:2;
+        stage ~stride:2 "b" ~chunk:2 ~cin:2 ~cout:2;
+      ],
+      7L,
+      14,
+      2 );
+    ( "one 3x3 stride 2 pad 1 stage, 9 rows, block 2",
+      [ w3 ~stride:2 ~pad:1 "a" ~chunk:1 ~cin:2 ~cout:2 ],
+      6L,
+      9,
+      2 );
+  ]
+
+let%expect_test "banded strided and padded chains equal the whole-tensor chain"
+    =
+  List.iter
+    (fun (name, stages, width, rows, block) ->
+      case ~name stages ~width ~rows ~block)
+    strided_chains;
+  [%expect
+    {|
+    pointwise then 3x3 stride 2, 11 rows, block 2: windows 6; loop none; equals the whole-tensor Contracts; unrolled equal
+    pointwise then 3x3 stride 2, 41 rows, block 2: windows 6; loop 72 blocks x 2 from block 1; equals the whole-tensor Contracts; unrolled equal
+    pointwise then 3x3 pad 1, 10 rows, block 2: windows 6; loop 20 blocks x 2 from block 3; equals the whole-tensor Contracts; unrolled equal
+    3x3 pad 1 then 3x3 pad 1, 24 rows, block 2: windows 6; loop 60 blocks x 3 from block 3; equals the whole-tensor Contracts; unrolled equal
+    3x3 stride 2 pad 1 then 3x3 pad 1, 21 rows, block 1: windows 3; loop 40 blocks x 2 from block 3; equals the whole-tensor Contracts; unrolled equal
+    3x3 dilation 2 pad 2 then pointwise stride 2, 14 rows, block 2: windows 4; loop 2 blocks x 2 from block 1; equals the whole-tensor Contracts; unrolled equal
+    one 3x3 stride 2 pad 1 stage, 9 rows, block 2: windows ; loop 10 blocks x 4 from block 3; equals the whole-tensor Contracts; unrolled equal |}]
+
+let%expect_test "stride and padding mutations are red" =
+  List.iter
+    (fun (mname, mutation, chains) ->
+      Fmt.pr "== %s@." mname;
+      List.iter
+        (fun (name, stages, width, rows, block) ->
+          case ~mutation ~name stages ~width ~rows ~block)
+        chains)
+    D.
+      [
+        ( "padding read from the edge",
+          Padding_read_edge,
+          List.filteri (fun i _ -> i >= 2) strided_chains );
+        ( "stride dropped",
+          Stride_dropped,
+          List.filteri (fun i _ -> i < 2) strided_chains );
+      ];
+  [%expect
+    {|
+    == padding read from the edge
+    pointwise then 3x3 pad 1, 10 rows, block 2: windows 6; loop 20 blocks x 2 from block 1; DIFFERS; unrolled equal
+    3x3 pad 1 then 3x3 pad 1, 24 rows, block 2: windows 6; loop 100 blocks x 2 from block 1; DIFFERS; unrolled equal
+    3x3 stride 2 pad 1 then 3x3 pad 1, 21 rows, block 1: windows 3; loop 40 blocks x 2 from block 1; DIFFERS; unrolled equal
+    3x3 dilation 2 pad 2 then pointwise stride 2, 14 rows, block 2: windows 4; loop 2 blocks x 2 from block 0; DIFFERS; unrolled equal
+    one 3x3 stride 2 pad 1 stage, 9 rows, block 2: windows ; loop 10 blocks x 4 from block 4; DIFFERS; unrolled equal
+    == stride dropped
+    pointwise then 3x3 stride 2, 11 rows, block 2: windows 6; loop none; DIFFERS; unrolled equal
+    pointwise then 3x3 stride 2, 41 rows, block 2: windows 6; loop 72 blocks x 2 from block 1; DIFFERS; unrolled equal |}]
+
+(* The whole chain itself, against a nested binary32 sum that skips a tap in
+   the padding (the semantic table's convolution row). *)
+let%expect_test "the whole reference skips padded taps" =
+  let st =
+    stage ~extent:3 ~stride:2 ~pad:1 ~dilation:1 "w" ~chunk:1 ~cin:2 ~cout:2
+  in
+  let width = 5L and rows = 6 in
+  let reference = D.whole [ st ] ~width ~rows:(count rows) in
+  let input =
+    Array.init (elements reference reference.D.Program.input) (fun _ ->
+        value ())
+  in
+  let weights =
+    Array.init
+      (elements reference (List.hd reference.D.Program.weights))
+      (fun _ -> value ())
+  in
+  let got = run reference ~input ~weights:[ weights ] in
+  let w = Int64.to_int width in
+  let ho = ((rows + 2 - 3) / 2) + 1 and wo = ((w + 2 - 3) / 2) + 1 in
+  let want = Array.make (ho * wo * 2) 0. in
+  for y = 0 to ho - 1 do
+    for x = 0 to wo - 1 do
+      for o = 0 to 1 do
+        let acc = ref 0. in
+        for ky = 0 to 2 do
+          for kx = 0 to 2 do
+            let iy = (y * 2) - 1 + ky and ix = (x * 2) - 1 + kx in
+            if iy >= 0 && iy < rows && ix >= 0 && ix < w then
+              for c = 0 to 1 do
+                let a = input.((((iy * w) + ix) * 2) + c)
+                and b = weights.((((((ky * 3) + kx) * 2) + c) * 2) + o) in
+                acc := F32_math.round32 (!acc +. F32_math.round32 (a *. b))
+              done
+          done
+        done;
+        want.((((y * wo) + x) * 2) + o) <- !acc
+      done
+    done
+  done;
+  Fmt.pr "%s@."
+    (if
+       Array.for_all2
+         (fun a b -> Int32.bits_of_float a = Int32.bits_of_float b)
+         want got
+     then "equal"
+     else "DIFFERS");
+  [%expect {| equal |}]

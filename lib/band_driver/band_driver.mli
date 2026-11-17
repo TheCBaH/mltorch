@@ -1,14 +1,20 @@
 (** The driver of a band schedule as an SSA program. A stage is a contraction
     over the pixels of a row ([cin] channels in, [cout] out) of a square window
-    of side [extent] (1 is pointwise), stride 1, no padding: its output is
-    [extent - 1] rows and columns smaller, its weights
+    of side [extent] (1 is pointwise) with the kernel's stride, dilation and
+    zero padding on both axes: its output has the rows and columns
+    {!Band_schedule.output_height} gives, its weights
     [(extent * extent * cin) x cout] with the window's row [t] at row offset
-    [t * extent * cin]. The schedule says which rows each stage makes when, and
-    the driver issues {!Ssa_ir.Ssa_view_call}s, their operands' bases the
-    element offsets of the rows the event reads and writes: an intermediate
-    value is a rolling window of rows ({!Band_schedule.Window}), the first
-    stage's input and the last stage's output are whole tensors. A window is one
-    call per output row and row it reads, each past the first adding into the
+    [t * extent * cin]. A window position in the padding is skipped, not added
+    as a zero: the rows outside the producer's extent are not read and
+    contribute nothing, so the call making an output pixel's first product seeds
+    it with zero and the rest add into it. The schedule says which rows each
+    stage makes when, and the driver issues {!Ssa_ir.Ssa_view_call}s, their
+    operands' bases the element offsets of the rows the event reads and writes:
+    an intermediate value is a rolling window of rows ({!Band_schedule.Window}),
+    the first stage's input and the last stage's output are whole tensors. A
+    window is one call per output row and row it reads (one per column too when
+    dilation or padding keeps the columns from being contiguous, over the output
+    pixels that column reaches), each past a pixel's first adding into the
     output (seed [Tensor]), so the sum runs row by row, then column and channel,
     as in {!whole}. *)
 
@@ -20,8 +26,9 @@ end
 
 (** Why a chain has no driver. *)
 type refusal =
-  | Unsupported_window of string
-      (** the stage's kernel is not stride 1 with no padding and dilation 1 *)
+  | Empty_window of string
+      (** the stage has an output pixel whose window lies wholly in the padding,
+          which no call would write *)
 
 val pp_refusal : Format.formatter -> refusal -> unit
 
@@ -52,7 +59,11 @@ end
     one. Alphabetical. *)
 type mutation =
   | Iterations_short  (** the loop stops one repetition early *)
+  | Padding_read_edge
+      (** a window row in the padding reads the nearest producer row instead of
+          being skipped *)
   | Step_dropped  (** the bases do not move between repetitions *)
+  | Stride_dropped  (** a window steps by one pixel and row, not its stride *)
   | Window_offset_dropped
       (** a window reads its first row of the ring for every row it covers *)
 

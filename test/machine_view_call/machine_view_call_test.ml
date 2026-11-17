@@ -177,19 +177,19 @@ let verdict ?mutation ~name p ~inputs ~want =
               ]))
 
 (* Banded pointwise chains from the driver against the whole Contract chain. *)
-let kernel ?(extent = 1) name ~chunk =
+let kernel ?(extent = 1) ?(stride = 1) ?(pad = 0) ?(dilation = 1) name ~chunk =
   {
     S.name;
     extent = S.Count.of_int extent;
-    stride = S.Count.of_int 1;
-    pad = S.Count.of_int 0;
-    dilation = S.Count.of_int 1;
+    stride = S.Count.of_int stride;
+    pad = S.Count.of_int pad;
+    dilation = S.Count.of_int dilation;
     chunk = S.Span.chunk chunk;
   }
 
-let stage ?extent name ~chunk ~cin ~cout =
+let stage ?extent ?stride ?pad ?dilation name ~chunk ~cin ~cout =
   {
-    D.Stage.kernel = kernel ?extent name ~chunk;
+    D.Stage.kernel = kernel ?extent ?stride ?pad ?dilation name ~chunk;
     cin = i64 cin;
     cout = i64 cout;
   }
@@ -314,6 +314,33 @@ let windows ?mutation () =
     [ w3 "a" ~chunk:1 ~cin:2 ~cout:2; w3 "b" ~chunk:1 ~cin:2 ~cout:3 ]
     ~width:5L ~rows:9 ~block:3
 
+(* Stride, zero padding (a skipped tap) and dilation, looped where a run of
+   blocks repeats. *)
+let strided ?mutation () =
+  let w3 = stage ~extent:3 in
+  band ?mutation ~name:"pointwise then 3x3 stride 2, 41 rows, block 2, looped"
+    [
+      stage "a" ~chunk:2 ~cin:2 ~cout:3;
+      w3 ~stride:2 "b" ~chunk:2 ~cin:3 ~cout:2;
+    ]
+    ~width:7L ~rows:41 ~block:2;
+  band ?mutation ~name:"pointwise then 3x3 pad 1, 10 rows, block 2, looped"
+    [ stage "a" ~chunk:2 ~cin:2 ~cout:3; w3 ~pad:1 "b" ~chunk:2 ~cin:3 ~cout:2 ]
+    ~width:5L ~rows:10 ~block:2;
+  band ?mutation ~name:"3x3 pad 1 then 3x3 pad 1, 24 rows, block 2, looped"
+    [
+      w3 ~pad:1 "a" ~chunk:2 ~cin:2 ~cout:3;
+      w3 ~pad:1 "b" ~chunk:2 ~cin:3 ~cout:2;
+    ]
+    ~width:5L ~rows:24 ~block:2;
+  band ?mutation
+    ~name:"3x3 dilation 2 pad 2 then pointwise stride 2, 14 rows, block 2"
+    [
+      w3 ~dilation:2 ~pad:2 "a" ~chunk:2 ~cin:2 ~cout:2;
+      stage ~stride:2 "b" ~chunk:2 ~cin:2 ~cout:2;
+    ]
+    ~width:7L ~rows:14 ~block:2
+
 let rows ?mutation () =
   rows_case ?mutation ~name:"A and C rows reversed" ~batch:1 ~m:3 ~k:4 ~n:3
     ~a_rows:(`Rows [ 8; 4; 0 ])
@@ -355,6 +382,17 @@ let%expect_test
     3x3, pointwise, 3x3, 20 rows, block 2, looped: SSA banded equal; lowered: generic equal; aarch64 equal; rv32 equal
     3x3 then 3x3, 9 rows, block 3: SSA banded equal; lowered: generic equal; aarch64 equal; rv32 equal |}]
 
+let%expect_test
+    "banded strided and padded chains lowered through the helper route equal \
+     the whole chain" =
+  strided ();
+  [%expect
+    {|
+    pointwise then 3x3 stride 2, 41 rows, block 2, looped: SSA banded equal; lowered: generic equal; aarch64 equal; rv32 equal
+    pointwise then 3x3 pad 1, 10 rows, block 2, looped: SSA banded equal; lowered: generic equal; aarch64 equal; rv32 equal
+    3x3 pad 1 then 3x3 pad 1, 24 rows, block 2, looped: SSA banded equal; lowered: generic equal; aarch64 equal; rv32 equal
+    3x3 dilation 2 pad 2 then pointwise stride 2, 14 rows, block 2: SSA banded equal; lowered: generic equal; aarch64 equal; rv32 equal |}]
+
 let%expect_test "per-row bases lowered through the helper route" =
   rows ();
   [%expect
@@ -372,6 +410,7 @@ let%expect_test "view-call lowering mutations are red" =
       Fmt.pr "== %s@." name;
       bands ~mutation ();
       windows ~mutation ();
+      strided ~mutation ();
       rows ~mutation ())
     Machine_lower.Mir_lower.Mutation.
       [
@@ -390,6 +429,10 @@ let%expect_test "view-call lowering mutations are red" =
     pointwise then 3x3, 10 rows, block 2, looped: SSA banded equal; lowered: generic DIFFERS; aarch64 DIFFERS; rv32 DIFFERS
     3x3, pointwise, 3x3, 20 rows, block 2, looped: SSA banded equal; lowered: generic failed: defect; aarch64 failed: defect; rv32 failed: defect
     3x3 then 3x3, 9 rows, block 3: SSA banded equal; lowered: generic DIFFERS; aarch64 DIFFERS; rv32 DIFFERS
+    pointwise then 3x3 stride 2, 41 rows, block 2, looped: SSA banded equal; lowered: generic DIFFERS; aarch64 DIFFERS; rv32 DIFFERS
+    pointwise then 3x3 pad 1, 10 rows, block 2, looped: SSA banded equal; lowered: generic DIFFERS; aarch64 DIFFERS; rv32 DIFFERS
+    3x3 pad 1 then 3x3 pad 1, 24 rows, block 2, looped: SSA banded equal; lowered: generic failed: defect; aarch64 failed: defect; rv32 failed: defect
+    3x3 dilation 2 pad 2 then pointwise stride 2, 14 rows, block 2: SSA banded equal; lowered: generic failed: defect; aarch64 failed: defect; rv32 failed: defect
     A and C rows reversed: generic DIFFERS; aarch64 DIFFERS; rv32 DIFFERS
     B columns permuted: generic DIFFERS; aarch64 DIFFERS; rv32 DIFFERS
     A single base, C rows: generic DIFFERS; aarch64 DIFFERS; rv32 DIFFERS
@@ -404,6 +447,10 @@ let%expect_test "view-call lowering mutations are red" =
     pointwise then 3x3, 10 rows, block 2, looped: SSA banded equal; lowered: generic equal; aarch64 equal; rv32 equal
     3x3, pointwise, 3x3, 20 rows, block 2, looped: SSA banded equal; lowered: generic equal; aarch64 equal; rv32 equal
     3x3 then 3x3, 9 rows, block 3: SSA banded equal; lowered: generic equal; aarch64 equal; rv32 equal
+    pointwise then 3x3 stride 2, 41 rows, block 2, looped: SSA banded equal; lowered: generic equal; aarch64 equal; rv32 equal
+    pointwise then 3x3 pad 1, 10 rows, block 2, looped: SSA banded equal; lowered: generic equal; aarch64 equal; rv32 equal
+    3x3 pad 1 then 3x3 pad 1, 24 rows, block 2, looped: SSA banded equal; lowered: generic equal; aarch64 equal; rv32 equal
+    3x3 dilation 2 pad 2 then pointwise stride 2, 14 rows, block 2: SSA banded equal; lowered: generic equal; aarch64 equal; rv32 equal
     A and C rows reversed: generic equal; aarch64 equal; rv32 equal
     B columns permuted: generic equal; aarch64 equal; rv32 equal
     A single base, C rows: generic DIFFERS; aarch64 DIFFERS; rv32 DIFFERS

@@ -37,7 +37,7 @@ Where it is handled:
 ## The driver
 
 `Band_driver.program` turns a schedule of stages (square window of side
-`extent`, stride 1, no padding or dilation; extent 1 is pointwise) into an
+`extent`, with the kernel's stride, padding and dilation; extent 1 is pointwise) into an
 ordinary SSA program: for a pointwise stage one view call per event, its bases the element
 offsets of the rows the event reads and writes. The first stage reads and the
 last writes whole tensors; each intermediate is a ring buffer of its window's
@@ -133,8 +133,26 @@ compares its output bits with the whole chain on the SSA interpreter):
 
 - An AArch64 contraction realization (so the contraction itself runs as
   generated AArch64, not host C).
-- Windows with stride, padding or dilation (refused: `Unsupported_window`) and
-  non-square windows; padding needs clamped consumed ranges.
+- Non-square windows and per-axis stride, padding or dilation (one value per
+  kernel now).
 - Loop bodies are reused per period of blocks; a chain whose window rotation
   never repeats within the rows stays unrolled. A loop over blocks whose ring
-  base is computed from the induction value (no period) is not done.
+  base is computed from the induction value (no period) is not done: the base
+  is `(a*i + b) mod rows * stride`, a modulo form the verifier's footprint
+  proof (affine bases only) has no rule for, so it needs a new proof, not a
+  driver change.
+
+### Stride, padding and dilation
+
+A stage with any of them is one view call per output row and window position,
+over the output pixels that position reaches; the plain stride-1 window keeps
+one call per row over `extent` contiguous columns. A position in the padding is
+skipped, not added as a zero (the semantic table's convolution row: a zero
+would turn an infinite weight into NaN), so rows outside the producer are never
+read, a column's calls cover only the pixels whose input column is inside, and
+a pixel's first call (not the first call of the row) seeds with zero while the
+rest add into it. A pixel with no position in the input is refused
+(`Empty_window`). The consumed ranges are the schedule's clamped ranges.
+`Padding_read_edge` (a padded row read from the nearest producer row) and
+`Stride_dropped` are red in the driver and view-call suites; a nested binary32
+sum that skips padded taps equals `whole`.
