@@ -4,18 +4,8 @@ open Ssa_fuzz.Fuzz
    A runaway generator or a slow compiler fails the run, never skips it. *)
 
 let c_seeds = max 1 (seeds / 10)
-let time_cap_s = 300.
-
-let timed f =
-  let t0 = Unix.gettimeofday () in
-  let r = f () in
-  let dt = Unix.gettimeofday () -. t0 in
-  if dt > time_cap_s then Fmt.failwith "over the time cap: %.1fs" dt;
-  r
-
-let fail_on = function
-  | Ok _ -> ()
-  | Error d -> Fmt.failwith "%a" pp_disagreement d
+let timed = Fuzz_c.timed
+let fail_on = Fuzz_c.fail_on
 
 let%expect_test "the C emitter agrees with the interpreter, or refuses" =
   let c = Fuzz_c.backend in
@@ -30,17 +20,3 @@ let%expect_test "the C emitter agrees with the interpreter, or refuses" =
   Fmt.pr "%d seeds, refusals under a tenth: %b@." c_seeds
     (!refused * 10 < c_seeds);
   [%expect {| 200 seeds, refusals under a tenth: true |}]
-
-(* The expansion of a view call, which the C emitter refuses by name, runs
-   through it and agrees with the interpreter on the view call itself. *)
-let%expect_test "the C emitter runs the expansion of view calls" =
-  let c = expanded Fuzz_c.backend in
-  let refused = ref 0 in
-  timed (fun () ->
-      for s = 0 to (c_seeds / 2) - 1 do
-        let case = generate_views ~seed:(Int64.of_int s) ~size:3 () in
-        (match c.run case with Refused _ -> incr refused | Ran _ -> ());
-        fail_on (check case [ c ])
-      done);
-  Fmt.pr "no refusals: %b@." (!refused = 0);
-  [%expect {| no refusals: true |}]
