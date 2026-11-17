@@ -1773,6 +1773,7 @@ coralnpu.subsystem.download:
 CORAL_PROFILE_MODELS ?= test_convnext2 regnetx_002 mobilenetv3_small_050
 CORAL_PROFILE_CONFIGURATION ?= rvv-core-mini-highmem-axi
 CORAL_PROFILE_OUT ?= _build/coral-profile
+CORAL_PROFILE_DEADLINE ?= 3600
 coral.model.profile:
 	@test -f $(CORALNPU_DATA)/hardware-configurations.json || { \
 		echo "coral.model.profile: missing $(CORALNPU_DATA) -- run 'make coralnpu.download' first" >&2; \
@@ -1784,7 +1785,7 @@ coral.model.profile:
 		echo "== $$m"; \
 		_build/default/bin/machine_rivet_coral_model.exe data/pt2-functional/$$m/$$m.pt2 \
 			--dir=$(CORALNPU_DATA) --configuration=$(CORAL_PROFILE_CONFIGURATION) \
-			--contractions --prepack > $(CORAL_PROFILE_OUT)/$$m.txt; status=$$?; \
+			--contractions --prepack --deadline=$(CORAL_PROFILE_DEADLINE) > $(CORAL_PROFILE_OUT)/$$m.txt; status=$$?; \
 		cat $(CORAL_PROFILE_OUT)/$$m.txt; \
 		test $$status -eq 0 || exit $$status; \
 	done
