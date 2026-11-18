@@ -10,20 +10,20 @@ the core spent polling the DMA: the prologue's, then the rest.
 
 RVV BF16 x BF16 -> FP32 and FP32 on the 32 KiB-DTCM vector SoC: three rows of
 32 lanes a block, at 94-97% of their DTCM-resident rates (12.6 and 9.9), and
-about three times the same kernels with every operand left in SRAM.
+1.5 to 1.7 times faster than the same kernels with every operand left in SRAM.
 
   $ ./dma_bench.exe "$CORALNPU_SUBSYSTEM_DATA" subsystem-vector-normal gemm rvv-bf16 b-shared c-by-dma 64 32 256
-  rvv bf16 resident-b b-shared c-by-dma M=192 N=32 K=256: C as expected, 258608 cycles, 12.2 ops/cycle; 259 waiting for B and the first block, 1636 for the rest
+  rvv bf16 resident-b b-shared c-by-dma M=192 N=32 K=256: C as expected, 260744 cycles, 12.1 ops/cycle; 2323 waiting for B and the first block, 1521 for the rest
   $ ./dma_bench.exe "$CORALNPU_SUBSYSTEM_DATA" subsystem-vector-normal direct rvv-bf16 64 32 256
-  rvv bf16 M=192 N=32 K=256, operands in SRAM, no DMA: C as expected, 715813 cycles, 4.4 ops/cycle
+  rvv bf16 M=192 N=32 K=256, operands in SRAM, no DMA: C as expected, 445909 cycles, 7.1 ops/cycle
   $ ./dma_bench.exe "$CORALNPU_SUBSYSTEM_DATA" subsystem-vector-normal gemm rvv-f32 b-shared c-by-dma 64 32 128
-  rvv f32 resident-b b-shared c-by-dma M=192 N=32 K=128: C as expected, 168368 cycles, 9.3 ops/cycle; 259 waiting for B and the first block, 1636 for the rest
+  rvv f32 resident-b b-shared c-by-dma M=192 N=32 K=128: C as expected, 169560 cycles, 9.3 ops/cycle; 2323 waiting for B and the first block, 1521 for the rest
 The geometry the generated functions use (B copied by the DMA alone, A
 streamed, C stored by the core; test/machine_rivet_riscv32_coral_soc's
 kernel_test.ml calls one at this shape and must stay within 5% of it):
 
   $ ./dma_bench.exe "$CORALNPU_SUBSYSTEM_DATA" subsystem-vector-normal gemm rvv-f32 b-by-dma c-by-core 64 32 128
-  rvv f32 resident-b b-by-dma c-by-core M=192 N=32 K=128: C as expected, 186003 cycles, 8.5 ops/cycle; 15700 waiting for B and the first block, 1260 for the rest
+  rvv f32 resident-b b-by-dma c-by-core M=192 N=32 K=128: C as expected, 179733 cycles, 8.8 ops/cycle; 14579 waiting for B and the first block, 1197 for the rest
 
   $ ./dma_bench.exe "$CORALNPU_SUBSYSTEM_DATA" subsystem-vector-normal direct rvv-f32 64 32 128
-  rvv f32 M=192 N=32 K=128, operands in SRAM, no DMA: C as expected, 527868 cycles, 3.0 ops/cycle
+  rvv f32 M=192 N=32 K=128, operands in SRAM, no DMA: C as expected, 258620 cycles, 6.1 ops/cycle
