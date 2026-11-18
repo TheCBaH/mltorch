@@ -150,9 +150,14 @@ compares its output bits with the whole chain on the SSA interpreter):
 
 - An AArch64 contraction realization (so the contraction itself runs as
   generated AArch64, not host C).
-- A chain with fewer than two repetitions of any block run (for example a
-  short chain whose blocks all differ, `block 3, 8 rows`) stays unrolled; the
-  ring rotation itself no longer needs a period.
+- (Settled, unrolled is right.) A chain with fewer than two repetitions of any
+  block run (for example `block 3, 8 rows`) stays unrolled: a loop reuses one
+  body across repetitions, so with no two blocks of one shape and affine bases
+  a loop would be one trip, the same view calls behind an induction value. The
+  driver's sweep (blocks 1 to 6, rows 1 to 24, a pointwise and a 3x3 chain)
+  has every unrolled case equal in view calls to the loop form and every
+  looped case strictly smaller; forcing a one-trip loop on the unrolled cases
+  turns that test red. The ring rotation itself no longer needs a period.
 
 ### Stride, padding and dilation
 

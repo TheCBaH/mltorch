@@ -557,3 +557,63 @@ let%expect_test "axis mutations are red" =
     == stride dropped
     3x3 stride 2 by 1 then 5x3 stride 1 by 2 pad 1, 21 rows: loop yes; whole equal; banded DIFFERS; unrolled DIFFERS
     3x3 dilation 2 by 1, pad 2 by 0, 1x1 stride 1 by 2, 20 rows: loop yes; whole equal; banded DIFFERS; unrolled DIFFERS |}]
+
+(* A chain whose blocks never repeat stays unrolled, and that is the smallest
+   form: a loop needs two repetitions of one body to reuse it, so a one-trip
+   loop would hold the same view calls behind an induction value. Static view
+   calls of the program are counted from its printed form. *)
+let view_calls (p : D.Program.t) =
+  let s = Fmt.str "%a" Ssa_pp.pp p.D.Program.program in
+  let n = String.length s and k = String.length "view " in
+  let rec go i acc =
+    if i + k > n then acc
+    else go (i + 1) (if String.sub s i k = "view " then acc + 1 else acc)
+  in
+  go 0 0
+
+let%expect_test "a chain with no repeated block stays unrolled" =
+  let chains =
+    [
+      ( "three pointwise",
+        [
+          stage "a" ~chunk:2 ~cin:2 ~cout:3;
+          stage "b" ~chunk:2 ~cin:3 ~cout:4;
+          stage "c" ~chunk:2 ~cin:4 ~cout:2;
+        ] );
+      ( "pointwise then 3x3",
+        [
+          stage "a" ~chunk:2 ~cin:2 ~cout:3;
+          stage ~extent:3 ~pad:1 "b" ~chunk:1 ~cin:3 ~cout:2;
+        ] );
+    ]
+  in
+  List.iter
+    (fun (name, stages) ->
+      let none = ref 0 and looped = ref 0 and bad = ref 0 in
+      for block = 1 to 6 do
+        for rows = 1 to 24 do
+          let go looped =
+            match
+              D.program ~looped stages ~width:2L ~rows:(count rows)
+                ~block:(S.Span.block block)
+            with
+            | Ok p -> p
+            | Error _ -> assert false
+          in
+          let l = go true and u = go false in
+          let nl = view_calls l and nu = view_calls u in
+          if l.D.Program.loop = None then (
+            incr none;
+            if nl <> nu then incr bad)
+          else (
+            incr looped;
+            if nl >= nu then incr bad)
+        done
+      done;
+      Fmt.pr "%s: %d unrolled, %d looped, %d where the loop is not smaller@."
+        name !none !looped !bad)
+    chains;
+  [%expect
+    {|
+    three pointwise: 54 unrolled, 90 looped, 0 where the loop is not smaller
+    pointwise then 3x3: 14 unrolled, 130 looped, 0 where the loop is not smaller |}]
