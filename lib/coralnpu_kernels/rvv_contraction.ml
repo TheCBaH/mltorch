@@ -551,14 +551,14 @@ let items esc ?mutation ?plan (d : C.t) () =
                         i "sw" [ r "t2"; A.mem "t0" 44 ];
                       ]
                     else [])
-                 @ [
-                     i "j" [ A.sym started ];
-                     A.label no_prev;
-                     (if seeded then i "addi" [ r "t2"; r "t0"; A.imm 64 ]
-                      else i "mv" [ r "t2"; r "zero" ]);
-                     i "sw" [ r "t2"; A.mem "t0" 12 ];
-                     A.label started;
-                   ]
+                 @ [ i "j" [ A.sym started ]; A.label no_prev ]
+                 @ (if seeded then
+                      [
+                        i "addi" [ r "t2"; r "t0"; A.imm 64 ];
+                        i "sw" [ r "t2"; A.mem "t0" 12 ];
+                      ]
+                    else [ i "sw" [ r "zero"; A.mem "t0" 12 ] ])
+                 @ [ A.label started ]
                  @ c_in
                  @ [ i "fence" [] ]
                  @ A.load_imm "t4" dma_base

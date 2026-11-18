@@ -220,7 +220,7 @@ let%expect_test "the transfer model against the subsystem, reduced" =
     linear 36x48 k96 packed, A streamed by 24 rows, B in place (1 invocations, 1 packed): bitwise
       measured 61686, predicted 67299 (+9.1%)
     linear 36x48 k96 packed, A streamed by 15 rows, B in place, C by the DMA (1 invocations, 1 packed): bitwise
-      measured 61840, predicted 68771 (+11.2%)
+      measured 61838, predicted 68771 (+11.2%)
     linear 36x48 k96 packed, A in place, B copied (1 invocations, 1 packed): bitwise
       measured 82954, predicted 87341 (+5.3%)
     linear 36x48 k96 packed, A in place, B shared (1 invocations, 1 packed): bitwise
@@ -234,7 +234,7 @@ let%expect_test "the transfer model against the subsystem, reduced" =
     linear 45x56 k80 packed, A streamed by 30 rows, B in place (1 invocations, 1 packed): bitwise
       measured 77457, predicted 72518 (-6.4%)
     linear 45x56 k80 packed, A streamed by 18 rows, B in place, C by the DMA (1 invocations, 1 packed): bitwise
-      measured 78748, predicted 75453 (-4.2%)
+      measured 78746, predicted 75453 (-4.2%)
     linear 45x56 k80 packed, A in place, B copied (1 invocations, 1 packed): bitwise
       measured 98602, predicted 91147 (-7.6%)
     linear 45x56 k80 packed, A streamed by 3 rows, B copied (1 invocations, 1 packed): bitwise
