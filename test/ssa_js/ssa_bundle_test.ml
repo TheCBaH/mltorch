@@ -121,12 +121,15 @@ let region_chain () =
       let* x = input ~shape:(F.nhwc ~h:3 ~w:4 ~c:8) () in
       let* gamma = constant ~shape:(F.s1c 8) () in
       let* n =
-        rms_norm { Norm.RmsNorm.dims = [ Axis.C ]; eps = 1e-5 } ~x ~weight:gamma
-          ()
+        rms_norm
+          { Norm.RmsNorm.dims = [ Axis.C ]; eps = 1e-5 }
+          ~x ~weight:gamma ()
       in
       softmax { Reduce.Softmax.axis = Axis.C } n)
 
-let%expect_test "a Region operation through the SSA JavaScript bundle is bitwise the reference" =
+let%expect_test
+    "a Region operation through the SSA JavaScript bundle is bitwise the \
+     reference" =
   let g = region_chain () in
   Fmt.pr "region_chain: default path identical: %b@." (run_graph g);
   List.iter
@@ -135,7 +138,8 @@ let%expect_test "a Region operation through the SSA JavaScript bundle is bitwise
         (Ssa_backends.Pipeline.name pipeline)
         (run_graph ~kernel:(Ssa_backends.js ~pipeline) g))
     [ Ssa_backends.Pipeline.Representation; Ssa_backends.Pipeline.Exact ];
-  [%expect {|
+  [%expect
+    {|
     region_chain: default path identical: true
     region_chain representation: identical: true
     region_chain exact: identical: true |}]
