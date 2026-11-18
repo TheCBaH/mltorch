@@ -70,8 +70,8 @@ let kernels ?frontend () =
                 in
                 (Result.get_ok
                    (Err.payload
-                      (Machine_lower.Mir_lower.program
-                         ~planning:(Some planning) p)))
+                      (Machine_lower.Mir_lower.program ~planning:(Some planning)
+                         p)))
                   .Machine_lower.Mir_lower.program)
               b.Loop_ir.Loop_bundle.invocations
       in

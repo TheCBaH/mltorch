@@ -265,7 +265,8 @@ let%expect_test "comparison route: sink moves and dropped dependences" =
   X64.moves ~frontend ();
   A64.mutations ~frontend ();
   X64.mutations ~frontend ();
-  [%expect {|
+  [%expect
+    {|
     aarch64 chain/0: sink moves 8
     aarch64 chain/1: sink moves 0
     aarch64 chain/2: sink moves 0
