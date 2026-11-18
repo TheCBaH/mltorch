@@ -184,7 +184,8 @@ let%expect_test "candidates: the over-budget one is rejected, the rest placed" =
    core (the refusal sizes of test/coral_estimate_rtl): a pointwise stage then
    a 3x3 window needs 24,416 bytes at block 2 and 46,756 at block 4, so the
    chain is refused whatever it would cost; the window then pointwise order
-   fits and was measured. *)
+   fits and was measured, and so does this one with its provable index guards
+   removed ([~prove]). *)
 let%expect_test "pointwise-then-window chains are refused by code size" =
   let chain name code =
     { (Witness.pointwise_mobilenetv2_050 ~code) with Image.name }

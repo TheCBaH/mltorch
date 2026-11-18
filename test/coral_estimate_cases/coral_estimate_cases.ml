@@ -405,6 +405,9 @@ module View = struct
   type t = {
     name : string;
     role : Role.t;
+    prove : bool;
+        (** run with the provable index guards removed: its kernel would not fit
+            the ITCM with them *)
     stages : D.Stage.t list;
     width : int;
     rows : int;
@@ -438,8 +441,8 @@ module View = struct
   (* the banded program: its input and weights are the buffers to fill *)
   let program c = (driver c).D.Program.program
 
-  let case ?(role = Role.Fit) name ~width ~rows ~block stages =
-    { name; role; stages; width; rows; block }
+  let case ?(role = Role.Fit) ?(prove = false) name ~width ~rows ~block stages =
+    { name; role; prove; stages; width; rows; block }
 
   let three ~cin =
     [
@@ -481,6 +484,20 @@ module View = struct
 
   let check =
     [
+      case ~role:Role.Check ~prove:true
+        "view chain pointwise then 3x3, 16 rows, block 2, proven" ~width:6
+        ~rows:16 ~block:2
+        [
+          stage "a" ~chunk:2 ~cin:4 ~cout:4;
+          stage ~extent:3 "b" ~chunk:2 ~cin:4 ~cout:4;
+        ];
+      case ~role:Role.Check ~prove:true
+        "view chain pointwise then 3x3, 32 rows, block 4, proven" ~width:6
+        ~rows:32 ~block:4
+        [
+          stage "a" ~chunk:2 ~cin:4 ~cout:4;
+          stage ~extent:3 "b" ~chunk:2 ~cin:4 ~cout:4;
+        ];
       case ~role:Role.Check "view chain 3x3 then pointwise, 16 rows, block 2"
         ~width:6 ~rows:16 ~block:2
         [
@@ -499,10 +516,11 @@ module View = struct
         [ stage ~extent:3 "a" ~chunk:2 ~cin:6 ~cout:6 ];
     ]
 
-  (* Pointwise-then-window chains: the route's helper code for them is 24 to
-     47 KB, over the VME core's 8 KiB ITCM, so it refuses them and no RTL
-     cycles exist (a window then pointwise chain fits). They are not in [all]:
-     nothing is fitted or held out on them. *)
+  (* Pointwise-then-window chains without [prove]: the kernel is 24 to 47 KB
+     (the ring arithmetic's checked 64-bit index operations), over the VME
+     core's 8 KiB ITCM, so the route refuses them and no RTL cycles exist. The
+     same chains with the guards proved away are the held-out [check] cases
+     above. These are not in [all]. *)
   let refused =
     [
       case "view chain pointwise then 3x3, 16 rows, block 2, looped" ~width:6

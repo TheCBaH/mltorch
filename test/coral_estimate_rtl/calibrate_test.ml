@@ -156,7 +156,7 @@ module View = struct
     let want = reference p ~inputs in
     let cfg = config_for v.Cases.View.name in
     let p =
-      match C.finalize cfg p with
+      match C.finalize ~prove:v.Cases.View.prove cfg p with
       | Ok p -> p
       | Error e -> failwith ("finalize: " ^ e)
     in
@@ -587,6 +587,10 @@ let%expect_test "the view-call set" =
       [0] cycles 30876 instret 23775
     view window 1 stage, 3x3, 16 rows, block 2, wide (1 invocations): bitwise
       [0] cycles 16546 instret 13043
+    view chain pointwise then 3x3, 16 rows, block 2, proven (1 invocations): bitwise
+      [0] cycles 14480 instret 9975
+    view chain pointwise then 3x3, 32 rows, block 4, proven (1 invocations): bitwise
+      [0] cycles 30488 instret 20917
     view chain 3x3 then pointwise, 16 rows, block 2 (1 invocations): bitwise
       [0] cycles 15511 instret 11972
     view pointwise 3 stages, 20 rows, block 2, wide (1 invocations): bitwise
@@ -594,7 +598,7 @@ let%expect_test "the view-call set" =
     view window 1 stage, 3x3, 18 rows, block 2, wide (1 invocations): bitwise
       [0] cycles 27744 instret 19171 |}]
 
-let%expect_test "pointwise-then-window chains exceed the ITCM" =
+let%expect_test "pointwise-then-window chains without proof exceed the ITCM" =
   View.refused ();
   Format.print_flush ();
   [%expect

@@ -423,12 +423,21 @@ for them. Adding the windows took the fit's `view.rows_k` to zero and
 `view.cols_k` from 0.65 to 3.5, and the fit cases to within about 10%
 (pointwise cases were within 5%). Order matters for a two-stage chain: a
 window then a pointwise stage fits the ITCM and runs on the RTL (held out, limit
-10%, -7.9%, no refit), so the estimate prices a chained window correctly; a
-pointwise stage then a window needs 24,416 bytes of code at block 2 and 46,756
-at block 4 against 8,192, so the route refuses it and no cycles exist to fit or
-check. The refusal sizes are a golden (`Coral_estimate_cases.View.refused`) and
-`Coral_capacity.Capacity.admit` rejects such an image by code size; the cause
-is the route's helper code, not the estimate, and shrinking it is route work.
+10%, -7.9%, no refit). A pointwise stage then a window needs 24,416 bytes of
+code at block 2 and 46,756 at block 4 against 8,192, and the cause is not the
+helpers (three contraction helpers, about 280 bytes each) but the kernel: its
+ring arithmetic (`index.scale`, `index.add`, `index.floor_div` per ring base) is
+checked 64-bit index arithmetic, an overflow guard and failure path apiece, and
+the unrolled prologue and epilogue repeat it (the kernel's size does not move
+with the row count, the loop is kept). `Rv32_mir_coral.finalize ~prove` runs
+`Ssa_opt_guards` first, which removes what the range analysis proves cannot
+fire: the kernels become about 1.4 and 2.7 KB, run bitwise on the VME core, and
+are held out at -8.2% and -7.7% (limit 10%) with no refit, the census pricing
+the proven program (`Cases.View.prove`). It is off by default because it also
+speeds every existing fit kernel by 5 to 33% of cycles, which the fitted rates
+were measured on; the unproven chains stay pinned as refused
+(`Coral_estimate_cases.View.refused`, and `Coral_capacity.Capacity.admit`
+rejects such an image by code size). Making it the default is a refit.
 Unrolled chains past about 8 KiB of code (block
 3, three stages) exceed the ITCM; the cases use blocks that loop.
 

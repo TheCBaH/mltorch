@@ -168,6 +168,8 @@ let%expect_test "held-out accuracy domain and known gaps" =
    does not fit the ITCM, so it has no measurement). *)
 let view_limits =
   [
+    ("view chain pointwise then 3x3, 16 rows, block 2, proven", 10.);
+    ("view chain pointwise then 3x3, 32 rows, block 4, proven", 10.);
     ("view chain 3x3 then pointwise, 16 rows, block 2", 10.);
     ("view pointwise 3 stages, 20 rows, block 2, wide", 10.);
     ("view window 1 stage, 3x3, 18 rows, block 2, wide", 10.);
@@ -237,6 +239,8 @@ let%expect_test "held-out view-call accuracy" =
     view_limits;
   [%expect
     {|
+      view chain pointwise then 3x3, 16 rows, block 2, proven: -8.2%, limit 10.0%
+      view chain pointwise then 3x3, 32 rows, block 4, proven: -7.7%, limit 10.0%
       view chain 3x3 then pointwise, 16 rows, block 2: -7.9%, limit 10.0%
       view pointwise 3 stages, 20 rows, block 2, wide: -5.6%, limit 10.0%
       view window 1 stage, 3x3, 18 rows, block 2, wide: -4.6%, limit 10.0% |}]

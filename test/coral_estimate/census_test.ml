@@ -54,14 +54,16 @@ let censuses ?(ram = fun _ -> []) (c : Cases.t) =
   | Ok _ -> Ok (List.rev !out)
 
 (* a view-call case's census: its banded program as the route finalizes it
-   (every buffer in the DTCM, where these small kernels sit) *)
+   (every buffer in the DTCM, where these small kernels sit), with the proven
+   index guards removed where the route does ([prove]) *)
 let view_census (v : Cases.View.t) =
   match
     Err.payload
       (Ssa_ir.Ssa_contract_plan.program
          ~capabilities:
            { Contraction.Select.Capabilities.matrix = true; vector = true }
-         (Cases.View.program v))
+         (let p = Cases.View.program v in
+          if v.Cases.View.prove then fst (Ssa_ir.Ssa_opt_guards.pass p) else p))
   with
   | Ok p -> CE.program p
   | Error e ->

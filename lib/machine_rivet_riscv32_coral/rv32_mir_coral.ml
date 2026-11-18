@@ -91,10 +91,19 @@ let capabilities ~engine profile =
     vector = List.mem "zve32f" profile.Coral_profile.extensions;
   }
 
-let finalize ?(engine = true) c p =
+(* [prove] first removes the guards the range analysis proves cannot fire
+   ({!Ssa_ir.Ssa_opt_guards}): a checked index operation is a 64-bit
+   operation and an overflow check with its failure path, so a band driver's
+   ring and loop arithmetic can take most of the instruction memory (a
+   pointwise-then-window chain: 22 KB of 24 KB at block 2), and proven
+   operations are a few instructions each. Off by default: it changes the code
+   of every kernel with checked index arithmetic, which the estimate's fitted
+   rates were measured on. *)
+let finalize ?(engine = true) ?(prove = false) c p =
   match Err.payload (Coral_profile.load ~dir:c.Config.dir c.configuration) with
   | Error e -> Error (Fmt.str "%a" Coral_profile.pp_error e)
   | Ok profile ->
+      let p = if prove then fst (Ssa_ir.Ssa_opt_guards.pass p) else p in
       let capabilities = capabilities ~engine profile in
       (* a core with neither engine has no helper to call: each contraction
          the expansion can realize becomes the loops of its reference, so
@@ -623,13 +632,14 @@ let exec_of ?mutation ?kernel_mutation ?route_mutation ?registers ?engine
    as on a smaller core (the subsystem then loads the kernel's overflow as
    overlays); [dma] says whether the functions may use the DMA engine
    ({!Dma}; default [Forbidden]), where [transfer] is a rule of one's own,
-   which excludes it. *)
-let route ?mutation ?kernel_mutation ?route_mutation ?registers ?engine
+   which excludes it; [prove] removes the provably dead index guards first
+   (see {!finalize}). *)
+let route ?mutation ?kernel_mutation ?route_mutation ?registers ?engine ?prove
     ?engine_mutation ?transfer ?dma ?itcm ?on_run ?on_elf ?on_image
     ?on_candidate ?home ?budget ?label ?expect_cycles (c : Config.t) =
   Route.Route.Custom
     {
-      Route.Custom.plan = finalize ?engine c;
+      Route.Custom.plan = finalize ?engine ?prove c;
       Route.Custom.name = "riscv32 coral " ^ c.Config.configuration;
       exec =
         (fun ~sites g ->
