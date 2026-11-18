@@ -371,6 +371,7 @@ let%expect_test "committed predictions on fit and check sets" =
     view window 1 stage, 3x3, 24 rows, block 1, looped measured      19500 predicted      20505   +5.2%
     view window 1 stage, 3x3, 20 rows, block 4, looped measured      30876 predicted      27033  -12.4%
     view window 1 stage, 3x3, 16 rows, block 2, wide measured      16546 predicted      18108   +9.4%
+    view chain 3x3 then pointwise, 16 rows, block 2 measured      15511 predicted      14288   -7.9%
     view pointwise 3 stages, 20 rows, block 2, wide measured       8147 predicted       7694   -5.6%
     view window 1 stage, 3x3, 18 rows, block 2, wide measured      27744 predicted      26478   -4.6% |}]
 

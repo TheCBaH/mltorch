@@ -180,6 +180,34 @@ let%expect_test "candidates: the over-budget one is rejected, the rest placed" =
     rejected big: code: 8193 bytes needed, 8192 budget
     none fit: big 8193 over 8192 |}]
 
+(* The route's own ITCM requirements for banded view-call chains on the VME
+   core (the refusal sizes of test/coral_estimate_rtl): a pointwise stage then
+   a 3x3 window needs 24,416 bytes at block 2 and 46,756 at block 4, so the
+   chain is refused whatever it would cost; the window then pointwise order
+   fits and was measured. *)
+let%expect_test "pointwise-then-window chains are refused by code size" =
+  let chain name code =
+    { (Witness.pointwise_mobilenetv2_050 ~code) with Image.name }
+  in
+  (match
+     Err.payload
+       (Capacity.admit rtl
+          [
+            chain "pointwise then 3x3, block 4" (Code_bytes.of_int64 46_756L);
+            chain "pointwise then 3x3, block 2" (Code_bytes.of_int64 24_416L);
+          ])
+   with
+  | Error (`None_fit rs) ->
+      List.iter
+        (fun (r : Capacity.Admission.rejection) ->
+          Fmt.pr "rejected %s: %a@." r.name Capacity.pp_error r.reason)
+        rs
+  | Ok _ | Error _ -> Fmt.pr "not refused@.");
+  [%expect
+    {|
+    rejected pointwise then 3x3, block 4: code: 46756 bytes needed, 8192 budget
+    rejected pointwise then 3x3, block 2: code: 24416 bytes needed, 8192 budget |}]
+
 (* Three candidates for one segment: [dear] and [cheap] fit, [big] is over the
    ITCM budget; [twin] costs what [cheap] does. Cost is the fitted VME rates
    over a census of f32 operations alone. *)

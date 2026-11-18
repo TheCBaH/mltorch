@@ -249,6 +249,17 @@ module View = struct
             Fmt.pr "%s: raised %s@." v.Cases.View.name
               (List.hd (String.split_on_char '\n' (Printexc.to_string e))))
       Cases.View.all
+
+  (* The cases the route refuses: the message is the golden, so a chain that
+     starts to fit, or a size that moves, shows. *)
+  let refused () =
+    List.iter
+      (fun (v : Cases.View.t) ->
+        try run v
+        with e ->
+          Fmt.pr "%s: raised %s@." v.Cases.View.name
+            (List.hd (String.split_on_char '\n' (Printexc.to_string e))))
+      Cases.View.refused
 end
 
 (* The cases in parallel: one forked worker per case, at most the CPU pool's
@@ -576,10 +587,20 @@ let%expect_test "the view-call set" =
       [0] cycles 30876 instret 23775
     view window 1 stage, 3x3, 16 rows, block 2, wide (1 invocations): bitwise
       [0] cycles 16546 instret 13043
+    view chain 3x3 then pointwise, 16 rows, block 2 (1 invocations): bitwise
+      [0] cycles 15511 instret 11972
     view pointwise 3 stages, 20 rows, block 2, wide (1 invocations): bitwise
       [0] cycles 8147 instret 5575
     view window 1 stage, 3x3, 18 rows, block 2, wide (1 invocations): bitwise
       [0] cycles 27744 instret 19171 |}]
+
+let%expect_test "pointwise-then-window chains exceed the ITCM" =
+  View.refused ();
+  Format.print_flush ();
+  [%expect
+    {|
+    view chain pointwise then 3x3, 16 rows, block 2, looped: raised Failure("exec: itcm: 24416 bytes needed, 8192 available")
+    view chain pointwise then 3x3, 32 rows, block 4, looped: raised Failure("exec: itcm: 46756 bytes needed, 8192 available") |}]
 
 (* A window's rows after the first add into C: with the tile started from zero
    instead of C's rows the output differs. *)

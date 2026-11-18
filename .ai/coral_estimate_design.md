@@ -421,9 +421,15 @@ window). A window's rows after the first are seeded from the output
 (`Seed.Tensor`); the matrix engine's binary32 function loads its tile from C
 for them. Adding the windows took the fit's `view.rows_k` to zero and
 `view.cols_k` from 0.65 to 3.5, and the fit cases to within about 10%
-(pointwise cases were within 5%). Not measured: a chain of a pointwise stage
-then a window (about 13 KiB of helpers, past the 8 KiB ITCM), so a window is
-priced only as a single stage. Unrolled chains past about 8 KiB of code (block
+(pointwise cases were within 5%). Order matters for a two-stage chain: a
+window then a pointwise stage fits the ITCM and runs on the RTL (held out, limit
+10%, -7.9%, no refit), so the estimate prices a chained window correctly; a
+pointwise stage then a window needs 24,416 bytes of code at block 2 and 46,756
+at block 4 against 8,192, so the route refuses it and no cycles exist to fit or
+check. The refusal sizes are a golden (`Coral_estimate_cases.View.refused`) and
+`Coral_capacity.Capacity.admit` rejects such an image by code size; the cause
+is the route's helper code, not the estimate, and shrinking it is route work.
+Unrolled chains past about 8 KiB of code (block
 3, three stages) exceed the ITCM; the cases use blocks that loop.
 
 ## Census after the modulus range rule

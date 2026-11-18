@@ -481,6 +481,12 @@ module View = struct
 
   let check =
     [
+      case ~role:Role.Check "view chain 3x3 then pointwise, 16 rows, block 2"
+        ~width:6 ~rows:16 ~block:2
+        [
+          stage ~extent:3 "a" ~chunk:2 ~cin:4 ~cout:4;
+          stage "b" ~chunk:2 ~cin:4 ~cout:4;
+        ];
       case ~role:Role.Check "view pointwise 3 stages, 20 rows, block 2, wide"
         ~width:6 ~rows:20 ~block:2
         [
@@ -491,6 +497,26 @@ module View = struct
       case ~role:Role.Check "view window 1 stage, 3x3, 18 rows, block 2, wide"
         ~width:10 ~rows:18 ~block:2
         [ stage ~extent:3 "a" ~chunk:2 ~cin:6 ~cout:6 ];
+    ]
+
+  (* Pointwise-then-window chains: the route's helper code for them is 24 to
+     47 KB, over the VME core's 8 KiB ITCM, so it refuses them and no RTL
+     cycles exist (a window then pointwise chain fits). They are not in [all]:
+     nothing is fitted or held out on them. *)
+  let refused =
+    [
+      case "view chain pointwise then 3x3, 16 rows, block 2, looped" ~width:6
+        ~rows:16 ~block:2
+        [
+          stage "a" ~chunk:2 ~cin:4 ~cout:4;
+          stage ~extent:3 "b" ~chunk:2 ~cin:4 ~cout:4;
+        ];
+      case "view chain pointwise then 3x3, 32 rows, block 4, looped" ~width:6
+        ~rows:32 ~block:4
+        [
+          stage "a" ~chunk:2 ~cin:4 ~cout:4;
+          stage ~extent:3 "b" ~chunk:2 ~cin:4 ~cout:4;
+        ];
     ]
 
   let all = fit @ check

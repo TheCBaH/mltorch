@@ -163,10 +163,12 @@ let%expect_test "held-out accuracy domain and known gaps" =
     rms norm over C 16x64: outside accuracy gate (ordered lane fold priced as scalar extracts), error +82.6%
     layer decomposed, bare: outside accuracy gate (data-dependent control flow counted heuristically), error -28.0% |}]
 
-(* The band-driven view-call kernels held out of the fit: a pointwise chain and
-   a single-stage 3x3 window. *)
+(* The band-driven view-call kernels held out of the fit: a pointwise chain, a
+   single-stage 3x3 window and a window-then-pointwise chain (the other order
+   does not fit the ITCM, so it has no measurement). *)
 let view_limits =
   [
+    ("view chain 3x3 then pointwise, 16 rows, block 2", 10.);
     ("view pointwise 3 stages, 20 rows, block 2, wide", 10.);
     ("view window 1 stage, 3x3, 18 rows, block 2, wide", 10.);
   ]
@@ -235,5 +237,6 @@ let%expect_test "held-out view-call accuracy" =
     view_limits;
   [%expect
     {|
+      view chain 3x3 then pointwise, 16 rows, block 2: -7.9%, limit 10.0%
       view pointwise 3 stages, 20 rows, block 2, wide: -5.6%, limit 10.0%
       view window 1 stage, 3x3, 18 rows, block 2, wide: -4.6%, limit 10.0% |}]
