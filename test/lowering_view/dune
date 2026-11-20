@@ -1,0 +1,20 @@
+; Tests for lib/lowering_view: every family on graph-fixture nodes. Pure, so the
+; same expect blocks run under node ([js]), which is also the check that the
+; SSA and Machine-free lowering closure is js_of_ocaml-reachable.
+
+(library
+ (name lowering_view_test)
+ (libraries
+  core
+  err_trace
+  fmt
+  loop_ir
+  loop_ir_test
+  lowering_key
+  lowering_view
+  native
+  native_test)
+ (inline_tests
+  (modes best js))
+ (preprocess
+  (pps ppx_expect)))

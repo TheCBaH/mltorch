@@ -1,0 +1,20 @@
+; The lowering inspector's producers: for one node of a Loop_bundle, the text of
+; what each backend family makes of it (Loop IR, JavaScript, C and WebAssembly
+; text by the Loop emitters or by structured SSA, the SSA program), or a typed
+; refusal. Pure and js_of_ocaml-reachable in intent: it names the lowering
+; libraries and no process, file or clock, and does nothing the whole-model
+; builders do not already do per invocation.
+
+(library
+ (name lowering_view)
+ (libraries
+  core
+  err_trace
+  fmt
+  js_ast
+  loop_ir
+  lowering_key
+  native
+  ssa_backends
+  ssa_ir
+  wasm_ir))
