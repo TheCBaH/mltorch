@@ -1,5 +1,6 @@
 open Loop_ir
 module Artifact = Lowering_artifact
+module Summary = Lowering_summary
 module Language = Artifact.Language
 module Refusal = Artifact.Refusal
 module Note = Artifact.Note

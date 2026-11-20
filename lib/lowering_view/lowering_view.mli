@@ -11,6 +11,9 @@
 
 module Artifact = Lowering_artifact
 
+module Summary = Lowering_summary
+(** Per-node overlay facts. *)
+
 val kernel_name : string
 (** The function name C text is made under: the text begins
     [static int kernel(]. A whole-model unit renames it per distinct kernel. *)
