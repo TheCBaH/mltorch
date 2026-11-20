@@ -1,0 +1,24 @@
+; The pure half of the RV32 Machine IR route: a published [Mir_artifact]
+; becomes a typed Rivet module of RV32 instructions (form, module), with the
+; census and outline that describe it. No process, no Unix, so it is
+; js_of_ocaml-reachable. The qemu route lives in lib/machine_rivet_riscv32_mir,
+; which re-exports these modules.
+
+(library
+ (name machine_rivet_riscv32_mir_module)
+ (libraries
+  core
+  err_trace
+  fmt
+  machine_ir
+  machine_model
+  machine_rivet_common
+  machine_rivet_riscv32_module
+  machine_target_riscv32
+  rivet.asm_core
+  rivet.foundation
+  rivet.riscv32_encode)
+ (enabled_if
+  (and
+   %{lib-available:rivet.riscv32_encode}
+   %{lib-available:rivet.driver_direct})))

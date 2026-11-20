@@ -170,7 +170,7 @@ let module_ =
       i "vfmadd231sd" [ x 5; x 1; x 0 ];
       i "ret" [];
       lbl ".Lexp_large";
-      i "testl" [ imm 0x80000000; reg "esi" ];
+      i "testl" [ imm64 0x80000000L; reg "esi" ];
       i "jne" [ target ".Lexp_negative" ];
       i "movabsq" [ imm64 (Int64.shift_left 1009L 52); reg "rdx" ];
       i "subq" [ reg "rdx"; reg "rax" ];

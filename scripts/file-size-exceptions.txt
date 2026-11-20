@@ -8,3 +8,4 @@
 # 750-line new-file check. Splitting a listed file back under the threshold
 # should remove its line here in the same change.
 lib/expr/expr_api.ml|2027-03-01|One `module type S`, the whole public Expr surface. About 290 lines are the recursive Bool/Reduction/Scan/Value group, whose private types the other ~700 lines (Builder, Fold, Rewrite, Check, Eval, Pp, Scan_*) name (75 `Value.t`/`Index.t`/`Scan`/`Reduction.t` uses); a module type cannot name a sibling signature's abstract types without a functor parameter or restated types, and aliasing Expr_internal would expose the raw constructors. Re-justify, or split once the façade can alias the internal types, before this review date.
+lib/machine_rivet_aarch64_module/rivet_a64_form.ml|2027-03-01|Moved unchanged from lib/machine_rivet_aarch64 (915 lines, the AArch64 form table); the split changed no content.

@@ -1,0 +1,24 @@
+; The pure half of the RV32 route: the assembler surface, profiles, the kernel
+; vocabulary and lowering, the libc stubs, and the image and ELF writers, all
+; over bytes and typed Rivet values. No process, no Unix, so it is
+; js_of_ocaml-reachable. The qemu process and its harness live in
+; lib/machine_rivet_riscv32, which re-exports these modules.
+
+(library
+ (name machine_rivet_riscv32_module)
+ (libraries
+  core
+  elf
+  err_trace
+  fmt
+  rivet.asm_core
+  rivet.driver_direct
+  rivet.foundation
+  rivet.image
+  rivet.riscv32_encode
+  rivet.riscv_family_encode
+  rivet.target_features)
+ (enabled_if
+  (and
+   %{lib-available:rivet.riscv32_encode}
+   %{lib-available:rivet.driver_direct})))

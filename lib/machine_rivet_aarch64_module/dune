@@ -1,0 +1,23 @@
+; The pure half of the AArch64 route: a published [Mir_artifact] becomes a typed
+; Rivet module of AArch64 instructions (form, module, refusal, exp, runtime, the
+; region table) and the manifest that identifies it. No process, no executable
+; memory, no Unix, so it is js_of_ocaml-reachable. Image binding, the host and
+; the contraction route live in lib/machine_rivet_aarch64, which re-exports
+; these modules.
+
+(library
+ (name machine_rivet_aarch64_module)
+ (libraries
+  err_trace
+  fmt
+  machine_ir
+  machine_model
+  machine_rivet_common
+  machine_target_aarch64
+  rivet.aarch64_encode
+  rivet.asm_core
+  rivet.foundation)
+ (enabled_if
+  (and
+   %{lib-available:rivet.aarch64_encode}
+   %{lib-available:rivet.driver_direct})))

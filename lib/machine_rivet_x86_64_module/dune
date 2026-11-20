@@ -1,0 +1,24 @@
+; The pure half of the x86-64 route: a published [Mir_artifact] becomes a typed
+; Rivet module of x86-64 instructions (form, module, refusal, exp, runtime) and
+; the manifest that identifies it. No process, no executable memory, no Unix,
+; no host probe, so it is js_of_ocaml-reachable and a browser can show the
+; module it would publish. Image binding, the ELF writer, the host and the
+; process live in lib/machine_rivet_x86_64, which re-exports these modules.
+
+(library
+ (name machine_rivet_x86_64_module)
+ (libraries
+  err_trace
+  fmt
+  machine_ir
+  machine_model
+  machine_rivet_common
+  machine_target_x86_64
+  rivet.asm_core
+  rivet.foundation
+  rivet.x86_64_encode
+  rivet.x86_family_encode)
+ (enabled_if
+  (and
+   %{lib-available:rivet.x86_64_encode}
+   %{lib-available:rivet.driver_direct})))

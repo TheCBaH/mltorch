@@ -1,0 +1,42 @@
+; The typed-module halves of the Rivet routes (lib/machine_rivet_x86_64_module,
+; lib/machine_rivet_aarch64_module, lib/machine_rivet_riscv32_mir_module) are
+; pure: the same expect blocks run natively and under node ([js]). Each case
+; publishes one tiny artifact and prints the typed module it becomes as GNU
+; text, so a divergence between the backends, or a dependence on a process, an
+; executable page or Unix, fails here. Nothing is run as a program.
+
+(library
+ (name machine_rivet_module_js_test)
+ (libraries
+  core
+  err_trace
+  fmt
+  loop_ir_test
+  machine_alloc
+  machine_ir
+  machine_lower
+  machine_model
+  machine_rivet_aarch64_module
+  machine_rivet_riscv32_mir_module
+  machine_rivet_riscv32_module
+  machine_rivet_x86_64_module
+  machine_source_test
+  machine_target_aarch64
+  machine_target_riscv32
+  machine_target_x86_64
+  native
+  rivet.aarch64_encode
+  rivet.asm_core
+  rivet.riscv32_encode
+  rivet.x86_64_encode
+  ssa_bridge_test)
+ (inline_tests
+  (modes best js))
+ (preprocess
+  (pps ppx_expect))
+ (enabled_if
+  (and
+   %{lib-available:rivet.x86_64_encode}
+   %{lib-available:rivet.aarch64_encode}
+   %{lib-available:rivet.riscv32_encode}
+   %{lib-available:rivet.driver_direct})))

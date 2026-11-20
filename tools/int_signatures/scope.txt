@@ -24,12 +24,16 @@ ml:lib/machine_ir
 ml:lib/machine_lower
 ml:lib/machine_model
 ml:lib/machine_rivet_aarch64
+ml:lib/machine_rivet_aarch64_module
 ml:lib/machine_rivet_aarch64_gnu
 ml:lib/machine_rivet_common
 ml:lib/machine_rivet_riscv32
 ml:lib/machine_rivet_riscv32_coral
 ml:lib/machine_rivet_riscv32_mir
+ml:lib/machine_rivet_riscv32_mir_module
+ml:lib/machine_rivet_riscv32_module
 ml:lib/machine_rivet_x86_64
+ml:lib/machine_rivet_x86_64_module
 ml:lib/machine_rivet_x86_64_gnu
 ml:lib/machine_target_aarch64
 ml:lib/machine_target_riscv32

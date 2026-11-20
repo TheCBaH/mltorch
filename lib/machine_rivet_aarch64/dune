@@ -14,6 +14,7 @@
   fmt
   machine_ir
   machine_model
+  machine_rivet_aarch64_module
   machine_rivet_common
   machine_target_aarch64
   rivet.aarch64_encode

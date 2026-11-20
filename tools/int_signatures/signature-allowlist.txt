@@ -478,9 +478,6 @@ lib/machine_rivet_riscv32/rv32_harness.ml	wire	val vlen : int end
 lib/machine_rivet_riscv32/rv32_harness.ml	wire	val syscall : int -> Machine_rivet_riscv32.Rv32_asm.E.Instruction.t Machine_rivet_riscv32.Rv32_asm.N.item list
 lib/machine_rivet_riscv32/rv32_harness.ml	wire	val map : path:string -> len:U.Byte_size.t -> flags:int -> prot:int -> into:string -> open_code:int -> map_code:int -> name:string -> Machine_rivet_riscv32.Rv32_asm.E.Instruction.t Machine_rivet_riscv32.Rv32_asm.N.item list
 lib/machine_rivet_riscv32/rv32_harness.ml	budget	val run : ?timeout:int -> ?cpu:string -> prepared -> bound:(Core.Table_slot.t -> string option) -> (outcome, string) result
-lib/machine_rivet_riscv32/rv32_image.ml	wire	type section_build = Driver_direct.Pipeline_direct.Make(Riscv32_encode).section_build = { sb_name : string; sb_perms : Asm_core.Perms.t; sb_kind : Asm_core.Lowered_ast.section_kind; mutable sb_align : int; mutable sb_frags : Riscv32_encode.fixup_kind Asm_core.Lowered_ast.fragment list; }
-lib/machine_rivet_riscv32/rv32_image.ml	wire	val merge_fill : executable:bool -> int -> string
-lib/machine_rivet_riscv32/rv32_image.ml	wire	val section_pad : (length:int -> string) option
 lib/machine_rivet_riscv32/rv32_kernel.mli	as-written	type t = | Alignment of { at : Rv32_kernel_item.At.t; boundary : int } | Duplicate_export of { name : string; first : Rv32_kernel_item.At.t; second : Rv32_kernel_item.At.t; } | Duplicate_label of { label : Rv32_kernel_label.t; first : Rv32_kernel_item.At.t; second : Rv32_kernel_item.At.t; } | Export_twice of { label : Rv32_kernel_label.t; first : Rv32_kernel_item.At.t; second : Rv32_kernel_item.At.t; } | Export_undefined of { name : string; label : Rv32_kernel_label.t; at : Rv32_kernel_item.At.t; } | Immediate_range of { at : Rv32_kernel_item.At.t; range : Rv32_kernel_imm.Imm_range.t; } | Invalid_name of { kind : Name_kind.t; name : string; at : Rv32_kernel_item.At.t option; } | Negative_zero of { at : Rv32_kernel_item.At.t; length : int } | Unresolved_label of { label : Rv32_kernel_label.t; at : Rv32_kernel_item.At.t; } | Vsetvli_keeps_vl of { at : Rv32_kernel_item.At.t }
 lib/machine_rivet_riscv32/rv32_kernel_imm.mli	wire	type t = { domain : Domain.t; value : int }
 lib/machine_rivet_riscv32/rv32_kernel_imm.mli	wire	val of_int : int -> t
@@ -503,10 +500,7 @@ lib/machine_rivet_riscv32/rv32_kernel_vtype.ml	defn	val of_bits : int -> t optio
 lib/machine_rivet_riscv32/rv32_kernel_vtype.ml	defn	val of_factor : int -> t option
 lib/machine_rivet_riscv32/rv32_process.ml	wire	type outcome = { exit_code : int; stdout : string; }
 lib/machine_rivet_riscv32/rv32_process.ml	budget	val execute : ?timeout:int -> ?cpu:string -> ?args:string list -> string -> (outcome, string) result
-lib/machine_rivet_riscv32_mir/rv32_mir_census.ml	tally	type t = { instructions : int; vector : (string * int) list; configurations : int; grouped : int; spills : int; reloads : int; remats : int; frame_bytes : int64; helper_calls : int; }
-lib/machine_rivet_riscv32_mir/rv32_mir_form.ml	expr-literal	val scale : int -> Size.t -> Size.t
 lib/machine_rivet_riscv32_mir/rv32_mir_form.ml	cell	val nth : env -> string -> 'a list -> int -> 'a
-lib/machine_rivet_riscv32_mir/rv32_mir_outline.ml	tally	type candidate = { first : Position.t; last : Position.t; size : Item.Size.t; depth : int; }
 lib/machine_rivet_x86_64/rivet_x64_form.ml	wire	val mem_op : ?index:X86_family_encode__X86_types.Reg.t * int -> base:X86_family_encode__X86_types.Reg.t -> disp:int64 -> unit -> Op.t
 lib/machine_rivet_x86_64/rivet_x64_form.ml	cell	val nth : env -> string -> 'a list -> int -> 'a
 lib/machine_rivet_x86_64/rivet_x64_host.ml	tally	val invocations : t -> int
@@ -1025,3 +1019,26 @@ lib/wasm_ir/wasm_check.mli	as-written	type t = | Alignment_too_large of { align 
 lib/wasm_ir/wasm_check.mli	as-written	type t = { func : int option; reason : Reason.t; } end
 lib/wasm_ir/wasm_op.mli	wire	val bytes : t -> int list
 lib/wasm_ir/wasm_type.mli	wire	val to_byte : t -> int
+lib/machine_rivet_aarch64_module/rivet_a64_form.ml	wire	val imm_int : int -> O.t
+lib/machine_rivet_aarch64_module/rivet_a64_form.ml	wire	val vnum : env -> Loc.t -> int
+lib/machine_rivet_aarch64_module/rivet_a64_form.ml	cell	val nth : env -> string -> 'a list -> int -> 'a
+lib/machine_rivet_aarch64_module/rivet_a64_form.ml	wire	val bitfield : signed:bool -> rd:O.t -> rn:O.t -> lsb:int -> width:int -> I.t
+lib/machine_rivet_aarch64_module/rivet_a64_form.ml	wire	val xtl : u:int -> q:int -> immhb:int -> rn:int -> rd:int -> int32
+lib/machine_rivet_riscv32_mir/rv32_mir_outline.ml	tally	type candidate = Machine_rivet_riscv32_mir_module.Rv32_mir_outline.candidate = { first : Position.t; last : Position.t; size : Item.Size.t; depth : int; }
+lib/machine_rivet_riscv32_mir_module/rv32_mir_census.ml	tally	type t = { instructions : int; vector : (string * int) list; configurations : int; grouped : int; spills : int; reloads : int; remats : int; frame_bytes : int64; helper_calls : int; }
+lib/machine_rivet_riscv32_mir_module/rv32_mir_form.ml	expr-literal	val scale : int -> Size.t -> Size.t
+lib/machine_rivet_riscv32_mir_module/rv32_mir_form.ml	cell	val nth : env -> string -> 'a list -> int -> 'a
+lib/machine_rivet_riscv32_mir_module/rv32_mir_outline.ml	tally	type candidate = { first : Position.t; last : Position.t; size : Item.Size.t; depth : int; }
+lib/machine_rivet_riscv32_module/rv32_asm.ml	wire	val imm : int -> E.Operand.t
+lib/machine_rivet_riscv32_module/rv32_asm.ml	wire	val const : int -> Asm_core.Expr.t
+lib/machine_rivet_riscv32_module/rv32_asm.ml	wire	val sym_at : string -> int -> E.Operand.t
+lib/machine_rivet_riscv32_module/rv32_asm.ml	wire	val mem : string -> int -> E.Operand.t
+lib/machine_rivet_riscv32_module/rv32_asm.ml	wire	val align : int -> 'a N.item
+lib/machine_rivet_riscv32_module/rv32_asm.ml	wire	val zero : int -> 'a N.item
+lib/machine_rivet_riscv32_module/rv32_asm.ml	wire	val words : int list -> 'a N.item
+lib/machine_rivet_riscv32_module/rv32_asm.ml	wire	val load_imm : string -> int -> E.Instruction.t N.item list
+lib/machine_rivet_riscv32_module/rv32_image.ml	wire	type section_build = Driver_direct.Pipeline_direct.Make(Riscv32_encode).section_build = { sb_name : string; sb_perms : Asm_core.Perms.t; sb_kind : Asm_core.Lowered_ast.section_kind; mutable sb_align : int; mutable sb_frags : Riscv32_encode.fixup_kind Asm_core.Lowered_ast.fragment list; }
+lib/machine_rivet_riscv32_module/rv32_image.ml	wire	val merge_fill : executable:bool -> int -> string
+lib/machine_rivet_riscv32_module/rv32_image.ml	wire	val section_pad : (length:int -> string) option
+lib/machine_rivet_x86_64_module/rivet_x64_form.ml	wire	val mem_op : ?index:X86_family_encode__X86_types.Reg.t * int -> base:X86_family_encode__X86_types.Reg.t -> disp:int64 -> unit -> Op.t
+lib/machine_rivet_x86_64_module/rivet_x64_form.ml	cell	val nth : env -> string -> 'a list -> int -> 'a

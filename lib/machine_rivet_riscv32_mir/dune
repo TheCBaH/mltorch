@@ -17,6 +17,7 @@
   machine_ir
   machine_model
   machine_rivet_common
+  machine_rivet_riscv32_mir_module
   machine_rivet_riscv32
   machine_target_riscv32
   rivet.asm_core

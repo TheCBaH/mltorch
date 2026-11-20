@@ -18,6 +18,6 @@ lib/expr_internal/builder.ml|Supply_exhausted|invariant
 # plain value constructors with ~55 call sites across the Coral generators, and
 # the one frame that sees the exit is module_; a token would thread through
 # every call for no case a caller can handle.
-lib/machine_rivet_riscv32/rv32_asm.ml|Refused|invariant
+lib/machine_rivet_riscv32_module/rv32_asm.ml|Refused|invariant
 lib/native4d/lower_region.ml|Abort|local-control
 lib/pt2/pt2_tensor.ml|Overflow|local-control

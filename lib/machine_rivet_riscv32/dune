@@ -10,6 +10,7 @@
   elf
   err_trace
   fmt
+  machine_rivet_riscv32_module
   rivet.asm_core
   rivet.driver_direct
   rivet.foundation
