@@ -2329,6 +2329,7 @@ webapp.serve: webapp.build
 
 webapp.runtest:
 	node --check web/app/app.js
+	node --check web/app/code_pane.js
 	node --check web/app/coordinator.js
 	node --check web/app/panels.js
 	node --check web/app/presentation.js

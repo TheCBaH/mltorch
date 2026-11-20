@@ -471,6 +471,34 @@ const parseGeneratedJs = (raw) => {
   return passes.length > 0 ? passes : null;
 };
 
+/* The lowering pane's destination: `node=nN`, `lower=<spelling>` and optionally
+ * `lowercmp=<spelling>`. A preference rather than a destination, so a malformed
+ * piece is dropped without a word. Only the SHAPE is checked here -- whether
+ * the spelling names a real family and variant is the bridge's grammar, applied
+ * where the bridge is (`app.js`). `node` and `lower` open the pane together; a
+ * lone one opens nothing, and `lowercmp` means nothing without them. */
+const NODE_SPELLING = /^n(0|[1-9][0-9]{0,8})$/;
+const VARIANT_SPELLING = /^[a-z][a-z0-9_]*(:[A-Za-z0-9_,./-]+)?$/;
+export const isNodeSpelling = (text) => typeof text === 'string' && NODE_SPELLING.test(text);
+export const isVariantSpelling = (text) => typeof text === 'string' && text.length <= 200 && VARIANT_SPELLING.test(text);
+
+export function decodeLowering(query) {
+  const node = query.get('node');
+  const left = query.get('lower');
+  if (!isNodeSpelling(node) || !isVariantSpelling(left)) return null;
+  const right = query.get('lowercmp');
+  return { node, left, right: isVariantSpelling(right) ? right : null };
+}
+
+export const sameLowering = (a, b) =>
+  (a === null || a === undefined) ? (b === null || b === undefined)
+    : !!b && a.node === b.node && a.left === b.left && (a.right ?? null) === (b.right ?? null);
+
+/* Same standing as a view the model does not have: the one malformed-looking
+ * input that IS a destination, because it names a node of this model. */
+export const staleNodeNotice = (node) =>
+  `This model has no node “${node}”; the lowering pane was not opened.`;
+
 export function decodeUrl(search) {
   const query = new URLSearchParams(search);
   const rawStages = query.get('stages');
@@ -495,6 +523,7 @@ export function decodeUrl(search) {
     verify: EFFORTS.includes(verify) ? verify : null,
     constants: CONSTANTS_MODES.includes(constants) ? constants : null,
     generatedJs,
+    lowering: decodeLowering(query),
   };
 }
 
@@ -510,7 +539,7 @@ export const constantsFromUrl = (decoded) => decoded?.constants ?? DEFAULT_CONST
  * BRANCH rather than from two optional arguments -- which is what makes the
  * exclusivity above structural instead of a rule each caller has to remember.
  */
-export function encodeUrl({ model, options, presentation, constants } = {}) {
+export function encodeUrl({ model, options, presentation, constants, lowering } = {}) {
   const query = new URLSearchParams();
   if (model) query.set('model', model);
   const stages = canonicalStages(options?.stages);
@@ -534,6 +563,11 @@ export function encodeUrl({ model, options, presentation, constants } = {}) {
     query.set('flow', presentation.view);
   } else if (presentation?.kind === 'single' && presentation.view) {
     query.set('view', presentation.view);
+  }
+  if (lowering && isNodeSpelling(lowering.node) && isVariantSpelling(lowering.left)) {
+    query.set('node', lowering.node);
+    query.set('lower', lowering.left);
+    if (isVariantSpelling(lowering.right)) query.set('lowercmp', lowering.right);
   }
   const text = query.toString();
   return text ? `?${text}` : '';

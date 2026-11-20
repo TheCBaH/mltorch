@@ -918,3 +918,102 @@ test('generated JS is off by default, then reflects Optimized/raw/a custom pass'
 
   await expect(page.locator('#effective-options')).toContainText('generated JS custom');
 });
+
+/* --------------------------------------------------------- lowering pane */
+
+/* The pane's worker is counted by its own resolved href, like the app worker
+ * above: the lowering worker must not exist until the pane opens. */
+const COUNT_LOWERING_WORKERS = () => {
+  const w = window as any;
+  w.__loweringWorkers = 0;
+  const Native = window.Worker;
+  window.Worker = class extends Native {
+    constructor(url: string | URL, options?: WorkerOptions) {
+      super(url as any, options);
+      if (new URL(url as any, document.baseURI).href === new URL('./lowering_worker.js', document.baseURI).href) w.__loweringWorkers += 1;
+    }
+  } as any;
+};
+const loweringWorkers = (page: Page): Promise<number> => page.evaluate(() => (window as any).__loweringWorkers);
+
+async function selectCanonicalNode(page: Page, nodeId: string) {
+  await page.evaluate((id) => {
+    const slot = document.querySelector('#visualizer .visualizer-slot--current');
+    (slot?.querySelector('model-explorer-visualizer') as any).selectNode(id, 'g/native/001');
+  }, nodeId);
+  await expect(page.locator('#lowering-action')).toBeVisible({ timeout: 90_000 });
+}
+const paneText = (page: Page, side = 'left') => page.locator(`#code-pane .code-column[data-side="${side}"] .code-text`);
+const param = (page: Page, key: string) => new URL(page.url()).searchParams.get(key);
+
+test('the lowering pane: select, open, switch family, compare, reload, history', async ({ page }) => {
+  test.setTimeout(240_000);
+  await page.addInitScript(COUNT_LOWERING_WORKERS);
+  await page.goto('/index.html?model=mobilenetv2_050&view=v/canonical');
+  await loaded(page);
+  await expect(page.locator('#code-pane')).toBeHidden();
+  expect(await loweringWorkers(page), 'no lowering worker before the pane opens').toBe(0);
+
+  // Selecting offers the action and starts nothing.
+  await selectCanonicalNode(page, 'n0');
+  await expect(page.locator('#lowering-action .flow-action')).toHaveText('Show lowering');
+  expect(await loweringWorkers(page), 'selection alone spawned the worker').toBe(0);
+  expect(param(page, 'lower')).toBeNull();
+
+  await page.locator('#lowering-action .flow-action').click();
+  await expect(paneText(page)).toContainText('function', { timeout: 120_000 });
+  expect(await loweringWorkers(page)).toBe(1);
+  expect(param(page, 'node')).toBe('n0');
+  expect(param(page, 'lower')).toBe('js');
+  const js = await paneText(page).textContent();
+
+  // The tabs are the bridge's vocabulary.
+  await page.locator('#code-pane .code-tab', { hasText: /^c$/ }).click();
+  await expect(paneText(page)).toContainText('static int kernel(', { timeout: 120_000 });
+  expect(param(page, 'lower')).toBe('c');
+  expect(await paneText(page).textContent()).not.toBe(js);
+
+  // Compare loop vs ssa: a second column and a diff.
+  await page.locator('#code-pane .code-tab', { hasText: /^loop$/ }).click();
+  await expect(paneText(page)).toBeVisible({ timeout: 120_000 });
+  await page.locator('#code-pane .code-compare').click();
+  await page.locator('#code-pane .code-column[data-side="right"] .code-tab', { hasText: /^ssa$/ }).click();
+  await expect(paneText(page, 'right')).toBeVisible({ timeout: 120_000 });
+  await expect(page.locator('#code-pane .code-diff-text')).toBeVisible();
+  await expect(page.locator('#code-pane .code-diff-text .diff-add').first()).toBeVisible();
+  expect(param(page, 'lower')).toBe('loop');
+  expect(param(page, 'lowercmp')).toBe('ssa');
+
+  // Reload restores the pane, comparison included.
+  await page.reload();
+  await expect(paneText(page, 'right')).toBeVisible({ timeout: 180_000 });
+  await expect(paneText(page)).toBeVisible();
+  await expect(page.locator('#code-pane .code-diff-text')).toBeVisible();
+  expect(param(page, 'lowercmp')).toBe('ssa');
+
+  // History: back leaves the comparison (choosing the family it already
+  // showed added no entry), back again is the c tab, forward returns.
+  await page.goBack();
+  await expect(page.locator('#code-pane .code-column[data-side="right"]')).toHaveCount(0, { timeout: 60_000 });
+  expect(param(page, 'lowercmp')).toBeNull();
+  await page.goBack();
+  await expect(page.locator('#code-pane .code-tab[aria-selected="true"]')).toHaveText('c', { timeout: 60_000 });
+  await expect(paneText(page)).toContainText('static int kernel(');
+  await page.goForward();
+  await expect(page.locator('#code-pane .code-tab[aria-selected="true"]').first()).toHaveText('loop', { timeout: 60_000 });
+  await expect(page.locator('#error')).toBeHidden();
+});
+
+test('a lowering URL naming a node the model lacks earns the stale notice; a malformed one is silent', async ({ page }) => {
+  test.setTimeout(180_000);
+  await page.goto('/index.html?model=mobilenetv2_050&view=v/canonical&node=n999999&lower=js');
+  // Not `loaded`: the lowering reply replaces the status text.
+  await expect(page.locator('#notice')).toContainText('n999999', { timeout: 120_000 });
+  await expect(page.locator('#code-pane')).toBeHidden();
+  expect(param(page, 'node')).toBeNull();
+
+  await page.goto('/index.html?model=mobilenetv2_050&view=v/canonical&node=n0&lower=nonsense');
+  await loaded(page);
+  await expect(page.locator('#notice')).toBeHidden();
+  await expect(page.locator('#code-pane')).toBeHidden();
+});

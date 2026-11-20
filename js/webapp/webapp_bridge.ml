@@ -455,6 +455,75 @@ let build_lowering raw =
             ~lowering))
   with exn -> response false ~error:(error_text exn)
 
+(* The lowering pane's vocabulary, from [Lowering_key] alone: the page keeps no
+   second copy of a family or variant name. Only the families whose artifact is
+   text today are offered (alphabetical); each lists its default first, then the
+   closed choices the variant bar offers. The numerics axis stays reachable only
+   through a spelling typed into the URL, which [canonical_variant] checks. *)
+let lowering_vocabulary () =
+  let module K = Lowering_key in
+  let default_first d l = d :: List.filter (fun v -> v <> d) l in
+  let loops =
+    default_first K.Loop_spec.default
+      (K.Loop_spec.make []
+      :: List.map (fun p -> K.Loop_spec.make [ p ]) Loop_ir.Loop_opt.Pass.all)
+  in
+  let ssas =
+    default_first K.Ssa_spec.default
+      (List.concat_map
+         (fun frontend ->
+           List.map
+             (fun pipeline ->
+               { K.Ssa_spec.frontend; pipeline; numerics = None })
+             K.Pipeline.all)
+         K.Frontend.all)
+  in
+  let routes =
+    List.map (fun s -> K.Route.Loop s) loops
+    @ List.map (fun s -> K.Route.Ssa s) ssas
+  in
+  let family f variants =
+    Js.Unsafe.obj
+      [|
+        ("name", Js.Unsafe.inject (Js.string (K.family_name f)));
+        ( "variants",
+          Js.Unsafe.inject
+            (Js.array
+               (Array.of_list
+                  (List.map (fun v -> Js.string (K.name v)) variants))) );
+      |]
+  in
+  let families =
+    [
+      family K.C (List.map (fun r -> K.C r) routes);
+      family K.Js (List.map (fun r -> K.Js r) routes);
+      family K.Loop (List.map (fun s -> K.Loop s) loops);
+      family K.Ssa (List.map (fun s -> K.Ssa s) ssas);
+      family K.Wat (List.map (fun r -> K.Wat r) routes);
+    ]
+  in
+  Js.array (Array.of_list families)
+
+(* A spelling in [Lowering_key]'s one grammar, normalised, or [null]. *)
+let canonical_variant spelling =
+  match Lowering_key.of_name (Js.to_string spelling) with
+  | Ok v -> Js.Unsafe.inject (Js.string (Lowering_key.name v))
+  | Error _ -> Js.Unsafe.inject Js.null
+
+(* The artifact payload as the protocol defines it, checked before the page
+   reads a field of it. *)
+let validate_artifact text =
+  match Jsont_bytesrw.decode_string Me_artifact.jsont (Js.to_string text) with
+  | Ok _ -> response true
+  | Error message -> response false ~error:message
+
+(* [Lowering_diff]'s unified text, so the pane and the CLI compare alike. *)
+let diff_artifacts old_text new_text old_label new_label =
+  let d = Lowering_diff.diff (Js.to_string old_text) (Js.to_string new_text) in
+  Js.string
+    (Lowering_diff.unified ~context:3 ~old_label:(Js.to_string old_label)
+       ~new_label:(Js.to_string new_label) d)
+
 let staged = ref None
 
 let prepare expected_id meta_text document =
@@ -633,6 +702,15 @@ let () =
         ("buildLowering", Js.Unsafe.inject (Js.wrap_callback build_lowering));
       |]
   in
+  let lowering =
+    Js.Unsafe.obj
+      [|
+        ("vocabulary", Js.Unsafe.inject (Js.wrap_callback lowering_vocabulary));
+        ("canonical", Js.Unsafe.inject (Js.wrap_callback canonical_variant));
+        ("validate", Js.Unsafe.inject (Js.wrap_callback validate_artifact));
+        ("diff", Js.Unsafe.inject (Js.wrap_callback diff_artifacts));
+      |]
+  in
   let session =
     Js.Unsafe.obj
       [|
@@ -664,5 +742,6 @@ let () =
        [|
          ("hard", Js.Unsafe.inject hard);
          ("request", Js.Unsafe.inject request);
+         ("lowering", Js.Unsafe.inject lowering);
          ("session", Js.Unsafe.inject session);
        |])

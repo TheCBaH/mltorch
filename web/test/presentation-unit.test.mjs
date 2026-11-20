@@ -8,7 +8,7 @@ import {
   modelMatchesStages, optionsFromControls, optionsFromUrl, preferredViews,
   requestKey, flowPresentation, resolvePresentation, samePresentation,
   singlePresentation, stageSupport, staleNotice, staleComparisonNotice,
-  staleFlowNotice,
+  staleFlowNotice, decodeLowering, sameLowering, staleNodeNotice,
 } from '../app/presentation.js';
 
 const view = (id, kind, graph) => ({ id, label: id, kind, collection: 'c', graph });
@@ -675,4 +675,36 @@ test('a model matches the requested stages only when none is known to fail', () 
   // Unknown support never excludes a model, and an empty request always matches.
   assert.equal(modelMatchesStages(null, ['native4d', 'kernel']), true);
   assert.equal(modelMatchesStages(blocked, []), true);
+});
+
+/* ------------------------------------------------------------- lowering URL */
+
+test('a lowering destination survives an encode/decode round trip, comparison included', () => {
+  const lowering = { node: 'n12', left: 'js:ssa/exact', right: 'c' };
+  const search = encodeUrl({ model: 'm', presentation: singlePresentation('v/canonical'), lowering });
+  const query = new URLSearchParams(search);
+  assert.equal(query.get('node'), 'n12');
+  assert.equal(query.get('lower'), 'js:ssa/exact');
+  assert.equal(query.get('lowercmp'), 'c');
+  assert.deepEqual(decodeUrl(search).lowering, lowering);
+  // The presentation keys are untouched by it.
+  assert.equal(query.get('view'), 'v/canonical');
+  const single = decodeUrl(encodeUrl({ model: 'm', lowering: { node: 'n0', left: 'loop', right: null } }));
+  assert.deepEqual(single.lowering, { node: 'n0', left: 'loop', right: null });
+  assert.ok(sameLowering(single.lowering, { node: 'n0', left: 'loop' }));
+  assert.ok(!sameLowering(single.lowering, null));
+});
+
+test('a malformed lowering key is ignored silently, and a lone half opens nothing', () => {
+  for (const search of ['?node=12&lower=js', '?node=n12', '?lower=js', '?node=n12&lower=JS', '?node=n12&lower=',
+    '?node=n-1&lower=js', '?node=n12&lower=js:%0Ax', '?node=n012&lower=js']) {
+    assert.equal(decodeUrl(search).lowering, null, search);
+  }
+  // A bad comparison drops only the comparison.
+  assert.deepEqual(decodeUrl('?node=n1&lower=js&lowercmp=!!').lowering, { node: 'n1', left: 'js', right: null });
+  // Nothing is written for an invalid destination.
+  assert.equal(encodeUrl({ model: 'm', lowering: { node: 'x', left: 'js' } }), '?model=m');
+  assert.equal(encodeUrl({ model: 'm' }), '?model=m');
+  assert.match(staleNodeNotice('n9'), /n9/);
+  assert.equal(decodeLowering(new URLSearchParams('')), null);
 });

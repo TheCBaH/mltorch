@@ -29,6 +29,8 @@
   err_trace
   jsont
   jsont.bytesrw
+  lowering_diff
+  lowering_key
   model_explorer_export
   native
   webapp_jsoo_buffer))

@@ -3,6 +3,7 @@ import { Renderer } from './renderer.js';
 import { SourceStore, validateCatalog } from './source_store.js';
 import * as P from './presentation.js';
 import * as panels from './panels.js';
+import * as codePane from './code_pane.js';
 
 const $ = (id) => document.getElementById(id);
 const status = $('status'), error = $('error'), notice = $('notice');
@@ -11,6 +12,7 @@ const compareSelect = $('comparison');
 const constantsSelect = $('constants');
 const reload = $('reload'), clearLocal = $('clear-local');
 const flowButton = $('flow-open');
+const pane = $('code-pane');
 const bridge = globalThis.mltorch;
 
 function showError(message) { error.textContent = message; error.hidden = false; }
@@ -19,7 +21,7 @@ function showNotice(message) { notice.textContent = message; notice.hidden = fal
 function clearNotice() { notice.hidden = true; notice.textContent = ''; }
 
 async function main() {
-  if (!bridge?.hard || !bridge?.request?.buildDetail || !bridge?.session?.applyDetail) throw new Error('MLTorch bridge did not load');
+  if (!bridge?.hard || !bridge?.request?.buildDetail || !bridge?.session?.applyDetail || !bridge?.lowering?.vocabulary) throw new Error('MLTorch bridge did not load');
   const store = new SourceStore({ hard: bridge.hard });
   // The quarantine ceiling is the OCaml one: `Me_limits.response_live_bytes`
   // budgets the browser's retained elements against exactly this number.
@@ -50,6 +52,20 @@ async function main() {
   /* The flow node the user last selected, or null. Browser-only state: it is not
    * part of any presentation, so it never reaches the URL. */
   let flowSelection = null;
+
+  /* The lowering pane. `lowerState` is the destination -- `{ node, left, right }`
+   * with spellings in the bridge's own grammar -- or null while the pane is
+   * closed. Everything shown is derived from it and the cache below; the
+   * coordinator holds the one live request. The cache is keyed on the full
+   * request (node, spelling), so it cannot be stale within a model, and is
+   * dropped with the model. */
+  const vocabulary = bridge.lowering.vocabulary();
+  const DEFAULT_LOWERING_FAMILY = 'js';
+  let lowerState = null;
+  let lowerInflight = null;
+  const lowerCache = new Map();
+  const lowerFailed = new Set();
+  const lowerKey = (node, spelling) => `${node}|${spelling}`;
 
   const asView = (presentation) =>
     (presentation?.kind === 'single' ? presentation.view : null);
@@ -103,6 +119,8 @@ async function main() {
    * selection is not a presentation change, so nothing else moves. */
   const renderFlowChrome = () => {
     if (!index) return;
+    panels.renderLoweringAction($('lowering-action'), index,
+      asView(coordinator.presentation) ? flowSelection : null, (node) => openLowering(node));
     const active = asFlow(coordinator.presentation) !== null;
     panels.renderFlowControl(flowButton, $('flow-note'), index, active);
     panels.renderFlowLegend($('flow-legend'), index, active);
@@ -130,7 +148,15 @@ async function main() {
   const coordinator = new Coordinator({
     hard: bridge.hard, bridge, render: renderer,
     workerFactory: () => new Worker(new URL('./worker.js', document.baseURI)),
-    onStatus: (text) => { status.textContent = text; }, onError: showError,
+    /* Spawned by the first `openLowering`, which is the first time the pane
+     * has something to ask for -- never at startup. */
+    loweringWorkerFactory: () => new Worker(new URL('./lowering_worker.js', document.baseURI)),
+    onLowering: ({ node, key, artifact }) => lowered(`n${node}`, key.variant, artifact),
+    onStatus: (text) => { status.textContent = text; },
+    onError: (message) => {
+      showError(message);
+      if (lowerInflight) { lowerFailed.add(lowerInflight); lowerInflight = null; renderLowering(); pump(); }
+    },
     /* The one completion point. Everything that describes a session -- the
      * index, the controls, the URL -- is built here and nowhere else, because
      * `load()` returns as soon as the worker has been posted to and cannot say
@@ -138,6 +164,9 @@ async function main() {
     onSession: ({ sessionText, effectiveOptions, viewId }) => {
       index = P.buildIndex(sessionText);
       loadedModel = pending?.model ?? null;
+      // A new document: nothing lowered before it says anything about it.
+      lowerCache.clear(); lowerFailed.clear(); lowerInflight = null;
+      if (pending) lowerState = pending.lowering ?? null;
       // The controls follow the NORMALISED options, so what is ticked is what
       // was actually requested rather than what was typed.
       controls = P.controlsFromOptions(effectiveOptions);
@@ -170,6 +199,8 @@ async function main() {
       if (resolved && resolved.kind !== 'single') {
         changePresentation(resolved, 'replace').catch((e) => showError(e.message));
       }
+      renderLowering();
+      pump();
     },
     onDetail: ({ sessionText, viewId }) => {
       index = P.buildIndex(sessionText);
@@ -179,21 +210,119 @@ async function main() {
     },
   });
 
+  /* ---------------------------------------------------------- lowering pane */
+
+  /* A URL spelling is a preference, so an unusable one is dropped: the pane's
+   * grammar is the bridge's, never a second parser here. */
+  function normalizeLowering(wanted) {
+    if (!wanted) return null;
+    const left = bridge.lowering.canonical(wanted.left);
+    if (left === null) return null;
+    const right = wanted.right === null ? null : bridge.lowering.canonical(wanted.right);
+    return { node: wanted.node, left, right };
+  }
+
+  const sideOf = (spelling) => {
+    const id = lowerKey(lowerState.node, spelling);
+    const artifact = lowerCache.get(id);
+    if (artifact) return { spelling, state: 'ready', artifact };
+    return { spelling, state: lowerFailed.has(id) ? 'failed' : 'loading' };
+  };
+
+  function renderLowering() {
+    if (!lowerState) return codePane.renderCodePane(pane, null);
+    const left = sideOf(lowerState.left);
+    const right = lowerState.right === null ? null : sideOf(lowerState.right);
+    const text = (side) => (side.artifact?.body.kind === 'text' ? side.artifact.body.text : null);
+    const diff = right && text(left) !== null && text(right) !== null
+      ? bridge.lowering.diff(text(left), text(right), left.spelling, right.spelling)
+      : null;
+    codePane.renderCodePane(pane, { vocabulary, node: lowerState.node, left, right, diff }, {
+      onSelect: (side, spelling) => setLowering({ ...lowerState, [side]: spelling }, 'push'),
+      onCompare: (on) => setLowering({ ...lowerState, right: on ? otherFamily(lowerState.left) : null }, 'push'),
+      onClose: () => setLowering(null, 'push'),
+    });
+  }
+
+  /* The next family after the one shown, so a new comparison is never the same
+   * text twice and no family is named here. */
+  const otherFamily = (spelling) => {
+    const at = vocabulary.findIndex((f) => f.name === codePane.familyOf(spelling));
+    return vocabulary[(at + 1) % vocabulary.length].name;
+  };
+
+  /* Ask for whatever the pane shows and does not yet have, one request at a
+   * time: the coordinator keeps a single live request and silences an older
+   * one, which is the supersession the pane wants when the user clicks on. */
+  function pump() {
+    if (!lowerState) return;
+    const wanted = [lowerState.left, lowerState.right].filter((s) => s !== null)
+      .map((s) => lowerKey(lowerState.node, s));
+    if (lowerInflight && wanted.includes(lowerInflight)) return;
+    const missing = [lowerState.left, lowerState.right].find((s) => s !== null
+      && !lowerCache.has(lowerKey(lowerState.node, s)) && !lowerFailed.has(lowerKey(lowerState.node, s)));
+    if (!missing) { lowerInflight = null; return; }
+    const id = lowerKey(lowerState.node, missing);
+    lowerInflight = id;
+    coordinator.openLowering(Number(lowerState.node.slice(1)), { variant: missing }).catch((e) => {
+      showError(e.message);
+      lowerFailed.add(id);
+      if (lowerInflight === id) lowerInflight = null;
+      renderLowering();
+    });
+  }
+
+  function lowered(node, spelling, artifact) {
+    const id = lowerKey(node, spelling);
+    if (lowerInflight === id) lowerInflight = null;
+    const checked = bridge.lowering.validate(JSON.stringify(artifact));
+    if (!checked.ok) {
+      showError(`the lowering reply is not a valid artifact (${checked.error})`);
+      lowerFailed.add(id);
+    } else if (codePane.isUnknownNode(artifact) && lowerState?.node === node) {
+      // A node the model does not have is a destination gone stale, not a
+      // refusal the pane should keep showing.
+      showNotice(P.staleNodeNotice(node));
+      setLowering(null, 'replace');
+      return;
+    } else {
+      lowerCache.set(id, artifact);
+    }
+    renderLowering();
+    pump();
+  }
+
+  function setLowering(next, mode) {
+    // Choosing what is already shown is not a navigation.
+    if (mode === 'push' && P.sameLowering(next, lowerState)) return;
+    lowerState = next;
+    if (mode) writeUrl(mode, coordinator.presentation);
+    renderLowering();
+    pump();
+  }
+
+  const openLowering = (node) => {
+    const family = vocabulary.find((f) => f.name === DEFAULT_LOWERING_FAMILY) ?? vocabulary[0];
+    setLowering({ left: family.name, right: null, ...(lowerState ?? {}), node }, 'push');
+  };
+
   const writeUrl = (mode, presentation) => {
     // A local file cannot be reproduced from a URL, so its URL claims nothing.
     const url = loadedModel
       ? `${location.pathname}${P.encodeUrl({
         model: loadedModel, options: coordinator.effectiveOptions, presentation, constants: coordinator.constants,
+        lowering: lowerState,
       })}`
       : location.pathname;
     if (mode === 'push') history.pushState({}, '', url);
     else history.replaceState({}, '', url);
   };
 
-  const startLoad = async (source, { model = null, options, presentation = null, push = false }) => {
+  const startLoad = async (source, { model = null, options, presentation = null, push = false, lowering = null }) => {
     clearError(); clearNotice();
     coordinator.cancel();
-    pending = { model, presentation, push };
+    lowerInflight = null;
+    pending = { model, presentation, push, lowering };
     await coordinator.load({ ...source, readBytes: () => store.freshBytes() },
       { options, prefer: preferFor(presentation) });
   };
@@ -205,17 +334,17 @@ async function main() {
     if (!source) return showError('choose a model first');
     startLoad(source, {
       model: loadedModel, options: P.optionsFromControls(controls),
-      presentation: coordinator.presentation, push: true,
+      presentation: coordinator.presentation, push: true, lowering: lowerState,
     }).catch((e) => showError(e.message));
   };
 
-  const loadCatalog = async (id, options, presentation, push) => {
+  const loadCatalog = async (id, options, presentation, push, lowering = null) => {
     const entry = catalog.models.find((model) => model.id === id);
     if (!entry) return showError('unknown catalogue model');
     clearError(); clearNotice();
     coordinator.cancel();
     const source = await store.fetchCatalog({ ...entry, sourceRef: catalog.sourceRef });
-    await startLoad(source, { model: id, options, presentation, push });
+    await startLoad(source, { model: id, options, presentation, push, lowering });
   };
 
   /* Presentation only: no worker message, no bridge call, no rewritten session
@@ -262,7 +391,7 @@ async function main() {
   renderControls(initialModel);
 
   select.addEventListener('change', () => {
-    loadCatalog(select.value, P.optionsFromControls(controls), null, true)
+    loadCatalog(select.value, P.optionsFromControls(controls), null, true, null)
       .catch((e) => showError(e.message));
   });
   file.addEventListener('change', () => {
@@ -282,7 +411,7 @@ async function main() {
     // configuration on screen rather than the bridge's defaults.
     startLoad(source, {
       model: loadedModel, options: P.optionsFromControls(controls),
-      presentation: coordinator.presentation,
+      presentation: coordinator.presentation, lowering: lowerState,
     }).catch((e) => showError(e.message));
   });
   clearLocal.addEventListener('click', () => {
@@ -353,7 +482,7 @@ async function main() {
       renderControls(id);
       // Never a push: startup has no entry to add to, and a `popstate` is
       // already navigating.
-      return loadCatalog(id, options, decoded.presentation, false);
+      return loadCatalog(id, options, decoded.presentation, false, normalizeLowering(decoded.lowering));
     }
     // Same document already on screen: a changed `constants` is a
     // presentation change of its own, independent of which view/comparison
@@ -362,6 +491,8 @@ async function main() {
       await coordinator.setConstants(desiredConstants);
       renderConstantsControl();
     }
+    const desired = normalizeLowering(decoded.lowering);
+    if (!P.sameLowering(desired, lowerState)) setLowering(desired, null);
     const wanted = P.resolvePresentation(index, decoded.presentation);
     if (wanted) {
       if (P.samePresentation(wanted, coordinator.presentation)) return;

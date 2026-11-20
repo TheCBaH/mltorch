@@ -484,3 +484,25 @@ export function renderLegend(container, index) {
   container.append(el('p',
     'A node shows the weakest outcome over its outputs, with the exporter’s own label.', 'note'));
 }
+
+/* The action offered on a selected canonical node: select-then-act, so the
+ * selection alone starts nothing. `selection` is the renderer's
+ * `{ nodeId, graphId }`; only a node of a canonical stage view qualifies, and
+ * the lowering of any other graph's node is not a question this page can ask. */
+export const CANONICAL_NODE = /^n(0|[1-9][0-9]{0,8})$/;
+export function renderLoweringAction(container, index, selection, onAction) {
+  container.replaceChildren();
+  const view = selection ? index?.viewByGraph?.get(selection.graphId) : null;
+  if (view?.kind !== 'stage:canonical' || !CANONICAL_NODE.test(selection.nodeId)) {
+    container.hidden = true;
+    return;
+  }
+  container.hidden = false;
+  container.append(el('p', `Selected: ${selection.nodeId} — canonical node`, 'note'));
+  const button = document.createElement('button');
+  button.type = 'button';
+  button.className = 'flow-action';
+  button.textContent = 'Show lowering';
+  button.addEventListener('click', () => onAction(selection.nodeId));
+  container.append(button);
+}

@@ -23,7 +23,7 @@ fieldset { border: 1px solid #bbb; border-radius: 4px; }
 #presentation-note { display: grid; gap: 0.15rem; }
 .stage { display: flex; gap: 1rem; align-items: stretch; }
 #legend, #flow-legend { flex: 0 0 18rem; overflow-y: auto; }
-#flow-selection { display: flex; gap: 0.75rem; align-items: center; flex-wrap: wrap; padding: 0.5rem 0; }
+#flow-selection, #lowering-action { display: flex; gap: 0.75rem; align-items: center; flex-wrap: wrap; padding: 0.5rem 0; }
 .flow-action { padding: 0.3rem 0.7rem; }
 #legend h3 { margin: 0 0 0.5rem; font-size: 1rem; }
 
@@ -36,3 +36,23 @@ fieldset { border: 1px solid #bbb; border-radius: 4px; }
 .visualizer-slot { position: absolute; inset: 0; visibility: hidden; pointer-events: none; }
 .visualizer-slot--current { visibility: visible; pointer-events: auto; }
 model-explorer-visualizer { display: block; width: 100%; height: 100%; }
+
+/* The lowering pane docks right of the visualizer; a comparison widens it to
+   two columns and a diff below them. */
+#code-pane { flex: 0 0 34rem; max-height: 70vh; min-height: 35rem; overflow: auto; border: 1px solid #888; padding: 0.5rem; box-sizing: border-box; }
+#code-pane.code-pane--compare { flex-basis: 64rem; }
+.code-head { display: flex; gap: 0.5rem; align-items: center; }
+.code-head h3 { flex: 1 1 auto; margin: 0; font-size: 1rem; }
+.code-columns { display: flex; gap: 0.75rem; align-items: flex-start; }
+.code-column { flex: 1 1 0; min-width: 0; }
+.code-tabs { display: flex; flex-wrap: wrap; gap: 0.25rem; margin: 0.5rem 0; }
+.code-tab[aria-selected="true"] { font-weight: 700; text-decoration: underline; }
+.code-text, .code-diff-text { margin: 0.5rem 0; overflow: auto; font: 0.8rem/1.3 ui-monospace, monospace; background: #f6f6f6; padding: 0.5rem; max-height: 45vh; }
+.code-refusal { color: #8a2f00; }
+.code-truncated { color: #8a5300; font-size: 0.875rem; }
+.code-notes { font-size: 0.8rem; color: #444; padding-left: 1.2rem; }
+.diff-add { background: #d8f5d8; } .diff-del { background: #fbdada; } .diff-hunk { color: #555; }
+@media (prefers-color-scheme: dark) {
+  .code-text, .code-diff-text { background: #222; }
+  .diff-add { background: #1c3a1c; } .diff-del { background: #4a2020; } .diff-hunk { color: #aaa; }
+}
