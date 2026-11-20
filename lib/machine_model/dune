@@ -15,6 +15,7 @@
   f32_math
   fmt
   loop_ir
+  lowering_key
   machine_alloc
   machine_check
   machine_interp

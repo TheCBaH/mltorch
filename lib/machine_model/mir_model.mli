@@ -92,6 +92,60 @@ val prepare :
     invocation is the layer's sequence over its roles' buffers, expanded and
     checked against the plan exactly as a binary32 attention is. *)
 
+type lowered
+(** One invocation lowered on a route: its kernel and the constants it asks to
+    have packed. *)
+
+val lower_one :
+  ?route:Route.t ->
+  ?blocking:Mir_blocking.Policy.t ->
+  ?contractions:bool ->
+  ?bf16_pairs:bool ->
+  ?attention:(Node_id.t -> Attention_site.t option) ->
+  ?layer:(Node_id.t -> Layer_site.t option) ->
+  ?prepack:bool ->
+  ?on_program:
+    (Loop_ir.Loop_bundle.invocation ->
+    Ssa_ir.Ssa_program.t ->
+    (Ssa_ir.Ssa_id.Buffer.t * Machine_ir.Mir_id.Region.t) list ->
+    unit) ->
+  ?constants:Tensor_id.Set.t ->
+  pipeline:Ssa_backends.Pipeline.t ->
+  invocation:int32 ->
+  Loop_ir.Loop_bundle.invocation ->
+  (lowered, Refusal.t) result
+(** What {!prepare} does for one invocation, the same options meaning the same;
+    [invocation] is its position in the schedule, and [constants] (default none)
+    the bundle's constant edges, which [prepack] consults. *)
+
+(** One invocation's program as a target's stage holds it, printed. *)
+module Stage_text : sig
+  type t = { text : string; note : string option }
+  (** [note]: the published artifact's summary, on the realized and scanned
+      stages *)
+
+  val render :
+    sites:Mir_failure.Site_entry.t array ->
+    Lowering_key.Target.t ->
+    Lowering_key.Mir_stage.t ->
+    Mir_verify.Generic.t ->
+    (t, Reason.t) result
+  (** A generic program ([Generic] prints it as it is, whatever the target), or
+      the target's selection, allocation or realization of it. A refusal is the
+      stage's own: a selection the target does not admit, a frame that does not
+      fit, a checker rejection of the published artifact, or register groups
+      asked of the reference allocator ([Riscv32_grouped] with [Allocated] or
+      [Realized]). *)
+
+  val of_lowered :
+    Lowering_key.Target.t ->
+    Lowering_key.Mir_stage.t ->
+    lowered ->
+    (t, Reason.t) result
+  (** {!render} of one {!lower_one} result, its failure sites those of its
+      invocation. *)
+end
+
 val invocations : t -> int
 (** How many invocations the schedule holds. *)
 
@@ -108,6 +162,9 @@ module Kernel_view : sig
     outputs : Mir_id.Region.t list;
   }
 end
+
+val lowered_view : lowered -> Kernel_view.t
+(** The generic program and edge binding of one lowered invocation. *)
 
 val kernel_views : t -> Kernel_view.t list
 (** Each invocation, in schedule order. *)

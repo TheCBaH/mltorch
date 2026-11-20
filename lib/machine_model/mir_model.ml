@@ -428,22 +428,29 @@ let kernel ?contractions ?bf16_pairs ?attention ?layer ?(prepack = false)
                   | _ -> None)
                 packs ))
 
-let prepare ?(route = Route.Generic) ?(blocking = Mir_blocking.Policy.Unblocked)
-    ?contractions ?bf16_pairs ?attention ?layer ?prepack ?on_program ~pipeline
-    (b : Loop_ir.Loop_bundle.t) =
+type lowered = Kernel.t * Packed.pending list
+
+(* One invocation, [invocation] the position in the schedule a failure record
+   numbers it by. *)
+let lower_one ?(route = Route.Generic)
+    ?(blocking = Mir_blocking.Policy.Unblocked) ?contractions ?bf16_pairs
+    ?attention ?layer ?prepack ?on_program ?(constants = Tensor_id.Set.empty)
+    ~pipeline ~invocation (inv : Loop_ir.Loop_bundle.invocation) =
+  Result.map_error
+    (fun reason ->
+      { Refusal.invocation; node = inv.Loop_ir.Loop_bundle.node; reason })
+    (kernel ?contractions ?bf16_pairs ?attention ?layer ?prepack ?on_program
+       ~constants ~route ~blocking ~pipeline inv)
+
+let prepare ?route ?blocking ?contractions ?bf16_pairs ?attention ?layer
+    ?prepack ?on_program ~pipeline (b : Loop_ir.Loop_bundle.t) =
   let constants = Tensor_id.Set.of_list b.Loop_ir.Loop_bundle.constants in
   let results =
     List.mapi
-      (fun k (inv : Loop_ir.Loop_bundle.invocation) ->
-        Result.map_error
-          (fun reason ->
-            {
-              Refusal.invocation = Int32.of_int k;
-              node = inv.Loop_ir.Loop_bundle.node;
-              reason;
-            })
-          (kernel ?contractions ?bf16_pairs ?attention ?layer ?prepack
-             ?on_program ~constants ~route ~blocking ~pipeline inv))
+      (fun k inv ->
+        lower_one ?route ?blocking ?contractions ?bf16_pairs ?attention ?layer
+          ?prepack ?on_program ~constants ~pipeline ~invocation:(Int32.of_int k)
+          inv)
       b.Loop_ir.Loop_bundle.invocations
   in
   match
@@ -519,6 +526,41 @@ let prepare ?(route = Route.Generic) ?(blocking = Mir_blocking.Policy.Unblocked)
       in
       Ok { bundle = b; kernels; packed = !packed; sigs }
 
+module Stage_text = struct
+  type t = { text : string; note : string option }
+
+  let route (target : Lowering_key.Target.t) (stage : Lowering_key.Mir_stage.t)
+      =
+    match stage with
+    | Lowering_key.Mir_stage.Generic -> Route.Generic
+    | Lowering_key.Mir_stage.Allocated | Lowering_key.Mir_stage.Realized
+    | Lowering_key.Mir_stage.Scanned | Lowering_key.Mir_stage.Selected -> (
+        let s =
+          match stage with
+          | Lowering_key.Mir_stage.Allocated -> Stage.Allocated
+          | Lowering_key.Mir_stage.Realized -> Stage.Realized
+          | Lowering_key.Mir_stage.Scanned -> Stage.Scanned
+          | Lowering_key.Mir_stage.Generic | Lowering_key.Mir_stage.Selected ->
+              Stage.Selected
+        in
+        match target with
+        | Lowering_key.Target.Aarch64 -> Route.Aarch64 s
+        | Lowering_key.Target.Riscv32 -> Route.Riscv32 s
+        | Lowering_key.Target.Riscv32_grouped -> Route.Riscv32_grouped s
+        | Lowering_key.Target.X86_64 -> Route.X86_64 s)
+
+  let render ~sites target stage g =
+    match Mir_model_route.text (route target stage) ~sites g with
+    | Ok (text, note) -> Ok { text; note }
+    | Error s -> Error (Reason.Route s)
+
+  let of_lowered target stage l =
+    let k, _ = l in
+    render
+      ~sites:(sites k.Kernel.invocation)
+      target stage k.Kernel.lowered.Ml.program
+end
+
 let invocations t = List.length t.kernels
 let packed t = List.length t.packed
 
@@ -530,6 +572,14 @@ module Kernel_view = struct
     outputs : Mir_id.Region.t list;
   }
 end
+
+let lowered_view ((k, _) : lowered) =
+  {
+    Kernel_view.invocation = k.Kernel.invocation;
+    program = k.Kernel.lowered.Ml.program;
+    edges = k.Kernel.edges;
+    outputs = k.Kernel.outputs;
+  }
 
 let kernel_views t =
   List.map

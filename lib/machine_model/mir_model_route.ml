@@ -174,6 +174,7 @@ struct
   module Fr = Machine_alloc.Mir_frame.Make (T) (F)
   module Pub = Mir_artifact.Make (T)
   module Pr = Machine_alloc.Mir_pressure.Make (T)
+  module Ph = Mir_phys_pp.Make (T)
 
   let ( let* ) = Result.bind
 
@@ -235,6 +236,46 @@ struct
         (Fr.realize (Ls.allocate s))
     in
     Ok (Pr.report s real)
+
+  (* A stage's program as text, and the published artifact's summary on a
+     realized one. *)
+  let text stage ~sites g =
+    let* res = X.select ~sites g in
+    let v = X.selected res in
+    let scheduled policy =
+      Result.map_error
+        (Fmt.str "schedule: %a" Machine_alloc.Mir_schedule.Refusal.pp)
+        (Sch.schedule policy v)
+    in
+    let selected v =
+      Fmt.str "%a" (I.S.pp ?origins:None) (I.S.Verified.selected v)
+    in
+    let published s phys =
+      let* planning =
+        Option.to_result ~none:"a generic program with no planning summary"
+          (Mir_verify.Generic.program g).Mir_program.planning
+      in
+      let* real =
+        Result.map_error
+          (Fmt.str "frame: %a" Machine_alloc.Mir_frame.Refusal.pp)
+          (Fr.realize phys)
+      in
+      match Pub.publish ~planning s real with
+      | Error e -> Error ("publish: " ^ e)
+      | Ok artifact ->
+          Ok
+            ( Fmt.str "%a" Ph.pp (Mir_artifact.program artifact),
+              Some (Fmt.str "%a" Mir_artifact.pp_summary artifact) )
+    in
+    match stage with
+    | Stage.Selected -> Ok (selected v, None)
+    | Stage.Scheduled policy ->
+        Result.map (fun s -> (selected s, None)) (scheduled policy)
+    | Stage.Allocated -> Ok (Fmt.str "%a" Ph.pp (A.allocate v), None)
+    | Stage.Realized -> published v (A.allocate v)
+    | Stage.Scanned ->
+        let* s = scheduled Machine_alloc.Mir_schedule.Policy.Sink in
+        published s (Ls.allocate s)
 
   let exec stage ~sites g =
     let* res = X.select ~sites g in
@@ -436,3 +477,22 @@ let exec route ~sites g =
            (Stage.name s))
   | Route.Riscv32_grouped stage -> Rv32_grouped_route.exec stage ~sites g
   | Route.X86_64 stage -> X64_route.exec stage ~sites g
+
+let text route ~sites g =
+  match route with
+  | Route.Aarch64 stage -> A64_route.text stage ~sites g
+  | Route.Custom _ -> Error "a custom route has no stages to print"
+  | Route.Generic ->
+      Ok
+        ( Fmt.str "%a"
+            (Mir_pp.generic ?origins:None)
+            (Mir_verify.Generic.program g),
+          None )
+  | Route.Riscv32 stage -> Rv32_route.text stage ~sites g
+  | Route.Riscv32_grouped ((Stage.Allocated | Stage.Realized) as s) ->
+      Error
+        (Fmt.str
+           "the reference allocator does not allocate register groups (%s)"
+           (Stage.name s))
+  | Route.Riscv32_grouped stage -> Rv32_grouped_route.text stage ~sites g
+  | Route.X86_64 stage -> X64_route.text stage ~sites g

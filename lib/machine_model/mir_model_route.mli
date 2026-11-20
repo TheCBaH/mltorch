@@ -124,3 +124,11 @@ val exec :
   sites:Mir_failure.Site_entry.t array ->
   Mir_verify.Generic.t ->
   (Exec.t, string) result
+
+val text :
+  Route.t ->
+  sites:Mir_failure.Site_entry.t array ->
+  Mir_verify.Generic.t ->
+  (string * string option, string) result
+(** The program as the route's stage holds it, printed, and on a published stage
+    the artifact's summary; the generic route prints the generic program. *)

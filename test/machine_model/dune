@@ -14,6 +14,7 @@
   loop_c_exec
   loop_ir
   loop_ir_test
+  lowering_key
   machine_alloc
   machine_alloc_test
   machine_check
