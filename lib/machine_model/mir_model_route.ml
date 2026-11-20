@@ -237,6 +237,34 @@ struct
     in
     Ok (Pr.report s real)
 
+  (* The artifact a program publishes once framed: the one printers,
+     assemblers and loaders consume. *)
+  let published_artifact g s phys =
+    let* planning =
+      Option.to_result ~none:"a generic program with no planning summary"
+        (Mir_verify.Generic.program g).Mir_program.planning
+    in
+    let* real =
+      Result.map_error
+        (Fmt.str "frame: %a" Machine_alloc.Mir_frame.Refusal.pp)
+        (Fr.realize phys)
+    in
+    Result.map_error (fun e -> "publish: " ^ e) (Pub.publish ~planning s real)
+
+  (* The published artifact of the realized stage (reference allocation) or of
+     the scanned one (sink scheduling, linear scan). *)
+  let artifact ~scanned ~sites g =
+    let* res = X.select ~sites g in
+    let v = X.selected res in
+    if not scanned then published_artifact g v (A.allocate v)
+    else
+      let* s =
+        Result.map_error
+          (Fmt.str "schedule: %a" Machine_alloc.Mir_schedule.Refusal.pp)
+          (Sch.schedule Machine_alloc.Mir_schedule.Policy.Sink v)
+      in
+      published_artifact g s (Ls.allocate s)
+
   (* A stage's program as text, and the published artifact's summary on a
      realized one. *)
   let text stage ~sites g =
@@ -251,21 +279,10 @@ struct
       Fmt.str "%a" (I.S.pp ?origins:None) (I.S.Verified.selected v)
     in
     let published s phys =
-      let* planning =
-        Option.to_result ~none:"a generic program with no planning summary"
-          (Mir_verify.Generic.program g).Mir_program.planning
-      in
-      let* real =
-        Result.map_error
-          (Fmt.str "frame: %a" Machine_alloc.Mir_frame.Refusal.pp)
-          (Fr.realize phys)
-      in
-      match Pub.publish ~planning s real with
-      | Error e -> Error ("publish: " ^ e)
-      | Ok artifact ->
-          Ok
-            ( Fmt.str "%a" Ph.pp (Mir_artifact.program artifact),
-              Some (Fmt.str "%a" Mir_artifact.pp_summary artifact) )
+      let* artifact = published_artifact g s phys in
+      Ok
+        ( Fmt.str "%a" Ph.pp (Mir_artifact.program artifact),
+          Some (Fmt.str "%a" Mir_artifact.pp_summary artifact) )
     in
     match stage with
     | Stage.Selected -> Ok (selected v, None)
@@ -496,3 +513,11 @@ let text route ~sites g =
            (Stage.name s))
   | Route.Riscv32_grouped stage -> Rv32_grouped_route.text stage ~sites g
   | Route.X86_64 stage -> X64_route.text stage ~sites g
+
+let aarch64_artifact ~sites g = A64_route.artifact ~scanned:false ~sites g
+let riscv32_artifact ~sites g = Rv32_route.artifact ~scanned:false ~sites g
+
+let riscv32_grouped_artifact ~sites g =
+  Rv32_grouped_route.artifact ~scanned:true ~sites g
+
+let x86_64_artifact ~sites g = X64_route.artifact ~scanned:false ~sites g

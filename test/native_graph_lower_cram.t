@@ -8,7 +8,7 @@ with a typed reason.
 
   $ ../bin/native_graph.exe lower --model model.json --node n0 --list
   node n0: 1 outputs, 2 edges, 0 synthetics
-  asm        refused: family asm is not supported
+  asm        emits 144 lines
   c          emits 15 lines
   coral      refused: family coral is not supported
   js         emits 9 lines
@@ -75,10 +75,32 @@ structured-SSA JavaScript differ, and a text against itself is identical.
   $ ../bin/native_graph.exe lower --model model.json --node n0 --artifact js --compare js
   identical
 
+Assembly: the typed Rivet module of each target's published artifact, printed as
+GNU assembly (the head, then the notes).
+
+  $ ../bin/native_graph.exe lower --model model.json --node n0 --artifact asm | tr "\t" "~" | head -4
+  native/n0/asm
+  ~.section~.text,"ax",@progbits
+  ~.balign~16
+  ~.globl~kernel
+  $ ../bin/native_graph.exe lower --model model.json --node n0 --artifact asm | grep -c "^note: "
+  3
+  $ ../bin/native_graph.exe lower --model model.json --node n0 --artifact asm:aarch64 | tr "\t" "~" | sed -n 2,3p
+  ~.section~.text,"ax",%progbits
+  ~.balign~4
+  $ ../bin/native_graph.exe lower --model model.json --node n0 --artifact asm:riscv32 | tr "\t" "~" | sed -n 2,3p
+  ~.section~.text,"ax",@progbits
+  ~.balign~4
+  $ ../bin/native_graph.exe lower --model model.json --node n0 --artifact asm:riscv32_grouped | tr "\t" "~" | sed -n 2,3p
+  ~.section~.text,"ax",@progbits
+  ~.balign~4
+  $ ../bin/native_graph.exe lower --model model.json --node n0 --artifact asm | grep "^note: code"
+  note: code: 522 bytes
+
 A family outside the supported set is a refusal and exits 1.
 
-  $ ../bin/native_graph.exe lower --model model.json --node n0 --artifact asm
-  refused: family asm is not supported
+  $ ../bin/native_graph.exe lower --model model.json --node n0 --artifact coral
+  refused: family coral is not supported
   [1]
 
 An unknown family or variant is a usage error.

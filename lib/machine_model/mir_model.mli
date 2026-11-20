@@ -146,6 +146,37 @@ module Stage_text : sig
       invocation. *)
 end
 
+(** One {!lower_one} result's published artifact per target ({!Stage_text}'s
+    realized stage, as the Rivet routes consume it); register groups come from
+    the scanned allocator, which alone places them. *)
+module Artifact : sig
+  type 'a t = lowered -> ('a, Reason.t) result
+
+  val aarch64 :
+    ( Machine_target_aarch64.A64_op.t,
+      Machine_target_aarch64.A64_op.test )
+    Mir_artifact.t
+    t
+
+  val riscv32 :
+    ( Machine_target_riscv32.Rv32_op.t,
+      Machine_target_riscv32.Rv32_op.test )
+    Mir_artifact.t
+    t
+
+  val riscv32_grouped :
+    ( Machine_target_riscv32.Rv32_op.t,
+      Machine_target_riscv32.Rv32_op.test )
+    Mir_artifact.t
+    t
+
+  val x86_64 :
+    ( Machine_target_x86_64.X64_op.t,
+      Machine_target_x86_64.X64_op.test )
+    Mir_artifact.t
+    t
+end
+
 val invocations : t -> int
 (** How many invocations the schedule holds. *)
 

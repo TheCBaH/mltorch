@@ -561,6 +561,21 @@ module Stage_text = struct
       target stage k.Kernel.lowered.Ml.program
 end
 
+module Artifact = struct
+  type 'a t = lowered -> ('a, Reason.t) result
+
+  let of_route make l =
+    let k, _ = l in
+    Result.map_error
+      (fun s -> Reason.Route s)
+      (make ~sites:(sites k.Kernel.invocation) k.Kernel.lowered.Ml.program)
+
+  let aarch64 = of_route Mir_model_route.aarch64_artifact
+  let riscv32 = of_route Mir_model_route.riscv32_artifact
+  let riscv32_grouped = of_route Mir_model_route.riscv32_grouped_artifact
+  let x86_64 = of_route Mir_model_route.x86_64_artifact
+end
+
 let invocations t = List.length t.kernels
 let packed t = List.length t.packed
 

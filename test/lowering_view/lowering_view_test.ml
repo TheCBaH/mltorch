@@ -55,7 +55,14 @@ let show ?(lines = max_int) inv variant =
       Fmt.pr "[%s%s, %d lines]@." (A.Language.name language)
         (if truncated then ", truncated" else "")
         (List.length ls);
-      List.iteri (fun i l -> if i < lines then print_endline l) ls);
+      List.iteri
+        (fun i l ->
+          if i < lines then
+            print_endline
+              (String.map
+                 (fun c -> if c = Char.chr 9 then Char.chr 126 else c)
+                 l))
+        ls);
   List.iter (fun n -> Fmt.pr "note: %a@." A.Note.pp n) a.A.notes
 
 (* One line per variant: emits (lines) or refuses. *)
@@ -428,15 +435,15 @@ let%expect_test "a policy a family does not run is a typed refusal" =
   let fp32 = Loop_ir.Loop_numerics.Simd_fp32_relaxed in
   show inv (K.Js (K.Route.Loop (K.Loop_spec.make ~numerics:fp32 Pass.all)));
   show inv (K.Js (ssa_route ~numerics:fp32 K.Pipeline.Planned));
-  show inv (K.Asm K.Target.X86_64);
+  show inv (K.Coral K.Coral_view.Estimate);
   [%expect
     {|
     == js:loop/simd_fp32_relaxed
     refused: the javascript backend does not run the simd_fp32_relaxed policy
     == js:ssa/simd_fp32_relaxed
     refused: the javascript backend does not run the simd_fp32_relaxed policy
-    == asm
-    refused: family asm is not supported |}]
+    == coral
+    refused: family coral is not supported |}]
 
 let%expect_test "the two outputs of a max pool are two invocations" =
   let invs = invocations (pool ()) in
@@ -618,8 +625,7 @@ let%expect_test "of_node finds an invocation by its node" =
 
 (* ---- Machine IR: every target and stage of a pointwise node ---- *)
 
-let machine_ir target stage =
-  K.Machine_ir K.Mir_spec.{ target; stage }
+let machine_ir target stage = K.Machine_ir K.Mir_spec.{ target; stage }
 
 let%expect_test "Machine IR: every target and stage" =
   let inv = only (relu ()) in
@@ -627,7 +633,8 @@ let%expect_test "Machine IR: every target and stage" =
     (List.concat_map
        (fun t -> List.map (machine_ir t) K.Mir_stage.all)
        K.Target.all);
-  [%expect {|
+  [%expect
+    {|
     machine_ir:aarch64/allocated emits 160 lines
     machine_ir:aarch64/generic   emits 84 lines
     machine_ir:aarch64           emits 139 lines
@@ -658,7 +665,8 @@ let%expect_test "Machine IR: realized x86-64 head and notes; typed refusals" =
     | A.Refused _ | A.Text _ -> Fmt.pr "untyped@."
   in
   typed (machine_ir K.Target.Riscv32_grouped K.Mir_stage.Realized);
-  [%expect {|
+  [%expect
+    {|
     == machine_ir
     [machine_ir, 152 lines]
     target x86_64 [sse2]
@@ -683,7 +691,178 @@ let%expect_test "Machine IR: an SSA-refused node is a typed Mir_lowering" =
   (match a.A.body with
   | A.Refused (A.Refusal.Mir_lowering _) -> Fmt.pr "typed: Mir_lowering _@."
   | A.Refused _ | A.Text _ -> Fmt.pr "untyped@.");
-  [%expect {|
+  [%expect
+    {|
     native/n0/machine_ir
     refused: invocation 0 (n0): Loop_lower: t1: load of format f32 is not lowered
+    typed: Mir_lowering _ |}]
+
+(* ---- Asm: the target's published artifact as GNU assembly ---- *)
+
+let asm target = K.Asm target
+
+let%expect_test "Asm: every target emits, grouped through the scanned stage" =
+  let inv = only (relu ()) in
+  status inv (List.map asm K.Target.all);
+  show ~lines:4 inv (asm K.Target.X86_64);
+  [%expect
+    {|
+    asm:aarch64                  emits 169 lines
+    asm:riscv32                  emits 157 lines
+    asm:riscv32_grouped          emits 83 lines
+    asm                          emits 181 lines
+    == asm
+    [gnu_asm, 181 lines]
+    ~.section~.text,"ax",@progbits
+    ~.balign~16
+    ~.globl~kernel
+    ~.type~kernel,@function
+    note: symbols: mir_region_0 (bound, 48 bytes), mir_region_1 (bound, 48 bytes), mir_region_1000000 (bss, 104 bytes), kernel (function)
+    note: relocations: 2 (mir_region_0 x1, mir_region_1 x1)
+    note: code: 772 bytes |}]
+
+let artifact_text inv target =
+  match (Lv.of_invocation ~granted:nobody inv (asm target)).A.body with
+  | A.Text { text; _ } -> text
+  | A.Refused r -> Fmt.failwith "refused: %a" A.Refusal.pp r
+
+let pipeline =
+  Ssa_backends.Pipeline.Planned
+    {
+      numerics = Ssa_ir.Ssa_numerics.Fp32_ordered;
+      target = Ssa_ir.Ssa_target.scalar;
+    }
+
+let lowered inv =
+  match Machine_model.Mir_model.lower_one ~pipeline ~invocation:0l inv with
+  | Ok l -> l
+  | Error r -> Fmt.failwith "%a" Machine_model.Mir_model.Refusal.pp r
+
+(* The shown text is the published code: its digest is the manifest's. *)
+let%expect_test "Asm: the text's digest is the manifest's code_digest" =
+  let inv = only (relu ()) in
+  let l = lowered inv in
+  let digest t = Digest.to_hex (Digest.string (artifact_text inv t)) in
+  let x =
+    match Machine_model.Mir_model.Artifact.x86_64 l with
+    | Ok a ->
+        (Machine_rivet_x86_64_module.Rivet_x64_manifest.make
+           ~runtime:
+             Machine_rivet_x86_64_module.Rivet_x64_runtime.Dependency_free
+           ~binding:Machine_rivet_x86_64_module.Rivet_x64_module.Image_resident
+           a)
+          .Machine_rivet_x86_64_module.Rivet_x64_manifest.code_digest
+    | Error _ -> "-"
+  and a =
+    match Machine_model.Mir_model.Artifact.aarch64 l with
+    | Ok a ->
+        (Machine_rivet_aarch64_module.Rivet_a64_manifest.make
+           ~runtime:
+             Machine_rivet_aarch64_module.Rivet_a64_runtime.Dependency_free
+           ~binding:Machine_rivet_aarch64_module.Rivet_a64_module.Image_resident
+           a)
+          .Machine_rivet_aarch64_module.Rivet_a64_manifest.code_digest
+    | Error _ -> "-"
+  in
+  Fmt.pr "x86_64  %b %s@." (x = digest K.Target.X86_64) x;
+  Fmt.pr "aarch64 %b %s@." (a = digest K.Target.Aarch64) a;
+  [%expect
+    {|
+    x86_64  true bd66745f3e059a0420022cc7a6bbc9f6
+    aarch64 true a123b7d45239341c31e749e43fca6d1d |}]
+
+(* RV32 has no manifest: the printed text is re-assembled by Rivet's text route
+   and must lay out the bytes the typed module does. *)
+let rv32_text_bytes ~mutate inv target =
+  let module I = Machine_rivet_riscv32_module.Rv32_image in
+  let module Prof = Machine_rivet_riscv32_module.Rv32_profile in
+  let module TP = Driver.Pipeline.Make (Riscv32) in
+  let ( let* ) = Result.bind in
+  let bytes laid =
+    let plan = Image.plan_of laid in
+    let* image =
+      Result.map_error Foundation.Diag.render
+        (Image.bind_image laid
+           ~addresses:
+             (List.map
+                (fun (s : Image.segment_plan) -> (s.Image.seg_name, 0x10000L))
+                plan.Image.segments))
+    in
+    Ok
+      (List.find
+         (fun (s : Image.segment) -> s.Image.name = ".text")
+         image.Image.segments)
+        .Image.bytes
+  in
+  let text_state = Riscv32.initial_state (Prof.config Prof.default) in
+  let source =
+    Foundation.Span.source ~name:"kernel"
+      ~contents:(mutate (artifact_text inv target))
+  in
+  let* typed =
+    match Machine_model.Mir_model.Artifact.riscv32 (lowered inv) with
+    | Error _ -> Error "artifact"
+    | Ok a -> (
+        match
+          Err.payload
+            (Machine_rivet_riscv32_mir_module.Rv32_mir_module.of_artifact a)
+        with
+        | Error _ -> Error "module"
+        | Ok m ->
+            Result.map_error
+              (Fmt.str "%a" Fmt.(any "plan"))
+              (Err.payload (I.plan ~entry:"kernel" [ m ])))
+  in
+  let* text =
+    Result.map_error Foundation.Diag.render
+      (let* src = TP.parse ~unit_name:"kernel" ~source in
+       let* norm, _ = TP.simplify ~state:text_state src in
+       TP.lower ~state:text_state norm)
+  in
+  let* text =
+    Result.map_error
+      (fun _ -> "plan")
+      (Err.payload (I.plan_lowered ~entry:"kernel" [ text ]))
+  in
+  let* x = bytes typed in
+  let* y = bytes text in
+  Ok (String.length x, String.equal x y)
+
+let%expect_test "Asm: RV32 text re-assembles to the typed module's bytes" =
+  let inv = only (relu ()) in
+  let show_ ~mutate =
+    match rv32_text_bytes ~mutate inv K.Target.Riscv32 with
+    | Ok (n, same) -> Fmt.pr "%d bytes, equal %b@." n same
+    | Error e -> Fmt.pr "error: %s@." e
+  in
+  show_ ~mutate:Fun.id;
+  (* the check can fail: one printed mnemonic changed *)
+  show_ ~mutate:(fun t ->
+      let rec find i = if String.sub t i 4 = "addi" then i else find (i + 1) in
+      let i = find 0 in
+      String.sub t 0 i ^ "xori" ^ String.sub t (i + 4) (String.length t - i - 4));
+  [%expect {|
+    544 bytes, equal true
+    544 bytes, equal false |}]
+
+let%expect_test "Asm: an SSA-refused node is a typed Mir_lowering" =
+  let inv = only (relu ()) in
+  let inv =
+    {
+      inv with
+      Loop_ir.Loop_bundle.placed =
+        Fusion_plan.default Loop_ir_test.Loop_programs.i64_load_of_f32_kernel;
+    }
+  in
+  List.iter
+    (fun t ->
+      match (Lv.of_invocation ~granted:nobody inv (asm t)).A.body with
+      | A.Refused (A.Refusal.Mir_lowering _) -> Fmt.pr "typed: Mir_lowering _@."
+      | A.Refused _ | A.Text _ -> Fmt.pr "untyped@.")
+    K.Target.all;
+  [%expect
+    {|
+    typed: Mir_lowering _
+    typed: Mir_lowering _
+    typed: Mir_lowering _
     typed: Mir_lowering _ |}]

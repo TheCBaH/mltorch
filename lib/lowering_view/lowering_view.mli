@@ -24,7 +24,8 @@ val of_invocation :
 (** [granted] names the nodes the bundle was built granting (a bundle does not
     record it, and its graph has no operations to ask): a granted node's
     placeholder body is shown by no family, each answers [Granted]. A family
-    outside {!Lowering_key.family}'s supported set ([Asm], [Coral]) answers [Unsupported_family]. *)
+    outside {!Lowering_key.family}'s supported set ([Coral]) answers
+    [Unsupported_family]. *)
 
 val of_node :
   ?dialect:Lowering_key.Dialect.t ->

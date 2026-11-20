@@ -1,12 +1,22 @@
 open Graph_ir
 
 module Language = struct
-  type t = C | Js | Loop | Machine_ir | Ssa | Wat
+  type t =
+    | C
+    | Gnu_asm of Lowering_key.Target.t
+    | Js
+    | Loop
+    | Machine_ir
+    | Ssa
+    | Wat
 
-  let all = [ C; Js; Loop; Machine_ir; Ssa; Wat ]
+  let all =
+    (C :: List.map (fun t -> Gnu_asm t) Lowering_key.Target.all)
+    @ [ Js; Loop; Machine_ir; Ssa; Wat ]
 
   let name = function
     | C -> "c"
+    | Gnu_asm _ -> "gnu_asm"
     | Js -> "js"
     | Loop -> "loop"
     | Machine_ir -> "machine_ir"
@@ -16,6 +26,9 @@ end
 
 module Refusal = struct
   type t =
+    | Asm_aarch64 of Machine_rivet_aarch64_module.Rivet_a64_refusal.t
+    | Asm_riscv32 of Machine_rivet_riscv32_mir_module.Rv32_mir_form.Refusal.t
+    | Asm_x86_64 of Machine_rivet_x86_64_module.Rivet_x64_refusal.t
     | Granted of Node_id.t
     | Loop_c of Loop_ir.Loop_c.error
     | Loop_lowering of Loop_ir.Loop_lower.error
@@ -32,6 +45,10 @@ module Refusal = struct
       }
 
   let pp ppf = function
+    | Asm_aarch64 r -> Machine_rivet_aarch64_module.Rivet_a64_refusal.pp ppf r
+    | Asm_riscv32 r ->
+        Machine_rivet_riscv32_mir_module.Rv32_mir_form.Refusal.pp ppf r
+    | Asm_x86_64 r -> Machine_rivet_x86_64_module.Rivet_x64_refusal.pp ppf r
     | Granted n ->
         Fmt.pf ppf
           "node %a is realized only by a grant: its bundle body is a \
@@ -55,27 +72,60 @@ end
 
 module Note = struct
   type t =
+    | Code_bytes of int64
     | Fp32_refusal of Loop_ir.Loop_numerics.Refusal.t
     | Fused_multiply_adds
+    | Helper_bindings of (string * string) list
     | Helpers of Loop_ir.Loop_c_runtime.Name.t list
     | Local_doubles of int64
     | Loop_target of Loop_ir.Loop_target.t
     | Mir_summary of string
     | Numerics of Loop_ir.Loop_numerics.t
     | Numerics_not_applicable of Loop_ir.Loop_numerics.t
+    | Relocations of Machine_model.Mir_artifact.Relocation.t list
     | Row_blocking
     | Ssa_fp32_refusal of Ssa_ir.Ssa_numerics.Refusal.t
     | Ssa_target of Ssa_ir.Ssa_target.t
+    | Symbols of Machine_model.Mir_artifact.Symbol.t list
     | Vectorization of Ssa_ir.Ssa_vectorize.report
     | Working_precision of Loop_ir.Loop_numerics.Precision.t
 
   let pp_tally ppf (name, (loops, work)) =
     Fmt.pf ppf "%s: %d loops, %Ld iterations" name loops work
 
+  module Art = Machine_model.Mir_artifact
+
+  (* One symbol as the artifact names it, with what it is. *)
+  let pp_symbol ppf (s : Art.Symbol.t) =
+    Fmt.pf ppf "%s (%s)" s.Art.Symbol.name
+      (match s.Art.Symbol.kind with
+      | Art.Symbol.Data { size; section; _ } ->
+          Fmt.str "%s, %Ld bytes" (Art.Section.name section) size
+      | Art.Symbol.External_function _ -> "external function"
+      | Art.Symbol.Function _ -> "function"
+      | Art.Symbol.Generated_attention _ -> "generated attention"
+      | Art.Symbol.Generated_function _ -> "generated function")
+
+  (* The distinct symbols relocations name, each with how many name it. *)
+  let relocation_tally rs =
+    List.fold_left
+      (fun acc (r : Art.Relocation.t) ->
+        let s = r.Art.Relocation.symbol in
+        match List.assoc_opt s acc with
+        | None -> acc @ [ (s, 1) ]
+        | Some n -> (s, n + 1) :: List.remove_assoc s acc)
+      [] rs
+    |> List.sort (fun (a, _) (b, _) -> String.compare a b)
+
   let pp ppf = function
+    | Code_bytes n -> Fmt.pf ppf "code: %Ld bytes" n
     | Fp32_refusal r ->
         Fmt.pf ppf "binary32 refused: %a" Loop_ir.Loop_numerics.Refusal.pp r
     | Fused_multiply_adds -> Fmt.string ppf "fused multiply-adds"
+    | Helper_bindings bs ->
+        Fmt.pf ppf "helper bindings: %a"
+          Fmt.(list ~sep:(any ", ") (pair ~sep:(any " -> ") string string))
+          bs
     | Helpers hs ->
         Fmt.pf ppf "helpers: %a"
           Fmt.(list ~sep:(any ", ") string)
@@ -87,10 +137,16 @@ module Note = struct
     | Numerics_not_applicable n ->
         Fmt.pf ppf "numerics %s does not apply to this family"
           (Loop_ir.Loop_numerics.name n)
+    | Relocations rs ->
+        Fmt.pf ppf "relocations: %d (%a)" (List.length rs)
+          Fmt.(list ~sep:(any ", ") (fun ppf (s, n) -> Fmt.pf ppf "%s x%d" s n))
+          (relocation_tally rs)
     | Row_blocking -> Fmt.string ppf "row loops blocked around a vector loop"
     | Ssa_fp32_refusal r ->
         Fmt.pf ppf "binary32 refused: %a" Ssa_ir.Ssa_numerics.Refusal.pp r
     | Ssa_target t -> Fmt.pf ppf "SSA target: %s" t.Ssa_ir.Ssa_target.name
+    | Symbols ss ->
+        Fmt.pf ppf "symbols: %a" Fmt.(list ~sep:(any ", ") pp_symbol) ss
     | Vectorization report ->
         Fmt.pf ppf "vectorization: %a"
           Fmt.(list ~sep:(any "; ") pp_tally)

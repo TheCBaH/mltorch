@@ -15,7 +15,16 @@
   loop_ir
   lowering_key
   machine_model
+  machine_rivet_aarch64_module
+  machine_rivet_riscv32_mir_module
+  machine_rivet_x86_64_module
   native
+  rivet.aarch64_encode
+  rivet.asm_core
+  rivet.driver_direct
+  rivet.image
+  rivet.riscv32_encode
+  rivet.x86_64_encode
   ssa_backends
   ssa_ir
   wasm_ir))

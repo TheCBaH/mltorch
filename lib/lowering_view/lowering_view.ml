@@ -14,8 +14,8 @@ type made = Language.t * string * Note.t list
 (* The policy a family runs when the key names none: what the drivers run. *)
 let default_numerics : Language.t -> Loop_numerics.t = function
   | Language.Js -> Loop_numerics.Reference_f64
-  | Language.C | Language.Loop | Language.Machine_ir | Language.Ssa
-        | Language.Wat ->
+  | Language.C | Language.Gnu_asm _ | Language.Loop | Language.Machine_ir
+  | Language.Ssa | Language.Wat ->
       Loop_numerics.Simd_fp32_relaxed
 
 let numerics_of family = function
@@ -146,8 +146,9 @@ let ssa_pipeline family (spec : K.Ssa_spec.t) =
       let* () =
         match family with
         | Language.Js -> js_policy spec.K.Ssa_spec.numerics
-        | Language.C | Language.Loop | Language.Machine_ir | Language.Ssa
-        | Language.Wat -> Ok ()
+        | Language.C | Language.Gnu_asm _ | Language.Loop | Language.Machine_ir
+        | Language.Ssa | Language.Wat ->
+            Ok ()
       in
       let n = numerics_of family spec.K.Ssa_spec.numerics in
       let target =
@@ -155,8 +156,8 @@ let ssa_pipeline family (spec : K.Ssa_spec.t) =
         else
           match family with
           | Language.Wat -> Ssa_ir.Ssa_target.wasm128
-          | Language.C | Language.Js | Language.Loop | Language.Machine_ir
-          | Language.Ssa ->
+          | Language.C | Language.Gnu_asm _ | Language.Js | Language.Loop
+          | Language.Machine_ir | Language.Ssa ->
               Ssa_ir.Ssa_target.neon128
       in
       Ok
@@ -282,8 +283,16 @@ let mir_family (spec : K.Mir_spec.t) inv : (made, Refusal.t) result =
                 Note.Numerics Loop_numerics.Fp32_ordered;
                 Note.Ssa_target Ssa_ir.Ssa_target.scalar;
               ]
-              @ Option.fold ~none:[] ~some:(fun s -> [ Note.Mir_summary s ]) note
-            ))
+              @ Option.fold ~none:[]
+                  ~some:(fun s -> [ Note.Mir_summary s ])
+                  note ))
+
+(* ---- assembly ---- *)
+
+let asm_family target inv : (made, Refusal.t) result =
+  match Lowering_asm.of_invocation target inv with
+  | Error r -> Error r
+  | Ok (text, notes) -> Ok (Language.Gnu_asm target, text, notes)
 
 (* ---- dispatch ---- *)
 
@@ -297,6 +306,7 @@ let make ~granted (inv : Loop_bundle.invocation) variant :
     Error (Refusal.Granted inv.Loop_bundle.node)
   else
     match variant with
+    | K.Asm target -> asm_family target inv
     | K.C r -> route ~loop:(fun s -> c_loop s inv) ~ssa:(fun s -> c_ssa s inv) r
     | K.Js r ->
         route ~loop:(fun s -> js_loop s inv) ~ssa:(fun s -> js_ssa s inv) r
@@ -305,8 +315,7 @@ let make ~granted (inv : Loop_bundle.invocation) variant :
     | K.Ssa spec -> ssa_family spec inv
     | K.Wat r ->
         route ~loop:(fun s -> wat_loop s inv) ~ssa:(fun s -> wat_ssa s inv) r
-    | (K.Asm _ | K.Coral _) as v ->
-        Error (Refusal.Unsupported_family (K.family v))
+    | K.Coral _ as v -> Error (Refusal.Unsupported_family (K.family v))
 
 let artifact ?dialect node variant result =
   let key = K.make ?dialect node variant in

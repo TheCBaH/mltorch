@@ -9,11 +9,26 @@
   err_trace
   fmt
   loop_ir
+  ssa_backends
+  ssa_ir
   loop_ir_test
   lowering_key
   lowering_view
+  machine_model
+  machine_rivet_aarch64_module
+  machine_rivet_riscv32_mir_module
+  machine_rivet_riscv32_module
+  machine_rivet_x86_64_module
   native
-  native_test)
+  native_test
+  rivet.aarch64_encode
+  rivet.asm_core
+  rivet.driver
+  rivet.foundation
+  rivet.image
+  rivet.riscv32
+  rivet.riscv32_encode
+  rivet.x86_64_encode)
  (inline_tests
   (modes best js))
  (preprocess

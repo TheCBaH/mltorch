@@ -24,6 +24,9 @@ let refusal (r : Artifact.Refusal.t) =
   | Loop_c _ -> tag "loop_c" (rendered ())
   | Loop_lowering _ -> tag "loop_lowering" (rendered ())
   | Loop_wasm _ -> tag "loop_wasm" (rendered ())
+  | Asm_aarch64 _ -> tag "asm_aarch64" (rendered ())
+  | Asm_riscv32 _ -> tag "asm_riscv32" (rendered ())
+  | Asm_x86_64 _ -> tag "asm_x86_64" (rendered ())
   | Mir_lowering _ -> tag "mir_lowering" (rendered ())
   | Mir_stage _ -> tag "mir_stage" (rendered ())
   | Ssa_backends s -> tag "ssa_backends" [ s ]
@@ -36,17 +39,21 @@ let refusal (r : Artifact.Refusal.t) =
 let note (n : Artifact.Note.t) =
   let rendered () = [ Core.Pretty.to_string Artifact.Note.pp n ] in
   match n with
+  | Code_bytes _ -> tag "code_bytes" (rendered ())
   | Fp32_refusal _ -> tag "fp32_refusal" (rendered ())
   | Fused_multiply_adds -> tag "fused_multiply_adds" []
+  | Helper_bindings _ -> tag "helper_bindings" (rendered ())
   | Helpers _ -> tag "helpers" (rendered ())
   | Local_doubles _ -> tag "local_doubles" (rendered ())
   | Loop_target _ -> tag "loop_target" (rendered ())
   | Mir_summary s -> tag "mir_summary" [ s ]
   | Numerics _ -> tag "numerics" (rendered ())
   | Numerics_not_applicable _ -> tag "numerics_not_applicable" (rendered ())
+  | Relocations _ -> tag "relocations" (rendered ())
   | Row_blocking -> tag "row_blocking" []
   | Ssa_fp32_refusal _ -> tag "ssa_fp32_refusal" (rendered ())
   | Ssa_target _ -> tag "ssa_target" (rendered ())
+  | Symbols _ -> tag "symbols" (rendered ())
   | Vectorization _ -> tag "vectorization" (rendered ())
   | Working_precision _ -> tag "working_precision" (rendered ())
 

@@ -7,7 +7,16 @@ open Graph_ir
 
 module Language : sig
   (* @alphabetical *)
-  type t = C | Js | Loop | Machine_ir | Ssa | Wat
+  type t =
+    | C
+    | Gnu_asm of Lowering_key.Target.t
+        (** the typed Rivet module of the target's published artifact, printed
+            as GNU assembly *)
+    | Js
+    | Loop
+    | Machine_ir
+    | Ssa
+    | Wat
 
   val all : t list
   val name : t -> string
@@ -16,6 +25,12 @@ end
 module Refusal : sig
   (* @alphabetical *)
   type t =
+    | Asm_aarch64 of Machine_rivet_aarch64_module.Rivet_a64_refusal.t
+        (** the AArch64 artifact has no Rivet module *)
+    | Asm_riscv32 of Machine_rivet_riscv32_mir_module.Rv32_mir_form.Refusal.t
+        (** the RV32 artifact (grouped or not) has no Rivet module *)
+    | Asm_x86_64 of Machine_rivet_x86_64_module.Rivet_x64_refusal.t
+        (** the x86-64 artifact has no Rivet module *)
     | Granted of Node_id.t
         (** a node no Loop body realizes: the bundle holds a placeholder its
             realizing helper replaces, so no family has code to show *)
@@ -27,8 +42,8 @@ module Refusal : sig
         (** the invocation has no Machine IR kernel *)
     | Mir_stage of Machine_model.Mir_model.Reason.t
         (** the target's stage refused: a selection it does not admit, a frame
-            that does not fit, a checker rejection, register groups asked of
-            the reference allocator *)
+            that does not fit, a checker rejection, register groups asked of the
+            reference allocator *)
     | Ssa_backends of string
         (** [Ssa_backends]' own words: its producers still return strings for
             everything after lowering (planning, emission) *)
@@ -48,9 +63,14 @@ end
 module Note : sig
   (* @alphabetical *)
   type t =
+    | Code_bytes of int64
+        (** the size of the text Rivet lays the module out as *)
     | Fp32_refusal of Loop_ir.Loop_numerics.Refusal.t
         (** why an fp32 policy left the kernel binary64 *)
     | Fused_multiply_adds  (** the plan holds fused multiply-adds *)
+    | Helper_bindings of (string * string) list
+        (** each helper the artifact calls, with the C library symbol it links
+        *)
     | Helpers of Loop_ir.Loop_c_runtime.Name.t list
         (** the runtime helpers the C text calls *)
     | Local_doubles of int64  (** [double]s of scratch the C kernel needs *)
@@ -63,10 +83,14 @@ module Note : sig
         (** the policy applied: the family's default when the key named none *)
     | Numerics_not_applicable of Loop_ir.Loop_numerics.t
         (** the family has no numerical policy; the key's was not used *)
+    | Relocations of Machine_model.Mir_artifact.Relocation.t list
+        (** every relocation an instruction of the artifact encodes *)
     | Row_blocking  (** the plan blocked row loops around a vector loop *)
     | Ssa_fp32_refusal of Ssa_ir.Ssa_numerics.Refusal.t
         (** why an fp32 policy left the SSA kernel binary64 *)
     | Ssa_target of Ssa_ir.Ssa_target.t  (** the target the SSA plan is for *)
+    | Symbols of Machine_model.Mir_artifact.Symbol.t list
+        (** every data and function symbol of the artifact *)
     | Vectorization of Ssa_ir.Ssa_vectorize.report
         (** every loop the SSA planner tried, with its decision *)
     | Working_precision of Loop_ir.Loop_numerics.Precision.t

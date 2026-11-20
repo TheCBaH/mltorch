@@ -132,3 +132,43 @@ val text :
   (string * string option, string) result
 (** The program as the route's stage holds it, printed, and on a published stage
     the artifact's summary; the generic route prints the generic program. *)
+
+(** A target's published artifact of one kernel, for the printers and assemblers
+    downstream. The realized stage (reference allocation, frames, publication)
+    except for register groups, which only the scanned allocator places. *)
+
+val aarch64_artifact :
+  sites:Mir_failure.Site_entry.t array ->
+  Mir_verify.Generic.t ->
+  ( ( Machine_target_aarch64.A64_op.t,
+      Machine_target_aarch64.A64_op.test )
+    Mir_artifact.t,
+    string )
+  result
+
+val riscv32_artifact :
+  sites:Mir_failure.Site_entry.t array ->
+  Mir_verify.Generic.t ->
+  ( ( Machine_target_riscv32.Rv32_op.t,
+      Machine_target_riscv32.Rv32_op.test )
+    Mir_artifact.t,
+    string )
+  result
+
+val riscv32_grouped_artifact :
+  sites:Mir_failure.Site_entry.t array ->
+  Mir_verify.Generic.t ->
+  ( ( Machine_target_riscv32.Rv32_op.t,
+      Machine_target_riscv32.Rv32_op.test )
+    Mir_artifact.t,
+    string )
+  result
+
+val x86_64_artifact :
+  sites:Mir_failure.Site_entry.t array ->
+  Mir_verify.Generic.t ->
+  ( ( Machine_target_x86_64.X64_op.t,
+      Machine_target_x86_64.X64_op.test )
+    Mir_artifact.t,
+    string )
+  result
