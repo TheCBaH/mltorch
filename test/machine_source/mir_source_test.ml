@@ -49,6 +49,12 @@ let%expect_test
     ok [reference: agree]
     ok [reference: agree] |}]
 
+(* The last line is host-dependent by design. The SSA index domain is fixed at
+   i32 ([Ssa_const.in_index_domain]); the reference checks against the host
+   [int] ([Expr_internal.Checked]). Natively 2^31 is in the reference's 63-bit
+   domain, so only ssa fails (DISAGREE); under js_of_ocaml [max_int] is 2^31-1,
+   equal to [index_max], so both fail ("agree on failure"). Not a 32-bit
+   defect: no unbounded value is held in [int]. This suite is native-only. *)
 let%expect_test "failures: coordinates, competing axes, index overflow" =
   let zeros = data_bind [| 0.; 0.; 0.; 0. |] in
   show Loop_programs.shifted_kernel ~bind:zeros;
