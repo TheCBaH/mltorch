@@ -1,0 +1,9 @@
+; Tests for lib/lowering_diff. Pure, so the same blocks run under node.
+
+(library
+ (name lowering_diff_test)
+ (libraries fmt lowering_diff)
+ (inline_tests
+  (modes best js))
+ (preprocess
+  (pps ppx_expect)))

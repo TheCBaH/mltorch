@@ -1,0 +1,8 @@
+; Line diff of two generated artifacts: a Myers edit script, grouped into
+; hunks and printed as unified text. Pure and dependency-free so the browser
+; worker and the CLI share one comparison. A CRLF-free input is assumed: lines
+; split on '\n' only.
+
+(library
+ (name lowering_diff)
+ (libraries fmt))
