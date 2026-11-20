@@ -615,7 +615,7 @@ test('a model matches the requested stages only when none is known to fail', () 
 /* ------------------------------------------------------------- lowering URL */
 
 test('a lowering destination survives an encode/decode round trip, comparison included', () => {
-  const lowering = { node: 'n12', left: 'js:ssa/exact', right: 'c' };
+  const lowering = { dialect: 'native', node: 'n12', left: 'js:ssa/exact', right: 'c' };
   const search = encodeUrl({ model: 'm', presentation: singlePresentation('v/canonical'), lowering });
   const query = new URLSearchParams(search);
   assert.equal(query.get('node'), 'n12');
@@ -625,14 +625,14 @@ test('a lowering destination survives an encode/decode round trip, comparison in
   // The presentation keys are untouched by it.
   assert.equal(query.get('view'), 'v/canonical');
   const single = decodeUrl(encodeUrl({ model: 'm', lowering: { node: 'n0', left: 'loop', right: null } }));
-  assert.deepEqual(single.lowering, { node: 'n0', left: 'loop', right: null });
+  assert.deepEqual(single.lowering, { dialect: 'native', node: 'n0', left: 'loop', right: null });
   assert.ok(sameLowering(single.lowering, { node: 'n0', left: 'loop' }));
   assert.ok(!sameLowering(single.lowering, null));
 });
 
 test('the machine_ir, asm and coral spellings survive an encode/decode round trip', () => {
   for (const [left, right] of [['machine_ir:riscv32_grouped', 'asm:aarch64'], ['coral:transfer_plan', 'coral:zvt_kernel'], ['asm', 'machine_ir:selected']]) {
-    const lowering = { node: 'n3', left, right };
+    const lowering = { dialect: 'native', node: 'n3', left, right };
     assert.deepEqual(decodeUrl(encodeUrl({ model: 'm', lowering })).lowering, lowering, left);
   }
 });
@@ -643,10 +643,22 @@ test('a malformed lowering key is ignored silently, and a lone half opens nothin
     assert.equal(decodeUrl(search).lowering, null, search);
   }
   // A bad comparison drops only the comparison.
-  assert.deepEqual(decodeUrl('?node=n1&lower=js&lowercmp=!!').lowering, { node: 'n1', left: 'js', right: null });
+  assert.deepEqual(decodeUrl('?node=n1&lower=js&lowercmp=!!').lowering, { dialect: 'native', node: 'n1', left: 'js', right: null });
   // Nothing is written for an invalid destination.
   assert.equal(encodeUrl({ model: 'm', lowering: { node: 'x', left: 'js' } }), '?model=m');
   assert.equal(encodeUrl({ model: 'm' }), '?model=m');
   assert.match(staleNodeNotice('n9'), /n9/);
   assert.equal(decodeLowering(new URLSearchParams('')), null);
+});
+
+test('the dialect of a lowering destination is written only away from Native, and distinguishes destinations', () => {
+  const native = { dialect: 'native', node: 'n4', left: 'js', right: null };
+  assert.equal(new URLSearchParams(encodeUrl({ model: 'm', lowering: native })).get('dialect'), null);
+  const four = { ...native, dialect: 'native4d' };
+  const search = encodeUrl({ model: 'm', lowering: four });
+  assert.equal(new URLSearchParams(search).get('dialect'), 'native4d');
+  assert.deepEqual(decodeUrl(search).lowering, four);
+  assert.ok(!sameLowering(native, four));
+  assert.ok(sameLowering(native, { node: 'n4', left: 'js' }), 'an absent dialect is Native');
+  assert.equal(decodeUrl('?node=n1&lower=js&dialect=!!').lowering.dialect, 'native');
 });

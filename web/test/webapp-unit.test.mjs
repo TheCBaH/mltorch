@@ -65,7 +65,7 @@ function scenario({ session = {}, render = {} } = {}) {
   const workers = [];
   const errors = [];
   const statuses = [];
-  const calls = { prepare: [], commit: [], abort: [], install: [], finalize: [], abortReady: [], markInconsistent: [], cancel: 0, buildSession: [], sessions: [], groupConstants: [], buildLowering: [], lowerings: [] };
+  const calls = { prepare: [], commit: [], abort: [], install: [], finalize: [], abortReady: [], markInconsistent: [], cancel: 0, buildSession: [], sessions: [], groupConstants: [], buildLowering: [], lowerings: [], buildSummary: [], summaries: [], progress: [], summaryErrors: [] };
   /* Shaped exactly like `Renderer`'s own handle, `presentation` included: the
    * coordinator retains that descriptor and DERIVES `view` from it, so a stub
    * carrying only `viewId` would prove a contract nothing implements. */
@@ -80,7 +80,8 @@ function scenario({ session = {}, render = {} } = {}) {
      * page handed over rather than only that something was built. The echo is
      * the input here; what OCaml actually normalises to is pinned in
      * `bridge-unit.test.mjs` against the real bridge. */
-    request: { buildLowering: (request) => { calls.buildLowering.push(request); return { ok: true, request: new ArrayBuffer(2) }; },
+    request: { buildLoweringSummary: (request) => { calls.buildSummary.push(request); return { ok: true, request: new ArrayBuffer(2) }; },
+      buildLowering: (request) => { calls.buildLowering.push(request); return { ok: true, request: new ArrayBuffer(2) }; },
       buildSession: (request) => { lastId = request.id; calls.buildSession.push(request); return { ok: true, request: new ArrayBuffer(2), options: request.options }; } },
     session: {
       prepare: (id) => { calls.prepare.push(id); return (session.prepare ?? (() => ({ ok: true, token: id, render: '{}' })))(id); },
@@ -109,6 +110,9 @@ function scenario({ session = {}, render = {} } = {}) {
     onStatus: (t) => statuses.push(t),
     onError: (t) => errors.push(t),
     onLowering: (l) => calls.lowerings.push(l),
+    onSummary: (l) => calls.summaries.push(l),
+    onSummaryProgress: (l) => calls.progress.push(l),
+    onSummaryError: (l) => calls.summaryErrors.push(l),
     onSession: (s) => { calls.sessions.push(s); (session.onSession ?? (() => {}))(s); },
   });
 
@@ -807,4 +811,79 @@ test('openLowering needs a loaded model and a load supersedes an unanswered lowe
   await s.coordinator.load(source());
   worker.onmessage(artifactFrame(id, 'stale'));
   assert.deepEqual(s.calls.lowerings, []);
+});
+
+/* ------------------------------------------------------------ lowering summary */
+
+const summaryFrame = (id, metric, values) => {
+  const payload = new TextEncoder().encode(JSON.stringify({ metric, values })).buffer;
+  return { data: { meta: JSON.stringify({ kind: 'summary', id, bytes: payload.byteLength }), payload } };
+};
+const progressFrame = (id, done) => ({ data: { meta: JSON.stringify({ kind: 'progress', id, phase: 'Lower', done, total: 100 }) } });
+
+test('a summary shares the lowering worker, streams progress and delivers its values', async () => {
+  const s = await loaded();
+  await s.coordinator.openLowering(1);
+  const worker = s.workers.at(-1);
+  await s.coordinator.openLoweringSummary({ dialect: 'native', metric: 'vector_loops' });
+  assert.equal(s.workers.at(-1), worker, 'same worker, same memo');
+  assert.deepEqual(s.calls.buildSummary.map((r) => r.summary), [{ dialect: 'native', metric: 'vector_loops' }]);
+  const id = s.calls.buildSummary[0].id;
+  worker.onmessage(progressFrame(id, 16));
+  assert.deepEqual(s.calls.progress, [{ dialect: 'native', metric: 'vector_loops', phase: 'Lower', done: 16, total: 100 }]);
+  worker.onmessage(summaryFrame(id, 'vector_loops', { n0: 2, n1: null }));
+  assert.deepEqual(s.calls.summaries, [{ dialect: 'native', metric: 'vector_loops', values: { n0: 2, n1: null } }]);
+  assert.deepEqual(s.errors, []);
+});
+
+test('a newer summary terminates the one running, and a cancel silences it', async () => {
+  const s = await loaded();
+  await s.coordinator.openLoweringSummary({ metric: 'coral_cycles' });
+  const first = s.workers.at(-1);
+  const [a] = s.calls.buildSummary.map((r) => r.id);
+  await s.coordinator.openLoweringSummary({ metric: 'scalar_loops' });
+  assert.equal(first.terminated, 1, 'a posted summary is stopped by retiring its worker');
+  const second = s.workers.at(-1);
+  assert.notEqual(second, first);
+  first.onmessage(summaryFrame(a, 'coral_cycles', { n0: 9 }));
+  assert.deepEqual(s.calls.summaries, []);
+  s.coordinator.cancelLoweringSummary();
+  assert.equal(second.terminated, 1);
+  second.onmessage(summaryFrame(s.calls.buildSummary[1].id, 'scalar_loops', { n0: 1 }));
+  assert.deepEqual(s.calls.summaries, []);
+});
+
+test('cancelling a summary re-asks a pane request that was posted behind it', async () => {
+  const s = await loaded();
+  await s.coordinator.openLoweringSummary({ metric: 'coral_cycles' });
+  await s.coordinator.openLowering(5, { variant: 'js' });
+  const before = s.workers.length;
+  s.coordinator.cancelLoweringSummary();
+  await new Promise((r) => setTimeout(r, 0));
+  assert.equal(s.workers.length, before + 1);
+  assert.deepEqual(s.calls.buildLowering.at(-1).key, { dialect: 'native', node: 5, variant: 'js' });
+  assert.equal(s.workers.at(-1).posted.length, 1);
+});
+
+test('a summary failure is reported as text and keeps the worker', async () => {
+  const s = await loaded();
+  await s.coordinator.openLoweringSummary({ dialect: 'native4d', metric: 'scalar_loops' });
+  const worker = s.workers.at(-1);
+  const [id] = s.calls.buildSummary.map((r) => r.id);
+  worker.onmessage({ data: { meta: JSON.stringify({ kind: 'failed', id, error: { message: 'over the limit' } }) } });
+  assert.deepEqual(s.calls.summaryErrors, [{ dialect: 'native4d', metric: 'scalar_loops', message: 'over the limit' }]);
+  assert.equal(worker.terminated, 0);
+  assert.deepEqual(s.errors, []);
+});
+
+test('a load drops an unanswered summary; a summary needs a loaded model', async () => {
+  const empty = scenario();
+  await assert.rejects(() => empty.coordinator.openLoweringSummary({ metric: 'vector_loops' }), /no model is loaded/);
+  const s = await loaded();
+  await s.coordinator.openLoweringSummary({ metric: 'vector_loops' });
+  const worker = s.workers.at(-1);
+  const [id] = s.calls.buildSummary.map((r) => r.id);
+  await s.coordinator.load(source());
+  worker.onmessage?.(summaryFrame(id, 'vector_loops', { n0: 1 }));
+  assert.deepEqual(s.calls.summaries, []);
 });

@@ -451,6 +451,10 @@ export function requestKey(model, options) {
  * lone one opens nothing, and `lowercmp` means nothing without them. */
 const NODE_SPELLING = /^n(0|[1-9][0-9]{0,8})$/;
 const VARIANT_SPELLING = /^[a-z][a-z0-9_]*(:[A-Za-z0-9_,./-]+)?$/;
+/* `dialect=` names the graph the node id belongs to; absent means Native. Only
+ * the shape is checked here, the bridge's vocabulary says which are real. */
+export const DEFAULT_DIALECT = 'native';
+const DIALECT_SPELLING = /^[a-z][a-z0-9_]{0,30}$/;
 export const isNodeSpelling = (text) => typeof text === 'string' && NODE_SPELLING.test(text);
 export const isVariantSpelling = (text) => typeof text === 'string' && text.length <= 200 && VARIANT_SPELLING.test(text);
 
@@ -459,12 +463,16 @@ export function decodeLowering(query) {
   const left = query.get('lower');
   if (!isNodeSpelling(node) || !isVariantSpelling(left)) return null;
   const right = query.get('lowercmp');
-  return { node, left, right: isVariantSpelling(right) ? right : null };
+  const dialect = query.get('dialect');
+  return {
+    dialect: DIALECT_SPELLING.test(dialect ?? '') ? dialect : DEFAULT_DIALECT,
+    node, left, right: isVariantSpelling(right) ? right : null,
+  };
 }
 
 export const sameLowering = (a, b) =>
   (a === null || a === undefined) ? (b === null || b === undefined)
-    : !!b && a.node === b.node && a.left === b.left && (a.right ?? null) === (b.right ?? null);
+    : !!b && (a.dialect ?? DEFAULT_DIALECT) === (b.dialect ?? DEFAULT_DIALECT) && a.node === b.node && a.left === b.left && (a.right ?? null) === (b.right ?? null);
 
 /* Same standing as a view the model does not have: the one malformed-looking
  * input that IS a destination, because it names a node of this model. */
@@ -530,6 +538,7 @@ export function encodeUrl({ model, options, presentation, constants, lowering } 
   if (lowering && isNodeSpelling(lowering.node) && isVariantSpelling(lowering.left)) {
     query.set('node', lowering.node);
     query.set('lower', lowering.left);
+    if (lowering.dialect && lowering.dialect !== DEFAULT_DIALECT && DIALECT_SPELLING.test(lowering.dialect)) query.set('dialect', lowering.dialect);
     if (isVariantSpelling(lowering.right)) query.set('lowercmp', lowering.right);
   }
   const text = query.toString();

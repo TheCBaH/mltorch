@@ -56,3 +56,6 @@ model-explorer-visualizer { display: block; width: 100%; height: 100%; }
   .code-text, .code-diff-text { background: #222; }
   .diff-add { background: #1c3a1c; } .diff-del { background: #4a2020; } .diff-hunk { color: #aaa; }
 }
+.code-overlay { display: flex; gap: 0.5rem; align-items: center; margin: 0.5rem 0; }
+.code-overlay-failed { color: #8a2f00; }
+.code-tab[data-unreached="true"] { opacity: 0.6; }

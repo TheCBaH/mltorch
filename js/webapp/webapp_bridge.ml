@@ -477,6 +477,15 @@ let lowering_vocabulary () =
     Js.Unsafe.obj
       [|
         ("name", Js.Unsafe.inject (Js.string (K.family_name f)));
+        ( "dialects",
+          Js.Unsafe.inject
+            (Js.array
+               (Array.of_list
+                  (List.filter_map
+                     (fun d ->
+                       if K.reaches d f then Some (Js.string (K.Dialect.name d))
+                       else None)
+                     K.Dialect.all))) );
         ( "variants",
           Js.Unsafe.inject
             (Js.array
@@ -507,6 +516,10 @@ let lowering_vocabulary () =
     ]
   in
   Js.array (Array.of_list families)
+
+(* The dialects and the overlay metrics the page offers, by wire name. *)
+let names f all =
+  Js.array (Array.of_list (List.map (fun x -> Js.string (f x)) all))
 
 (* A spelling in [Lowering_key]'s one grammar, normalised, or [null]. *)
 let canonical_variant spelling =
@@ -713,6 +726,14 @@ let () =
       [|
         ("vocabulary", Js.Unsafe.inject (Js.wrap_callback lowering_vocabulary));
         ("canonical", Js.Unsafe.inject (Js.wrap_callback canonical_variant));
+        ( "dialects",
+          Js.Unsafe.inject
+            (Js.wrap_callback (fun () ->
+                 names Lowering_key.Dialect.name Lowering_key.Dialect.all)) );
+        ( "metrics",
+          Js.Unsafe.inject
+            (Js.wrap_callback (fun () ->
+                 names Lowering_key.Metric.name Lowering_key.Metric.all)) );
         ("validate", Js.Unsafe.inject (Js.wrap_callback validate_artifact));
         ("diff", Js.Unsafe.inject (Js.wrap_callback diff_artifacts));
       |]

@@ -1139,6 +1139,17 @@ export class Renderer {
     return { ok: true };
   }
 
+  /** Adds a node-data run to the view on screen WITHOUT a new export: only when
+   * the current entry is the single view `viewId`. The element selects the new
+   * run itself. Returns whether anything was installed. */
+  installNodeData(viewId, name, data) {
+    const entry = this.current;
+    const d = entry?.descriptor;
+    if (!entry || !d || d.kind === 'comparison' || d.kind === 'flow' || d.viewId !== viewId) return false;
+    entry.element.addNodeDataProviderData(name, data);
+    return true;
+  }
+
   /** Discards a ready candidate the coordinator decided not to show. */
   abortReady(handle) {
     const resolved = this.#ready(handle);

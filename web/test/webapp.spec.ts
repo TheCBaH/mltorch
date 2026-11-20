@@ -958,3 +958,60 @@ test('a lowering URL naming a node the model lacks earns the stale notice; a mal
   await expect(page.locator('#notice')).toBeHidden();
   await expect(page.locator('#code-pane')).toBeHidden();
 });
+
+/* ------------------------------------------------------- lowering overlay */
+
+const colour = (page: Page) => page.locator('#code-pane .code-overlay-metric');
+const overlayStatus = (page: Page) => page.locator('#code-pane .code-overlay-status');
+
+test('the overlay colours the canonical view without a re-export, switches metric and supersedes', async ({ page }) => {
+  test.setTimeout(300_000);
+  await page.goto('/index.html?model=mobilenetv2_050&view=v/canonical&node=n0&lower=loop');
+  await expect(paneText(page)).toBeVisible({ timeout: 180_000 });
+  // The metric names are the bridge's vocabulary.
+  expect(await colour(page).locator('option').allTextContents()).toEqual(['none', 'coral_cycles', 'scalar_loops', 'vector_loops']);
+  const exports = await posts(page);
+
+  await colour(page).selectOption('vector_loops');
+  await expect(overlayStatus(page)).toHaveText('Colouring by vector_loops', { timeout: 240_000 });
+  expect(await posts(page), 'installing the overlay made an export request').toBe(exports);
+
+  await colour(page).selectOption('scalar_loops');
+  await expect(overlayStatus(page)).toHaveText('Colouring by scalar_loops', { timeout: 240_000 });
+  expect(await posts(page)).toBe(exports);
+
+  // Supersession: the second choice is the one that lands.
+  await colour(page).selectOption('vector_loops');
+  await colour(page).selectOption('scalar_loops');
+  await expect(overlayStatus(page)).toHaveText('Colouring by scalar_loops', { timeout: 240_000 });
+  await expect(colour(page)).toHaveValue('scalar_loops');
+  await expect(page.locator('#error')).toBeHidden();
+  expect(await posts(page)).toBe(exports);
+});
+
+test('the Native4D stage view offers the pane; families without a gate show the typed refusal', async ({ page }) => {
+  test.setTimeout(300_000);
+  await page.goto('/index.html?model=mobilenetv2_050&view=v/native4d');
+  await loaded(page);
+  await page.evaluate(() => {
+    const slot = document.querySelector('#visualizer .visualizer-slot--current');
+    (slot?.querySelector('model-explorer-visualizer') as any).selectNode('n415', 'g/native4d/000');
+  });
+  await expect(page.locator('#lowering-action')).toContainText('native4d node', { timeout: 90_000 });
+  await page.locator('#lowering-action .flow-action').click();
+  await expect(paneText(page)).toBeVisible({ timeout: 180_000 });
+  expect(param(page, 'dialect')).toBe('native4d');
+  await expect(page.locator('#code-pane h3')).toContainText('native4d');
+
+  const tabs = page.locator('#code-pane .code-column[data-side="left"] .code-tab');
+  await expect(tabs.filter({ hasText: /^coral$/ })).toHaveAttribute('data-unreached', 'true');
+  await expect(tabs.filter({ hasText: /^c$/ })).not.toHaveAttribute('data-unreached', 'true');
+  await tabs.filter({ hasText: /^coral$/ }).click();
+  await expect(page.locator('#code-pane .code-column[data-side="left"] .code-refusal')).toContainText('native4d', { timeout: 120_000 });
+  await expect(page.locator('#error')).toBeHidden();
+
+  // The dialect is part of the URL, so a reload reopens the same pane.
+  await page.reload();
+  await expect(page.locator('#code-pane .code-column[data-side="left"] .code-refusal')).toContainText('native4d', { timeout: 180_000 });
+  expect(param(page, 'dialect')).toBe('native4d');
+});

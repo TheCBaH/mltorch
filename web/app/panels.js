@@ -441,19 +441,22 @@ export function renderLegend(container, index) {
  * `{ nodeId, graphId }`; only a node of a canonical stage view qualifies, and
  * the lowering of any other graph's node is not a question this page can ask. */
 export const CANONICAL_NODE = /^n(0|[1-9][0-9]{0,8})$/;
+/* The stage view a lowering dialect's node ids belong to. */
+export const LOWERING_STAGE = Object.freeze({ native: 'stage:canonical', native4d: 'stage:native4d' });
 export function renderLoweringAction(container, index, selection, onAction) {
   container.replaceChildren();
   const view = selection ? index?.viewByGraph?.get(selection.graphId) : null;
-  if (view?.kind !== 'stage:canonical' || !CANONICAL_NODE.test(selection.nodeId)) {
+  const dialect = Object.keys(LOWERING_STAGE).find((d) => LOWERING_STAGE[d] === view?.kind);
+  if (!dialect || !CANONICAL_NODE.test(selection.nodeId)) {
     container.hidden = true;
     return;
   }
   container.hidden = false;
-  container.append(el('p', `Selected: ${selection.nodeId} — canonical node`, 'note'));
+  container.append(el('p', `Selected: ${selection.nodeId} — ${dialect === 'native' ? 'canonical' : dialect} node`, 'note'));
   const button = document.createElement('button');
   button.type = 'button';
   button.className = 'flow-action';
   button.textContent = 'Show lowering';
-  button.addEventListener('click', () => onAction(selection.nodeId));
+  button.addEventListener('click', () => onAction(selection.nodeId, dialect));
   container.append(button);
 }

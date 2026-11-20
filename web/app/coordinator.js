@@ -60,9 +60,15 @@ export class Coordinator {
    * model cheap. A reply is delivered only if it answers the newest request. */
   #loweringWorker = null;
   #lowering = null;
+  /* The whole-graph overlay's one live request, on the same worker. Its own id
+   * and its own supersession: the worker runs one request to completion, so a
+   * summary that is cancelled after it was posted can only be stopped by
+   * terminating the worker (the memo is lost; a pane request that was posted
+   * is posted again to the fresh one). */
+  #summary = null;
 
-  constructor({ workerFactory, bridge, render, onStatus = () => {}, onError = () => {}, onSession = () => {}, onDetail = () => {}, onLowering = () => {}, loweringWorkerFactory = null, hard }) {
-    Object.assign(this, { workerFactory, bridge, render, onStatus, onError, onSession, onDetail, onLowering, loweringWorkerFactory, hard });
+  constructor({ workerFactory, bridge, render, onStatus = () => {}, onError = () => {}, onSession = () => {}, onDetail = () => {}, onLowering = () => {}, onSummary = () => {}, onSummaryProgress = () => {}, onSummaryError = () => {}, loweringWorkerFactory = null, hard }) {
+    Object.assign(this, { workerFactory, bridge, render, onStatus, onError, onSession, onDetail, onLowering, onSummary, onSummaryProgress, onSummaryError, loweringWorkerFactory, hard });
   }
 
   get session() { return this.#session; }
@@ -152,6 +158,7 @@ export class Coordinator {
     if (this.#pending) throw new Error('a request is already in flight');
     const epoch = ++this.#epoch;
     this.#lowering = null;                              // about a model that is being replaced
+    this.#dropSummary();
     const id = `${crypto.randomUUID()}-0`;
     const requestSource = {
       name: source.name,
@@ -246,6 +253,7 @@ export class Coordinator {
     }
     this.#cancelRenderer();
     this.#lowering = null;
+    this.#summary = null;
     this.#retireLoweringWorker();
     if (first) this.onError(reloadText(reason));        // exactly one, ever
   }
@@ -456,7 +464,7 @@ export class Coordinator {
     if (!this.#session || !this.#source || !this.#options) throw new Error('no model is loaded');
     const source = this.#source;
     const id = `${crypto.randomUUID()}-0`;
-    const lowering = { id, node, key: { dialect, node, variant } };
+    const lowering = { id, node, key: { dialect, node, variant }, posted: false };
     this.#lowering = lowering;
     const requestSource = {
       name: source.name, bytes: source.bytes.toString(), kind: source.kind,
@@ -475,8 +483,65 @@ export class Coordinator {
       worker.onmessage = (event) => this.#loweringMessage(worker, event);
       worker.onerror = () => this.#loweringFailed(worker, 'lowering worker failed');
     }
+    lowering.posted = true;
     this.#loweringWorker.postMessage({ request: built.request, bytes }, [built.request, bytes]);
     this.onStatus('Lowering…');
+  }
+
+  #spawnLoweringWorker() {
+    if (this.#loweringWorker) return this.#loweringWorker;
+    const worker = (this.loweringWorkerFactory ?? this.workerFactory)();
+    this.#loweringWorker = worker;
+    worker.onmessage = (event) => this.#loweringMessage(worker, event);
+    worker.onerror = () => this.#loweringFailed(worker, 'lowering worker failed');
+    return worker;
+  }
+
+  /* Forget the overlay request. One already posted is running to completion
+   * inside the worker, so the worker is terminated; a pane request that was
+   * posted behind it is asked again of the fresh one. */
+  #dropSummary() {
+    const summary = this.#summary;
+    this.#summary = null;
+    if (!summary?.posted) return;
+    const redo = this.#lowering?.posted ? this.#lowering : null;
+    this.#retireLoweringWorker();
+    if (redo) {
+      this.openLowering(redo.node, { dialect: redo.key.dialect, variant: redo.key.variant })
+        .catch((error) => this.onError(text(error)));
+    }
+  }
+
+  cancelLoweringSummary() { this.#dropSummary(); }
+
+  /* One metric of every node of the retained model, in a dialect. Progress
+   * reaches `onSummaryProgress({ dialect, metric, phase, done, total })`, the
+   * answer `onSummary({ dialect, metric, values })` and a refusal or limit
+   * `onSummaryError({ dialect, metric, message })`. A newer request, a cancel
+   * and a load each silence this one. */
+  async openLoweringSummary({ dialect = 'native', metric }) {
+    if (this.#poisoned) throw new Error(POISONED);
+    if (!this.#session || !this.#source || !this.#options) throw new Error('no model is loaded');
+    const source = this.#source;
+    const id = `${crypto.randomUUID()}-0`;
+    const summary = { id, key: { dialect, metric }, posted: false };
+    this.#dropSummary();
+    this.#summary = summary;
+    const requestSource = {
+      name: source.name, bytes: source.bytes.toString(), kind: source.kind,
+      ...(source.catalog ? { catalog: source.catalog } : {}),
+    };
+    const built = this.bridge.request.buildLoweringSummary({ id, source: requestSource, options: this.#options, summary: summary.key });
+    if (!built.ok) {
+      if (this.#summary === summary) this.#summary = null;
+      throw new Error(built.error || 'lowering summary request construction failed');
+    }
+    const bytes = await source.readBytes();
+    if (this.#summary !== summary || this.#poisoned) return;
+    const worker = this.#spawnLoweringWorker();
+    summary.posted = true;
+    worker.postMessage({ request: built.request, bytes }, [built.request, bytes]);
+    this.onStatus('Colouring…');
   }
 
   /* A worker that failed is dropped (the next request spawns a fresh one and
@@ -485,7 +550,10 @@ export class Coordinator {
     if (this.#loweringWorker === worker) this.#retireLoweringWorker();
     const current = this.#lowering;
     this.#lowering = null;
+    const summary = this.#summary;
+    this.#summary = null;
     if (current && !this.#poisoned) this.onError(message);
+    if (summary && !this.#poisoned) this.onSummaryError({ ...summary.key, message });
   }
 
   #loweringMessage(worker, event) {
@@ -495,13 +563,16 @@ export class Coordinator {
 
   #loweringHandle(worker, event) {
     const current = this.#lowering;
-    if (!current || this.#poisoned || this.#loweringWorker !== worker) return;
+    const summary = this.#summary;
+    if ((!current && !summary) || this.#poisoned || this.#loweringWorker !== worker) return;
     const frame = event.data;
     if (!frame || typeof frame.meta !== 'string' || new TextEncoder().encode(frame.meta).byteLength > this.hard.maxResponseMetaBytes) {
       return this.#loweringFailed(worker, 'malformed worker metadata');
     }
     let meta;
     try { meta = JSON.parse(frame.meta); } catch { return this.#loweringFailed(worker, 'malformed worker metadata'); }
+    if (summary && (meta.id === summary.id || (!meta.id && !current))) return this.#summaryHandle(worker, summary, meta, frame);
+    if (!current) return;
     // The worker answers in order, so a reply to an older request is neither an
     // error nor ours to show.
     if (meta.id && meta.id !== current.id) return;
@@ -518,6 +589,31 @@ export class Coordinator {
     this.#lowering = null;
     this.onLowering({ node: current.node, key: current.key, artifact });
     this.onStatus('Lowering shown');
+  }
+
+  #summaryHandle(worker, summary, meta, frame) {
+    if (meta.kind === 'progress') {
+      this.onSummaryProgress({ ...summary.key, phase: meta.phase, done: meta.done, total: meta.total ?? null });
+      return;
+    }
+    if (meta.kind === 'failed') {
+      this.#summary = null;
+      return this.onSummaryError({ ...summary.key, message: meta.error?.message || 'lowering summary failed' });
+    }
+    if (meta.kind !== 'summary') return this.#loweringFailed(worker, 'unexpected worker response');
+    if (!(frame.payload instanceof ArrayBuffer) || frame.payload.byteLength !== meta.bytes
+        || frame.payload.byteLength > this.hard.maxResponseDocumentBytes) {
+      return this.#loweringFailed(worker, 'invalid lowering payload');
+    }
+    let doc;
+    try { doc = JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(frame.payload)); }
+    catch { return this.#loweringFailed(worker, 'lowering payload is not UTF-8 JSON'); }
+    if (doc?.metric !== summary.key.metric || typeof doc.values !== 'object' || doc.values === null) {
+      return this.#loweringFailed(worker, 'invalid lowering summary');
+    }
+    this.#summary = null;
+    this.onSummary({ ...summary.key, values: doc.values });
+    this.onStatus('Colouring shown');
   }
 
   /* ---------------------------------------------------------- presentation */

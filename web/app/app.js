@@ -65,7 +65,44 @@ async function main() {
   let lowerInflight = null;
   const lowerCache = new Map();
   const lowerFailed = new Set();
-  const lowerKey = (node, spelling) => `${node}|${spelling}`;
+  const lowerKey = (dialect, node, spelling) => `${dialect}|${node}|${spelling}`;
+  const dialects = bridge.lowering.dialects();
+  const metrics = bridge.lowering.metrics();
+  /* The whole-graph overlay: what the pane's "Colour graph by" asked for and
+   * what came of it. `shown` is the last answer and `installedOn` the renderer
+   * entry it was added to, so a view switch re-adds it to the new element
+   * without a request and without a re-export. */
+  let overlay = { metric: null, state: 'idle', text: '', shown: null, installedOn: null };
+  const overlaySetName = (metric) => `lowering: ${metric}`;
+  const overlayData = (values) => ({
+    results: Object.fromEntries(Object.entries(values).filter(([, v]) => typeof v === 'number').map(([id, v]) => [id, { value: v }])),
+    gradient: [{ stop: 0, bgColor: '#e8f5e9' }, { stop: 1, bgColor: '#ffcdd2' }],
+  });
+  const applyOverlay = () => {
+    const shown = overlay.shown;
+    if (!shown || !index || renderer.current === overlay.installedOn) return;
+    const view = index.views.find((v) => v.kind === panels.LOWERING_STAGE[shown.dialect]);
+    if (view && renderer.installNodeData(view.id, overlaySetName(shown.metric), overlayData(shown.values))) {
+      overlay.installedOn = renderer.current;
+      overlay.text = Object.values(shown.values).some((v) => typeof v === 'number')
+        ? `Colouring by ${shown.metric}` : `No node has a ${shown.metric} value in the ${shown.dialect} dialect.`;
+    } else if (!view) {
+      overlay.text = `The ${shown.dialect} stage view is not in this export.`;
+    } else {
+      overlay.text = `Open the ${view.label ?? view.id} view to see ${shown.metric}.`;
+    }
+    renderLowering();
+  };
+  const setOverlayMetric = (metric) => {
+    coordinator.cancelLoweringSummary();
+    overlay = { metric, state: metric ? 'running' : 'idle', text: metric ? 'Starting…' : '', shown: null, installedOn: null };
+    renderLowering();
+    if (!metric || !lowerState) return;
+    coordinator.openLoweringSummary({ dialect: lowerState.dialect, metric }).catch((e) => {
+      overlay = { ...overlay, state: 'failed', text: e.message };
+      renderLowering();
+    });
+  };
 
   const asView = (presentation) =>
     (presentation?.kind === 'single' ? presentation.view : null);
@@ -116,7 +153,7 @@ async function main() {
   const renderFlowChrome = () => {
     if (!index) return;
     panels.renderLoweringAction($('lowering-action'), index,
-      asView(coordinator.presentation) ? flowSelection : null, (node) => openLowering(node));
+      asView(coordinator.presentation) ? flowSelection : null, (node, dialect) => openLowering(node, dialect));
     const active = asFlow(coordinator.presentation) !== null;
     panels.renderFlowControl(flowButton, $('flow-note'), index, active);
     panels.renderFlowLegend($('flow-legend'), index, active);
@@ -135,6 +172,7 @@ async function main() {
     panels.renderPaneLabels($('pane-labels'), index, comparison);
     panels.renderComparisonSummary($('presentation-note'), comparison);
     renderFlowChrome();
+    applyOverlay();
     panels.renderUnavailable($('unavailable-list'), $('unavailable').firstElementChild, index);
     panels.renderDiagnostics($('diagnostics-list'), $('diagnostics').firstElementChild, index);
     panels.renderValidation($('validation-body'), $('validation').firstElementChild, index);
@@ -147,7 +185,24 @@ async function main() {
     /* Spawned by the first `openLowering`, which is the first time the pane
      * has something to ask for -- never at startup. */
     loweringWorkerFactory: () => new Worker(new URL('./lowering_worker.js', document.baseURI)),
-    onLowering: ({ node, key, artifact }) => lowered(`n${node}`, key.variant, artifact),
+    onLowering: ({ node, key, artifact }) => lowered(key.dialect, `n${node}`, key.variant, artifact),
+    onSummaryProgress: ({ metric, phase, done, total }) => {
+      if (metric !== overlay.metric) return;
+      overlay.text = `${phase}: ${done}${total ? `/${total}` : ''}`;
+      status.textContent = overlay.text;
+      renderLowering();
+    },
+    onSummary: ({ dialect, metric, values }) => {
+      if (metric !== overlay.metric) return;
+      overlay = { ...overlay, state: 'ready', text: '', shown: { dialect, metric, values }, installedOn: null };
+      applyOverlay();
+      renderLowering();
+    },
+    onSummaryError: ({ metric, message }) => {
+      if (metric !== overlay.metric) return;
+      overlay = { ...overlay, state: 'failed', text: message };
+      renderLowering();
+    },
     onStatus: (text) => { status.textContent = text; },
     onError: (message) => {
       showError(message);
@@ -162,6 +217,7 @@ async function main() {
       loadedModel = pending?.model ?? null;
       // A new document: nothing lowered before it says anything about it.
       lowerCache.clear(); lowerFailed.clear(); lowerInflight = null;
+      overlay = { metric: null, state: 'idle', text: '', shown: null, installedOn: null };
       if (pending) lowerState = pending.lowering ?? null;
       // The controls follow the NORMALISED options, so what is ticked is what
       // was actually requested rather than what was typed.
@@ -215,11 +271,13 @@ async function main() {
     const left = bridge.lowering.canonical(wanted.left);
     if (left === null) return null;
     const right = wanted.right === null ? null : bridge.lowering.canonical(wanted.right);
-    return { node: wanted.node, left, right };
+    const dialect = wanted.dialect ?? P.DEFAULT_DIALECT;
+    if (!dialects.includes(dialect)) return null;
+    return { dialect, node: wanted.node, left, right };
   }
 
   const sideOf = (spelling) => {
-    const id = lowerKey(lowerState.node, spelling);
+    const id = lowerKey(lowerState.dialect, lowerState.node, spelling);
     const artifact = lowerCache.get(id);
     if (artifact) return { spelling, state: 'ready', artifact };
     return { spelling, state: lowerFailed.has(id) ? 'failed' : 'loading' };
@@ -233,7 +291,9 @@ async function main() {
     const diff = right && text(left) !== null && text(right) !== null
       ? bridge.lowering.diff(text(left), text(right), left.spelling, right.spelling)
       : null;
-    codePane.renderCodePane(pane, { vocabulary, node: lowerState.node, left, right, diff }, {
+    const overlayModel = { metrics, metric: overlay.metric, state: overlay.state, text: overlay.text };
+    codePane.renderCodePane(pane, { vocabulary, dialect: lowerState.dialect, node: lowerState.node, left, right, diff, overlay: overlayModel }, {
+      onMetric: setOverlayMetric,
       onSelect: (side, spelling) => setLowering({ ...lowerState, [side]: spelling }, 'push'),
       onCompare: (on) => setLowering({ ...lowerState, right: on ? otherFamily(lowerState.left) : null }, 'push'),
       onClose: () => setLowering(null, 'push'),
@@ -253,14 +313,14 @@ async function main() {
   function pump() {
     if (!lowerState) return;
     const wanted = [lowerState.left, lowerState.right].filter((s) => s !== null)
-      .map((s) => lowerKey(lowerState.node, s));
+      .map((s) => lowerKey(lowerState.dialect, lowerState.node, s));
     if (lowerInflight && wanted.includes(lowerInflight)) return;
     const missing = [lowerState.left, lowerState.right].find((s) => s !== null
-      && !lowerCache.has(lowerKey(lowerState.node, s)) && !lowerFailed.has(lowerKey(lowerState.node, s)));
+      && !lowerCache.has(lowerKey(lowerState.dialect, lowerState.node, s)) && !lowerFailed.has(lowerKey(lowerState.dialect, lowerState.node, s)));
     if (!missing) { lowerInflight = null; return; }
-    const id = lowerKey(lowerState.node, missing);
+    const id = lowerKey(lowerState.dialect, lowerState.node, missing);
     lowerInflight = id;
-    coordinator.openLowering(Number(lowerState.node.slice(1)), { variant: missing }).catch((e) => {
+    coordinator.openLowering(Number(lowerState.node.slice(1)), { dialect: lowerState.dialect, variant: missing }).catch((e) => {
       showError(e.message);
       lowerFailed.add(id);
       if (lowerInflight === id) lowerInflight = null;
@@ -268,14 +328,14 @@ async function main() {
     });
   }
 
-  function lowered(node, spelling, artifact) {
-    const id = lowerKey(node, spelling);
+  function lowered(dialect, node, spelling, artifact) {
+    const id = lowerKey(dialect, node, spelling);
     if (lowerInflight === id) lowerInflight = null;
     const checked = bridge.lowering.validate(JSON.stringify(artifact));
     if (!checked.ok) {
       showError(`the lowering reply is not a valid artifact (${checked.error})`);
       lowerFailed.add(id);
-    } else if (codePane.isUnknownNode(artifact) && lowerState?.node === node) {
+    } else if (codePane.isUnknownNode(artifact) && lowerState?.node === node && lowerState?.dialect === dialect) {
       // A node the model does not have is a destination gone stale, not a
       // refusal the pane should keep showing.
       showNotice(P.staleNodeNotice(node));
@@ -297,9 +357,9 @@ async function main() {
     pump();
   }
 
-  const openLowering = (node) => {
+  const openLowering = (node, dialect = P.DEFAULT_DIALECT) => {
     const family = vocabulary.find((f) => f.name === DEFAULT_LOWERING_FAMILY) ?? vocabulary[0];
-    setLowering({ left: family.name, right: null, ...(lowerState ?? {}), node }, 'push');
+    setLowering({ left: family.name, right: null, ...(lowerState ?? {}), dialect, node }, 'push');
   };
 
   const writeUrl = (mode, presentation) => {

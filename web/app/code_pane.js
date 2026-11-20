@@ -38,6 +38,7 @@ const REFUSALS = {
   ssa_backends: ([why]) => `The SSA backends refused this kernel: ${why}`,
   ssa_lowering: ([why]) => `This kernel has no SSA program: ${why}`,
   unknown_node: ([node]) => `The model has no node ${node}.`,
+  unsupported_dialect: ([dialect, family]) => `The ${family} family has no committed gate for the ${dialect} dialect, so it shows nothing for this node.`,
   unsupported_family: ([family]) => `The ${family} family has no artifact for a node yet.`,
   unsupported_policy: ([why]) => `This numerical policy is not available for the family: ${why}`,
 };
@@ -110,6 +111,9 @@ function renderColumn(model, side, handlers) {
     tab.type = 'button';
     tab.setAttribute('role', 'tab');
     tab.setAttribute('aria-selected', String(family.name === current));
+    // A family the dialect has no gate for is still a tab: choosing it shows
+    // the worker's typed refusal rather than a control with no explanation.
+    if (!family.dialects.includes(model.dialect)) tab.dataset.unreached = 'true';
     tab.addEventListener('click', () => handlers.onSelect(side, family.name));
     tabs.append(tab);
   }
@@ -134,7 +138,31 @@ function renderColumn(model, side, handlers) {
   return column;
 }
 
-/* model: { vocabulary, node, left, right|null, diff|null } where a side is
+/* The whole-graph overlay control: `overlay` is { metrics, metric, state, text }
+ * where state is 'idle'|'running'|'ready'|'failed' and `text` the liveness,
+ * result or refusal sentence. The metric names are the bridge's. */
+function renderOverlay(overlay, handlers) {
+  const row = el('div', null, 'code-overlay');
+  const label = el('label', 'Colour graph by ');
+  const select = el('select', null, 'code-overlay-metric');
+  const none = el('option', 'none');
+  none.value = '';
+  select.append(none);
+  for (const metric of overlay.metrics) {
+    const option = el('option', metric);
+    option.value = metric;
+    select.append(option);
+  }
+  select.value = overlay.metric ?? '';
+  select.addEventListener('change', () => handlers.onMetric(select.value === '' ? null : select.value));
+  label.append(select);
+  const status = el('span', overlay.text, `code-overlay-status code-overlay-${overlay.state}`);
+  status.setAttribute('role', 'status');
+  row.append(label, status);
+  return row;
+}
+
+/* model: { vocabulary, dialect, overlay, node, left, right|null, diff|null } where a side is
  * { spelling, state: 'loading'|'ready'|'failed', artifact? }. */
 export function renderCodePane(root, model, handlers) {
   root.replaceChildren();
@@ -143,7 +171,7 @@ export function renderCodePane(root, model, handlers) {
   root.classList.toggle('code-pane--compare', model.right !== null);
 
   const head = el('div', null, 'code-head');
-  head.append(el('h3', `Lowering of ${model.node}`));
+  head.append(el('h3', model.dialect === 'native' ? `Lowering of ${model.node}` : `Lowering of ${model.node} (${model.dialect})`));
   const compare = el('button', model.right ? 'Close comparison' : 'Compare', 'code-compare');
   compare.type = 'button';
   compare.addEventListener('click', () => handlers.onCompare(model.right === null));
@@ -152,6 +180,7 @@ export function renderCodePane(root, model, handlers) {
   close.addEventListener('click', () => handlers.onClose());
   head.append(compare, close);
   root.append(head);
+  if (model.overlay) root.append(renderOverlay(model.overlay, handlers));
 
   const columns = el('div', null, 'code-columns');
   columns.append(renderColumn(model, 'left', handlers));
