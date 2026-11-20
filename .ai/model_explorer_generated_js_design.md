@@ -198,3 +198,15 @@ only the text is shown, and nothing is executed in the explorer.
   that the text changes each time. `web/test/presentation-unit.test.mjs`
   covers the pure `presentation.js` round trip (controls/URL/wire) with 6
   new cases.
+
+## Inspecting a node's lowering from the command line
+
+The same per-node lowerings are available without a session: `native_graph lower
+--model M --node nN --artifact family[:variant]` prints one family's text (Loop, JS,
+C, WAT, SSA) for one node of the canonical bundle, `--compare SPEC` prints a unified
+diff of two, and `--list` prints the node's invocation with each family's default
+(emits, or the typed refusal). Spellings are `Lowering_key`'s; the node id is spelled as
+the canonical view prints it. The command grants no node (the canonical bundle is built
+granting none), exits 1 on a refusal, and is covered by
+`test/native_graph_lower_cram.t`. The inspector's own design is the lowering-inspector
+doc in this directory.

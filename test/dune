@@ -256,6 +256,12 @@
  (applies_to me_visualize_json_cram)
  (deps %{exe:cram_probe.exe} %{exe:../bin/native_graph.exe} model.json))
 
+; The lowering inspector's command line, over the same model.json. UNGATED.
+
+(cram
+ (applies_to native_graph_lower_cram)
+ (deps %{exe:../bin/native_graph.exe} model.json))
+
 ; One kernel value's expression, over the committed mobilenetv2_050 model.json.
 ; UNGATED for the same reason the session cram is.
 

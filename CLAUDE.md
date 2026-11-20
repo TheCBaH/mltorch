@@ -221,6 +221,10 @@ make runtest    # run all tests
 make format     # format — mandatory before every commit
 make precommit  # build + format + runtest + check.doc-refs + check.exceptions + check.file-size + check.libraries + check.loop-freeze + whitespace check
 
+# Lowering inspector: what a backend family makes of one node of a model.json / .pt2
+opam exec -- dune exec -- bin/native_graph.exe lower --model M --node n0 --list
+opam exec -- dune exec -- bin/native_graph.exe lower --model M --node n0 --artifact js:ssa --compare js
+
 # Single cram test or promote (no make target)
 dune runtest test/model_cram.t
 dune promote test/model_cram.t

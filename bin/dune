@@ -87,7 +87,8 @@
   native_graph_transform
   native_graph_to4d
   native_graph_const_ssa
-  native_graph_visualize)
+  native_graph_visualize
+  native_graph_lower)
  (libraries
   cmdliner
   core
@@ -95,6 +96,10 @@
   err_host
   jsont
   jsont.bytesrw
+  loop_ir
+  lowering_diff
+  lowering_key
+  lowering_view
   model_explorer
   model_explorer_export
   native

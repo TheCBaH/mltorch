@@ -9,6 +9,7 @@ open Native_graph_transform
 open Native_graph_to4d
 open Native_graph_const_ssa
 open Native_graph_visualize
+open Native_graph_lower
 
 let cmd =
   let doc = "Tools for the native inference engine's graph representation." in
@@ -22,6 +23,7 @@ let cmd =
       const_ssa_trace_cmd;
       visualize_cmd;
       detail_cmd;
+      lower_cmd;
     ]
 
 (* The trace policy is chosen HERE, before any command runs, because this is
