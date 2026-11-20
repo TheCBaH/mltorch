@@ -14,7 +14,8 @@ type made = Language.t * string * Note.t list
 (* The policy a family runs when the key names none: what the drivers run. *)
 let default_numerics : Language.t -> Loop_numerics.t = function
   | Language.Js -> Loop_numerics.Reference_f64
-  | Language.C | Language.Loop | Language.Ssa | Language.Wat ->
+  | Language.C | Language.Loop | Language.Machine_ir | Language.Ssa
+        | Language.Wat ->
       Loop_numerics.Simd_fp32_relaxed
 
 let numerics_of family = function
@@ -145,7 +146,8 @@ let ssa_pipeline family (spec : K.Ssa_spec.t) =
       let* () =
         match family with
         | Language.Js -> js_policy spec.K.Ssa_spec.numerics
-        | Language.C | Language.Loop | Language.Ssa | Language.Wat -> Ok ()
+        | Language.C | Language.Loop | Language.Machine_ir | Language.Ssa
+        | Language.Wat -> Ok ()
       in
       let n = numerics_of family spec.K.Ssa_spec.numerics in
       let target =
@@ -153,7 +155,8 @@ let ssa_pipeline family (spec : K.Ssa_spec.t) =
         else
           match family with
           | Language.Wat -> Ssa_ir.Ssa_target.wasm128
-          | Language.C | Language.Js | Language.Loop | Language.Ssa ->
+          | Language.C | Language.Js | Language.Loop | Language.Machine_ir
+          | Language.Ssa ->
               Ssa_ir.Ssa_target.neon128
       in
       Ok
@@ -247,6 +250,41 @@ let wat_ssa spec inv : (made, Refusal.t) result =
           Wasm_wat.to_string m.Loop_wasm_module.module_,
           notes @ [ Note.Working_precision m.Loop_wasm_module.precision ] )
 
+(* ---- Machine IR ---- *)
+
+(* What every target selects: binary32, ordered, scalar. The key names no policy
+   (a target admits only this plan, and a vector form it lacks is a refusal), so
+   the notes say what ran. *)
+let mir_pipeline =
+  Ssa_backends.Pipeline.Planned
+    {
+      numerics = Ssa_ir.Ssa_numerics.Fp32_ordered;
+      target = Ssa_ir.Ssa_target.scalar;
+    }
+
+(* The invocation's position in the schedule is not known to a per-node view; a
+   refusal reports 0. *)
+let mir_family (spec : K.Mir_spec.t) inv : (made, Refusal.t) result =
+  let module M = Machine_model.Mir_model in
+  match M.lower_one ~pipeline:mir_pipeline ~invocation:0l inv with
+  | Error r -> Error (Refusal.Mir_lowering r)
+  | Ok lowered -> (
+      match
+        M.Stage_text.of_lowered spec.K.Mir_spec.target spec.K.Mir_spec.stage
+          lowered
+      with
+      | Error r -> Error (Refusal.Mir_stage r)
+      | Ok { M.Stage_text.text; note } ->
+          Ok
+            ( Language.Machine_ir,
+              text,
+              [
+                Note.Numerics Loop_numerics.Fp32_ordered;
+                Note.Ssa_target Ssa_ir.Ssa_target.scalar;
+              ]
+              @ Option.fold ~none:[] ~some:(fun s -> [ Note.Mir_summary s ]) note
+            ))
+
 (* ---- dispatch ---- *)
 
 let route ~loop ~ssa = function
@@ -263,10 +301,11 @@ let make ~granted (inv : Loop_bundle.invocation) variant :
     | K.Js r ->
         route ~loop:(fun s -> js_loop s inv) ~ssa:(fun s -> js_ssa s inv) r
     | K.Loop spec -> loop_family spec inv
+    | K.Machine_ir spec -> mir_family spec inv
     | K.Ssa spec -> ssa_family spec inv
     | K.Wat r ->
         route ~loop:(fun s -> wat_loop s inv) ~ssa:(fun s -> wat_ssa s inv) r
-    | (K.Asm _ | K.Coral _ | K.Machine_ir _) as v ->
+    | (K.Asm _ | K.Coral _) as v ->
         Error (Refusal.Unsupported_family (K.family v))
 
 let artifact ?dialect node variant result =

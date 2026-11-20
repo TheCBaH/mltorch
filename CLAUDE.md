@@ -104,7 +104,13 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
   inline suite, so its index arithmetic is `int64` until bounded, and its emitted
   JavaScript uses no bitwise operator on an index), `lib/js_ast` (its printer never
   formats an OCaml `int` into the output: literals go through
-  `float_of_int`/`Int64.to_string`, and Melange mirrors it). js_of_ocaml's `int` is **32 bits** (`Sys.int_size = 32`), so a value
+  `float_of_int`/`Int64.to_string`, and Melange mirrors it). The machine libraries behind `Mir_model.lower_one` (`lib/machine_ir`, `machine_lower`,
+  `machine_alloc`, `machine_check`, `machine_interp`, `machine_model`,
+  `machine_target_{aarch64,riscv32,x86_64}`) are proved reachable by `test/lowering_view`,
+  `test/machine_lower`, `test/machine_alloc`, `test/machine_aarch64` and `test/machine_riscv32`
+  under node; the rest of `test/machine_ir`, `machine_model`, `machine_source` and
+  `machine_x86_64` compare against host libm, direct C or a native-width reference, so stay
+  native-only. js_of_ocaml's `int` is **32 bits** (`Sys.int_size = 32`), so a value
   that can reach 2^31 must be `int32`/`int64` **or be bounds-checked at every operation**,
   and a literal like `0xFFFFFFFF` silently truncates to `-1` there — turning a mask into a
   no-op. **Narrow to `int` only after bounding the value**, and bound *aggregates*

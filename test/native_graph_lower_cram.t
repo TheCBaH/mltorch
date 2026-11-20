@@ -13,7 +13,7 @@ with a typed reason.
   coral      refused: family coral is not supported
   js         emits 9 lines
   loop       emits 5 lines
-  machine_ir refused: family machine_ir is not supported
+  machine_ir emits 117 lines
   ssa        emits 18 lines
   wat        emits 61 lines
 
@@ -37,6 +37,25 @@ Each supported family's default, the head of its text.
   $ ../bin/native_graph.exe lower --model model.json --node n0 --artifact ssa | head -2
   native/n0/ssa
   buffer b314 in f32 [1, 1, 1, 3, 1, 50176]
+
+Machine IR: each target's realized stage (the head), the typed refusal for register
+groups.
+
+  $ ../bin/native_graph.exe lower --model model.json --node n0 --artifact machine_ir:x86_64/realized | head -3
+  native/n0/machine_ir
+  target x86_64 [sse2]
+  fn0 main func kernel() -> (eax) frame 168 {
+  $ ../bin/native_graph.exe lower --model model.json --node n0 --artifact machine_ir:aarch64/realized | head -3
+  native/n0/machine_ir:aarch64
+  target aarch64 [fp]
+  fn0 main func kernel() -> (w0) frame 176 {
+  $ ../bin/native_graph.exe lower --model model.json --node n0 --artifact machine_ir:riscv32/realized | head -3
+  native/n0/machine_ir:riscv32
+  target riscv32 []
+  fn0 main func kernel() -> (a0) frame 128 {
+  $ ../bin/native_graph.exe lower --model model.json --node n0 --artifact machine_ir:riscv32_grouped/realized
+  refused: the reference allocator does not allocate register groups (realized)
+  [1]
 
 The raw Loop program is not the optimized one.
 

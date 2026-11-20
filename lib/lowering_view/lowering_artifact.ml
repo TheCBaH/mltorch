@@ -1,14 +1,15 @@
 open Graph_ir
 
 module Language = struct
-  type t = C | Js | Loop | Ssa | Wat
+  type t = C | Js | Loop | Machine_ir | Ssa | Wat
 
-  let all = [ C; Js; Loop; Ssa; Wat ]
+  let all = [ C; Js; Loop; Machine_ir; Ssa; Wat ]
 
   let name = function
     | C -> "c"
     | Js -> "js"
     | Loop -> "loop"
+    | Machine_ir -> "machine_ir"
     | Ssa -> "ssa"
     | Wat -> "wat"
 end
@@ -19,6 +20,8 @@ module Refusal = struct
     | Loop_c of Loop_ir.Loop_c.error
     | Loop_lowering of Loop_ir.Loop_lower.error
     | Loop_wasm of Loop_ir.Loop_wasm.error
+    | Mir_lowering of Machine_model.Mir_model.Refusal.t
+    | Mir_stage of Machine_model.Mir_model.Reason.t
     | Ssa_backends of string
     | Ssa_lowering of Ssa_backends.Refusal.t
     | Unknown_node of Node_id.t
@@ -37,6 +40,8 @@ module Refusal = struct
     | Loop_c e -> Loop_ir.Loop_c.pp_error ppf e
     | Loop_lowering e -> Loop_ir.Loop_lower.pp_error ppf e
     | Loop_wasm e -> Loop_ir.Loop_wasm.pp_error ppf e
+    | Mir_lowering r -> Machine_model.Mir_model.Refusal.pp ppf r
+    | Mir_stage r -> Machine_model.Mir_model.Reason.pp ppf r
     | Ssa_backends s -> Fmt.string ppf s
     | Ssa_lowering r -> Ssa_backends.Refusal.pp ppf r
     | Unknown_node n ->
@@ -55,6 +60,7 @@ module Note = struct
     | Helpers of Loop_ir.Loop_c_runtime.Name.t list
     | Local_doubles of int64
     | Loop_target of Loop_ir.Loop_target.t
+    | Mir_summary of string
     | Numerics of Loop_ir.Loop_numerics.t
     | Numerics_not_applicable of Loop_ir.Loop_numerics.t
     | Row_blocking
@@ -76,6 +82,7 @@ module Note = struct
           (List.map Loop_ir.Loop_c_runtime.Name.to_string hs)
     | Local_doubles n -> Fmt.pf ppf "local scratch: %Ld doubles" n
     | Loop_target t -> Fmt.pf ppf "vector target: %s" t.Loop_ir.Loop_target.name
+    | Mir_summary s -> Fmt.string ppf s
     | Numerics n -> Fmt.pf ppf "numerics: %s" (Loop_ir.Loop_numerics.name n)
     | Numerics_not_applicable n ->
         Fmt.pf ppf "numerics %s does not apply to this family"

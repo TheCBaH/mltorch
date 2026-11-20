@@ -24,6 +24,8 @@ let refusal (r : Artifact.Refusal.t) =
   | Loop_c _ -> tag "loop_c" (rendered ())
   | Loop_lowering _ -> tag "loop_lowering" (rendered ())
   | Loop_wasm _ -> tag "loop_wasm" (rendered ())
+  | Mir_lowering _ -> tag "mir_lowering" (rendered ())
+  | Mir_stage _ -> tag "mir_stage" (rendered ())
   | Ssa_backends s -> tag "ssa_backends" [ s ]
   | Ssa_lowering _ -> tag "ssa_lowering" (rendered ())
   | Unknown_node n -> tag "unknown_node" [ node_text n ]
@@ -39,6 +41,7 @@ let note (n : Artifact.Note.t) =
   | Helpers _ -> tag "helpers" (rendered ())
   | Local_doubles _ -> tag "local_doubles" (rendered ())
   | Loop_target _ -> tag "loop_target" (rendered ())
+  | Mir_summary s -> tag "mir_summary" [ s ]
   | Numerics _ -> tag "numerics" (rendered ())
   | Numerics_not_applicable _ -> tag "numerics_not_applicable" (rendered ())
   | Row_blocking -> tag "row_blocking" []

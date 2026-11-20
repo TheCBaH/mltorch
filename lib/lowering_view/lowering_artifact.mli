@@ -7,7 +7,7 @@ open Graph_ir
 
 module Language : sig
   (* @alphabetical *)
-  type t = C | Js | Loop | Ssa | Wat
+  type t = C | Js | Loop | Machine_ir | Ssa | Wat
 
   val all : t list
   val name : t -> string
@@ -23,6 +23,12 @@ module Refusal : sig
     | Loop_lowering of Loop_ir.Loop_lower.error
         (** re-lowering the placed kernel under a pass subset *)
     | Loop_wasm of Loop_ir.Loop_wasm.error
+    | Mir_lowering of Machine_model.Mir_model.Refusal.t
+        (** the invocation has no Machine IR kernel *)
+    | Mir_stage of Machine_model.Mir_model.Reason.t
+        (** the target's stage refused: a selection it does not admit, a frame
+            that does not fit, a checker rejection, register groups asked of
+            the reference allocator *)
     | Ssa_backends of string
         (** [Ssa_backends]' own words: its producers still return strings for
             everything after lowering (planning, emission) *)
@@ -50,6 +56,9 @@ module Note : sig
     | Local_doubles of int64  (** [double]s of scratch the C kernel needs *)
     | Loop_target of Loop_ir.Loop_target.t
         (** the vector target the Loop emitter planned for *)
+    | Mir_summary of string
+        (** the realized or scanned artifact's summary, in Machine IR's own
+            words *)
     | Numerics of Loop_ir.Loop_numerics.t
         (** the policy applied: the family's default when the key named none *)
     | Numerics_not_applicable of Loop_ir.Loop_numerics.t

@@ -615,3 +615,75 @@ let%expect_test "of_node finds an invocation by its node" =
     native/n0/loop
     native/n4242/loop
     refused: the bundle has no invocation for n4242 |}]
+
+(* ---- Machine IR: every target and stage of a pointwise node ---- *)
+
+let machine_ir target stage =
+  K.Machine_ir K.Mir_spec.{ target; stage }
+
+let%expect_test "Machine IR: every target and stage" =
+  let inv = only (relu ()) in
+  status inv
+    (List.concat_map
+       (fun t -> List.map (machine_ir t) K.Mir_stage.all)
+       K.Target.all);
+  [%expect {|
+    machine_ir:aarch64/allocated emits 160 lines
+    machine_ir:aarch64/generic   emits 84 lines
+    machine_ir:aarch64           emits 139 lines
+    machine_ir:aarch64/scanned   emits 76 lines
+    machine_ir:aarch64/selected  emits 59 lines
+    machine_ir:riscv32/allocated emits 171 lines
+    machine_ir:riscv32/generic   emits 84 lines
+    machine_ir:riscv32           emits 141 lines
+    machine_ir:riscv32/scanned   emits 70 lines
+    machine_ir:riscv32/selected  emits 57 lines
+    machine_ir:riscv32_grouped/allocated refused: the reference allocator does not allocate register groups (allocated)
+    machine_ir:riscv32_grouped/generic emits 84 lines
+    machine_ir:riscv32_grouped   refused: the reference allocator does not allocate register groups (realized)
+    machine_ir:riscv32_grouped/scanned emits 70 lines
+    machine_ir:riscv32_grouped/selected emits 57 lines
+    machine_ir:allocated         emits 185 lines
+    machine_ir:generic           emits 84 lines
+    machine_ir                   emits 152 lines
+    machine_ir:scanned           emits 94 lines
+    machine_ir:selected          emits 65 lines |}]
+
+let%expect_test "Machine IR: realized x86-64 head and notes; typed refusals" =
+  let inv = only (relu ()) in
+  show ~lines:3 inv (machine_ir K.Target.X86_64 K.Mir_stage.Realized);
+  let typed v =
+    match (Lv.of_invocation ~granted:nobody inv v).A.body with
+    | A.Refused (A.Refusal.Mir_stage _) -> Fmt.pr "typed: Mir_stage _@."
+    | A.Refused _ | A.Text _ -> Fmt.pr "untyped@."
+  in
+  typed (machine_ir K.Target.Riscv32_grouped K.Mir_stage.Realized);
+  [%expect {|
+    == machine_ir
+    [machine_ir, 152 lines]
+    target x86_64 [sse2]
+    fn0 main func kernel() -> (eax) frame 200 {
+    bb0():
+    note: numerics: fp32_ordered
+    note: SSA target: scalar
+    note: x86_64 (Intel SDM 325462 084) features [sse2], numerics=fp32_ordered vectorized=f32 other=f32 fma=none reassociation=none/scalar/row_block=1/forbidden; symbols: 2 bound, 1 bss, 0 rodata, 0 external [], 1 function; 2 relocations
+    typed: Mir_stage _ |}]
+
+let%expect_test "Machine IR: an SSA-refused node is a typed Mir_lowering" =
+  let inv = only (relu ()) in
+  let inv =
+    {
+      inv with
+      Loop_ir.Loop_bundle.placed =
+        Fusion_plan.default Loop_ir_test.Loop_programs.i64_load_of_f32_kernel;
+    }
+  in
+  let a = Lv.of_invocation ~granted:nobody inv (K.default K.Machine_ir) in
+  Fmt.pr "%a@." A.pp a;
+  (match a.A.body with
+  | A.Refused (A.Refusal.Mir_lowering _) -> Fmt.pr "typed: Mir_lowering _@."
+  | A.Refused _ | A.Text _ -> Fmt.pr "untyped@.");
+  [%expect {|
+    native/n0/machine_ir
+    refused: invocation 0 (n0): Loop_lower: t1: load of format f32 is not lowered
+    typed: Mir_lowering _ |}]

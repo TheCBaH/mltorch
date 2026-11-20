@@ -22,6 +22,7 @@
   ssa_bridge_test
   ssa_ir
   ssa_ir_test)
- (inline_tests)
+ (inline_tests
+  (modes best js))
  (preprocess
   (pps ppx_expect)))
