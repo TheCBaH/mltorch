@@ -23,10 +23,18 @@ export const familyOf = (spelling) => spelling.split(':', 1)[0];
 /* `data` is the producer's own rendering of the payload for every kind that
  * carries more than an id; the sentence around it is the page's. */
 const REFUSALS = {
+  asm_aarch64: ([why]) => `The AArch64 artifact has no assembly module: ${why}`,
+  asm_riscv32: ([why]) => `The RV32 artifact has no assembly module: ${why}`,
+  asm_x86_64: ([why]) => `The x86-64 artifact has no assembly module: ${why}`,
+  coral_kernel: ([why]) => `The Coral NPU has no generated kernel for this contraction: ${why}`,
+  coral_transfer: ([why]) => `The Coral transfer plan does not fit: ${why}`,
   granted: ([node]) => `Node ${node} is granted: no Loop body realizes it, so no family has code to show.`,
   loop_c: ([why]) => `The C emitter refused this kernel: ${why}`,
   loop_lowering: ([why]) => `Re-lowering the kernel under this pass selection failed: ${why}`,
   loop_wasm: ([why]) => `The WebAssembly emitter refused this kernel: ${why}`,
+  mir_lowering: ([why]) => `This node has no Machine IR kernel: ${why}`,
+  mir_stage: ([why]) => `This Machine IR stage refused the kernel: ${why}`,
+  not_a_contraction: () => 'This node holds no matrix product, so there is no Coral kernel or transfer plan for it.',
   ssa_backends: ([why]) => `The SSA backends refused this kernel: ${why}`,
   ssa_lowering: ([why]) => `This kernel has no SSA program: ${why}`,
   unknown_node: ([node]) => `The model has no node ${node}.`,
@@ -35,16 +43,23 @@ const REFUSALS = {
 };
 
 const NOTES = {
+  code_bytes: ([text]) => text,
+  coral_region_assumed: ([text]) => text,
+  coral_transfer_budget: ([text]) => text,
   fp32_refusal: ([why]) => `Left in binary64: ${why}`,
   fused_multiply_adds: () => 'The plan holds fused multiply-adds.',
+  helper_bindings: ([text]) => text,
   helpers: ([text]) => text,
   local_doubles: ([text]) => text,
   loop_target: ([text]) => text,
+  mir_summary: ([text]) => text,
   numerics: ([text]) => text,
   numerics_not_applicable: ([text]) => `Not applied (the family has no numerical policy): ${text}`,
+  relocations: ([text]) => text,
   row_blocking: () => 'The plan blocked row loops around a vector loop.',
   ssa_fp32_refusal: ([why]) => `Left in binary64: ${why}`,
   ssa_target: ([text]) => text,
+  symbols: ([text]) => text,
   vectorization: ([text]) => text,
   working_precision: ([text]) => text,
 };

@@ -897,16 +897,51 @@ test('the lowering pane: select, open, switch family, compare, reload, history',
   await expect(page.locator('#code-pane .code-diff-text')).toBeVisible();
   expect(param(page, 'lowercmp')).toBe('ssa');
 
-  // History: back leaves the comparison (choosing the family it already
-  // showed added no entry), back again is the c tab, forward returns.
+  // History: the comparison opened on the next family (machine_ir), so
+  // choosing ssa was its own entry; back returns to that, back again leaves
+  // the comparison, back again is the c tab, forward returns.
+  await page.goBack();
+  await expect(page.locator('#code-pane .code-column[data-side="right"] .code-tab[aria-selected="true"]')).toHaveText('machine_ir', { timeout: 60_000 });
   await page.goBack();
   await expect(page.locator('#code-pane .code-column[data-side="right"]')).toHaveCount(0, { timeout: 60_000 });
   expect(param(page, 'lowercmp')).toBeNull();
   await page.goBack();
   await expect(page.locator('#code-pane .code-tab[aria-selected="true"]')).toHaveText('c', { timeout: 60_000 });
-  await expect(paneText(page)).toContainText('static int kernel(');
+  await expect(paneText(page)).toContainText('static int kernel(', { timeout: 60_000 });
   await page.goForward();
   await expect(page.locator('#code-pane .code-tab[aria-selected="true"]').first()).toHaveText('loop', { timeout: 60_000 });
+  await expect(page.locator('#error')).toBeHidden();
+});
+
+test('the lowering pane: machine_ir, asm and coral tabs, refusals as text', async ({ page }) => {
+  test.setTimeout(300_000);
+  await page.goto('/index.html?model=mobilenetv2_050&view=v/canonical&node=n0&lower=js');
+  await expect(paneText(page)).toBeVisible({ timeout: 180_000 });
+  const tabs = page.locator('#code-pane .code-column[data-side="left"] .code-tab');
+  for (const name of ['asm', 'coral', 'machine_ir']) await expect(tabs.filter({ hasText: new RegExp(`^${name}$`) })).toHaveCount(1);
+  const variant = page.locator('#code-pane .code-column[data-side="left"] .code-variant');
+
+  await tabs.filter({ hasText: /^machine_ir$/ }).click();
+  await expect(paneText(page)).toBeVisible({ timeout: 180_000 });
+  expect(param(page, 'lower')).toBe('machine_ir');
+  expect(await variant.locator('option').count()).toBeGreaterThan(5);
+
+  // Target x stage is one variant bar; a refusal is typed text, not an error.
+  await variant.selectOption('machine_ir:riscv32_grouped');
+  await expect(page.locator('#code-pane .code-column[data-side="left"] .code-refusal')).toContainText('Machine IR', { timeout: 180_000 });
+  expect(param(page, 'lower')).toBe('machine_ir:riscv32_grouped');
+
+  await tabs.filter({ hasText: /^asm$/ }).click();
+  await expect(paneText(page)).toBeVisible({ timeout: 180_000 });
+  expect((await paneText(page).textContent())!.length).toBeGreaterThan(40);
+  expect(param(page, 'lower')).toBe('asm');
+
+  await tabs.filter({ hasText: /^coral$/ }).click();
+  await expect(paneText(page)).toBeVisible({ timeout: 180_000 });
+  expect(param(page, 'lower')).toBe('coral');
+
+  await variant.selectOption('coral:rvv_kernel');
+  await expect(page.locator('#code-pane .code-column[data-side="left"]').locator('.code-text, .code-refusal')).toBeVisible({ timeout: 180_000 });
   await expect(page.locator('#error')).toBeHidden();
 });
 

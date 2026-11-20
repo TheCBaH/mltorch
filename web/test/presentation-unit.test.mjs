@@ -630,6 +630,13 @@ test('a lowering destination survives an encode/decode round trip, comparison in
   assert.ok(!sameLowering(single.lowering, null));
 });
 
+test('the machine_ir, asm and coral spellings survive an encode/decode round trip', () => {
+  for (const [left, right] of [['machine_ir:riscv32_grouped', 'asm:aarch64'], ['coral:transfer_plan', 'coral:zvt_kernel'], ['asm', 'machine_ir:selected']]) {
+    const lowering = { node: 'n3', left, right };
+    assert.deepEqual(decodeUrl(encodeUrl({ model: 'm', lowering })).lowering, lowering, left);
+  }
+});
+
 test('a malformed lowering key is ignored silently, and a lone half opens nothing', () => {
   for (const search of ['?node=12&lower=js', '?node=n12', '?lower=js', '?node=n12&lower=JS', '?node=n12&lower=',
     '?node=n-1&lower=js', '?node=n12&lower=js:%0Ax', '?node=n012&lower=js']) {
