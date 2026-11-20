@@ -32,3 +32,23 @@
   model_explorer_export
   native
   webapp_jsoo_buffer))
+
+; The lowering inspector's worker: the session worker's frame handling with the
+; lowering view supplied, so it is the one worker that links [lowering_view]
+; (and through it the C, WebAssembly, JavaScript and SSA emitters).
+
+(executable
+ (name lowering_worker)
+ (modes js)
+ (modules lowering_worker)
+ (libraries
+  core
+  js_of_ocaml
+  err_trace
+  jsont
+  jsont.bytesrw
+  loop_ir
+  lowering_key
+  lowering_view
+  model_explorer_export
+  webapp_jsoo_buffer))

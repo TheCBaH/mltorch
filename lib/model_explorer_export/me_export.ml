@@ -422,7 +422,7 @@ let declared_format_disagrees (source : Me_request.Source.t)
   in
   detected <> source.Me_request.Source.format
 
-let handle ?lower ~emit request ~bytes =
+let handle ?lower ?(bundle = canonical_bundle) ~emit request ~bytes =
   let id = Me_request.Request.id request in
   let key = Me_request.Request.key request in
   let limits =
@@ -461,7 +461,7 @@ let handle ?lower ~emit request ~bytes =
       match lower with
       | None -> failed `Lowering_not_provided
       | Some lower -> (
-          match canonical_bundle ~limits ~options ~bytes with
+          match bundle ~limits ~options ~bytes with
           | Error e -> failed (Err.Error.kind e)
           | Ok bundle -> (
               progress Me_response.Phase.Encode 0L None;

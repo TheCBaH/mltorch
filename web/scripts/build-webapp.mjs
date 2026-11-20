@@ -50,7 +50,7 @@ async function assertArtifact(directory, relative = '') {
     if (!info.isFile()) throw new Error(`artifact contains non-file: ${child}`);
     if (child.startsWith('models/') && child.endsWith('.json')) continue;
     if (child.startsWith('vendor/')) continue;
-    if (new Set(['index.html', 'app.css', 'app.js', 'coordinator.js', 'panels.js', 'presentation.js', 'renderer.js', 'source_store.js', 'worker.js', 'webapp_bridge.js', 'catalog.json']).has(child)) continue;
+    if (new Set(['index.html', 'app.css', 'app.js', 'coordinator.js', 'panels.js', 'presentation.js', 'renderer.js', 'source_store.js', 'worker.js', 'lowering_worker.js', 'webapp_bridge.js', 'catalog.json']).has(child)) continue;
     throw new Error(`artifact contains unexpected file: ${child}`);
   }
 }
@@ -58,6 +58,7 @@ async function assertArtifact(directory, relative = '') {
 try {
   await cp(join(root, 'web/app'), temporary, { recursive: true });
   await cp(join(root, '_build/default/js/webapp/webapp_worker.bc.js'), join(temporary, 'worker.js'));
+  await cp(join(root, '_build/default/js/webapp/lowering_worker.bc.js'), join(temporary, 'lowering_worker.js'));
   await cp(join(root, '_build/default/js/webapp/webapp_bridge.bc.js'), join(temporary, 'webapp_bridge.js'));
   // Built from the submodule that pins the OCaml schema, not from npm -- see
   // the `visualizer.build` block in the Makefile for why there is no published

@@ -163,6 +163,11 @@ val handle :
     Lowering_key.t ->
     Loop_ir.Loop_bundle.t ->
     Me_artifact.t) ->
+  ?bundle:
+    (limits:Me_limits.Limits.t ->
+    options:Options.t ->
+    bytes:string ->
+    (Loop_ir.Loop_bundle.t, error) Err.t) ->
   emit:(Me_response.Progress.t -> unit) ->
   Me_request.Request.t ->
   bytes:string ->
@@ -183,6 +188,11 @@ val handle :
     supplies it, and without one a lowering request fails with
     [`Lowering_not_provided]. The artifact document is bounded by
     [Hard.max_response_document_bytes], the ceiling the page checks.
+
+    [bundle] is where a lowering request gets its canonical bundle; it defaults
+    to {!canonical_bundle}. A worker that answers many requests about one model
+    passes a one-entry memo of it: the function is pure in its arguments, so a
+    cache keyed on all of them cannot be stale.
 
     The request carries no separate identity: [id] is a field of the request, so
     a response cannot name one request in its id and another beside it. *)

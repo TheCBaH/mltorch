@@ -52,9 +52,17 @@ export class Coordinator {
    * is given. Defaults to the browser's own default so a coordinator built
    * before any URL is read already matches `presentation.js`'s. */
   #constantsMode = 'grouped';
+  /* The lowering inspector's worker and its one live request. Separate from
+   * `#pending` on purpose: a lowering reads the retained source and changes no
+   * session, so it neither blocks a presentation nor is blocked by one. The
+   * worker is spawned by the first `openLowering` and then KEPT, because its
+   * one-entry memo of the canonical bundle is what makes the second node of a
+   * model cheap. A reply is delivered only if it answers the newest request. */
+  #loweringWorker = null;
+  #lowering = null;
 
-  constructor({ workerFactory, bridge, render, onStatus = () => {}, onError = () => {}, onSession = () => {}, onDetail = () => {}, hard }) {
-    Object.assign(this, { workerFactory, bridge, render, onStatus, onError, onSession, onDetail, hard });
+  constructor({ workerFactory, bridge, render, onStatus = () => {}, onError = () => {}, onSession = () => {}, onDetail = () => {}, onLowering = () => {}, loweringWorkerFactory = null, hard }) {
+    Object.assign(this, { workerFactory, bridge, render, onStatus, onError, onSession, onDetail, onLowering, loweringWorkerFactory, hard });
   }
 
   get session() { return this.#session; }
@@ -143,6 +151,7 @@ export class Coordinator {
     if (this.#poisoned) throw new Error(POISONED);
     if (this.#pending) throw new Error('a request is already in flight');
     const epoch = ++this.#epoch;
+    this.#lowering = null;                              // about a model that is being replaced
     const id = `${crypto.randomUUID()}-0`;
     const requestSource = {
       name: source.name,
@@ -236,6 +245,8 @@ export class Coordinator {
       this.#retireWorker(victim);
     }
     this.#cancelRenderer();
+    this.#lowering = null;
+    this.#retireLoweringWorker();
     if (first) this.onError(reloadText(reason));        // exactly one, ever
   }
 
@@ -424,6 +435,89 @@ export class Coordinator {
     if (!settled.undisturbed) return;
     this.onDetail({ sessionText: this.#session, effectiveOptions: this.#options, viewId: this.view });
     this.onStatus('Symbolic computation opened');
+  }
+
+  /* ------------------------------------------------------------- lowering */
+
+  #retireLoweringWorker() {
+    const worker = this.#loweringWorker;
+    this.#loweringWorker = null;
+    try { worker?.terminate(); }
+    catch (error) { console.warn('[coordinator] lowering worker termination failed', error); }
+  }
+
+  /* What one node of the retained model lowers to, in the family and variant
+   * the key names. The answer reaches `onLowering({ node, key, artifact })`, or
+   * `onError` when the request failed; a request made after this one silences
+   * this one's answer entirely, so the pane can never show an older node's code
+   * after a newer click. Resolves once the request is posted, like `load`. */
+  async openLowering(node, { dialect = 'native', variant = 'loop' } = {}) {
+    if (this.#poisoned) throw new Error(POISONED);
+    if (!this.#session || !this.#source || !this.#options) throw new Error('no model is loaded');
+    const source = this.#source;
+    const id = `${crypto.randomUUID()}-0`;
+    const lowering = { id, node, key: { dialect, node, variant } };
+    this.#lowering = lowering;
+    const requestSource = {
+      name: source.name, bytes: source.bytes.toString(), kind: source.kind,
+      ...(source.catalog ? { catalog: source.catalog } : {}),
+    };
+    const built = this.bridge.request.buildLowering({ id, source: requestSource, options: this.#options, key: lowering.key });
+    if (!built.ok) {
+      if (this.#lowering === lowering) this.#lowering = null;
+      throw new Error(built.error || 'lowering request construction failed');
+    }
+    const bytes = await source.readBytes();
+    if (this.#lowering !== lowering || this.#poisoned) return;
+    if (!this.#loweringWorker) {
+      const worker = (this.loweringWorkerFactory ?? this.workerFactory)();
+      this.#loweringWorker = worker;
+      worker.onmessage = (event) => this.#loweringMessage(worker, event);
+      worker.onerror = () => this.#loweringFailed(worker, 'lowering worker failed');
+    }
+    this.#loweringWorker.postMessage({ request: built.request, bytes }, [built.request, bytes]);
+    this.onStatus('Lowering…');
+  }
+
+  /* A worker that failed is dropped (the next request spawns a fresh one and
+   * loses the memo); the failure is reported only if a request awaited it. */
+  #loweringFailed(worker, message) {
+    if (this.#loweringWorker === worker) this.#retireLoweringWorker();
+    const current = this.#lowering;
+    this.#lowering = null;
+    if (current && !this.#poisoned) this.onError(message);
+  }
+
+  #loweringMessage(worker, event) {
+    try { this.#loweringHandle(worker, event); }
+    catch (error) { this.#loweringFailed(worker, `the lowering reply could not be read: ${text(error)}`); }
+  }
+
+  #loweringHandle(worker, event) {
+    const current = this.#lowering;
+    if (!current || this.#poisoned || this.#loweringWorker !== worker) return;
+    const frame = event.data;
+    if (!frame || typeof frame.meta !== 'string' || new TextEncoder().encode(frame.meta).byteLength > this.hard.maxResponseMetaBytes) {
+      return this.#loweringFailed(worker, 'malformed worker metadata');
+    }
+    let meta;
+    try { meta = JSON.parse(frame.meta); } catch { return this.#loweringFailed(worker, 'malformed worker metadata'); }
+    // The worker answers in order, so a reply to an older request is neither an
+    // error nor ours to show.
+    if (meta.id && meta.id !== current.id) return;
+    if (meta.kind === 'progress') return;
+    if (meta.kind === 'failed') return this.#loweringFailed(worker, meta.error?.message || 'lowering failed');
+    if (meta.kind !== 'artifact') return this.#loweringFailed(worker, 'unexpected worker response');
+    if (!(frame.payload instanceof ArrayBuffer) || frame.payload.byteLength !== meta.bytes
+        || frame.payload.byteLength > this.hard.maxResponseDocumentBytes) {
+      return this.#loweringFailed(worker, 'invalid lowering payload');
+    }
+    let artifact;
+    try { artifact = JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(frame.payload)); }
+    catch { return this.#loweringFailed(worker, 'lowering payload is not UTF-8 JSON'); }
+    this.#lowering = null;
+    this.onLowering({ node: current.node, key: current.key, artifact });
+    this.onStatus('Lowering shown');
   }
 
   /* ---------------------------------------------------------- presentation */

@@ -347,39 +347,52 @@ let build_session raw =
 (* A detail uses the same source and normalised options as a session request;
    only its closed parent key differs.  Keeping construction here means the
    page never serialises an unchecked rendered node id into the worker wire. *)
+(* The id, source, options and limits a detail and a lowering request share. *)
+let read_common raw =
+  let id_text =
+    Err.or_raise ~pp_error:Js_read.pp_error (Js_read.string_field raw "id")
+  in
+  let id =
+    Err.or_raise ~pp_error:Me_request.Request.pp_error
+      (Me_request.Request_id.of_string id_text)
+  in
+  let source_raw = Js_read.field raw "source" in
+  let origin =
+    Err.or_raise ~pp_error:Js_read.pp_error (read_origin source_raw)
+  in
+  let bytes = Err.or_raise ~pp_error:Js_read.pp_error (read_bytes source_raw) in
+  let name =
+    Err.or_raise ~pp_error:Js_read.pp_error
+      (Js_read.string_field source_raw "name" ~label:"source.name")
+  in
+  let source =
+    Err.or_raise ~pp_error:Me_request.Request.pp_error
+      (Me_request.Source.create ~limits:Me_limits.Limits.untrusted ~origin ~name
+         ~bytes ~format:`Model_json)
+  in
+  let stages, fold, verify_symbolic, generated_js =
+    Err.or_raise ~pp_error:Js_read.pp_error (read_options raw)
+  in
+  let options =
+    Err.or_raise ~pp_error:Me_request.Request.pp_error
+      (Me_request.Options.create ~stages ~fold ~verify_symbolic
+         ~namespace:Me_request.Options.Structural ?generated_js ())
+  in
+  let limits =
+    Err.or_raise ~pp_error:Me_limits.pp_error
+      (Me_limits.Wire_limits.of_limits ~ceiling:Me_limits.Limits.untrusted
+         Me_limits.Limits.untrusted)
+  in
+  (id, source, options, limits)
+
+let encode_request request =
+  match Jsont_bytesrw.encode_string Me_request.Request.jsont request with
+  | Ok json -> response true ~request:(Buffer.fresh_array_buffer json)
+  | Error message -> response false ~error:message
+
 let build_detail raw =
   try
-    let id_text =
-      Err.or_raise ~pp_error:Js_read.pp_error (Js_read.string_field raw "id")
-    in
-    let id =
-      Err.or_raise ~pp_error:Me_request.Request.pp_error
-        (Me_request.Request_id.of_string id_text)
-    in
-    let source_raw = Js_read.field raw "source" in
-    let origin =
-      Err.or_raise ~pp_error:Js_read.pp_error (read_origin source_raw)
-    in
-    let bytes =
-      Err.or_raise ~pp_error:Js_read.pp_error (read_bytes source_raw)
-    in
-    let name =
-      Err.or_raise ~pp_error:Js_read.pp_error
-        (Js_read.string_field source_raw "name" ~label:"source.name")
-    in
-    let source =
-      Err.or_raise ~pp_error:Me_request.Request.pp_error
-        (Me_request.Source.create ~limits:Me_limits.Limits.untrusted ~origin
-           ~name ~bytes ~format:`Model_json)
-    in
-    let stages, fold, verify_symbolic, generated_js =
-      Err.or_raise ~pp_error:Js_read.pp_error (read_options raw)
-    in
-    let options =
-      Err.or_raise ~pp_error:Me_request.Request.pp_error
-        (Me_request.Options.create ~stages ~fold ~verify_symbolic
-           ~namespace:Me_request.Options.Structural ?generated_js ())
-    in
+    let id, source, options, limits = read_common raw in
     let key_raw = Js_read.field raw "key" in
     if not (Js_read.is_object key_raw) then
       Err.or_raise ~pp_error:Js_read.pp_error
@@ -392,24 +405,54 @@ let build_detail raw =
       Err.or_raise ~pp_error:Js_read.pp_error
         (Js_read.int_field key_raw "node" ~label:"key.node")
     in
-    let limits =
-      Err.or_raise ~pp_error:Me_limits.pp_error
-        (Me_limits.Wire_limits.of_limits ~ceiling:Me_limits.Limits.untrusted
-           Me_limits.Limits.untrusted)
-    in
     let key =
       Err.or_raise ~pp_error:Me_request.Request.pp_error
         (Me_request.Detail_key.create_operator
            ~limits:Me_limits.Limits.untrusted ~parent_graph
            ~node:(Graph_ir.Node_id.of_int node))
     in
-    let request =
-      Err.or_raise ~pp_error:Me_request.Request.pp_error
-        (Me_request.Request.build_detail ~id ~source ~options ~limits ~key)
+    encode_request
+      (Err.or_raise ~pp_error:Me_request.Request.pp_error
+         (Me_request.Request.build_detail ~id ~source ~options ~limits ~key))
+  with exn -> response false ~error:(error_text exn)
+
+(* The lowering inspector's request: [key] is [{dialect, node, variant}], the
+   variant in [Lowering_key]'s one spelling, checked here so the page never
+   serialises an unchecked key into the worker wire. *)
+let build_lowering raw =
+  try
+    let id, source, options, limits = read_common raw in
+    let key_raw = Js_read.field raw "key" in
+    if not (Js_read.is_object key_raw) then
+      Err.or_raise ~pp_error:Js_read.pp_error
+        (Js_read.fail (`Not_an_object "key"));
+    let field name =
+      Err.or_raise ~pp_error:Js_read.pp_error
+        (Js_read.string_field key_raw name ~label:("key." ^ name))
     in
-    match Jsont_bytesrw.encode_string Me_request.Request.jsont request with
-    | Ok json -> response true ~request:(Buffer.fresh_array_buffer json)
-    | Error message -> response false ~error:message
+    let dialect =
+      match Lowering_key.Dialect.of_name (field "dialect") with
+      | Some d -> d
+      | None -> failwith "key.dialect is not a lowering dialect"
+    in
+    let variant =
+      match Lowering_key.of_name (field "variant") with
+      | Ok v -> v
+      | Error e ->
+          failwith (Core.Pretty.to_string Lowering_key.Parse_error.pp e)
+    in
+    let node =
+      Err.or_raise ~pp_error:Js_read.pp_error
+        (Js_read.int_field key_raw "node" ~label:"key.node")
+    in
+    if node < 0 then failwith "key.node is negative";
+    let lowering =
+      Lowering_key.make ~dialect (Graph_ir.Node_id.of_int node) variant
+    in
+    encode_request
+      (Err.or_raise ~pp_error:Me_request.Request.pp_error
+         (Me_request.Request.build_lowering ~id ~source ~options ~limits
+            ~lowering))
   with exn -> response false ~error:(error_text exn)
 
 let staged = ref None
@@ -587,6 +630,7 @@ let () =
       [|
         ("buildSession", Js.Unsafe.inject (Js.wrap_callback build_session));
         ("buildDetail", Js.Unsafe.inject (Js.wrap_callback build_detail));
+        ("buildLowering", Js.Unsafe.inject (Js.wrap_callback build_lowering));
       |]
   in
   let session =

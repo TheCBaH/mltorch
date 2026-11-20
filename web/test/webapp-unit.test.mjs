@@ -65,7 +65,7 @@ function scenario({ session = {}, render = {} } = {}) {
   const workers = [];
   const errors = [];
   const statuses = [];
-  const calls = { prepare: [], commit: [], abort: [], install: [], finalize: [], abortReady: [], markInconsistent: [], cancel: 0, buildSession: [], sessions: [], groupConstants: [] };
+  const calls = { prepare: [], commit: [], abort: [], install: [], finalize: [], abortReady: [], markInconsistent: [], cancel: 0, buildSession: [], sessions: [], groupConstants: [], buildLowering: [], lowerings: [] };
   /* Shaped exactly like `Renderer`'s own handle, `presentation` included: the
    * coordinator retains that descriptor and DERIVES `view` from it, so a stub
    * carrying only `viewId` would prove a contract nothing implements. */
@@ -80,7 +80,8 @@ function scenario({ session = {}, render = {} } = {}) {
      * page handed over rather than only that something was built. The echo is
      * the input here; what OCaml actually normalises to is pinned in
      * `bridge-unit.test.mjs` against the real bridge. */
-    request: { buildSession: (request) => { lastId = request.id; calls.buildSession.push(request); return { ok: true, request: new ArrayBuffer(2), options: request.options }; } },
+    request: { buildLowering: (request) => { calls.buildLowering.push(request); return { ok: true, request: new ArrayBuffer(2) }; },
+      buildSession: (request) => { lastId = request.id; calls.buildSession.push(request); return { ok: true, request: new ArrayBuffer(2), options: request.options }; } },
     session: {
       prepare: (id) => { calls.prepare.push(id); return (session.prepare ?? (() => ({ ok: true, token: id, render: '{}' })))(id); },
       commit: (token) => { calls.commit.push(token); return (session.commit ?? (() => ({ ok: true })))(token); },
@@ -107,6 +108,7 @@ function scenario({ session = {}, render = {} } = {}) {
     bridge, render: view, hard: HARD,
     onStatus: (t) => statuses.push(t),
     onError: (t) => errors.push(t),
+    onLowering: (l) => calls.lowerings.push(l),
     onSession: (s) => { calls.sessions.push(s); (session.onSession ?? (() => {}))(s); },
   });
 
@@ -744,4 +746,65 @@ test('a failed comparison leaves the previous presentation intact', async () => 
   assert.deepEqual(s.coordinator.presentation, { kind: 'single', view: 'v/canonical' });
   assert.equal(s.coordinator.view, 'v/canonical');
   assert.equal(s.errors.at(-1), 'nope');
+});
+
+/* ------------------------------------------------------------------ lowering */
+
+const artifactFrame = (id, text) => {
+  const payload = new TextEncoder().encode(JSON.stringify({ body: { kind: 'text', text } })).buffer;
+  return { data: { meta: JSON.stringify({ kind: 'artifact', id, bytes: payload.byteLength }), payload } };
+};
+
+test('the lowering worker is not spawned until the first openLowering, then reused', async () => {
+  const s = await loaded();
+  const before = s.workers.length;                     // the session's own, now retired
+  await s.coordinator.openLowering(3, { variant: 'js' });
+  assert.equal(s.workers.length, before + 1);
+  await s.coordinator.openLowering(4);
+  assert.equal(s.workers.length, before + 1, 'the second request reuses the worker and its memo');
+  const worker = s.workers.at(-1);
+  assert.equal(worker.posted.length, 2);
+  assert.deepEqual(s.calls.buildLowering.map((r) => r.key), [
+    { dialect: 'native', node: 3, variant: 'js' }, { dialect: 'native', node: 4, variant: 'loop' },
+  ]);
+  assert.equal(worker.terminated, 0);
+});
+
+test('a newer lowering request silences the older one\'s answer', async () => {
+  const s = await loaded();
+  await s.coordinator.openLowering(1);
+  await s.coordinator.openLowering(2);
+  const worker = s.workers.at(-1);
+  const [first, second] = s.calls.buildLowering.map((r) => r.id);
+  worker.onmessage(artifactFrame(first, 'old'));        // the worker answers in order
+  assert.deepEqual(s.calls.lowerings, []);
+  assert.deepEqual(s.errors, []);
+  worker.onmessage(artifactFrame(second, 'new'));
+  assert.equal(s.calls.lowerings.length, 1);
+  assert.equal(s.calls.lowerings[0].node, 2);
+  assert.equal(s.calls.lowerings[0].artifact.body.text, 'new');
+});
+
+test('a failed lowering is reported once and the worker is respawned for the next', async () => {
+  const s = await loaded();
+  await s.coordinator.openLowering(1);
+  const worker = s.workers.at(-1);
+  const [id] = s.calls.buildLowering.map((r) => r.id);
+  worker.onmessage({ data: { meta: JSON.stringify({ kind: 'failed', id, error: { message: 'no such node' } }) } });
+  assert.deepEqual(s.errors, ['no such node']);
+  assert.equal(worker.terminated, 1);
+  await s.coordinator.openLowering(1);
+  assert.equal(s.workers.at(-1) === worker, false);
+});
+
+test('openLowering needs a loaded model and a load supersedes an unanswered lowering', async () => {
+  const empty = scenario();
+  await assert.rejects(() => empty.coordinator.openLowering(1), /no model is loaded/);
+  const s = await loaded();
+  await s.coordinator.openLowering(1);
+  const worker = s.workers.at(-1);
+  const [id] = s.calls.buildLowering.map((r) => r.id);
+  await s.coordinator.load(source());
+  worker.onmessage(artifactFrame(id, 'stale'));
+  assert.deepEqual(s.calls.lowerings, []);
 });

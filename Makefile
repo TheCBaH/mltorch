@@ -2321,7 +2321,7 @@ webapp.npm-install:
 	cd web && npm ci --no-audit --no-fund
 
 webapp.build: webapp.npm-install visualizer.build
-	opam exec -- dune build js/webapp/webapp_worker.bc.js js/webapp/webapp_bridge.bc.js
+	opam exec -- dune build js/webapp/webapp_worker.bc.js js/webapp/lowering_worker.bc.js js/webapp/webapp_bridge.bc.js
 	node web/scripts/build-webapp.mjs
 
 webapp.serve: webapp.build
@@ -2344,7 +2344,8 @@ webapp.runtest:
 # reached at all: test/model_explorer links model_explorer_export, not this
 # executable.
 webapp.bridge-runtest: webapp.build
-	node --test web/test/bridge-unit.test.mjs
+	opam exec -- dune build bin/native_graph.exe
+	node --test web/test/bridge-unit.test.mjs web/test/lowering-worker.test.mjs
 
 webapp.browser-runtest: webapp.build
 	cd web && PLAYWRIGHT_BROWSERS_PATH="$(abspath web/.playwright-browsers)" npm run webapp
