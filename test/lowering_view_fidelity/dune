@@ -1,0 +1,35 @@
+; Fidelity of lib/lowering_view on a real model: for every invocation of the
+; committed mobilenetv2_050 bundle, the inspector's text equals the kernel the
+; whole-model builder (Loop_bundle_c/js/wasm) actually used. Native only: it
+; reads the committed model.json (an excluded submodule, copied by a rule).
+
+(rule
+ (target model.json)
+ (action
+  (with-stdout-to
+   %{target}
+   (run
+    cat
+    %{project_root}/../../modules/devcontainer.pytorch-image-models/models/mobilenetv2_050/models/model.json))))
+
+(library
+ (name lowering_view_fidelity)
+ (libraries
+  core
+  err_trace
+  fmt
+  js_ast
+  jsont.bytesrw
+  loop_ir
+  lowering_key
+  lowering_view
+  native
+  native_interp
+  pytorch_types
+  ssa_backends
+  ssa_ir
+  wasm_ir)
+ (inline_tests
+  (deps model.json))
+ (preprocess
+  (pps ppx_expect)))
