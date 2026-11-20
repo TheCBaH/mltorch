@@ -1,0 +1,10 @@
+; Tests for lib/lowering_key. Pure, so the same expect blocks run under node
+; ([js]): the vocabulary is reached by the browser worker.
+
+(library
+ (name lowering_key_test)
+ (libraries core fmt loop_ir lowering_key native)
+ (inline_tests
+  (modes best js))
+ (preprocess
+  (pps ppx_expect)))

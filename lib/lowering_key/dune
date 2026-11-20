@@ -1,0 +1,9 @@
+; The closed vocabulary of the lowering inspector: which node, which family of
+; generated artifact, and the variant axes (route, passes, numerics, target,
+; stage). One spelling for the CLI flag, the wire and the UI. Pure: it names
+; things and parses names, it lowers nothing, so the protocol library can
+; depend on it without pulling any backend into the session worker.
+
+(library
+ (name lowering_key)
+ (libraries core fmt loop_ir native))
