@@ -8,7 +8,12 @@
 (library
  (name lowering_view)
  (libraries
+  contraction
   core
+  coral_estimate
+  coral_transfer
+  coralnpu_kernels
+  coralnpu_kernels_zvt
   err_trace
   fmt
   js_ast

@@ -20,6 +20,8 @@ let node_text n = Core.Pretty.to_string Graph_ir.Node_id.pp n
 let refusal (r : Artifact.Refusal.t) =
   let rendered () = [ Core.Pretty.to_string Artifact.Refusal.pp r ] in
   match r with
+  | Coral_kernel _ -> tag "coral_kernel" (rendered ())
+  | Coral_transfer _ -> tag "coral_transfer" (rendered ())
   | Granted n -> tag "granted" [ node_text n ]
   | Loop_c _ -> tag "loop_c" (rendered ())
   | Loop_lowering _ -> tag "loop_lowering" (rendered ())
@@ -29,6 +31,7 @@ let refusal (r : Artifact.Refusal.t) =
   | Asm_x86_64 _ -> tag "asm_x86_64" (rendered ())
   | Mir_lowering _ -> tag "mir_lowering" (rendered ())
   | Mir_stage _ -> tag "mir_stage" (rendered ())
+  | Not_a_contraction -> tag "not_a_contraction" []
   | Ssa_backends s -> tag "ssa_backends" [ s ]
   | Ssa_lowering _ -> tag "ssa_lowering" (rendered ())
   | Unknown_node n -> tag "unknown_node" [ node_text n ]
@@ -40,6 +43,8 @@ let note (n : Artifact.Note.t) =
   let rendered () = [ Core.Pretty.to_string Artifact.Note.pp n ] in
   match n with
   | Code_bytes _ -> tag "code_bytes" (rendered ())
+  | Coral_region_assumed _ -> tag "coral_region_assumed" (rendered ())
+  | Coral_transfer_budget _ -> tag "coral_transfer_budget" (rendered ())
   | Fp32_refusal _ -> tag "fp32_refusal" (rendered ())
   | Fused_multiply_adds -> tag "fused_multiply_adds" []
   | Helper_bindings _ -> tag "helper_bindings" (rendered ())

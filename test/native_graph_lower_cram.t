@@ -10,7 +10,7 @@ with a typed reason.
   node n0: 1 outputs, 2 edges, 0 synthetics
   asm        emits 144 lines
   c          emits 15 lines
-  coral      refused: family coral is not supported
+  coral      emits 4 lines
   js         emits 9 lines
   loop       emits 5 lines
   machine_ir emits 117 lines
@@ -97,11 +97,40 @@ GNU assembly (the head, then the notes).
   $ ../bin/native_graph.exe lower --model model.json --node n0 --artifact asm | grep "^note: code"
   note: code: 522 bytes
 
-A family outside the supported set is a refusal and exits 1.
+Coral: the estimate of the default, and its kernels. Node n0 is a convolution
+the plan keeps as loops, so it has a count and no kernel; n424 is a matrix
+product, which has a transfer plan and an RVV and a Zvt kernel (tabs shown as ~).
 
-  $ ../bin/native_graph.exe lower --model model.json --node n0 --artifact coral
-  refused: family coral is not supported
+  $ ../bin/native_graph.exe lower --model model.json --node n0 --artifact coral | tail -2
+  estimated cycles: 1757860
+  note: every buffer assumed in dtcm
+
+  $ ../bin/native_graph.exe lower --model model.json --node n0 --artifact coral:rvv_kernel
+  refused: the invocation's plan holds no matrix product
   [1]
+
+  $ ../bin/native_graph.exe lower --model model.json --node n424 --artifact coral | tail -3
+  contract contract.f32.b1.m3136.n16.k48.a0_48_1.b0_48_1.c50176_16_1.zero.ordered (dtcm dtcm dtcm) x1
+  estimated cycles: 1218128
+  note: every buffer assumed in dtcm
+
+  $ ../bin/native_graph.exe lower --model model.json --node n424 --artifact coral:transfer_plan
+  native/n424/coral:transfer_plan
+  A streamed by 58 rows, B shared, C by the DMA
+  predicted cycles: 2376493
+  note: DTCM budget: 32768 bytes
+
+  $ ../bin/native_graph.exe lower --model model.json --node n424 --artifact coral:rvv_kernel | tr "\t" "~" | sed -n 2,5p
+  ~.section~.text,"ax",@progbits
+  ~.balign~4
+  ~.globl~mlt_contract_40a4ee6b00001da1
+  mlt_contract_40a4ee6b00001da1:
+
+  $ ../bin/native_graph.exe lower --model model.json --node n424 --artifact coral:zvt_kernel | tr "\t" "~" | sed -n 2,5p
+  ~.section~.text,"ax",@progbits
+  ~.balign~4
+  ~.globl~mlt_contract_40a4ee6b00001da1
+  mlt_contract_40a4ee6b00001da1:
 
 An unknown family or variant is a usage error.
 

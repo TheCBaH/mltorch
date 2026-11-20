@@ -9,6 +9,9 @@ module Language : sig
   (* @alphabetical *)
   type t =
     | C
+    | Coral_estimate
+        (** the census of the final SSA program and its estimated cycles *)
+    | Coral_plan  (** a transfer plan, as {!Coral_transfer.Transfer_plan.pp} *)
     | Gnu_asm of Lowering_key.Target.t
         (** the typed Rivet module of the target's published artifact, printed
             as GNU assembly *)
@@ -31,6 +34,10 @@ module Refusal : sig
         (** the RV32 artifact (grouped or not) has no Rivet module *)
     | Asm_x86_64 of Machine_rivet_x86_64_module.Rivet_x64_refusal.t
         (** the x86-64 artifact has no Rivet module *)
+    | Coral_kernel of Coralnpu_kernels.Kernel_refusal.t
+        (** the contraction has no generated kernel on that engine *)
+    | Coral_transfer of Coral_transfer.Transfer_plan.Refusal.t
+        (** the chosen transfer plan does not check within the DTCM budget *)
     | Granted of Node_id.t
         (** a node no Loop body realizes: the bundle holds a placeholder its
             realizing helper replaces, so no family has code to show *)
@@ -44,6 +51,9 @@ module Refusal : sig
         (** the target's stage refused: a selection it does not admit, a frame
             that does not fit, a checker rejection, register groups asked of the
             reference allocator *)
+    | Not_a_contraction
+        (** the invocation's plan holds no matrix product to generate a kernel
+            for *)
     | Ssa_backends of string
         (** [Ssa_backends]' own words: its producers still return strings for
             everything after lowering (planning, emission) *)
@@ -65,6 +75,11 @@ module Note : sig
   type t =
     | Code_bytes of int64
         (** the size of the text Rivet lays the module out as *)
+    | Coral_region_assumed of Coral_estimate.Coral_census.Region.t
+        (** the memory region every buffer was priced in: the estimate has no
+            placement of its own *)
+    | Coral_transfer_budget of Coral_transfer.Transfer_units.Bytes.t
+        (** the DTCM the transfer plan was chosen within *)
     | Fp32_refusal of Loop_ir.Loop_numerics.Refusal.t
         (** why an fp32 policy left the kernel binary64 *)
     | Fused_multiply_adds  (** the plan holds fused multiply-adds *)

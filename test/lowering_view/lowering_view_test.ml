@@ -435,15 +435,12 @@ let%expect_test "a policy a family does not run is a typed refusal" =
   let fp32 = Loop_ir.Loop_numerics.Simd_fp32_relaxed in
   show inv (K.Js (K.Route.Loop (K.Loop_spec.make ~numerics:fp32 Pass.all)));
   show inv (K.Js (ssa_route ~numerics:fp32 K.Pipeline.Planned));
-  show inv (K.Coral K.Coral_view.Estimate);
   [%expect
     {|
     == js:loop/simd_fp32_relaxed
     refused: the javascript backend does not run the simd_fp32_relaxed policy
     == js:ssa/simd_fp32_relaxed
-    refused: the javascript backend does not run the simd_fp32_relaxed policy
-    == coral
-    refused: family coral is not supported |}]
+    refused: the javascript backend does not run the simd_fp32_relaxed policy |}]
 
 let%expect_test "the two outputs of a max pool are two invocations" =
   let invs = invocations (pool ()) in
@@ -866,3 +863,101 @@ let%expect_test "Asm: an SSA-refused node is a typed Mir_lowering" =
     typed: Mir_lowering _
     typed: Mir_lowering _
     typed: Mir_lowering _ |}]
+
+(* ---- Coral ---- *)
+
+let linear ~m ~n ~k =
+  F.build "linear"
+    Graph_builder.(
+      let* x = input ~shape:(F.s 1 1 1 1 m k) () in
+      let* weight = constant ~shape:(F.s n 1 1 1 1 k) () in
+      linear { Linear.Linear.in_features = Dim.extent k } ~x ~weight ())
+
+let coral v = K.Coral v
+
+let linear_inv () =
+  List.find
+    (fun (i : Loop_ir.Loop_bundle.invocation) ->
+      match
+        (Lv.of_invocation ~granted:nobody i (coral K.Coral_view.Zvt_kernel))
+          .A.body
+      with
+      | A.Text _ -> true
+      | A.Refused _ -> false)
+    (invocations (linear ~m:5 ~n:40 ~k:7))
+
+let%expect_test "Coral: a pointwise node is estimated and has no kernel" =
+  let inv = only (relu ()) in
+  show inv (coral K.Coral_view.Estimate);
+  List.iter
+    (fun v -> show inv (coral v))
+    K.Coral_view.[ Rvv_kernel; Transfer_plan; Zvt_kernel ];
+  [%expect
+    {|
+    == coral
+    [coral_estimate, 5 lines]
+    f32_op 24
+    iteration 20
+    load_dtcm 12
+    store_dtcm 12
+    estimated cycles: 201
+    note: every buffer assumed in dtcm
+    == coral:rvv_kernel
+    refused: the invocation's plan holds no matrix product
+    == coral:transfer_plan
+    refused: the invocation's plan holds no matrix product
+    == coral:zvt_kernel
+    refused: the invocation's plan holds no matrix product |}]
+
+let%expect_test "Coral: a contraction has a plan and two kernels" =
+  let inv = linear_inv () in
+  show inv (coral K.Coral_view.Estimate);
+  show inv (coral K.Coral_view.Transfer_plan);
+  show ~lines:12 inv (coral K.Coral_view.Rvv_kernel);
+  show ~lines:12 inv (coral K.Coral_view.Zvt_kernel);
+  [%expect
+    {|
+    == coral
+    [coral_estimate, 6 lines]
+    f32_op 200
+    iteration 205
+    load_dtcm 200
+    store_dtcm 200
+    contract contract.f32.b1.m5.n40.k7.a0_7_1.b0_7_1.c200_40_1.zero.ordered (dtcm dtcm dtcm) x1
+    estimated cycles: 3416
+    note: every buffer assumed in dtcm
+    == coral:transfer_plan
+    [coral_plan, 2 lines]
+    A in place, B shared
+    predicted cycles: 2180
+    note: DTCM budget: 32768 bytes
+    == coral:rvv_kernel
+    [gnu_asm, 215 lines]
+    ~.section~.text,"ax",@progbits
+    ~.balign~4
+    ~.globl~mlt_contract_c368bda497694a48
+    mlt_contract_c368bda497694a48:
+    ~addi x2, x2, -16
+    ~sw x8, 0(x2)
+    ~sw x9, 4(x2)
+    ~sw x18, 8(x2)
+    ~sw x19, 12(x2)
+    ~li x9, 28
+    ~li x18, 4
+    ~andi x5, x11, 15
+    note: DTCM budget: 32768 bytes
+    == coral:zvt_kernel
+    [gnu_asm, 109 lines]
+    ~.section~.text,"ax",@progbits
+    ~.balign~4
+    ~.globl~mlt_contract_c368bda497694a48
+    mlt_contract_c368bda497694a48:
+    ~addi x2, x2, -32
+    ~sw x9, 0(x2)
+    ~sw x18, 4(x2)
+    ~sw x19, 8(x2)
+    ~sw x20, 12(x2)
+    ~sw x21, 16(x2)
+    ~li x9, 28
+    ~li x18, 28
+    note: DTCM budget: 32768 bytes |}]

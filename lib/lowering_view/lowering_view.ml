@@ -14,8 +14,9 @@ type made = Language.t * string * Note.t list
 (* The policy a family runs when the key names none: what the drivers run. *)
 let default_numerics : Language.t -> Loop_numerics.t = function
   | Language.Js -> Loop_numerics.Reference_f64
-  | Language.C | Language.Gnu_asm _ | Language.Loop | Language.Machine_ir
-  | Language.Ssa | Language.Wat ->
+  | Language.C | Language.Coral_estimate | Language.Coral_plan
+  | Language.Gnu_asm _ | Language.Loop | Language.Machine_ir | Language.Ssa
+  | Language.Wat ->
       Loop_numerics.Simd_fp32_relaxed
 
 let numerics_of family = function
@@ -146,7 +147,8 @@ let ssa_pipeline family (spec : K.Ssa_spec.t) =
       let* () =
         match family with
         | Language.Js -> js_policy spec.K.Ssa_spec.numerics
-        | Language.C | Language.Gnu_asm _ | Language.Loop | Language.Machine_ir
+        | Language.C | Language.Coral_estimate | Language.Coral_plan
+        | Language.Gnu_asm _ | Language.Loop | Language.Machine_ir
         | Language.Ssa | Language.Wat ->
             Ok ()
       in
@@ -156,7 +158,8 @@ let ssa_pipeline family (spec : K.Ssa_spec.t) =
         else
           match family with
           | Language.Wat -> Ssa_ir.Ssa_target.wasm128
-          | Language.C | Language.Gnu_asm _ | Language.Js | Language.Loop
+          | Language.C | Language.Coral_estimate | Language.Coral_plan
+          | Language.Gnu_asm _ | Language.Js | Language.Loop
           | Language.Machine_ir | Language.Ssa ->
               Ssa_ir.Ssa_target.neon128
       in
@@ -315,7 +318,7 @@ let make ~granted (inv : Loop_bundle.invocation) variant :
     | K.Ssa spec -> ssa_family spec inv
     | K.Wat r ->
         route ~loop:(fun s -> wat_loop s inv) ~ssa:(fun s -> wat_ssa s inv) r
-    | K.Coral _ as v -> Error (Refusal.Unsupported_family (K.family v))
+    | K.Coral v -> Lowering_coral.of_invocation v inv
 
 let artifact ?dialect node variant result =
   let key = K.make ?dialect node variant in

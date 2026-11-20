@@ -3,6 +3,8 @@ open Graph_ir
 module Language = struct
   type t =
     | C
+    | Coral_estimate
+    | Coral_plan
     | Gnu_asm of Lowering_key.Target.t
     | Js
     | Loop
@@ -11,11 +13,14 @@ module Language = struct
     | Wat
 
   let all =
-    (C :: List.map (fun t -> Gnu_asm t) Lowering_key.Target.all)
+    C :: Coral_estimate :: Coral_plan
+    :: List.map (fun t -> Gnu_asm t) Lowering_key.Target.all
     @ [ Js; Loop; Machine_ir; Ssa; Wat ]
 
   let name = function
     | C -> "c"
+    | Coral_estimate -> "coral_estimate"
+    | Coral_plan -> "coral_plan"
     | Gnu_asm _ -> "gnu_asm"
     | Js -> "js"
     | Loop -> "loop"
@@ -29,12 +34,15 @@ module Refusal = struct
     | Asm_aarch64 of Machine_rivet_aarch64_module.Rivet_a64_refusal.t
     | Asm_riscv32 of Machine_rivet_riscv32_mir_module.Rv32_mir_form.Refusal.t
     | Asm_x86_64 of Machine_rivet_x86_64_module.Rivet_x64_refusal.t
+    | Coral_kernel of Coralnpu_kernels.Kernel_refusal.t
+    | Coral_transfer of Coral_transfer.Transfer_plan.Refusal.t
     | Granted of Node_id.t
     | Loop_c of Loop_ir.Loop_c.error
     | Loop_lowering of Loop_ir.Loop_lower.error
     | Loop_wasm of Loop_ir.Loop_wasm.error
     | Mir_lowering of Machine_model.Mir_model.Refusal.t
     | Mir_stage of Machine_model.Mir_model.Reason.t
+    | Not_a_contraction
     | Ssa_backends of string
     | Ssa_lowering of Ssa_backends.Refusal.t
     | Unknown_node of Node_id.t
@@ -49,6 +57,8 @@ module Refusal = struct
     | Asm_riscv32 r ->
         Machine_rivet_riscv32_mir_module.Rv32_mir_form.Refusal.pp ppf r
     | Asm_x86_64 r -> Machine_rivet_x86_64_module.Rivet_x64_refusal.pp ppf r
+    | Coral_kernel r -> Coralnpu_kernels.Kernel_refusal.pp ppf r
+    | Coral_transfer r -> Coral_transfer.Transfer_plan.Refusal.pp ppf r
     | Granted n ->
         Fmt.pf ppf
           "node %a is realized only by a grant: its bundle body is a \
@@ -59,6 +69,8 @@ module Refusal = struct
     | Loop_wasm e -> Loop_ir.Loop_wasm.pp_error ppf e
     | Mir_lowering r -> Machine_model.Mir_model.Refusal.pp ppf r
     | Mir_stage r -> Machine_model.Mir_model.Reason.pp ppf r
+    | Not_a_contraction ->
+        Fmt.string ppf "the invocation's plan holds no matrix product"
     | Ssa_backends s -> Fmt.string ppf s
     | Ssa_lowering r -> Ssa_backends.Refusal.pp ppf r
     | Unknown_node n ->
@@ -73,6 +85,8 @@ end
 module Note = struct
   type t =
     | Code_bytes of int64
+    | Coral_region_assumed of Coral_estimate.Coral_census.Region.t
+    | Coral_transfer_budget of Coral_transfer.Transfer_units.Bytes.t
     | Fp32_refusal of Loop_ir.Loop_numerics.Refusal.t
     | Fused_multiply_adds
     | Helper_bindings of (string * string) list
@@ -119,6 +133,12 @@ module Note = struct
 
   let pp ppf = function
     | Code_bytes n -> Fmt.pf ppf "code: %Ld bytes" n
+    | Coral_region_assumed r ->
+        Fmt.pf ppf "every buffer assumed in %s"
+          (Coral_estimate.Coral_census.Region.name r)
+    | Coral_transfer_budget b ->
+        Fmt.pf ppf "DTCM budget: %d bytes"
+          (Coral_transfer.Transfer_units.Bytes.to_int b)
     | Fp32_refusal r ->
         Fmt.pf ppf "binary32 refused: %a" Loop_ir.Loop_numerics.Refusal.pp r
     | Fused_multiply_adds -> Fmt.string ppf "fused multiply-adds"
