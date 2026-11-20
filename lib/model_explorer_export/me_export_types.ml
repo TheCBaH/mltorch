@@ -43,9 +43,12 @@ type error =
   | `Lowering_not_provided
   | `Model_json_decode of string
   | `Native4d of Native4d.Error.t
+  | `Native4d_bundle of
+    Native4d.Eval_direct4.error Loop_ir.Loop_bundle.generic_error
   | `Navigation of Me_pt2.error
   | `Project of Me_build.error
   | `Source_view of Me_source.error
+  | `Summary of Me_summary.error
   | `Too_large of int64
   | `Unrecognised_format
   | `Unsupported_detail_key
@@ -72,9 +75,11 @@ let pp_error fmt : [< error ] -> unit = function
       Fmt.string fmt "this worker carries no lowering view"
   | `Model_json_decode m -> Fmt.pf fmt "model.json: %s" m
   | `Native4d e -> Native4d.Error.pp fmt e
+  | `Native4d_bundle e -> Loop_native4d.pp_error fmt e
   | `Navigation e -> Me_pt2.pp_error fmt e
   | `Project e -> Me_build.pp_error fmt e
   | `Source_view e -> Me_source.pp_error fmt e
+  | `Summary e -> Me_summary.pp_error fmt e
   | `Too_large n -> Fmt.pf fmt "%Ld bytes is over the ceiling" n
   | `Unrecognised_format ->
       Fmt.string fmt "not a zip archive and not a JSON object"
@@ -99,7 +104,7 @@ let diagnostic_code : [< error ] -> Me_limits.Diagnostic.Code.t =
   | `Document_too_large | `Too_large _ -> Code.Over_limit
   | `Unsupported_detail_key -> Code.Unsupported_detail_key
   | `Bundle _ | `Kernel _ | `Lowering _ | `Lowering_not_provided | `Native4d _
-    ->
+  | `Native4d_bundle _ ->
       Code.Internal
   | `Detail (`Over_limit _)
   | `Document (`Over_limit _)
@@ -108,6 +113,7 @@ let diagnostic_code : [< error ] -> Me_limits.Diagnostic.Code.t =
   | `Navigation (`Over_limit _)
   | `Project (`Over_limit _)
   | `Source_view (`Over_limit _)
+  | `Summary (`Over_limit _)
   | `Value_graph (`Over_limit _)
   | `Verification (`Over_limit _) ->
       Code.Over_limit

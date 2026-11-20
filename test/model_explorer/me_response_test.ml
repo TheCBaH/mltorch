@@ -39,6 +39,12 @@ let lowering_key =
     (Graph_ir.Node_id.of_int 3)
     (Lowering_key.of_name "js:ssa" |> Result.get_ok)
 
+let summary_key =
+  {
+    Me_request.Summary_wire.dialect = Lowering_key.Dialect.Native4d;
+    metric = Lowering_key.Metric.Coral_cycles;
+  }
+
 let session json = Rsp.Final.Session { Rsp.Session.id; limits = wire; json }
 let delta json = Rsp.Final.Delta { Rsp.Delta.id; key; json }
 
@@ -83,6 +89,16 @@ let%expect_test "an artifact carries its document and names its lowering key" =
     payload=11 bytes
     {"kind":"failed","id":"0f8fad5b-d9cb-469f-a165-70867728950e-3","lowering":{"dialect":"native","node":3,"variant":"js:ssa"},"error":{"code":"over_limit","message":"graph nodes = 99 is over the ceiling","truncated":false}}
     payload=none |}]
+
+let%expect_test "a summary carries its document and names its summary key" =
+  Format.printf "%a@." pp_wire
+    (Rsp.Wire.of_final
+       (Rsp.Final.Summary
+          { Rsp.Summary.id; key = summary_key; json = {|{"values":{}}|} }));
+  [%expect
+    {|
+    {"kind":"summary","id":"0f8fad5b-d9cb-469f-a165-70867728950e-3","summary":{"dialect":"native4d","metric":"coral_cycles"},"bytes":13}
+    payload=13 bytes |}]
 
 let%expect_test "a session carries its document and a count derived from it" =
   (* There is no [bytes] field on [Session.t] at all: it is measured here, from
@@ -218,7 +234,7 @@ let%expect_test "the terminal response is inside the ceiling it must meet" =
 
 (* --- the narrowing --- *)
 
-let%expect_test "a handler's outcomes are three, and the shell's are four" =
+let%expect_test "a handler's outcomes are four, and the shell's are five" =
   (* [Handle_result.t] is narrower than [Final.t] by exactly one constructor,
      and that constructor is the point: a protocol failure means the request was
      never understood, so a function that received a VALIDATED request cannot
@@ -232,12 +248,15 @@ let%expect_test "a handler's outcomes are three, and the shell's are four" =
         | Rsp.Final.Session _ -> "session"
         | Rsp.Final.Delta _ -> "delta"
         | Rsp.Final.Failed _ -> "failed"
-        | Rsp.Final.Protocol_failure _ -> "protocol_failure"))
+        | Rsp.Final.Protocol_failure _ -> "protocol_failure"
+        | Rsp.Final.Summary _ -> "summary"))
     [
       Rsp.Handle_result.Session { Rsp.Session.id; limits = wire; json = "{}" };
       Rsp.Handle_result.Delta { Rsp.Delta.id; key; json = "{}" };
       Rsp.Handle_result.Artifact
         { Rsp.Artifact.id; key = lowering_key; json = "{}" };
+      Rsp.Handle_result.Summary
+        { Rsp.Summary.id; key = summary_key; json = "{}" };
       Rsp.Handle_result.Failed
         { Rsp.Failed.id; key = None; lowering = None; error = diagnostic };
     ];
@@ -245,4 +264,5 @@ let%expect_test "a handler's outcomes are three, and the shell's are four" =
     session
     delta
     artifact
+    summary
     failed |}]

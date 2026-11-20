@@ -961,3 +961,31 @@ let%expect_test "Coral: a contraction has a plan and two kernels" =
     ~li x9, 28
     ~li x18, 28
     note: DTCM budget: 32768 bytes |}]
+
+(* ---- the dialect: a family without a gate for it is refused, typed ---- *)
+
+let%expect_test "Native4D reaches only the families it has gates for" =
+  let inv = only (relu ()) in
+  List.iter
+    (fun family ->
+      let a =
+        Lv.of_invocation ~dialect:K.Dialect.Native4d ~granted:nobody inv
+          (K.default family)
+      in
+      Fmt.pr "%-10s %s@." (K.family_name family)
+        (match a.A.body with
+        | A.Text _ -> "emits"
+        | A.Refused (A.Refusal.Unsupported_dialect _ as r) ->
+            Fmt.str "%a" A.Refusal.pp r
+        | A.Refused _ -> "refused otherwise"))
+    K.families;
+  [%expect
+    {|
+    asm        family asm is not offered for the native4d dialect
+    c          emits
+    coral      family coral is not offered for the native4d dialect
+    js         emits
+    loop       emits
+    machine_ir family machine_ir is not offered for the native4d dialect
+    ssa        emits
+    wat        emits |}]

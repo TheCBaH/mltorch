@@ -136,6 +136,16 @@ module Lowering_wire : sig
       model, answered by the lowering itself. *)
 end
 
+module Summary_wire : sig
+  type t = { dialect : Lowering_key.Dialect.t; metric : Lowering_key.Metric.t }
+  (** What a whole-graph summary request names: the dialect whose canonical
+      bundle to read and the number to take of every node. *)
+
+  val jsont : t Jsont.t
+  (** [{dialect; metric}], each in its closed type's own spelling. An unknown
+      name is a decode error. *)
+end
+
 (** {1 Where the bytes came from} *)
 
 module Source : sig
@@ -262,9 +272,20 @@ module Request : sig
     }
   end
 
+  module Build_lowering_summary : sig
+    type t = private {
+      id : Request_id.t;
+      source : Source.t;
+      options : Options.t;
+      limits : Me_limits.Wire_limits.t;
+      summary : Summary_wire.t;
+    }
+  end
+
   type t = private
     | Build_detail of Build_detail.t
     | Build_lowering of Build_lowering.t
+    | Build_lowering_summary of Build_lowering_summary.t
     | Build_session of Build_session.t
 
   type error =
@@ -315,13 +336,28 @@ module Request : sig
       the request's own profile. The key carries no text, so it has no
       profile-dependent half. *)
 
+  val build_lowering_summary :
+    id:Request_id.t ->
+    source:Source.t ->
+    options:Options.t ->
+    limits:Me_limits.Wire_limits.t ->
+    summary:Summary_wire.t ->
+    (t, [> error ]) Err.t
+  (** The overlay request: one metric of every node. Same identity grammar and
+      revalidation as {!build_lowering}. *)
+
   val id : t -> Request_id.t
   val epoch : t -> string
 
   val key : t -> Detail_key.t option
-  (** [None] for a session AND for a lowering request: use {!lowering}. *)
+  (** [None] for a session AND for a lowering or summary request: use
+      {!lowering} or {!summary}. *)
 
   val lowering : t -> Lowering_key.t option
+
+  val summary : t -> Summary_wire.t option
+  (** [Some] exactly for a {!build_lowering_summary} request. *)
+
   val limits : t -> Me_limits.Wire_limits.t
   val source : t -> Source.t
   val options : t -> Options.t

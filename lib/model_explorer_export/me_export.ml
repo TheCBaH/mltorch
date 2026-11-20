@@ -269,10 +269,26 @@ let canonical ~limits ~(options : Options.t) ~bytes =
     (Native_interp.transform_lowered ~constants lowered
        ~passes:(passes ~fold:options.Options.fold))
 
-let canonical_bundle ~limits ~options ~bytes =
+let canonical_bundle ~dialect ~limits ~options ~bytes =
   let* transformed = canonical ~limits ~options ~bytes in
   let (Native_interp.Transformed t) = transformed in
-  wrap (fun e -> `Bundle e) (Loop_ir.Loop_bundle.build t.graph)
+  match dialect with
+  | Lowering_key.Dialect.Native ->
+      wrap (fun e -> `Bundle e) (Loop_ir.Loop_bundle.build t.graph)
+  | Lowering_key.Dialect.Native4d ->
+      (* The session projects the same conversion, from the same canonical
+         graph, so a node id here is the one its Native4D view shows. *)
+      let* snapshot = wrap (fun e -> `View e) (Snapshot.create t.graph) in
+      let (Snapshot.Pack src) = snapshot in
+      let* (Native4d.Lower.Pack r) =
+        wrap
+          (fun e -> `Native4d e)
+          (Native4d.Lower.convert ~constants:t.constants
+             ~constant_store:t.constant_store src)
+      in
+      wrap
+        (fun e -> `Native4d_bundle e)
+        (Loop_native4d.build (Native4d.Lower.graph r))
 
 let detail ~limits ~(options : Options.t) ~key ~bytes =
   let* transformed = canonical ~limits ~options ~bytes in
@@ -408,7 +424,7 @@ let declared_format_disagrees (source : Me_request.Source.t)
   in
   detected <> source.Me_request.Source.format
 
-let handle ?lower ?(bundle = canonical_bundle) ~emit request ~bytes =
+let handle ?lower ?summary ?(bundle = canonical_bundle) ~emit request ~bytes =
   let id = Me_request.Request.id request in
   let key = Me_request.Request.key request in
   let limits =
@@ -441,12 +457,19 @@ let handle ?lower ?(bundle = canonical_bundle) ~emit request ~bytes =
       source_sha256 = Me_request.Source.verified_sha256 source;
     }
   in
-  match (Me_request.Request.lowering request, key) with
-  | Some lowering, _ -> (
+  match
+    ( Me_request.Request.lowering request,
+      Me_request.Request.summary request,
+      key )
+  with
+  | Some lowering, _, _ -> (
       match lower with
       | None -> failed `Lowering_not_provided
       | Some lower -> (
-          match bundle ~limits ~options ~bytes with
+          match
+            bundle ~dialect:lowering.Lowering_key.dialect ~limits ~options
+              ~bytes
+          with
           | Error e -> failed (Err.Error.kind e)
           | Ok bundle -> (
               progress Me_response.Phase.Encode 0L None;
@@ -460,7 +483,50 @@ let handle ?lower ?(bundle = canonical_bundle) ~emit request ~bytes =
               | Ok json ->
                   Me_response.Handle_result.Artifact
                     { Me_response.Artifact.id; key = lowering; json })))
-  | None, Some key -> (
+  | None, Some summary_key, _ -> (
+      match summary with
+      | None -> failed `Lowering_not_provided
+      | Some summary -> (
+          let { Me_request.Summary_wire.dialect; metric } = summary_key in
+          match bundle ~dialect ~limits ~options ~bytes with
+          | Error e -> failed (Err.Error.kind e)
+          | Ok bundle -> (
+              let invocations = bundle.Loop_ir.Loop_bundle.invocations in
+              let total = List.length invocations in
+              match
+                let open Err.Syntax in
+                (* The count is bounded BEFORE the walk that is linear in it,
+                   and the walk reports its position: a metric costs seconds
+                   on a large model, and the page can show it is alive. *)
+                let* () =
+                  wrap
+                    (fun e -> `Summary e)
+                    (Me_summary.check_count ~limits total)
+                in
+                let values =
+                  List.mapi
+                    (fun i (inv : Loop_ir.Loop_bundle.invocation) ->
+                      if i land 15 = 0 then
+                        progress Me_response.Phase.Lower (Int64.of_int i)
+                          (Some (Int64.of_int total));
+                      (inv.Loop_ir.Loop_bundle.node, summary ~dialect metric inv))
+                    invocations
+                in
+                progress Me_response.Phase.Encode 0L None;
+                let* values =
+                  wrap
+                    (fun e -> `Summary e)
+                    (Me_summary.create ~limits ~metric values)
+                in
+                encode_bounded
+                  ~max_bytes:Me_limits.Hard.max_response_document_bytes
+                  Me_summary.jsont values
+              with
+              | Error e -> failed (Err.Error.kind e)
+              | Ok json ->
+                  Me_response.Handle_result.Summary
+                    { Me_response.Summary.id; key = summary_key; json })))
+  | None, None, Some key -> (
       match detail ~limits ~options ~key ~bytes with
       | Error e -> failed (Err.Error.kind e)
       | Ok d -> (
@@ -472,7 +538,7 @@ let handle ?lower ?(bundle = canonical_bundle) ~emit request ~bytes =
           | Ok json ->
               Me_response.Handle_result.Delta
                 { Me_response.Delta.id; key; json }))
-  | None, None -> (
+  | None, None, None -> (
       match session ~limits ~options ~bytes with
       | Error e -> failed (Err.Error.kind e)
       | Ok s when declared_format_disagrees source s ->

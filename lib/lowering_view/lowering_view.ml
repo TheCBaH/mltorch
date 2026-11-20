@@ -332,15 +332,20 @@ let artifact ?dialect node variant result =
         notes;
       }
 
-let of_invocation ?dialect ~granted (inv : Loop_bundle.invocation) variant =
-  artifact ?dialect inv.Loop_bundle.node variant (make ~granted inv variant)
+let of_invocation ?(dialect = K.Dialect.Native) ~granted
+    (inv : Loop_bundle.invocation) variant =
+  let family = K.family variant in
+  artifact ~dialect inv.Loop_bundle.node variant
+    (if K.reaches dialect family then make ~granted inv variant
+     else Error (Refusal.Unsupported_dialect { dialect; family }))
 
-let of_node ?dialect ~granted (b : Loop_bundle.t) node variant =
+let of_node ?(dialect = K.Dialect.Native) ~granted (b : Loop_bundle.t) node
+    variant =
   match
     List.find_opt
       (fun (inv : Loop_bundle.invocation) ->
         Graph_ir.Node_id.equal inv.Loop_bundle.node node)
       b.Loop_bundle.invocations
   with
-  | Some inv -> of_invocation ?dialect ~granted inv variant
-  | None -> artifact ?dialect node variant (Error (Refusal.Unknown_node node))
+  | Some inv -> of_invocation ~dialect ~granted inv variant
+  | None -> artifact ~dialect node variant (Error (Refusal.Unknown_node node))

@@ -61,6 +61,12 @@ module Refusal : sig
         (** the placed kernel has no SSA program: the converter or the lowering
             refused *)
     | Unknown_node of Node_id.t  (** the bundle has no invocation for it *)
+    | Unsupported_dialect of {
+        dialect : Lowering_key.Dialect.t;
+        family : Lowering_key.family;
+      }
+        (** the family has no committed gate for this dialect's graphs
+            ({!Lowering_key.reaches}) *)
     | Unsupported_family of Lowering_key.family
     | Unsupported_policy of {
         backend : Loop_ir.Loop_numerics.Backend.t;

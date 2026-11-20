@@ -1330,6 +1330,17 @@ The same text is requested per node by the lowering pane, from its own worker
 `.ai/` docs on the lowering inspector and on generated JavaScript (superseded, kept for the
 pass-naming mechanism and the CLI section).
 
+The lowering worker answers two request kinds, both over its one-entry memo of the
+canonical bundle, which is keyed on the dialect as well as the source: a per-node
+`Build_lowering` (an artifact) and a whole-graph `Build_lowering_summary` (one
+`Lowering_key.Metric` of every invocation, as `{metric, values: {nodeId: number|null}}`
+for a node data provider). A summary is bounded by the session's own
+`max_node_data_results_per_graph` before the walk and reports `Lower` progress every 16
+invocations; the worker computes only the producer the metric reads. The Native4D dialect
+builds its bundle from the converted four-axis graph (a graph outside the domain fails
+with `Native4d`); only the families with committed Native4D gates (`Lowering_key.reaches`)
+are offered for it, the rest are a typed `unsupported_dialect` refusal.
+
 **Initial and referentially complete.** A session carries one detail graph per canonical
 operator, shared by that operator and its projected Stage/Kernel values. The initial
 document therefore contains every `subGraphIds` target before Model Explorer processes it;

@@ -45,8 +45,8 @@ type error =
         reaches here: it becomes a session whose capabilities say what is
         missing. *)
   | `Lowering_not_provided
-    (** a lowering request reached a {!handle} given no [~lower]: the worker
-        that answers one supplies it *)
+    (** a lowering or summary request reached a {!handle} given no [~lower] or
+        [~summary]: the worker that answers one supplies it *)
   | `Model_json_decode of string
     (** the model.json decoder's own message — a THIRD-PARTY payload, named for
         its source so it is not mistaken for a case this module declined to
@@ -54,9 +54,14 @@ type error =
   | `Native4d of Native4d.Error.t
     (** a FATAL row only, for the same reason as [`Lowering]: a graph outside
         the dialect's domain is a capability carrying a reason, not an error *)
+  | `Native4d_bundle of
+    Native4d.Eval_direct4.error Loop_ir.Loop_bundle.generic_error
+    (** the converted Native4D graph scheduled to no bundle *)
   | `Navigation of Me_pt2.error
   | `Project of Me_build.error
   | `Source_view of Me_source.error
+  | `Summary of Me_summary.error
+    (** a whole-graph summary with more nodes than the overlay ceiling *)
   | `Too_large of int64  (** the byte count offered *)
   | `Unrecognised_format
   | `Unsupported_detail_key
@@ -135,6 +140,7 @@ val detail :
     that could be stale. *)
 
 val canonical_bundle :
+  dialect:Lowering_key.Dialect.t ->
   limits:Me_limits.Limits.t ->
   options:Options.t ->
   bytes:string ->
@@ -143,7 +149,12 @@ val canonical_bundle :
     input. It takes the path {!detail} takes to the canonical graph (one import
     pipeline), so the invocation a node's lowering is shown from is the one its
     detail expression was read from. A model that does not lower fails with
-    [`Unsupported_detail_key], as {!detail} does. *)
+    [`Unsupported_detail_key], as {!detail} does.
+
+    [dialect] selects the graph the bundle is built from: [Native] is the
+    canonical graph itself, [Native4d] the four-axis graph converted from it
+    (the one the session's Native4D stage shows). A graph outside the Native4D
+    domain fails with [`Native4d]. *)
 
 val encode_bounded :
   max_bytes:int -> 'a Jsont.t -> 'a -> (string, [> error ]) Err.t
@@ -162,8 +173,14 @@ val handle :
     Lowering_key.t ->
     Loop_ir.Loop_bundle.t ->
     Me_artifact.t) ->
+  ?summary:
+    (dialect:Lowering_key.Dialect.t ->
+    Lowering_key.Metric.t ->
+    Loop_ir.Loop_bundle.invocation ->
+    float option) ->
   ?bundle:
-    (limits:Me_limits.Limits.t ->
+    (dialect:Lowering_key.Dialect.t ->
+    limits:Me_limits.Limits.t ->
     options:Options.t ->
     bytes:string ->
     (Loop_ir.Loop_bundle.t, error) Err.t) ->
@@ -188,10 +205,18 @@ val handle :
     [`Lowering_not_provided]. The artifact document is bounded by
     [Hard.max_response_document_bytes], the ceiling the page checks.
 
-    [bundle] is where a lowering request gets its canonical bundle; it defaults
-    to {!canonical_bundle}. A worker that answers many requests about one model
-    passes a one-entry memo of it: the function is pure in its arguments, so a
-    cache keyed on all of them cannot be stale.
+    [summary] answers a summary request: the value of one metric of one
+    invocation. It is a parameter for the reason [lower] is, and per invocation
+    so that this function owns the walk: the invocation count is checked against
+    [max_node_data_results_per_graph] before it, a [Lower] progress message is
+    emitted every 16 invocations, and the encoded document is bounded by
+    [Hard.max_response_document_bytes].
+
+    [bundle] is where a lowering or summary request gets its canonical bundle
+    for the request's dialect; it defaults to {!canonical_bundle}. A worker that
+    answers many requests about one model passes a one-entry memo of it: the
+    function is pure in its arguments, so a cache keyed on all of them cannot be
+    stale.
 
     The request carries no separate identity: [id] is a field of the request, so
     a response cannot name one request in its id and another beside it. *)

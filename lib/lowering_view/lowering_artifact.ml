@@ -46,6 +46,10 @@ module Refusal = struct
     | Ssa_backends of string
     | Ssa_lowering of Ssa_backends.Refusal.t
     | Unknown_node of Node_id.t
+    | Unsupported_dialect of {
+        dialect : Lowering_key.Dialect.t;
+        family : Lowering_key.family;
+      }
     | Unsupported_family of Lowering_key.family
     | Unsupported_policy of {
         backend : Loop_ir.Loop_numerics.Backend.t;
@@ -75,6 +79,10 @@ module Refusal = struct
     | Ssa_lowering r -> Ssa_backends.Refusal.pp ppf r
     | Unknown_node n ->
         Fmt.pf ppf "the bundle has no invocation for %a" Node_id.pp n
+    | Unsupported_dialect { dialect; family } ->
+        Fmt.pf ppf "family %s is not offered for the %s dialect"
+          (Lowering_key.family_name family)
+          (Lowering_key.Dialect.name dialect)
     | Unsupported_family f ->
         Fmt.pf ppf "family %s is not supported" (Lowering_key.family_name f)
     | Unsupported_policy { backend; policy } ->

@@ -62,6 +62,14 @@ module Artifact = struct
   type t = { id : Me_request.Request_id.t; key : Lowering_key.t; json : string }
 end
 
+module Summary = struct
+  type t = {
+    id : Me_request.Request_id.t;
+    key : Me_request.Summary_wire.t;
+    json : string;
+  }
+end
+
 module Failed = struct
   type t = {
     id : Me_request.Request_id.t;
@@ -81,6 +89,7 @@ module Handle_result = struct
     | Delta of Delta.t
     | Failed of Failed.t
     | Session of Session.t
+    | Summary of Summary.t
 end
 
 module Final = struct
@@ -90,12 +99,14 @@ module Final = struct
     | Failed of Failed.t
     | Protocol_failure of Protocol_failure.t
     | Session of Session.t
+    | Summary of Summary.t
 
   let of_handle_result = function
     | Handle_result.Artifact a -> Artifact a
     | Handle_result.Delta d -> Delta d
     | Handle_result.Failed f -> Failed f
     | Handle_result.Session s -> Session s
+    | Handle_result.Summary s -> Summary s
 end
 
 module Meta = struct
@@ -119,6 +130,14 @@ module Meta = struct
     }
   end
 
+  module Summary = struct
+    type t = {
+      id : Me_request.Request_id.t;
+      key : Me_request.Summary_wire.t;
+      bytes : int;
+    }
+  end
+
   type t =
     | Artifact of Artifact.t
     | Delta of Delta.t
@@ -126,6 +145,7 @@ module Meta = struct
     | Protocol_failure of Protocol_failure.t
     | Progress of Progress.t
     | Session of Session.t
+    | Summary of Summary.t
 
   let kind = function
     | Artifact _ -> "artifact"
@@ -134,6 +154,7 @@ module Meta = struct
     | Protocol_failure _ -> "protocol_failure"
     | Progress _ -> "progress"
     | Session _ -> "session"
+    | Summary _ -> "summary"
 
   (* A "kind" discriminant over the five constructors, every optional member
      belonging to exactly one of them. This is the ONLY thing that crosses to
@@ -142,7 +163,7 @@ module Meta = struct
      and no stable field layout. *)
   let jsont =
     Jsont.Object.map ~kind:"responseMeta"
-      (fun kind id phase done_ total limits key lowering bytes error ->
+      (fun kind id phase done_ total limits key lowering summary bytes error ->
         let need what = function
           | Some v -> v
           | None ->
@@ -172,6 +193,13 @@ module Meta = struct
                 key = need "lowering" lowering;
                 bytes = need "bytes" bytes;
               }
+        | "summary" ->
+            Summary
+              {
+                Summary.id = need "id" id;
+                key = need "summary" summary;
+                bytes = need "bytes" bytes;
+              }
         | "delta" ->
             Delta
               {
@@ -196,6 +224,7 @@ module Meta = struct
       | Session s -> Some s.Session.id
       | Artifact a -> Some a.Artifact.id
       | Delta d -> Some d.Delta.id
+      | Summary s -> Some s.Summary.id
       | Failed f -> Some f.Failed.id
       | Protocol_failure _ -> None)
     |> Jsont.Object.opt_mem "phase" Phase.jsont ~enc:(function
@@ -222,6 +251,10 @@ module Meta = struct
          | Artifact a -> Some a.Artifact.key
          | Failed f -> f.Failed.lowering
          | _ -> None)
+    |> Jsont.Object.opt_mem "summary" Me_request.Summary_wire.jsont
+         ~enc:(function
+         | Summary s -> Some s.Summary.key
+         | _ -> None)
     (* [int], not [int64], and the width rule does not bite: it is the length of
        a string that already exists, bounded by [max_session_bytes], itself an
        [int] because the writer limit is one. *)
@@ -229,6 +262,7 @@ module Meta = struct
       | Session s -> Some s.Session.bytes
       | Delta d -> Some d.Delta.bytes
       | Artifact a -> Some a.Artifact.bytes
+      | Summary s -> Some s.Summary.bytes
       | _ -> None)
     |> Jsont.Object.opt_mem "error" Me_limits.Diagnostic.jsont ~enc:(function
       | Failed f -> Some f.Failed.error
@@ -316,6 +350,15 @@ module Wire = struct
                bytes = String.length d.Delta.json;
              })
           (Some d.Delta.json)
+    | Final.Summary s ->
+        wrap ~max_meta_bytes
+          (Meta.Summary
+             {
+               Meta.Summary.id = s.Summary.id;
+               key = s.Summary.key;
+               bytes = String.length s.Summary.json;
+             })
+          (Some s.Summary.json)
     | Final.Failed f -> wrap ~max_meta_bytes (Meta.Failed f) None
     | Final.Protocol_failure p ->
         wrap ~max_meta_bytes (Meta.Protocol_failure p) None

@@ -64,6 +64,14 @@ module Delta : sig
   }
 end
 
+module Summary : sig
+  type t = {
+    id : Me_request.Request_id.t;
+    key : Me_request.Summary_wire.t;
+    json : string;  (** an encoded {!Me_summary.t} *)
+  }
+end
+
 module Failed : sig
   type t = {
     id : Me_request.Request_id.t;
@@ -94,6 +102,7 @@ module Handle_result : sig
     | Delta of Delta.t
     | Failed of Failed.t
     | Session of Session.t
+    | Summary of Summary.t
         (** What a handler may return: narrower than {!Final.t} by one
             constructor, and that constructor is the point. A protocol failure
             means the request was never understood, so a function that received
@@ -109,6 +118,7 @@ module Final : sig
     | Failed of Failed.t
     | Protocol_failure of Protocol_failure.t
     | Session of Session.t
+    | Summary of Summary.t
         (** Exactly one of these ends a request from the SHELL's point of view.
             {!Progress} is deliberately absent: it does not end anything. *)
 
@@ -151,6 +161,14 @@ module Meta : sig
     }
   end
 
+  module Summary : sig
+    type t = private {
+      id : Me_request.Request_id.t;
+      key : Me_request.Summary_wire.t;
+      bytes : int;
+    }
+  end
+
   type t = private
     | Artifact of Artifact.t
     | Delta of Delta.t
@@ -158,6 +176,7 @@ module Meta : sig
     | Protocol_failure of Protocol_failure.t
     | Progress of Progress.t
     | Session of Session.t
+    | Summary of Summary.t
         (** {!Progress}, {!Failed} and {!Protocol_failure} have no document, so
             their final payloads ARE their metadata and are reused unchanged. *)
 

@@ -35,6 +35,9 @@ let refusal (r : Artifact.Refusal.t) =
   | Ssa_backends s -> tag "ssa_backends" [ s ]
   | Ssa_lowering _ -> tag "ssa_lowering" (rendered ())
   | Unknown_node n -> tag "unknown_node" [ node_text n ]
+  | Unsupported_dialect { dialect; family } ->
+      tag "unsupported_dialect"
+        [ Lowering_key.Dialect.name dialect; Lowering_key.family_name family ]
   | Unsupported_family f ->
       tag "unsupported_family" [ Lowering_key.family_name f ]
   | Unsupported_policy _ -> tag "unsupported_policy" (rendered ())
@@ -81,22 +84,27 @@ let lower ~limits (key : Lowering_key.t) bundle : Me_artifact.t =
   in
   { Me_artifact.key; body; notes = List.map note a.Artifact.notes }
 
-(* One entry: the source bytes' digest, everything else the bundle depends on,
-   and the bundle. A failure is not remembered. *)
+(* One metric of one invocation, computing only the producer that metric
+   needs; [Me_export.handle] owns the walk over the bundle. *)
+let summary ~dialect metric inv =
+  Lowering_view.Summary.metric_of_invocation ~dialect ~granted:nobody metric inv
+
+(* One entry: the source bytes' digest, everything else the bundle depends on
+   (the dialect included), and the bundle. A failure is not remembered. *)
 let memo = ref None
 
-let bundle ~limits ~options ~bytes =
+let bundle ~dialect ~limits ~options ~bytes =
   let digest = Digest.string bytes in
   let stages = options.Me_export.Options.stages
   and fold = options.Me_export.Options.fold in
   match !memo with
-  | Some (d, st, f, l, b)
-    when d = digest && st = stages && f = fold && l = limits ->
+  | Some (d, di, st, f, l, b)
+    when d = digest && di = dialect && st = stages && f = fold && l = limits ->
       Ok b
   | _ -> (
-      match Me_export.canonical_bundle ~limits ~options ~bytes with
+      match Me_export.canonical_bundle ~dialect ~limits ~options ~bytes with
       | Ok b ->
-          memo := Some (digest, stages, fold, limits, b);
+          memo := Some (digest, dialect, stages, fold, limits, b);
           Ok b
       | Error _ as e -> e)
 
@@ -169,7 +177,7 @@ let handle event =
       <> 0
     then raise Exit;
     let result =
-      Me_export.handle ~lower ~bundle ~emit request
+      Me_export.handle ~lower ~summary ~bundle ~emit request
         ~bytes:(Buffer.to_string (Js.Unsafe.coerce bytes) ~len:bytes_length)
     in
     match

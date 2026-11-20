@@ -416,10 +416,40 @@ let build_lowering raw =
             ~lowering))
   with exn -> response false ~error:(error_text exn)
 
+(* The whole-graph overlay's request: [summary] is [{dialect, metric}], each in
+   its closed type's own spelling. *)
+let build_lowering_summary raw =
+  try
+    let id, source, options, limits = read_common raw in
+    let key_raw = Js_read.field raw "summary" in
+    if not (Js_read.is_object key_raw) then
+      Err.or_raise ~pp_error:Js_read.pp_error
+        (Js_read.fail (`Not_an_object "summary"));
+    let field name =
+      Err.or_raise ~pp_error:Js_read.pp_error
+        (Js_read.string_field key_raw name ~label:("summary." ^ name))
+    in
+    let dialect =
+      match Lowering_key.Dialect.of_name (field "dialect") with
+      | Some d -> d
+      | None -> failwith "summary.dialect is not a lowering dialect"
+    in
+    let metric =
+      match Lowering_key.Metric.of_name (field "metric") with
+      | Some m -> m
+      | None -> failwith "summary.metric is not a lowering metric"
+    in
+    encode_request
+      (Err.or_raise ~pp_error:Me_request.Request.pp_error
+         (Me_request.Request.build_lowering_summary ~id ~source ~options ~limits
+            ~summary:{ Me_request.Summary_wire.dialect; metric }))
+  with exn -> response false ~error:(error_text exn)
+
 (* The lowering pane's vocabulary, from [Lowering_key] alone: the page keeps no
    second copy of a family or variant name. Only the families whose artifact is
    text today are offered (alphabetical); each lists its default first, then the
-   closed choices the variant bar offers. The numerics axis stays reachable only
+   closed choices the variant bar offers (a Machine IR variant per target and
+   stage, an assembly variant per target, a Coral variant per view). The numerics axis stays reachable only
    through a spelling typed into the URL, which [canonical_variant] checks. *)
 let lowering_vocabulary () =
   let module K = Lowering_key in
@@ -454,11 +484,24 @@ let lowering_vocabulary () =
                   (List.map (fun v -> Js.string (K.name v)) variants))) );
       |]
   in
+  let mirs =
+    default_first K.Mir_spec.default
+      (List.concat_map
+         (fun target ->
+           List.map (fun stage -> { K.Mir_spec.target; stage }) K.Mir_stage.all)
+         K.Target.all)
+  in
   let families =
     [
+      family K.Asm
+        (List.map
+           (fun t -> K.Asm t)
+           (default_first K.Target.X86_64 K.Target.all));
       family K.C (List.map (fun r -> K.C r) routes);
+      family K.Coral (List.map (fun v -> K.Coral v) K.Coral_view.all);
       family K.Js (List.map (fun r -> K.Js r) routes);
       family K.Loop (List.map (fun s -> K.Loop s) loops);
+      family K.Machine_ir (List.map (fun m -> K.Machine_ir m) mirs);
       family K.Ssa (List.map (fun s -> K.Ssa s) ssas);
       family K.Wat (List.map (fun r -> K.Wat r) routes);
     ]
@@ -661,6 +704,8 @@ let () =
         ("buildSession", Js.Unsafe.inject (Js.wrap_callback build_session));
         ("buildDetail", Js.Unsafe.inject (Js.wrap_callback build_detail));
         ("buildLowering", Js.Unsafe.inject (Js.wrap_callback build_lowering));
+        ( "buildLoweringSummary",
+          Js.Unsafe.inject (Js.wrap_callback build_lowering_summary) );
       |]
   in
   let lowering =

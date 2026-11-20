@@ -3,9 +3,9 @@
 ; conversion). Wildcard glob is safe: no custom preprocessing on the
 ; source side.
 ;
-; The checked-in native4d.ml shim (`include Native4d_js`) matches the plan's
-; documented pattern: [native4d_js] is wrapped, so depending on it exposes
-; only its own alias module, never a global [Native4d].
+; [native4d_js] is wrapped, so the global [Native4d] alias comes from
+; [loop_native4d_js] (`include Native4d_js`), the one library that defines it:
+; two definitions of one module name cannot link together.
 
 (copy_files
  (files %{workspace_root}/lib/model_explorer_export/*.{ml,mli}))
@@ -25,6 +25,7 @@
   jsont
   jsont.bytesrw
   loop_ir_js
+  loop_native4d_js
   lowering_key_js
   model_explorer
   native_js

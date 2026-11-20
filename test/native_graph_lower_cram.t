@@ -146,3 +146,46 @@ An unknown node is an error naming it.
   [123]
   $ ../bin/native_graph.exe lower --model model.json --node x --artifact js 2>&1 | grep "not a node"
   native_graph: option --node: "x" is not a node id (expected nN)
+
+Native4D: the graph converted from the canonical one, whose node ids are the
+session's Native4D stage view (n0, then n415 on). The families with Native4D gates
+emit; the others are refused with a typed reason, never shown unchecked.
+
+  $ ../bin/native_graph.exe lower --model model.json --dialect native4d --node n415 --list
+  node n415: 1 outputs, 4 edges, 0 synthetics
+  asm        refused: family asm is not offered for the native4d dialect
+  c          emits 65 lines
+  coral      refused: family coral is not offered for the native4d dialect
+  js         emits 26 lines
+  loop       emits 20 lines
+  machine_ir refused: family machine_ir is not offered for the native4d dialect
+  ssa        emits 88 lines
+  wat        emits 897 lines
+  $ ../bin/native_graph.exe lower --model model.json --dialect native4d --node n415 --artifact loop | head -4
+  native4d/n415/loop
+  in t315 f32 [H=224 W=224 C=3]
+  in t730 f32 [N=16 T=1 D=1 H=3 W=3 C=3]
+  in t731 f32 [C=16]
+  $ ../bin/native_graph.exe lower --model model.json --dialect native4d --node n415 --artifact c | head -2
+  native4d/n415/c
+  static int kernel(struct model_error *err, double *local, const float *b0, const float *b1, const float *b2, float *b3) {
+  $ ../bin/native_graph.exe lower --model model.json --dialect native4d --node n415 --artifact coral
+  refused: family coral is not offered for the native4d dialect
+  [1]
+  $ ../bin/native_graph.exe lower --model model.json --dialect native4d --node n415 --artifact asm
+  refused: family asm is not offered for the native4d dialect
+  [1]
+  $ ../bin/native_graph.exe lower --model model.json --dialect native4d --node n1 --artifact js
+  native_graph: no invocation for node n1
+  [123]
+
+Node ids are kept through the conversion, so n415 names the same node in both
+dialects. An unknown dialect is a usage error.
+
+  $ ../bin/native_graph.exe lower --model model.json --dialect native --node n415 --artifact loop | head -4
+  native/n415/loop
+  in t315 f32 [H=224 W=224 C=3]
+  in t730 f32 [N=16 T=1 D=1 H=3 W=3 C=3]
+  in t731 f32 [C=16]
+  $ ../bin/native_graph.exe lower --model model.json --dialect cuda --node n0 --artifact loop 2>&1 | grep -c "invalid"
+  1

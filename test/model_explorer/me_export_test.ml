@@ -25,7 +25,19 @@ let id =
 (* A whole ExportedProgram, small enough to read. [target] is the one knob:
    an operator the lowerer knows and one it does not are the two rows §5.4 calls
    conditional, and both have to reach a SESSION rather than an error. *)
-let model ?(target = "torch.ops.aten.relu.default") () =
+let model ?(target = "torch.ops.aten.relu.default") ?(dims = [ 1; 4 ]) () =
+  let sizes =
+    String.concat "," (List.map (Printf.sprintf {|{"as_int":%d}|}) dims)
+  in
+  let strides =
+    String.concat ","
+      (List.rev
+         (snd
+            (List.fold_left
+               (fun (acc, out) d ->
+                 (acc * d, Printf.sprintf {|{"as_int":%d}|} acc :: out))
+               (1, []) (List.rev dims))))
+  in
   Printf.sprintf
     {|{"graph_module":{"graph":{
         "inputs":[{"as_tensor":{"name":"x"}}],
@@ -42,8 +54,12 @@ let model ?(target = "torch.ops.aten.relu.default") () =
       "opset_version":{"aten":15},"range_constraints":{},
       "schema_version":{"major":8,"minor":5}}|}
     target
-    {|{"dtype":7,"sizes":[{"as_int":1},{"as_int":4}],"requires_grad":false,"device":{"type":"cpu"},"strides":[{"as_int":4},{"as_int":1}],"storage_offset":{"as_int":0},"layout":7}|}
-    {|{"dtype":7,"sizes":[{"as_int":1},{"as_int":4}],"requires_grad":false,"device":{"type":"cpu"},"strides":[{"as_int":4},{"as_int":1}],"storage_offset":{"as_int":0},"layout":7}|}
+    (Printf.sprintf
+       {|{"dtype":7,"sizes":[%s],"requires_grad":false,"device":{"type":"cpu"},"strides":[%s],"storage_offset":{"as_int":0},"layout":7}|}
+       sizes strides)
+    (Printf.sprintf
+       {|{"dtype":7,"sizes":[%s],"requires_grad":false,"device":{"type":"cpu"},"strides":[%s],"storage_offset":{"as_int":0},"layout":7}|}
+       sizes strides)
 
 (* --- detection --- *)
 
@@ -439,7 +455,8 @@ let%expect_test "canonical_bundle takes detail's path to the canonical graph" =
      its node from, so the same node id is an invocation here. *)
   let bytes = model () in
   (match
-     Me_export.canonical_bundle ~limits ~options:(export_options bytes) ~bytes
+     Me_export.canonical_bundle ~dialect:Lowering_key.Dialect.Native ~limits
+       ~options:(export_options bytes) ~bytes
    with
   | Ok b ->
       Printf.printf "invocations: %s\n"
@@ -452,7 +469,8 @@ let%expect_test "canonical_bundle takes detail's path to the canonical graph" =
   (* A model that does not lower is refused exactly as [detail] refuses it. *)
   let bytes = model ~target:"torch.ops.aten.not_an_op.default" () in
   (match
-     Me_export.canonical_bundle ~limits ~options:(export_options bytes) ~bytes
+     Me_export.canonical_bundle ~dialect:Lowering_key.Dialect.Native ~limits
+       ~options:(export_options bytes) ~bytes
    with
   | Ok _ -> print_endline "bundle"
   | Error e -> Format.printf "%a@." Me_export.pp_error (Err.Error.kind e));
@@ -505,3 +523,113 @@ let%expect_test
   | _ -> print_endline "not an artifact");
   [%expect
     {| {"key":{"dialect":"native","node":0,"variant":"js"},"body":{"kind":"text","language":"js","text":"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx","truncated":false},"notes":[{"kind":"numerics","data":["binary64"]}]} |}]
+
+(* --- the Native4D dialect --- *)
+
+let%expect_test
+    "canonical_bundle in the Native4D dialect is the converted graph" =
+  let bytes = model () in
+  let show dialect bytes =
+    match
+      Me_export.canonical_bundle ~dialect ~limits
+        ~options:(export_options bytes) ~bytes
+    with
+    | Ok b ->
+        Printf.printf "invocations: %d\n"
+          (List.length b.Loop_ir.Loop_bundle.invocations)
+    | Error e -> Format.printf "%a@." Me_export.pp_error (Err.Error.kind e)
+  in
+  show Lowering_key.Dialect.Native4d bytes;
+  (* A model that does not lower is refused before any conversion. *)
+  show Lowering_key.Dialect.Native4d
+    (model ~target:"torch.ops.aten.not_an_op.default" ());
+  (* A tensor with extent on T and D lowers as Native but is outside the four-axis domain: the
+     refusal can only come from the conversion, so the dialect is really used. *)
+  let five = model ~dims:[ 2; 1; 2; 3; 4; 5 ] () in
+  show Lowering_key.Dialect.Native five;
+  show Lowering_key.Dialect.Native4d five;
+  [%expect
+    {|
+    invocations: 1
+    the key names no value this model produces
+    invocations: 1
+    tensor t0 has extent on T or D: [N=2 T=1 D=2 H=3 W=4 C=5] |}]
+
+(* --- the summary path --- *)
+
+let summary_request bytes =
+  Err.or_raise ~pp_error:MR.Request.pp_error
+    (MR.Request.build_lowering_summary ~id ~source:(source bytes) ~options
+       ~limits:wire
+       ~summary:
+         {
+           MR.Summary_wire.dialect = Lowering_key.Dialect.Native;
+           metric = Lowering_key.Metric.Scalar_loops;
+         })
+
+let%expect_test "a summary request answers one metric of every node" =
+  let bytes = model () in
+  let seen = ref [] in
+  let summary ~dialect metric (i : Loop_ir.Loop_bundle.invocation) =
+    seen :=
+      (Lowering_key.Dialect.name dialect, Lowering_key.Metric.name metric)
+      :: !seen;
+    if Graph_ir.Node_id.to_int i.node = 0 then Some 2. else Some Float.nan
+  in
+  (match
+     Me_export.handle ~summary
+       ~emit:(fun _ -> ())
+       (summary_request bytes) ~bytes
+   with
+  | Rsp.Handle_result.Summary s -> print_endline s.Rsp.Summary.json
+  | _ -> print_endline "not a summary");
+  List.iter (fun (d, m) -> Printf.printf "asked %s %s\n" d m) !seen;
+  (* No hook: a failure, never a session. *)
+  show (Me_export.handle ~emit:(fun _ -> ()) (summary_request bytes) ~bytes, []);
+  [%expect
+    {|
+    {"metric":"scalar_loops","values":{"n0":2}}
+    asked native scalar_loops
+    phases:
+    failed payload=none
+    {"kind":"failed","id":"0f8fad5b-d9cb-469f-a165-70867728950e-1","error":{"code":"internal","message":"this worker carries no lowering view","truncated":false}} |}]
+
+let%expect_test "a summary over the overlay ceiling is a typed over-limit" =
+  let tiny =
+    Err.or_raise ~pp_error:Me_limits.pp_error
+      (L.create ~max_node_data_results_per_graph:1 L.untrusted)
+  in
+  let n i = Graph_ir.Node_id.of_int i in
+  let show r =
+    Format.printf "%a@."
+      (Core.Pretty.err_result ~ok:(Fmt.any "ok") ~error:Me_summary.pp_error)
+      r
+  in
+  show (Me_summary.check_count ~limits:tiny 1);
+  show (Me_summary.check_count ~limits:tiny 2);
+  show
+    (Result.map ignore
+       (Me_summary.create ~limits:tiny ~metric:Lowering_key.Metric.Vector_loops
+          [ (n 1, None); (n 2, None) ]));
+  [%expect
+    {|
+    ok
+    graph nodeDataResults = 2 is over the ceiling
+    graph nodeDataResults = 2 is over the ceiling |}]
+
+let%expect_test "a summary document drops what JSON cannot spell" =
+  let n i = Graph_ir.Node_id.of_int i in
+  let doc =
+    Err.or_raise ~pp_error:Me_summary.pp_error
+      (Me_summary.create ~limits ~metric:Lowering_key.Metric.Coral_cycles
+         [
+           (n 3, Some 1.5);
+           (n 1, None);
+           (n 2, Some Float.nan);
+           (n 4, Some Float.infinity);
+         ])
+  in
+  print_endline
+    (Result.get_ok (Jsont_bytesrw.encode_string Me_summary.jsont doc));
+  [%expect
+    {| {"metric":"coral_cycles","values":{"n1":null,"n2":null,"n3":1.5,"n4":null}} |}]

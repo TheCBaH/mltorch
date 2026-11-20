@@ -312,11 +312,20 @@ let%expect_test "the decoder lands in the encoder's domain" =
             (Lowering_key.make
                (Graph_ir.Node_id.of_int 5)
                (Result.get_ok (Lowering_key.of_name "loop:raw"))) );
+      ( "summary",
+        MR.Request.build_lowering_summary ~id ~source ~options ~limits:wire
+          ~summary:
+            {
+              MR.Summary_wire.dialect = Lowering_key.Dialect.Native4d;
+              metric = Lowering_key.Metric.Scalar_loops;
+            } );
     ];
-  [%expect {|
+  [%expect
+    {|
     session  true
     detail   true
-    lowering true |}]
+    lowering true
+    summary  true |}]
 
 (* No Astring here, and none is wanted for one substring check. *)
 let contains ~affix s =
@@ -395,6 +404,55 @@ let%expect_test "the staged decoder rejects in its own order" =
     bad profile                      REJECTED invalid limit max_views = 999999
     bad source                       REJECTED source byte count is negative
     source under a tightened profile REJECTED source name is too long |}]
+
+(* A summary request names a dialect and a metric, each in its closed type's
+   spelling; an unknown name is a decode failure, and a request naming a summary
+   together with a lowering key is refused. *)
+let%expect_test "a summary request on the wire, and its malformed forms" =
+  let source = Err.or_raise ~pp_error:MR.Request.pp_error (src ()) in
+  let req =
+    Err.or_raise ~pp_error:MR.Request.pp_error
+      (MR.Request.build_lowering_summary ~id ~source ~options ~limits:wire
+         ~summary:
+           {
+             MR.Summary_wire.dialect = Lowering_key.Dialect.Native;
+             metric = Lowering_key.Metric.Vector_loops;
+           })
+  in
+  let text = Result.get_ok (encode req) in
+  Format.printf "%a@." pp_wire (Ok text);
+  let swap a b =
+    let i =
+      let rec find i =
+        if String.equal (String.sub text i (String.length a)) a then i
+        else find (i + 1)
+      in
+      find 0
+    in
+    String.sub text 0 i ^ b
+    ^ String.sub text
+        (i + String.length a)
+        (String.length text - i - String.length a)
+  in
+  List.iter
+    (fun t ->
+      Format.printf "%a@." pp_wire (Result.map (fun _ -> "ok") (decode t)))
+    [
+      text;
+      swap {|"metric":"vector_loops"|} {|"metric":"coral_cycles"|};
+      swap {|"metric":"vector_loops"|} {|"metric":"vector_loop"|};
+      swap {|"dialect":"native"|} {|"dialect":"cuda"|};
+      swap {|"summary":|}
+        {|"lowering":{"dialect":"native","node":0,"variant":"js"},"summary":|};
+    ];
+  [%expect
+    {|
+    {"id":"0f8fad5b-d9cb-469f-a165-70867728950e-7","limits":{},"options":{"fold":false,"namespace":"structural","stages":["canonical"]},"source":{"name":"resnet18","bytes":"1024","format":"model_json"},"summary":{"dialect":"native","metric":"vector_loops"}}
+    ok
+    ok
+    REJECTED Unexpected [1mloweringMetric enum string[0m value: [1mvector_loop[0m.
+    REJECTED Unexpected [1mloweringDialect enum string[0m value: [1mcuda[0m. Must be [1mnative[0m or
+    REJECTED a request names one of a detail key, a lowering key and a summary key |}]
 
 (* A lowering request names its key as three members, the variant in
    [Lowering_key]'s one spelling. Everything malformed is a decode failure at

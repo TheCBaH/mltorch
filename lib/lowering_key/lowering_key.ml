@@ -29,6 +29,21 @@ module Dialect = struct
   end)
 end
 
+module Metric = struct
+  type t = Coral_cycles | Scalar_loops | Vector_loops
+
+  include Closed (struct
+    type nonrec t = t
+
+    let table =
+      [
+        (Coral_cycles, "coral_cycles");
+        (Scalar_loops, "scalar_loops");
+        (Vector_loops, "vector_loops");
+      ]
+  end)
+end
+
 module Frontend = struct
   type t = Direct | Structured
 
@@ -163,6 +178,12 @@ module Family = Closed (struct
       (Wat, "wat");
     ]
 end)
+
+let reaches dialect (family : family) =
+  match (dialect, family) with
+  | Dialect.Native, _ -> true
+  | Dialect.Native4d, (C | Js | Loop | Ssa | Wat) -> true
+  | Dialect.Native4d, (Asm | Coral | Machine_ir) -> false
 
 let families = Family.all
 let family_name = Family.name

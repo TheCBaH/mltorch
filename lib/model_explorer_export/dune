@@ -20,6 +20,7 @@
   fmt
   jsont
   jsont.bytesrw
+  loop_native4d
   lowering_key
   model_explorer
   native

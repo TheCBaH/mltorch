@@ -109,3 +109,42 @@ let%expect_test "metric names round-trip and are in order" =
     coral_cycles -> 201.336
     scalar_loops -> 0
     vector_loops -> 1 |}]
+
+let%expect_test "one metric of the bundle equals that metric of the summary" =
+  let b = build (pool ()) in
+  let full = S.of_bundle ~granted:nobody b in
+  List.iter
+    (fun m ->
+      let one = S.metric_of_bundle ~granted:nobody m b in
+      let expected = List.map (fun s -> (s.S.node, S.metric s m)) full in
+      Fmt.pr "%s %b@." (S.Metric.name m) (one = expected))
+    S.Metric.all;
+  (* A granted node has no Coral estimate and no loops; Native4D has no Coral
+     family, so its estimate is absent everywhere. *)
+  let first = List.hd b.Loop_ir.Loop_bundle.invocations in
+  let granted = Graph_ir.Node_id.equal first.Loop_ir.Loop_bundle.node in
+  let show label l =
+    Fmt.pr "%s %s@." label
+      (String.concat " "
+         (List.map
+            (fun (_, v) ->
+              match v with None -> "none" | Some v -> Fmt.str "%g" v)
+            l))
+  in
+  show "granted scalar" (S.metric_of_bundle ~granted S.Metric.Scalar_loops b);
+  show "granted coral" (S.metric_of_bundle ~granted S.Metric.Coral_cycles b);
+  show "native4d coral"
+    (S.metric_of_bundle ~dialect:Lowering_key.Dialect.Native4d ~granted:nobody
+       S.Metric.Coral_cycles b);
+  show "native4d scalar"
+    (S.metric_of_bundle ~dialect:Lowering_key.Dialect.Native4d ~granted:nobody
+       S.Metric.Scalar_loops b);
+  [%expect
+    {|
+    coral_cycles true
+    scalar_loops true
+    vector_loops true
+    granted scalar 0 0
+    granted coral none none
+    native4d coral none none
+    native4d scalar 5 5 |}]

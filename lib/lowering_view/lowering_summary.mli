@@ -28,3 +28,21 @@ val of_invocation :
 
 val of_bundle : granted:(Node_id.t -> bool) -> Loop_ir.Loop_bundle.t -> t list
 (** One per invocation, in the bundle's order. *)
+
+val metric_of_invocation :
+  ?dialect:Lowering_key.Dialect.t ->
+  granted:(Node_id.t -> bool) ->
+  Metric.t ->
+  Loop_ir.Loop_bundle.invocation ->
+  float option
+(** [metric (of_invocation ~granted inv) m], running only the producer [m] reads
+    (the SSA plan or the Coral census, not both). A metric of a family the
+    [dialect] does not reach (Coral for Native4D) is [None]. *)
+
+val metric_of_bundle :
+  ?dialect:Lowering_key.Dialect.t ->
+  granted:(Node_id.t -> bool) ->
+  Metric.t ->
+  Loop_ir.Loop_bundle.t ->
+  (Node_id.t * float option) list
+(** One per invocation, in the bundle's order. *)

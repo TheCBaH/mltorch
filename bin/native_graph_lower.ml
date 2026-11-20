@@ -40,6 +40,18 @@ let node_arg =
   let doc = "The node to lower, spelled as the canonical view prints it." in
   Arg.(required & opt (some node_conv) None & info [ "node" ] ~doc ~docv:"ID")
 
+let dialect_arg =
+  let doc =
+    "The graph to lower: 1000 1000b,native) is the canonical graph, 1000 \
+     1000b,native4d) the four-axis graph converted from it."
+  in
+  Arg.(
+    value
+    & opt
+        (enum (List.map (fun d -> (Key.Dialect.name d, d)) Key.Dialect.all))
+        Key.Dialect.Native
+    & info [ "dialect" ] ~doc ~docv:"DIALECT")
+
 let artifact_arg =
   let doc =
     "What to show: $(i,family)[:$(i,variant)], e.g. $(b,loop), $(b,loop:raw), \
@@ -69,20 +81,20 @@ let refused reason =
   Fmt.epr "refused: %a@." Artifact.Refusal.pp reason;
   exit 1
 
-let text_of variant bundle node =
-  let a = Lowering_view.of_node ~granted:nobody bundle node variant in
+let text_of dialect variant bundle node =
+  let a = Lowering_view.of_node ~dialect ~granted:nobody bundle node variant in
   match a.Artifact.body with
   | Artifact.Text { text; _ } -> Ok (a, text)
   | Artifact.Refused r -> Error r
 
-let list_node (inv : Loop_ir.Loop_bundle.invocation) =
+let list_node dialect (inv : Loop_ir.Loop_bundle.invocation) =
   Fmt.pr "node %a: %d outputs, %d edges, %d synthetics@." Graph_ir.Node_id.pp
     inv.node (List.length inv.outputs) (List.length inv.edges)
     (List.length inv.synthetics);
   List.iter
     (fun family ->
       let v = Key.default family in
-      let a = Lowering_view.of_invocation ~granted:nobody inv v in
+      let a = Lowering_view.of_invocation ~dialect ~granted:nobody inv v in
       match a.Artifact.body with
       | Artifact.Text { text; _ } ->
           Fmt.pr "%-10s emits %d lines@." (Key.name v)
@@ -91,11 +103,12 @@ let list_node (inv : Loop_ir.Loop_bundle.invocation) =
           Fmt.pr "%-10s refused: %a@." (Key.name v) Artifact.Refusal.pp r)
     Key.families
 
-let lower model limits node artifact compare list : (unit, string) result =
+let lower model limits dialect node artifact compare list :
+    (unit, string) result =
   let* bytes = Native_graph_visualize.read_bounded limits model in
   let* bundle =
     to_cli Me_export.pp_error
-      (Me_export.canonical_bundle ~limits
+      (Me_export.canonical_bundle ~dialect ~limits
          ~options:
            {
              Me_export.Options.stages = Me_session.Capability.all_stages;
@@ -118,16 +131,18 @@ let lower model limits node artifact compare list : (unit, string) result =
     | None ->
         Error (Fmt.str "no invocation for node %a" Graph_ir.Node_id.pp node)
   in
-  if list then Ok (list_node inv)
+  if list then Ok (list_node dialect inv)
   else
     match (artifact, compare) with
     | None, _ -> Error "--artifact is required unless --list"
     | Some v, None -> (
-        match text_of v bundle node with
+        match text_of dialect v bundle node with
         | Ok (a, _) -> Ok (Fmt.pr "%a@." Artifact.pp a)
         | Error r -> refused r)
     | Some a, Some b -> (
-        match (text_of a bundle node, text_of b bundle node) with
+        match
+          (text_of dialect a bundle node, text_of dialect b bundle node)
+        with
         | Ok (_, ta), Ok (_, tb) ->
             let d = Lowering_diff.diff ta tb in
             if Lowering_diff.identical d then Fmt.pr "identical@."
@@ -142,5 +157,5 @@ let lower_cmd =
   let doc = "Show what a backend family makes of one node of the model." in
   Cmd.v (Cmd.info "lower" ~doc)
     Term.(
-      const lower $ model_arg $ limits_arg $ node_arg $ artifact_arg
-      $ compare_arg $ list_arg)
+      const lower $ model_arg $ limits_arg $ dialect_arg $ node_arg
+      $ artifact_arg $ compare_arg $ list_arg)
