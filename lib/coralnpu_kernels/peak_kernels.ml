@@ -5,15 +5,15 @@
    [peak_body] and [peak_body_end]. *)
 
 module L = Coral_layout
-module Rv32_profile = Machine_rivet_riscv32.Rv32_profile
-module Item = Machine_rivet_riscv32.Rv32_kernel_item
-module Kernel = Machine_rivet_riscv32.Rv32_kernel
-module Lower = Machine_rivet_riscv32.Rv32_kernel_lower
-module Insn = Machine_rivet_riscv32.Rv32_kernel_insn
-module Imm = Machine_rivet_riscv32.Rv32_kernel_imm
-module Label = Machine_rivet_riscv32.Rv32_kernel_label
-module Reg = Machine_rivet_riscv32.Rv32_kernel_reg
-module Vtype = Machine_rivet_riscv32.Rv32_kernel_vtype
+module Rv32_profile = Machine_rivet_riscv32_module.Rv32_profile
+module Item = Machine_rivet_riscv32_module.Rv32_kernel_item
+module Kernel = Machine_rivet_riscv32_module.Rv32_kernel
+module Lower = Machine_rivet_riscv32_module.Rv32_kernel_lower
+module Insn = Machine_rivet_riscv32_module.Rv32_kernel_insn
+module Imm = Machine_rivet_riscv32_module.Rv32_kernel_imm
+module Label = Machine_rivet_riscv32_module.Rv32_kernel_label
+module Reg = Machine_rivet_riscv32_module.Rv32_kernel_reg
+module Vtype = Machine_rivet_riscv32_module.Rv32_kernel_vtype
 module Gpr = Reg.Gpr
 module Vreg = Reg.Vreg
 
@@ -22,7 +22,7 @@ let entry = "peak_entry"
 (* The profile every peak image is built for: Coral NPU's RV32 core with the
    vector unit and BF16 widening multiply-add. *)
 let rv32_profile =
-  Machine_rivet_riscv32.Rv32_profile.Rv32imf_zve32f_zvfbfwma_ilp32f
+  Machine_rivet_riscv32_module.Rv32_profile.Rv32imf_zve32f_zvfbfwma_ilp32f
 
 (* An element type of the inputs or the accumulators. *)
 module Elem = struct

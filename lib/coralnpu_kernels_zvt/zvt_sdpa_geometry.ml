@@ -1,7 +1,7 @@
 (* What the descriptor fixes of the fused attention function before any code
    is made: the block shapes, the buffers and their sizes. *)
 
-module R = Machine_rivet_riscv32
+module R = Machine_rivet_riscv32_module
 module Insn = R.Rv32_kernel_insn
 module A = Attention_block
 module P = Peak_zvt

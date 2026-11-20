@@ -63,7 +63,7 @@ module Li = Make (struct
      -2049, 0x80000000 and 0xFFFFF000 are refused with an out-of-range [addi]. *)
   let in_range n =
     within (-2048) 2047 n
-    || (n land 0xFFF = 0 && within (-0x8000_0000) 0x7FFF_F000 n)
+    || (n land 0xFFF = 0 && within (Int32.to_int Int32.min_int) 0x7FFF_F000 n)
 end)
 
 module Shamt = Make (struct

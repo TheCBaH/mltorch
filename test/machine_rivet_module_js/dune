@@ -8,7 +8,15 @@
 (library
  (name machine_rivet_module_js_test)
  (libraries
+  contraction
+  coral_estimate
+  coral_transfer
+  coralnpu
+  jsont
+  jsont.bytesrw
   core
+  coralnpu_kernels
+  coralnpu_kernels_zvt
   err_trace
   fmt
   loop_ir_test

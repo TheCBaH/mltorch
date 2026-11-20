@@ -1,4 +1,4 @@
-module A = Machine_rivet_riscv32.Rv32_asm
+module A = Machine_rivet_riscv32_module.Rv32_asm
 
 module Window = struct
   type t = {

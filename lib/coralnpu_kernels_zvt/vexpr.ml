@@ -1,4 +1,4 @@
-module R = Machine_rivet_riscv32
+module R = Machine_rivet_riscv32_module
 module Item = R.Rv32_kernel_item
 module Insn = R.Rv32_kernel_insn
 module Imm = R.Rv32_kernel_imm
@@ -108,8 +108,8 @@ let li ~scratch bits =
   | Ok is -> List.map Item.insn is
   | Error _ -> invalid_arg "Vexpr: a constant"
 
-let emit ~(lmul : Machine_rivet_riscv32.Rv32_kernel_vtype.Lmul.t) ~scratch ~free
-    ~inputs root =
+let emit ~(lmul : Machine_rivet_riscv32_module.Rv32_kernel_vtype.Lmul.t)
+    ~scratch ~free ~inputs root =
   try
     match
       Err.payload
@@ -124,7 +124,8 @@ let emit ~(lmul : Machine_rivet_riscv32.Rv32_kernel_vtype.Lmul.t) ~scratch ~free
               if
                 i = 0
                 || not
-                     (Machine_rivet_riscv32.Rv32_kernel_vtype.Lmul.aligned lmul
+                     (Machine_rivet_riscv32_module.Rv32_kernel_vtype.Lmul
+                      .aligned lmul
                         (ok (Vreg.of_index i)))
               then
                 invalid_arg

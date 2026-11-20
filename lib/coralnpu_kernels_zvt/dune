@@ -16,7 +16,7 @@
   coralnpu_kernels
   err_trace
   fmt
-  machine_rivet_riscv32
+  machine_rivet_riscv32_module
   rivet.asm_core
   rivet.riscv32_encode)
  (enabled_if

@@ -5,7 +5,7 @@
 val of_items :
   ?zvt:bool ->
   name:string ->
-  Machine_rivet_riscv32.Rv32_kernel_item.t list ->
+  Machine_rivet_riscv32_module.Rv32_kernel_item.t list ->
   ( Riscv32_encode.Instruction.t Asm_core.Normalized_ast.module_,
     Coralnpu_kernels.Kernel_refusal.t )
   result

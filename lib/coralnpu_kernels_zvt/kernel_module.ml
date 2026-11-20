@@ -1,4 +1,4 @@
-module R = Machine_rivet_riscv32
+module R = Machine_rivet_riscv32_module
 module Kernel_refusal = Coralnpu_kernels.Kernel_refusal
 
 let of_items ?(zvt = true) ~name items =

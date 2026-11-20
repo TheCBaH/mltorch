@@ -19,19 +19,21 @@ module Ops : F32_math.OPS with type t = t
 (** What an emission produced. *)
 module Plan : sig
   type t = {
-    items : Machine_rivet_riscv32.Rv32_kernel_item.t list;
-    result : Machine_rivet_riscv32.Rv32_kernel_reg.Vreg.t;
+    items : Machine_rivet_riscv32_module.Rv32_kernel_item.t list;
+    result : Machine_rivet_riscv32_module.Rv32_kernel_reg.Vreg.t;
         (** the register holding the value, no longer on the free list *)
     peak : int;  (** the most register groups live at once *)
   }
 end
 
 val emit :
-  lmul:Machine_rivet_riscv32.Rv32_kernel_vtype.Lmul.t ->
-  scratch:Machine_rivet_riscv32.Rv32_kernel_reg.Gpr.t ->
-  free:Machine_rivet_riscv32.Rv32_kernel_reg.Vreg.t list ->
+  lmul:Machine_rivet_riscv32_module.Rv32_kernel_vtype.Lmul.t ->
+  scratch:Machine_rivet_riscv32_module.Rv32_kernel_reg.Gpr.t ->
+  free:Machine_rivet_riscv32_module.Rv32_kernel_reg.Vreg.t list ->
   inputs:
-    (Machine_rivet_riscv32.Rv32_kernel_reg.Vreg.t * [ `Consumed | `Kept ]) array ->
+    (Machine_rivet_riscv32_module.Rv32_kernel_reg.Vreg.t
+    * [ `Consumed | `Kept ])
+    array ->
   t ->
   (Plan.t, string) result
 (** Items computing the graph under the vector configuration in force ([lmul] is

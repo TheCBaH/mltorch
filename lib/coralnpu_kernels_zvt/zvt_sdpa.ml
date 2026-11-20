@@ -1,4 +1,4 @@
-module R = Machine_rivet_riscv32
+module R = Machine_rivet_riscv32_module
 module Item = R.Rv32_kernel_item
 module Insn = R.Rv32_kernel_insn
 module Imm = R.Rv32_kernel_imm

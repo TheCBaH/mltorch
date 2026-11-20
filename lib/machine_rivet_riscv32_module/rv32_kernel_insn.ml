@@ -329,8 +329,12 @@ let pp ppf i =
    the high part adjusted for the low part's sign, then [addi]. The range is
    checked here: a masked value could no longer be told from a valid one. *)
 let load_imm dst value =
-  if value < -0x8000_0000 || value > 0xFFFF_FFFF then
-    Err.fail (`Constant_range { Constant_range.value })
+  (* Compared as [int64]: under js_of_ocaml [0xFFFF_FFFF] is [-1]. *)
+  let wide = Int64.of_int value in
+  if
+    Int64.compare wide (-0x8000_0000L) < 0
+    || Int64.compare wide 0xFFFF_FFFFL > 0
+  then Err.fail (`Constant_range { Constant_range.value })
   else if value >= -2048 && value < 2048 then
     Ok [ Li { dst; imm = Imm.Li.of_int value } ]
   else
