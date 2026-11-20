@@ -100,7 +100,6 @@ let lower model limits node artifact compare list : (unit, string) result =
            {
              Me_export.Options.stages = Me_session.Capability.all_stages;
              fold = false;
-             generated_js = None;
              verify_symbolic = None;
              name = Filename.remove_extension (Filename.basename model);
              source_bytes = Int64.of_int (String.length bytes);

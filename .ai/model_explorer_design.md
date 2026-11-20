@@ -1323,9 +1323,12 @@ real model can be too big and that is a bound doing its job — and an invariant
 
 ## 15. Expression detail — `Me_detail`
 
-When the `generated_js` option is set, each operator detail's `out<i>` node also carries the
-Loop IR JavaScript for that output — see the `.ai/` doc on generated JavaScript for the
-option's shape, the raw/optimized toggle, and the pass-selection mechanism.
+Generated JavaScript is **not** part of the session: the `generated_js` option, its
+capability row and the `out<i>` attributes were retired when the lowering inspector landed.
+The same text is requested per node by the lowering pane, from its own worker
+(`lowering_worker.js`, started on first open; the session worker stays `worker.js`) — see the
+`.ai/` docs on the lowering inspector and on generated JavaScript (superseded, kept for the
+pass-naming mechanism and the CLI section).
 
 **Initial and referentially complete.** A session carries one detail graph per canonical
 operator, shared by that operator and its projected Stage/Kernel values. The initial

@@ -218,7 +218,6 @@ let row_of_model ~normalize models_dir model =
     {
       Me_export.Options.stages = C.all_stages;
       fold = false;
-      generated_js = None;
       verify_symbolic = None;
       name = model;
       source_bytes = Int64.of_int (String.length bytes);

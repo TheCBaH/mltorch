@@ -25,7 +25,6 @@ module Js_read = struct
     | `Not_an_integer of string
     | `Not_an_object of string
     | `Unknown_effort of string
-    | `Unknown_pass of string
     | `Unknown_source_kind of string
     | `Unknown_stage of string ]
 
@@ -43,7 +42,6 @@ module Js_read = struct
     | `Not_an_integer field -> Format.fprintf fmt "%s must be an integer" field
     | `Not_an_object field -> Format.fprintf fmt "%s must be an object" field
     | `Unknown_effort s -> Format.fprintf fmt "unknown verification effort %S" s
-    | `Unknown_pass s -> Format.fprintf fmt "unknown optimization pass %S" s
     | `Unknown_source_kind s -> Format.fprintf fmt "unknown source kind %S" s
     | `Unknown_stage s -> Format.fprintf fmt "unknown output stage %S" s
 
@@ -155,43 +153,18 @@ let read_effort options_raw =
     | Error _ -> Js_read.fail (`Unknown_effort name)
   else Js_read.fail (`Not_a_string "verifySymbolic")
 
-let pass_of_name name =
-  List.find_opt
-    (fun p -> String.equal (Loop_ir.Loop_opt.Pass.name p) name)
-    Loop_ir.Loop_opt.Pass.all
-
-(* [None] (absent or null) is the checkbox off; [Some []] is "Optimized"
-   unchecked with no pass re-checked (raw); [Some Pass.all] is the default
-   once the box is on. Mirrors {!read_effort}'s absent/null-together
-   handling. *)
-let read_generated_js options_raw =
-  let v = Js_read.field options_raw "generatedJs" in
-  if Js_read.absent v || Js_read.is_null v then Err.return None
-  else
-    let* names = Js_read.string_list options_raw "generatedJs" in
-    let rec go acc = function
-      | [] -> Err.return (List.rev acc)
-      | name :: rest -> (
-          match pass_of_name name with
-          | Some pass -> go (pass :: acc) rest
-          | None -> Js_read.fail (`Unknown_pass name))
-    in
-    let+ passes = go [] names in
-    Some passes
-
 (* An absent [options] cannot fall through to the field readers: reading a
    property off [undefined] throws in JavaScript rather than yielding
    [undefined] again. *)
 let read_options raw =
   let v = Js_read.field raw "options" in
-  if Js_read.absent v then Err.return (C.all_stages, false, None, None)
+  if Js_read.absent v then Err.return (C.all_stages, false, None)
   else if not (Js_read.is_object v) then Js_read.fail (`Not_an_object "options")
   else
     let* stages = read_stages v in
     let* fold = Js_read.bool_field v "fold" ~default:false in
-    let* effort = read_effort v in
-    let+ generated_js = read_generated_js v in
-    (stages, fold, effort, generated_js)
+    let+ effort = read_effort v in
+    (stages, fold, effort)
 
 (* Every non-["catalog"] value used to be read as [Local], so a typo in the
    kind produced a request with no provenance instead of a rejection. *)
@@ -272,18 +245,6 @@ let options_echo (options : Me_request.Options.t) =
         | None -> Js.Unsafe.pure_js_expr "null"
         | Some effort ->
             Js.Unsafe.inject (Js.string (Map_verify.Effort.to_string effort)) );
-      ( "generatedJs",
-        match options.Me_request.Options.generated_js with
-        | None -> Js.Unsafe.pure_js_expr "null"
-        | Some passes ->
-            Js.Unsafe.inject
-              (Js.array
-                 (Array.of_list
-                    (List.map
-                       (fun p ->
-                         Js.Unsafe.inject
-                           (Js.string (Loop_ir.Loop_opt.Pass.name p)))
-                       passes))) );
     |]
 
 (* A boundary that emits OUTWARD -- this response reaches the browser -- prints
@@ -319,13 +280,13 @@ let build_session raw =
         (Me_request.Source.create ~limits:Me_limits.Limits.untrusted ~origin
            ~name ~bytes ~format:`Model_json)
     in
-    let stages, fold, verify_symbolic, generated_js =
+    let stages, fold, verify_symbolic =
       Err.or_raise ~pp_error:Js_read.pp_error (read_options raw)
     in
     let options =
       Err.or_raise ~pp_error:Me_request.Request.pp_error
         (Me_request.Options.create ~stages ~fold ~verify_symbolic
-           ~namespace:Me_request.Options.Structural ?generated_js ())
+           ~namespace:Me_request.Options.Structural ())
     in
     let limits =
       Err.or_raise ~pp_error:Me_limits.pp_error
@@ -370,13 +331,13 @@ let read_common raw =
       (Me_request.Source.create ~limits:Me_limits.Limits.untrusted ~origin ~name
          ~bytes ~format:`Model_json)
   in
-  let stages, fold, verify_symbolic, generated_js =
+  let stages, fold, verify_symbolic =
     Err.or_raise ~pp_error:Js_read.pp_error (read_options raw)
   in
   let options =
     Err.or_raise ~pp_error:Me_request.Request.pp_error
       (Me_request.Options.create ~stages ~fold ~verify_symbolic
-         ~namespace:Me_request.Options.Structural ?generated_js ())
+         ~namespace:Me_request.Options.Structural ())
   in
   let limits =
     Err.or_raise ~pp_error:Me_limits.pp_error

@@ -68,8 +68,8 @@ emitter bodies, optimizer and vectorizer depend on the runtime and nothing depen
 on them except the Loop-owned backends.
 
 `Loop_opt` is needed only by the Loop-owned backends (the interpreter-driven
-executors, the Loop C/JS/Wasm paths, the Model Explorer "generated JS" export,
-which exposes the pass list). Every pass has an SSA counterpart that runs after
+executors, the Loop C/JS/Wasm paths, the lowering inspector, which exposes the pass list).
+Every pass has an SSA counterpart that runs after
 the conversion: unit-loop, fold and simplify in `Ssa_opt.simplify`/`guards`,
 guards in `Ssa_opt.guards`, CSE in `simplify` and `share`, hoisting in `hoist`,
 collapse in `Ssa_opt_collapse`. Retiring Loop's emitters retires its production

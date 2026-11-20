@@ -12,7 +12,7 @@ pinned here is the shape, the counts, and the COMPLETE capability vector.
 
   $ ../bin/native_graph.exe visualize --model model.json --output session.json
   $ ./cram_probe.exe summary session.json
-  views=107 comparisons=2 capabilities=15 graphs=107
+  views=107 comparisons=2 capabilities=14 graphs=107
 
 The complete capability vector, which is what a drifting downstream row would
 show up in. A test asserting only the interesting key would let the rest move.
@@ -30,7 +30,6 @@ show up in. A test asserting only the interesting key would let the rest move.
   feature:pass_audits          not_requested
   feature:fold                 unavailable requires_payloads
   feature:expression_detail    available present
-  feature:generated_js         not_requested
   feature:loop_ir              unavailable not_implemented
   feature:codegen              unavailable not_implemented
 

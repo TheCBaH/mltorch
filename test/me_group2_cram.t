@@ -35,7 +35,6 @@ Native4D's own rejection (neither 1 nor depthwise), and now legalizes to
   feature:pass_audits          not_requested
   feature:fold                 unavailable requires_payloads
   feature:expression_detail    available present
-  feature:generated_js         not_requested
   feature:loop_ir              unavailable not_implemented
   feature:codegen              unavailable not_implemented
 

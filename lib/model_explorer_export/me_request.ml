@@ -328,7 +328,6 @@ module Options = struct
 
   type t = {
     fold : bool;
-    generated_js : Loop_ir.Loop_opt.Pass.t list option;
     namespace : namespace;
     stages : Me_session.Capability.graph_stage list;
     verify_symbolic : Map_verify.Effort.t option;
@@ -343,25 +342,10 @@ module Options = struct
       (fun s -> List.exists (fun x -> x = s) stages)
       Me_session.Capability.all_stages
 
-  (* Same shape as [normalise], one level down: [None] (not requested) passes
-     through unchanged, and [Some []] (raw) is already normal -- there is
-     nothing in [Pass.all] order to filter it against. *)
-  let normalise_generated_js =
-    Option.map (fun passes ->
-        List.filter (fun p -> List.mem p passes) Loop_ir.Loop_opt.Pass.all)
-
-  let create ~stages ~fold ~verify_symbolic ~namespace ?generated_js () =
+  let create ~stages ~fold ~verify_symbolic ~namespace () =
     match normalise stages with
     | [] -> Err.fail `Invalid_options
-    | stages ->
-        Err.return
-          {
-            fold;
-            generated_js = normalise_generated_js generated_js;
-            namespace;
-            stages;
-            verify_symbolic;
-          }
+    | stages -> Err.return { fold; namespace; stages; verify_symbolic }
 
   let stage_jsont =
     Jsont.enum ~kind:"graphStage"
@@ -379,22 +363,14 @@ module Options = struct
     Jsont.enum ~kind:"namespaceMode"
       [ ("module", Module); ("structural", Structural) ]
 
-  let pass_jsont =
-    Jsont.enum ~kind:"loopOptPass"
-      (List.map
-         (fun p -> (Loop_ir.Loop_opt.Pass.name p, p))
-         Loop_ir.Loop_opt.Pass.all)
-
   let jsont =
     Jsont.Object.map ~kind:"options"
-      (fun fold generated_js namespace stages verify_symbolic ->
+      (fun fold namespace stages verify_symbolic ->
         or_jsont
           (fun fmt `Invalid_options ->
             Fmt.string fmt "a request must ask for at least one stage")
-          (create ~stages ~fold ~verify_symbolic ~namespace ?generated_js ()))
+          (create ~stages ~fold ~verify_symbolic ~namespace ()))
     |> Jsont.Object.mem "fold" Jsont.bool ~enc:(fun t -> t.fold)
-    |> Jsont.Object.opt_mem "generatedJs" (Jsont.list pass_jsont) ~enc:(fun t ->
-        t.generated_js)
     |> Jsont.Object.mem "namespace" namespace_jsont ~enc:(fun t -> t.namespace)
     |> Jsont.Object.mem "stages" (Jsont.list stage_jsont) ~enc:(fun t ->
         t.stages)

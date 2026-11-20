@@ -205,7 +205,6 @@ module Options : sig
 
   type t = private {
     fold : bool;
-    generated_js : Loop_ir.Loop_opt.Pass.t list option;
     namespace : namespace;
     stages : Me_session.Capability.graph_stage list;
     verify_symbolic : Map_verify.Effort.t option;
@@ -216,7 +215,6 @@ module Options : sig
     fold:bool ->
     verify_symbolic:Map_verify.Effort.t option ->
     namespace:namespace ->
-    ?generated_js:Loop_ir.Loop_opt.Pass.t list ->
     unit ->
     (t, [> `Invalid_options ]) Err.t
   (** [stages] is NORMALISED, not merely validated: duplicates removed and the
@@ -227,14 +225,7 @@ module Options : sig
       statement about a canonical value rather than about a spelling.
 
       An empty list is [`Invalid_options]: a request asking for nothing is a
-      caller defect, not an empty session.
-
-      [generated_js] is likewise normalised through {!Loop_ir.Loop_opt.select}
-      (dedup, pipeline order): [None] is the request never asking for the Loop
-      IR JavaScript export; [Some []] asks for it RAW (no optimization pass
-      applied); [Some Loop_ir.Loop_opt.Pass.all] is the optimized default;
-      anything in between names a custom pass subset. Unlike [stages], an empty
-      list here is a legitimate request (raw), not [`Invalid_options]. *)
+      caller defect, not an empty session. *)
 
   val jsont : t Jsont.t
 end

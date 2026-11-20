@@ -276,56 +276,6 @@ let strip_constants s =
       else n)
     s
 
-let js_keys = [ "js"; "js_truncated"; "js_unavailable" ]
-
-let js_of s =
-  let n = by "id" "out0" (nodes s "expr/g/native/001/n0") in
-  str (get (Err.of_option (`Metadata_missing "js") (attr "js" n)))
-
-let js_off s =
-  let count =
-    List.fold_left
-      (fun acc g ->
-        List.fold_left
-          (fun acc n ->
-            acc
-            + List.length
-                (List.filter (fun (key, _) -> List.mem key js_keys) (attrs n)))
-          acc (rows "nodes" g))
-      0 (graphs s)
-  in
-  Printf.printf "js attrs %d %s\n" count
-    (field "state" (cap s "feature:generated_js"))
-
-let js_present s =
-  let c = cap s "feature:generated_js" in
-  Printf.printf "%s %s\n" (field "state" c) (field "kind" (at "payload" c));
-  let n = by "id" "out0" (nodes s "expr/g/native/001/n0") in
-  Printf.printf "%s %s %s %d\n"
-    (py_bool (attr "js" n <> None))
-    (py_bool (attr "js_truncated" n <> None))
-    (py_bool (attr "js_unavailable" n <> None))
-    (String.length (js_of s))
-
-let strip_js s =
-  let s =
-    map_nodes
-      (fun n ->
-        update "attrs"
-          (J.list
-             (List.filter
-                (fun a -> not (List.mem (field "key" a) js_keys))
-                (optional_rows "attrs" n)))
-          n)
-      s
-  in
-  update "capabilities"
-    (J.list
-       (List.filter
-          (fun c -> field "key" c <> "feature:generated_js")
-          (rows "capabilities" s)))
-    s
-
 let frontier name s =
   List.iter
     (fun key ->

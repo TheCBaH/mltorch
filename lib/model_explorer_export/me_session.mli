@@ -144,7 +144,6 @@ module Capability : sig
     | Expression_detail
     | Flow
     | Fold
-    | Generated_js
     | Loop_ir
     | Pass_audits
     | Verification

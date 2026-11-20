@@ -2320,7 +2320,10 @@ spike.runtest:
 webapp.npm-install:
 	cd web && npm ci --no-audit --no-fund
 
-webapp.build: webapp.npm-install visualizer.build
+# The lowering worker links the vendored Rivet (lowering_view's assembly family),
+# and the devcontainer's own copy is coralview's pin-depends one, so every build
+# of the site -- pages.yml included -- pins vendored/rivet first.
+webapp.build: webapp.npm-install visualizer.build rivet.install
 	opam exec -- dune build js/webapp/webapp_worker.bc.js js/webapp/lowering_worker.bc.js js/webapp/webapp_bridge.bc.js
 	node web/scripts/build-webapp.mjs
 

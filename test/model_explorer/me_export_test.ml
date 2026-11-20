@@ -128,8 +128,8 @@ let%expect_test "a model the lowerer handles" =
   [%expect
     {|
     phases: decode encode
-    session payload=14450 bytes
-    {"kind":"session","id":"0f8fad5b-d9cb-469f-a165-70867728950e-1","limits":{},"bytes":14450} |}]
+    session payload=14384 bytes
+    {"kind":"session","id":"0f8fad5b-d9cb-469f-a165-70867728950e-1","limits":{},"bytes":14384} |}]
 
 let%expect_test "a model the lowerer does NOT handle is still a session" =
   (* The one row that makes this a capability protocol rather than an error
@@ -171,7 +171,6 @@ let%expect_test "a model the lowerer does NOT handle is still a session" =
     feature:pass_audits          unavailable prerequisite_unavailable
     feature:fold                 unavailable prerequisite_unavailable
     feature:expression_detail    available
-    feature:generated_js         unavailable prerequisite_unavailable
     feature:loop_ir              unavailable not_implemented
     feature:codegen              unavailable not_implemented |}]
 
@@ -249,7 +248,6 @@ let%expect_test
     feature:pass_audits          not_requested
     feature:fold                 unavailable requires_payloads
     feature:expression_detail    available
-    feature:generated_js         not_requested
     feature:loop_ir              unavailable not_implemented
     feature:codegen              unavailable not_implemented |}]
 
@@ -430,7 +428,6 @@ let export_options bytes : Me_export.Options.t =
   {
     stages = [ Me_session.Capability.Canonical ];
     fold = false;
-    generated_js = None;
     verify_symbolic = None;
     name = "tiny";
     source_bytes = Int64.of_int (String.length bytes);

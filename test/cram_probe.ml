@@ -42,23 +42,6 @@ let run = function
   | [ "detail-count"; path ] ->
       Printf.printf "%d nodes\n"
         (List.length (rows "nodes" (at "graph" (read path))))
-  | [ "js-off"; path ] -> S.js_off (read path)
-  | [ "js-present"; path ] -> S.js_present (read path)
-  | [ "js-raw"; opt; raw ] ->
-      let opt = S.js_of (read opt) and raw = S.js_of (read raw) in
-      Printf.printf "raw len %d differs from optimized %s\n" (String.length raw)
-        (py_bool (raw <> opt))
-  | [ "js-custom"; opt; raw; custom ] ->
-      let opt = S.js_of (read opt)
-      and raw = S.js_of (read raw)
-      and custom = S.js_of (read custom) in
-      Printf.printf "custom differs from optimized %s and from raw %s\n"
-        (py_bool (custom <> opt))
-        (py_bool (custom <> raw))
-  | [ "js-equality"; off; opt ] ->
-      Printf.printf
-        "identical once the js attributes and capability are stripped %s\n"
-        (py_bool (equal (S.strip_js (read off)) (S.strip_js (read opt))))
   | [ "constant-equality"; a; b ] ->
       Printf.printf "identical once constant namespaces are ignored %s\n"
         (py_bool

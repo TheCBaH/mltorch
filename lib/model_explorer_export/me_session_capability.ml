@@ -17,7 +17,6 @@ module Capability = struct
     | Expression_detail
     | Flow
     | Fold
-    | Generated_js
     | Loop_ir
     | Pass_audits
     | Verification
@@ -38,7 +37,6 @@ module Capability = struct
     | Expression_detail -> "expression_detail"
     | Flow -> "flow"
     | Fold -> "fold"
-    | Generated_js -> "generated_js"
     | Loop_ir -> "loop_ir"
     | Pass_audits -> "pass_audits"
     | Verification -> "verification"
@@ -63,8 +61,7 @@ module Capability = struct
     | Verification -> Some Pass_audits
     | Pass_audits -> Some Fold
     | Fold -> Some Expression_detail
-    | Expression_detail -> Some Generated_js
-    | Generated_js -> Some Loop_ir
+    | Expression_detail -> Some Loop_ir
     | Loop_ir -> Some Codegen
     | Codegen -> None
 
@@ -148,7 +145,6 @@ module Capability = struct
     | Feature Verification, Available (Verification_summary _) -> true
     | Feature Pass_audits, Available (Pass_audit_status _) -> true
     | Feature Fold, Available Present -> true
-    | Feature Generated_js, Available Present -> true
     | Feature Expression_detail, Available Present -> true
     | _, Available _ -> false
 

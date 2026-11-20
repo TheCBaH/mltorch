@@ -49,7 +49,7 @@ function rejected(options, expected) {
 }
 
 test('the bridge is exported and carries its hard limits', () => {
-  assert.deepEqual(Object.keys(mltorch).sort(), ['hard', 'request', 'session']);
+  assert.deepEqual(Object.keys(mltorch).sort(), ['hard', 'lowering', 'request', 'session']);
   assert.ok(Number.isInteger(mltorch.hard.maxQuarantinedElements));
 });
 
@@ -65,7 +65,6 @@ test('an absent options object reproduces the pre-options request exactly', () =
       stages: ALL,
       fold: false,
       verifySymbolic: null,
-      generatedJs: null,
     });
   }
 });

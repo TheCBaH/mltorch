@@ -34,8 +34,8 @@ let read_bounded limits path =
     Ok s
   end
 
-let visualize model limits output format fold verify_symbolic constants
-    generated_js : (unit, string) result =
+let visualize model limits output format fold verify_symbolic constants :
+    (unit, string) result =
   (* Size is rejected BEFORE the rest of the file is read, so an oversized
      file never becomes an OCaml string. Only a filesystem caller can do
      that, which is why it is here and not in the library. *)
@@ -53,7 +53,6 @@ let visualize model limits output format fold verify_symbolic constants
                 default and there is no flag to narrow it. *)
              Me_export.Options.stages = Me_session.Capability.all_stages;
              fold;
-             generated_js;
              verify_symbolic;
              name = collection_label;
              source_bytes = size;
@@ -151,13 +150,7 @@ let detail model limits output parent value : (unit, string) result =
              (* [detail]'s CLI key is always a Kernel VALUE key ([create], never
                 [create_operator]), so [Me_export.detail] always takes its
                 [Me_detail.of_value] branch, which reads no field of [Options.t]
-                but [stages] (itself unread here too, per the comment above).
-                [generated_js] decorates an OPERATOR detail's [out<i>] nodes
-                only -- [of_operator], not [of_value] -- so it would be dead
-                weight on this command; [visualize] is the reachable path,
-                since the operator detail graphs are already eagerly part of
-                the session it exports. *)
-             generated_js = None;
+                but [stages] (itself unread here too, per the comment above). *)
              verify_symbolic = None;
              name = Filename.remove_extension (Filename.basename model);
              source_bytes = size;
@@ -197,4 +190,4 @@ let visualize_cmd =
     (Cmd.info "visualize" ~doc)
     Term.(
       const visualize $ model_arg $ limits_arg $ output_arg $ format_arg
-      $ fold_arg $ verify_symbolic_arg $ constants_arg $ generated_js_arg)
+      $ fold_arg $ verify_symbolic_arg $ constants_arg)

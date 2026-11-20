@@ -16,10 +16,10 @@ val run : ?passes:pass list -> Loop_program.t -> Loop_program.t
     pipeline itself. *)
 
 (** Naming the pipeline, for a caller that wants a subset rather than a
-    hand-rolled [pass list] -- e.g. the Model Explorer "generated JS" export,
-    which lets a request name which passes ran. The type carries no function: a
-    [Pass.t] is a stable, comparable label, never a closure a caller could
-    substitute for the pipeline's own. *)
+    hand-rolled [pass list] -- e.g. the lowering inspector's variant keys, which
+    name which passes ran. The type carries no function: a [Pass.t] is a stable,
+    comparable label, never a closure a caller could substitute for the
+    pipeline's own. *)
 module Pass : sig
   (* Same order as {!passes} and for the same reason: the pipeline's order is
      behavior (§ above), so this list is that order restated as data, not
