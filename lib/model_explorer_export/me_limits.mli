@@ -265,6 +265,10 @@ module Hard : sig
       than this many are quarantined, so the true maximum is [1 + this]. A
       deliberate structural bound, not a tight maximum. *)
 
+  val json_control_escape_expansion : int
+  (** The worst case for text that is NOT sanitised (generated source): a
+      control byte is a six-byte u-escape. *)
+
   val json_escape_expansion : int
   (** Escaping a sanitised string for JSON. [Diagnostic.create] replaces control
       bytes and invalid sequences with U+FFFD before the length rule applies, so
@@ -325,6 +329,12 @@ module Hard : sig
   val max_namespace_component_bytes : int
   val max_label_bytes : int
   val max_id_bytes : int
+
+  val max_artifact_bytes : int
+  (** One lowering artifact's text. Six times it, the worst JSON-escaped
+      document, is checked at module initialisation against
+      [max_response_document_bytes] and {!jsoo_safe_bytes}. *)
+
   val max_attr_chars : int
   val max_url_bytes : int
   val max_graphs : int
@@ -388,6 +398,7 @@ module Limits : sig
     max_namespace_component_bytes : int;
     max_label_bytes : int;
     max_id_bytes : int;
+    max_artifact_bytes : int;
     max_attr_chars : int;
     max_url_bytes : int;
     max_graphs : int;
@@ -437,6 +448,7 @@ module Limits : sig
     ?max_namespace_component_bytes:int ->
     ?max_label_bytes:int ->
     ?max_id_bytes:int ->
+    ?max_artifact_bytes:int ->
     ?max_attr_chars:int ->
     ?max_url_bytes:int ->
     ?max_graphs:int ->

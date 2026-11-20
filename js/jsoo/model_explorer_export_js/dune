@@ -25,6 +25,7 @@
   jsont
   jsont.bytesrw
   loop_ir_js
+  lowering_key_js
   model_explorer
   native_js
   native4d_js

@@ -158,6 +158,7 @@
   fmt
   jsont
   jsont.bytesrw
+  lowering_key
   model_explorer_export
   native)
  (inline_tests
@@ -174,6 +175,7 @@
   fmt
   jsont
   jsont.bytesrw
+  lowering_key
   model_explorer_export
   native)
  (inline_tests
@@ -190,6 +192,7 @@
   fmt
   jsont
   jsont.bytesrw
+  lowering_key
   model_explorer_export
   native)
  (inline_tests
@@ -221,6 +224,23 @@
  (name me_kernel_test)
  (modules me_kernel_test)
  (libraries core err_trace fmt model_explorer model_explorer_export native)
+ (inline_tests
+  (modes best js))
+ (preprocess
+  (pps ppx_expect)))
+
+(library
+ (name me_artifact_test)
+ (modules me_artifact_test)
+ (libraries
+  core
+  err_trace
+  fmt
+  jsont
+  jsont.bytesrw
+  lowering_key
+  model_explorer_export
+  native)
  (inline_tests
   (modes best js))
  (preprocess

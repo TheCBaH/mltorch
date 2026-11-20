@@ -34,11 +34,17 @@ let diagnostic =
   Me_limits.Diagnostic.create ~limits Me_limits.Diagnostic.Code.Over_limit
     "graph nodes = 99 is over the ceiling"
 
+let lowering_key =
+  Lowering_key.make
+    (Graph_ir.Node_id.of_int 3)
+    (Lowering_key.of_name "js:ssa" |> Result.get_ok)
+
 let session json = Rsp.Final.Session { Rsp.Session.id; limits = wire; json }
 let delta json = Rsp.Final.Delta { Rsp.Delta.id; key; json }
 
 let failed =
-  Rsp.Final.Failed { Rsp.Failed.id; key = Some key; error = diagnostic }
+  Rsp.Final.Failed
+    { Rsp.Failed.id; key = Some key; lowering = None; error = diagnostic }
 
 let protocol =
   Rsp.Final.Protocol_failure { Rsp.Protocol_failure.error = diagnostic }
@@ -56,6 +62,27 @@ let pp_wire ppf r =
     ~error:Rsp.Wire.pp_error ppf r
 
 (* --- the five messages --- *)
+
+let%expect_test "an artifact carries its document and names its lowering key" =
+  Format.printf "%a@." pp_wire
+    (Rsp.Wire.of_final
+       (Rsp.Final.Artifact
+          { Rsp.Artifact.id; key = lowering_key; json = {|{"body":{}}|} }));
+  Format.printf "%a@." pp_wire
+    (Rsp.Wire.of_final
+       (Rsp.Final.Failed
+          {
+            Rsp.Failed.id;
+            key = None;
+            lowering = Some lowering_key;
+            error = diagnostic;
+          }));
+  [%expect
+    {|
+    {"kind":"artifact","id":"0f8fad5b-d9cb-469f-a165-70867728950e-3","lowering":{"dialect":"native","node":3,"variant":"js:ssa"},"bytes":11}
+    payload=11 bytes
+    {"kind":"failed","id":"0f8fad5b-d9cb-469f-a165-70867728950e-3","lowering":{"dialect":"native","node":3,"variant":"js:ssa"},"error":{"code":"over_limit","message":"graph nodes = 99 is over the ceiling","truncated":false}}
+    payload=none |}]
 
 let%expect_test "a session carries its document and a count derived from it" =
   (* There is no [bytes] field on [Session.t] at all: it is measured here, from
@@ -201,6 +228,7 @@ let%expect_test "a handler's outcomes are three, and the shell's are four" =
     (fun r ->
       Format.printf "%s@."
         (match Rsp.Final.of_handle_result r with
+        | Rsp.Final.Artifact _ -> "artifact"
         | Rsp.Final.Session _ -> "session"
         | Rsp.Final.Delta _ -> "delta"
         | Rsp.Final.Failed _ -> "failed"
@@ -208,9 +236,13 @@ let%expect_test "a handler's outcomes are three, and the shell's are four" =
     [
       Rsp.Handle_result.Session { Rsp.Session.id; limits = wire; json = "{}" };
       Rsp.Handle_result.Delta { Rsp.Delta.id; key; json = "{}" };
-      Rsp.Handle_result.Failed { Rsp.Failed.id; key = None; error = diagnostic };
+      Rsp.Handle_result.Artifact
+        { Rsp.Artifact.id; key = lowering_key; json = "{}" };
+      Rsp.Handle_result.Failed
+        { Rsp.Failed.id; key = None; lowering = None; error = diagnostic };
     ];
   [%expect {|
     session
     delta
+    artifact
     failed |}]

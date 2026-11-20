@@ -25,6 +25,7 @@ module Limits = struct
     max_namespace_component_bytes : int;
     max_label_bytes : int;
     max_id_bytes : int;
+    max_artifact_bytes : int;
     max_attr_chars : int;
     max_url_bytes : int;
     max_graphs : int;
@@ -149,6 +150,12 @@ module Limits = struct
         get = (fun t -> i t.max_id_bytes);
         hard = i Hard.max_id_bytes;
         assign = (fun t v -> { t with max_id_bytes = Int64.to_int v });
+      };
+      {
+        name = "max_artifact_bytes";
+        get = (fun t -> i t.max_artifact_bytes);
+        hard = i Hard.max_artifact_bytes;
+        assign = (fun t v -> { t with max_artifact_bytes = Int64.to_int v });
       };
       {
         name = "max_attr_chars";
@@ -372,9 +379,14 @@ module Limits = struct
 
   let derive t =
     let open Err.Syntax in
+    (* An artifact is a response document too, and the widest one a profile
+       admits is its text escaped. [check_against] bounded the field before this
+       runs, so the product fits an [int] on both backends. *)
+    let* artifact_document = artifact_document_bytes t.max_artifact_bytes in
     let* peak =
       response_live_bytes ~max_session_bytes:t.max_session_bytes
-        ~max_detail_bytes:t.max_detail_bytes
+        ~max_detail_bytes:
+          (max t.max_detail_bytes (Int64.to_int artifact_document))
     in
     let+ () =
       if Int64.compare peak Hard.jsoo_safe_bytes > 0 then
@@ -487,14 +499,15 @@ module Limits = struct
       ?max_edges_per_graph ?max_groups_per_graph ?max_attrs_per_node
       ?max_metadata_items_per_node ?max_outputs_metadata_per_node
       ?max_namespace_depth ?max_namespace_component_bytes ?max_label_bytes
-      ?max_id_bytes ?max_attr_chars ?max_url_bytes ?max_graphs ?max_total_nodes
-      ?max_total_edges ?max_views ?max_comparisons ?max_node_data_sets
-      ?max_states ?max_transitions ?max_mapping_entries_per_comparison
-      ?max_mapping_members_per_entry ?max_mapping_members_total
-      ?max_node_data_results_per_graph ?max_overlay_edges_per_overlay
-      ?max_overlay_edges_total ?max_diagnostics ?max_diagnostic_bytes
-      ?max_session_bytes ?max_trace_entries ?max_audit_reports ?max_detail_nodes
-      ?max_detail_graphs ?max_detail_bytes base =
+      ?max_id_bytes ?max_artifact_bytes ?max_attr_chars ?max_url_bytes
+      ?max_graphs ?max_total_nodes ?max_total_edges ?max_views ?max_comparisons
+      ?max_node_data_sets ?max_states ?max_transitions
+      ?max_mapping_entries_per_comparison ?max_mapping_members_per_entry
+      ?max_mapping_members_total ?max_node_data_results_per_graph
+      ?max_overlay_edges_per_overlay ?max_overlay_edges_total ?max_diagnostics
+      ?max_diagnostic_bytes ?max_session_bytes ?max_trace_entries
+      ?max_audit_reports ?max_detail_nodes ?max_detail_graphs ?max_detail_bytes
+      base =
     let d v default = Option.value v ~default in
     validate
       {
@@ -514,6 +527,7 @@ module Limits = struct
           d max_namespace_component_bytes base.max_namespace_component_bytes;
         max_label_bytes = d max_label_bytes base.max_label_bytes;
         max_id_bytes = d max_id_bytes base.max_id_bytes;
+        max_artifact_bytes = d max_artifact_bytes base.max_artifact_bytes;
         max_attr_chars = d max_attr_chars base.max_attr_chars;
         max_url_bytes = d max_url_bytes base.max_url_bytes;
         max_graphs = d max_graphs base.max_graphs;
@@ -577,6 +591,7 @@ module Limits = struct
            max_namespace_component_bytes = Hard.max_namespace_component_bytes;
            max_label_bytes = Hard.max_label_bytes;
            max_id_bytes = Hard.max_id_bytes;
+           max_artifact_bytes = Hard.max_artifact_bytes;
            max_attr_chars = Hard.max_attr_chars;
            max_url_bytes = Hard.max_url_bytes;
            max_graphs = Hard.max_graphs;
@@ -628,10 +643,11 @@ module Limits = struct
            ~max_attrs_per_node:256 ~max_metadata_items_per_node:256
            ~max_outputs_metadata_per_node:256 ~max_namespace_depth:32
            ~max_namespace_component_bytes:256 ~max_label_bytes:1024
-           ~max_id_bytes:1024 ~max_attr_chars:0x2000 ~max_url_bytes:2048
-           ~max_graphs:1024 ~max_total_nodes:0x100_0000L
-           ~max_total_edges:0x200_0000L ~max_views:1024 ~max_comparisons:64
-           ~max_node_data_sets:64 ~max_states:256 ~max_transitions:1024
+           ~max_id_bytes:1024 ~max_artifact_bytes:0x8_0000
+           ~max_attr_chars:0x2000 ~max_url_bytes:2048 ~max_graphs:1024
+           ~max_total_nodes:0x100_0000L ~max_total_edges:0x200_0000L
+           ~max_views:1024 ~max_comparisons:64 ~max_node_data_sets:64
+           ~max_states:256 ~max_transitions:1024
            ~max_mapping_entries_per_comparison:0x2_0000
            ~max_mapping_members_per_entry:64
            ~max_mapping_members_total:0x20_0000
@@ -652,10 +668,11 @@ module Limits = struct
            ~max_groups_per_graph:0x2000 ~max_attrs_per_node:64
            ~max_metadata_items_per_node:64 ~max_outputs_metadata_per_node:64
            ~max_namespace_depth:16 ~max_namespace_component_bytes:128
-           ~max_label_bytes:256 ~max_id_bytes:256 ~max_attr_chars:0x800
-           ~max_url_bytes:1024 ~max_graphs:1024 ~max_total_nodes:0x10_0000L
-           ~max_total_edges:0x20_0000L ~max_views:1024 ~max_comparisons:16
-           ~max_node_data_sets:16 ~max_states:64 ~max_transitions:256
+           ~max_label_bytes:256 ~max_id_bytes:256 ~max_artifact_bytes:0x1_0000
+           ~max_attr_chars:0x800 ~max_url_bytes:1024 ~max_graphs:1024
+           ~max_total_nodes:0x10_0000L ~max_total_edges:0x20_0000L
+           ~max_views:1024 ~max_comparisons:16 ~max_node_data_sets:16
+           ~max_states:64 ~max_transitions:256
            ~max_mapping_entries_per_comparison:0x4000
            ~max_mapping_members_per_entry:16 ~max_mapping_members_total:0x4_0000
            ~max_node_data_results_per_graph:0x4000

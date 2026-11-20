@@ -176,10 +176,11 @@ let row_of_error ~model (e : Me_export.error) =
     | `Lowering _ -> ("native", "malformed")
     | `Native4d _ -> ("native4d", "malformed")
     | `Too_large _ | `Document_too_large | `Unrecognised_format
-    | `Declared_format_disagrees | `Archive _ | `Kernel _
-    | `Unsupported_detail_key | `Value_graph _ | `Fusion _ | `Source_view _
-    | `View _ | `Project _ | `Navigation _ | `Flow_graph _ | `Verification _
-    | `Detail _ | `Detail_key _ | `Document _ | `Identifier _ ->
+    | `Declared_format_disagrees | `Archive _ | `Bundle _ | `Kernel _
+    | `Lowering_not_provided | `Unsupported_detail_key | `Value_graph _
+    | `Fusion _ | `Source_view _ | `View _ | `Project _ | `Navigation _
+    | `Flow_graph _ | `Verification _ | `Detail _ | `Detail_key _ | `Document _
+    | `Identifier _ ->
         ("process", "process_error")
   in
   let shared =

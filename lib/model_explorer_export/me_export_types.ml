@@ -26,6 +26,7 @@ let max_bytes_for ~limits bytes =
 
 type error =
   [ `Archive of Pt2_archive.error
+  | `Bundle of Loop_ir.Loop_bundle.error
   | `Declared_format_disagrees
   | `Detail of Me_detail.error
   | `Detail_key of [ `Invalid_detail_key of Me_request.Detail_key.invalid ]
@@ -39,6 +40,7 @@ type error =
   | `Identifier of Me_ids.error
   | `Kernel of Kernel_adapt.error
   | `Lowering of Native_interp.error
+  | `Lowering_not_provided
   | `Model_json_decode of string
   | `Native4d of Native4d.Error.t
   | `Navigation of Me_pt2.error
@@ -53,6 +55,7 @@ type error =
 
 let pp_error fmt : [< error ] -> unit = function
   | `Archive e -> Pt2_archive.pp_error fmt e
+  | `Bundle e -> Loop_ir.Loop_bundle.pp_error fmt e
   | `Declared_format_disagrees ->
       Fmt.string fmt "the bytes are not the format the request declared"
   | `Detail e -> Me_detail.pp_error fmt e
@@ -65,6 +68,8 @@ let pp_error fmt : [< error ] -> unit = function
   | `Identifier e -> Me_ids.pp_error fmt e
   | `Kernel e -> Kernel_adapt.pp_error fmt e
   | `Lowering e -> Native_interp.pp_error fmt e
+  | `Lowering_not_provided ->
+      Fmt.string fmt "this worker carries no lowering view"
   | `Model_json_decode m -> Fmt.pf fmt "model.json: %s" m
   | `Native4d e -> Native4d.Error.pp fmt e
   | `Navigation e -> Me_pt2.pp_error fmt e
@@ -93,7 +98,9 @@ let diagnostic_code : [< error ] -> Me_limits.Diagnostic.Code.t =
       Code.Invalid_source
   | `Document_too_large | `Too_large _ -> Code.Over_limit
   | `Unsupported_detail_key -> Code.Unsupported_detail_key
-  | `Kernel _ | `Lowering _ | `Native4d _ -> Code.Internal
+  | `Bundle _ | `Kernel _ | `Lowering _ | `Lowering_not_provided | `Native4d _
+    ->
+      Code.Internal
   | `Detail (`Over_limit _)
   | `Document (`Over_limit _)
   | `Flow_graph (`Over_limit _)

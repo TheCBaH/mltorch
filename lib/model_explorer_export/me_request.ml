@@ -181,6 +181,35 @@ module Detail_key = struct
     |> Jsont.Object.finish
 end
 
+(* --- what a lowering request names -------------------------------------- *)
+
+module Lowering_wire = struct
+  (* The variant keeps the spelling [Lowering_key.name] writes, so the wire, the
+     CLI flag and the UI share one grammar; only the node and the dialect are
+     separate members. *)
+  let jsont =
+    Jsont.Object.map ~kind:"loweringKey" (fun dialect node variant ->
+        let dialect =
+          match Lowering_key.Dialect.of_name dialect with
+          | Some d -> d
+          | None ->
+              Jsont.Error.msgf Jsont.Meta.none "unknown lowering dialect %S"
+                dialect
+        in
+        match Lowering_key.of_name variant with
+        | Ok variant ->
+            Lowering_key.make ~dialect (Graph_ir.Node_id.of_int node) variant
+        | Error e ->
+            Jsont.Error.msgf Jsont.Meta.none "%a" Lowering_key.Parse_error.pp e)
+    |> Jsont.Object.mem "dialect" Jsont.string ~enc:(fun k ->
+        Lowering_key.Dialect.name k.Lowering_key.dialect)
+    |> Jsont.Object.mem "node" Jsont.int ~enc:(fun k ->
+        Graph_ir.Node_id.to_int k.Lowering_key.node)
+    |> Jsont.Object.mem "variant" Jsont.string ~enc:(fun k ->
+        Lowering_key.name k.Lowering_key.variant)
+    |> Jsont.Object.finish
+end
+
 (* --- where the bytes came from ------------------------------------------ *)
 
 module Source = struct
@@ -396,7 +425,20 @@ module Request = struct
     }
   end
 
-  type t = Build_detail of Build_detail.t | Build_session of Build_session.t
+  module Build_lowering = struct
+    type t = {
+      id : Request_id.t;
+      source : Source.t;
+      options : Options.t;
+      limits : Me_limits.Wire_limits.t;
+      lowering : Lowering_key.t;
+    }
+  end
+
+  type t =
+    | Build_detail of Build_detail.t
+    | Build_lowering of Build_lowering.t
+    | Build_session of Build_session.t
 
   type error =
     [ `Invalid_detail_key of Detail_key.invalid
@@ -439,26 +481,39 @@ module Request = struct
     let+ () = revalidate ~limits ~source ~key:(Some key) in
     Build_detail { Build_detail.id; source; options; limits; key }
 
+  let build_lowering ~id ~source ~options ~limits ~lowering =
+    let open Err.Syntax in
+    let+ () = revalidate ~limits ~source ~key:None in
+    Build_lowering { Build_lowering.id; source; options; limits; lowering }
+
   let id = function
     | Build_detail d -> d.Build_detail.id
+    | Build_lowering l -> l.Build_lowering.id
     | Build_session s -> s.Build_session.id
 
   let epoch t = Request_id.epoch (id t)
 
   let key = function
     | Build_detail d -> Some d.Build_detail.key
-    | Build_session _ -> None
+    | Build_lowering _ | Build_session _ -> None
+
+  let lowering = function
+    | Build_lowering l -> Some l.Build_lowering.lowering
+    | Build_detail _ | Build_session _ -> None
 
   let limits = function
     | Build_detail d -> d.Build_detail.limits
+    | Build_lowering l -> l.Build_lowering.limits
     | Build_session s -> s.Build_session.limits
 
   let source = function
     | Build_detail d -> d.Build_detail.source
+    | Build_lowering l -> l.Build_lowering.source
     | Build_session s -> s.Build_session.source
 
   let options = function
     | Build_detail d -> d.Build_detail.options
+    | Build_lowering l -> l.Build_lowering.options
     | Build_session s -> s.Build_session.options
 
   (* STAGED. Jsont decodes an object's fields independently, but [Source.create]
@@ -468,16 +523,25 @@ module Request = struct
      [build_detail], so encoder and decoder share one domain rather than two
      that happen to agree. *)
   let jsont =
-    Jsont.Object.map ~kind:"request" (fun id limits options source key ->
-        or_jsont pp_error
-          (let open Err.Syntax in
-           let* id = Request_id.of_string id in
-           match key with
-           | None -> build_session ~id ~source ~options ~limits
-           | Some key -> build_detail ~id ~source ~options ~limits ~key))
+    Jsont.Object.map ~kind:"request"
+      (fun id limits lowering options source key ->
+        match (key, lowering) with
+        | Some _, Some _ ->
+            Jsont.Error.msgf Jsont.Meta.none
+              "a request names a detail key or a lowering key, not both"
+        | _ ->
+            or_jsont pp_error
+              (let open Err.Syntax in
+               let* id = Request_id.of_string id in
+               match (key, lowering) with
+               | Some key, _ -> build_detail ~id ~source ~options ~limits ~key
+               | None, Some lowering ->
+                   build_lowering ~id ~source ~options ~limits ~lowering
+               | None, None -> build_session ~id ~source ~options ~limits))
     |> Jsont.Object.mem "id" Jsont.string ~enc:(fun t ->
         Request_id.to_string (id t))
     |> Jsont.Object.mem "limits" Me_limits.Wire_limits.jsont ~enc:limits
+    |> Jsont.Object.opt_mem "lowering" Lowering_wire.jsont ~enc:lowering
     |> Jsont.Object.mem "options" Options.jsont ~enc:options
     |> Jsont.Object.mem "source" Source.jsont ~enc:source
     |> Jsont.Object.opt_mem "key" Detail_key.jsont ~enc:key

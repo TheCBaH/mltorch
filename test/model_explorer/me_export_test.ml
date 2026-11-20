@@ -413,3 +413,98 @@ let%expect_test
     phases: decode encode
     failed payload=none
     {"kind":"failed","id":"0f8fad5b-d9cb-469f-a165-70867728950e-1","error":{"code":"over_limit","message":"the encoded document is over the ceiling","truncated":false}} |}]
+
+(* --- the lowering path --- *)
+
+let lowering_key =
+  Lowering_key.make
+    (Graph_ir.Node_id.of_int 0)
+    (Result.get_ok (Lowering_key.of_name "js"))
+
+let lowering_request bytes =
+  Err.or_raise ~pp_error:MR.Request.pp_error
+    (MR.Request.build_lowering ~id ~source:(source bytes) ~options ~limits:wire
+       ~lowering:lowering_key)
+
+let export_options bytes : Me_export.Options.t =
+  {
+    stages = [ Me_session.Capability.Canonical ];
+    fold = false;
+    generated_js = None;
+    verify_symbolic = None;
+    name = "tiny";
+    source_bytes = Int64.of_int (String.length bytes);
+    source_sha256 = None;
+  }
+
+let%expect_test "canonical_bundle takes detail's path to the canonical graph" =
+  (* One import pipeline: the bundle's graph is the one a detail request reads
+     its node from, so the same node id is an invocation here. *)
+  let bytes = model () in
+  (match
+     Me_export.canonical_bundle ~limits ~options:(export_options bytes) ~bytes
+   with
+  | Ok b ->
+      Printf.printf "invocations: %s\n"
+        (String.concat " "
+           (List.map
+              (fun (i : Loop_ir.Loop_bundle.invocation) ->
+                Printf.sprintf "n%d" (Graph_ir.Node_id.to_int i.node))
+              b.Loop_ir.Loop_bundle.invocations))
+  | Error e -> Format.printf "%a@." Me_export.pp_error (Err.Error.kind e));
+  (* A model that does not lower is refused exactly as [detail] refuses it. *)
+  let bytes = model ~target:"torch.ops.aten.not_an_op.default" () in
+  (match
+     Me_export.canonical_bundle ~limits ~options:(export_options bytes) ~bytes
+   with
+  | Ok _ -> print_endline "bundle"
+  | Error e -> Format.printf "%a@." Me_export.pp_error (Err.Error.kind e));
+  [%expect
+    {|
+    invocations: n0
+    the key names no value this model produces |}]
+
+let%expect_test "a lowering request answers with an artifact, given a lowering"
+    =
+  let bytes = model () in
+  let lower ~limits key (bundle : Loop_ir.Loop_bundle.t) =
+    {
+      Me_artifact.key;
+      body =
+        Me_artifact.text ~limits ~language:"js"
+          (Printf.sprintf "// %d invocations"
+             (List.length bundle.Loop_ir.Loop_bundle.invocations));
+      notes = [];
+    }
+  in
+  show
+    ( Me_export.handle ~lower ~emit:(fun _ -> ()) (lowering_request bytes) ~bytes,
+      [] );
+  (* No lowering supplied: a failure naming the key, never a session. *)
+  show (Me_export.handle ~emit:(fun _ -> ()) (lowering_request bytes) ~bytes, []);
+  [%expect
+    {|
+    phases:
+    artifact payload=146 bytes
+    {"kind":"artifact","id":"0f8fad5b-d9cb-469f-a165-70867728950e-1","lowering":{"dialect":"native","node":0,"variant":"js"},"bytes":146}
+    phases:
+    failed payload=none
+    {"kind":"failed","id":"0f8fad5b-d9cb-469f-a165-70867728950e-1","lowering":{"dialect":"native","node":0,"variant":"js"},"error":{"code":"internal","message":"this worker carries no lowering view","truncated":false}} |}]
+
+let%expect_test
+    "an encoded artifact is one document, bounded and self-describing" =
+  let bytes = model () in
+  let lower ~limits key _ =
+    {
+      Me_artifact.key;
+      body = Me_artifact.text ~limits ~language:"js" (String.make 100 'x');
+      notes = [ { Me_artifact.Tag.kind = "numerics"; data = [ "binary64" ] } ];
+    }
+  in
+  (match
+     Me_export.handle ~lower ~emit:(fun _ -> ()) (lowering_request bytes) ~bytes
+   with
+  | Rsp.Handle_result.Artifact a -> print_endline a.Rsp.Artifact.json
+  | _ -> print_endline "not an artifact");
+  [%expect
+    {| {"key":{"dialect":"native","node":0,"variant":"js"},"body":{"kind":"text","language":"js","text":"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx","truncated":false},"notes":[{"kind":"numerics","data":["binary64"]}]} |}]

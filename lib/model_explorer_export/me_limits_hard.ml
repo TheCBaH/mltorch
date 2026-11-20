@@ -141,6 +141,10 @@ module Hard_scalars = struct
      backslash expand, each to two bytes. *)
   let json_escape_expansion = 2
 
+  (* The WORST case, which the line above deliberately is not: a control byte
+     in generated source (a tab, an ESC) becomes a six-byte u-escape. *)
+  let json_control_escape_expansion = 6
+
   (* The cardinality of [Me_session.Capability.graph_stage], which bounds a
      request's normalised stage list. Stated here because the request peak is a
      hard constant and that module does not exist yet; when it does, its test
@@ -168,6 +172,13 @@ module Hard_scalars = struct
   let max_label_bytes = 4096
   let max_id_bytes = 4096
   let max_attr_chars = 0x1_0000
+
+  (* One lowering artifact's text. Its document is the text JSON-escaped, and
+     the worst escape is a six-byte u-escape per byte, so six times this must
+     still be a document the browser reads: the relation at the bottom of this
+     module checks that, against [max_response_document_bytes] and against
+     [jsoo_safe_bytes]. *)
+  let max_artifact_bytes = 0x10_0000
 
   (* The interoperable URL ceiling: below every browser and proxy figure. *)
   let max_url_bytes = 2048
@@ -261,6 +272,18 @@ let request_live_bytes () =
       ]
   in
   max_of 0L [ convert; encode; copy ]
+
+(* The widest JSON document an artifact text of [max_artifact_bytes] can encode
+   to: [Jsont] writes a control byte as a six-byte u-escape. Checked, since
+   the operand is a profile's. *)
+let artifact_document_bytes max_artifact_bytes =
+  sum_terms Phase.Encode
+    [
+      {
+        coefficient = Hard_scalars.json_control_escape_expansion;
+        quantity = Int64.of_int max_artifact_bytes;
+      };
+    ]
 
 let response_live_bytes ~max_session_bytes ~max_detail_bytes =
   (* One document at a time crosses the boundary, so the peak is driven by
@@ -405,5 +428,15 @@ let () =
        sum_terms Phase.Encode
          [ { coefficient = max_diagnostics; quantity = per_diagnostic } ]
      in
-     relation "max_diagnostics * diagnostic bytes" diagnostics_bytes
-       (Int64.of_int max_response_meta_bytes))
+     let* () =
+       relation "max_diagnostics * diagnostic bytes" diagnostics_bytes
+         (Int64.of_int max_response_meta_bytes)
+     in
+     (* The widest artifact document: every byte of the text a six-byte
+        u-escape. *)
+     let* artifact_document = artifact_document_bytes max_artifact_bytes in
+     let* () =
+       relation "artifact document bytes" artifact_document
+         (Int64.of_int max_response_document_bytes)
+     in
+     relation "artifact document bytes" artifact_document jsoo_safe_bytes)

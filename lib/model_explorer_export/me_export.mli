@@ -22,6 +22,8 @@ val detect : bytes:string -> (source_format, [> `Unrecognised_format ]) Err.t
 
 type error =
   [ `Archive of Pt2_archive.error
+  | `Bundle of Loop_ir.Loop_bundle.error
+    (** the canonical graph lowered to no schedulable bundle *)
   | `Declared_format_disagrees
     (** the request declared a format the bytes are not. DECLARED is a hint; the
         content decides, and a disagreement is a fact about the source *)
@@ -42,6 +44,9 @@ type error =
     (** a FATAL row only. A row [Me_classify.lowering] calls recoverable never
         reaches here: it becomes a session whose capabilities say what is
         missing. *)
+  | `Lowering_not_provided
+    (** a lowering request reached a {!handle} given no [~lower]: the worker
+        that answers one supplies it *)
   | `Model_json_decode of string
     (** the model.json decoder's own message — a THIRD-PARTY payload, named for
         its source so it is not mistaken for a case this module declined to
@@ -130,6 +135,17 @@ val detail :
     means: the worker holds no session between requests, so there is nothing
     that could be stale. *)
 
+val canonical_bundle :
+  limits:Me_limits.Limits.t ->
+  options:Options.t ->
+  bytes:string ->
+  (Loop_ir.Loop_bundle.t, [> error ]) Err.t
+(** The canonical graph as a {!Loop_ir.Loop_bundle.t}: the lowering inspector's
+    input. It takes the path {!detail} takes to the canonical graph (one import
+    pipeline), so the invocation a node's lowering is shown from is the one its
+    detail expression was read from. A model that does not lower fails with
+    [`Unsupported_detail_key], as {!detail} does. *)
+
 val encode_bounded :
   max_bytes:int -> 'a Jsont.t -> 'a -> (string, [> error ]) Err.t
 (** Encode through a writer that refuses to grow past [max_bytes], failing with
@@ -142,6 +158,11 @@ val encode_bounded :
 (** {1 The worker entry point} *)
 
 val handle :
+  ?lower:
+    (limits:Me_limits.Limits.t ->
+    Lowering_key.t ->
+    Loop_ir.Loop_bundle.t ->
+    Me_artifact.t) ->
   emit:(Me_response.Progress.t -> unit) ->
   Me_request.Request.t ->
   bytes:string ->
@@ -154,6 +175,14 @@ val handle :
     about — which is exactly the condition under which the answer is [Failed]
     rather than a protocol failure. {!Me_response.Handle_result} makes the other
     one unwritable here.
+
+    [lower] answers a lowering request: it is given the canonical bundle (see
+    {!canonical_bundle}) and the key, and returns the protocol-level artifact.
+    It is a parameter because the lowering view is a separate library the
+    session worker must not link; a worker that answers lowering requests
+    supplies it, and without one a lowering request fails with
+    [`Lowering_not_provided]. The artifact document is bounded by
+    [Hard.max_response_document_bytes], the ceiling the page checks.
 
     The request carries no separate identity: [id] is a field of the request, so
     a response cannot name one request in its id and another beside it. *)

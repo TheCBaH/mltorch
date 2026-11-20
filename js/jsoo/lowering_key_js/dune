@@ -1,0 +1,13 @@
+; jsoo mirror of lib/lowering_key, over loop_ir_js/native_js instead of plain
+; loop_ir/native, so the mirrored model_explorer_export can name a lowering key
+; without linking a second copy of either. Sources are copied, never forked;
+; unwrapped like the other mirrors, and no basename collides (the one module is
+; Lowering_key).
+
+(copy_files
+ (files %{workspace_root}/lib/lowering_key/*.{ml,mli}))
+
+(library
+ (name lowering_key_js)
+ (libraries core fmt loop_ir_js native_js)
+ (wrapped false))

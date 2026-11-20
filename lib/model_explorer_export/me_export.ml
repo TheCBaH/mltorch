@@ -237,7 +237,11 @@ let session ~limits ~options ~bytes =
    It re-lowers rather than caching, which is what "self-contained request"
    means: the worker holds no session between requests, so there is nothing that
    could be stale. *)
-let detail ~limits ~(options : Options.t) ~key ~bytes =
+(* The canonical graph both [detail] and [canonical_bundle] start from: size
+   check, load, lowering, optional constant folding, the canonical pipeline.
+   One import path, so a lowering the inspector shows is the graph a detail
+   expression was read from. *)
+let canonical ~limits ~(options : Options.t) ~bytes =
   let* () =
     let n = Int64.of_int (String.length bytes) in
     if Int64.compare n (max_bytes_for ~limits bytes) > 0 then
@@ -249,9 +253,9 @@ let detail ~limits ~(options : Options.t) ~key ~bytes =
     match lowering with
     | Ok l -> Err.return l
     | Error (reason, _) ->
-        (* The one row that cannot become a capability here: a detail request
-           about a model that does not lower is asking for something that was
-           never offered, and the session it would have been offered by already
+        (* The one row that cannot become a capability here: a request about
+           a model that does not lower is asking for something that was never
+           offered, and the session it would have been offered by already
            said so. *)
         ignore reason;
         Err.fail `Unsupported_detail_key
@@ -262,12 +266,18 @@ let detail ~limits ~(options : Options.t) ~key ~bytes =
     | true, Some archive ->
         wrap (fun e -> `Lowering e) (Native_interp.preload archive lowered)
   in
-  let* transformed =
-    wrap
-      (fun e -> `Lowering e)
-      (Native_interp.transform_lowered ~constants lowered
-         ~passes:(passes ~fold:options.Options.fold))
-  in
+  wrap
+    (fun e -> `Lowering e)
+    (Native_interp.transform_lowered ~constants lowered
+       ~passes:(passes ~fold:options.Options.fold))
+
+let canonical_bundle ~limits ~options ~bytes =
+  let* transformed = canonical ~limits ~options ~bytes in
+  let (Native_interp.Transformed t) = transformed in
+  wrap (fun e -> `Bundle e) (Loop_ir.Loop_bundle.build t.graph)
+
+let detail ~limits ~(options : Options.t) ~key ~bytes =
+  let* transformed = canonical ~limits ~options ~bytes in
   let (Native_interp.Transformed t) = transformed in
   let stage_program = Eval_symbolic.run t.graph in
   let* graph =
@@ -412,7 +422,7 @@ let declared_format_disagrees (source : Me_request.Source.t)
   in
   detected <> source.Me_request.Source.format
 
-let handle ~emit request ~bytes =
+let handle ?lower ~emit request ~bytes =
   let id = Me_request.Request.id request in
   let key = Me_request.Request.key request in
   let limits =
@@ -428,6 +438,7 @@ let handle ~emit request ~bytes =
       {
         Me_response.Failed.id;
         key;
+        lowering = Me_request.Request.lowering request;
         error =
           Me_limits.Diagnostic.create ~limits (diagnostic_code e)
             (Core.Pretty.to_string pp_error e);
@@ -445,8 +456,26 @@ let handle ~emit request ~bytes =
       source_sha256 = Me_request.Source.verified_sha256 source;
     }
   in
-  match Me_request.Request.key request with
-  | Some key -> (
+  match (Me_request.Request.lowering request, key) with
+  | Some lowering, _ -> (
+      match lower with
+      | None -> failed `Lowering_not_provided
+      | Some lower -> (
+          match canonical_bundle ~limits ~options ~bytes with
+          | Error e -> failed (Err.Error.kind e)
+          | Ok bundle -> (
+              progress Me_response.Phase.Encode 0L None;
+              match
+                encode_bounded
+                  ~max_bytes:Me_limits.Hard.max_response_document_bytes
+                  Me_artifact.jsont
+                  (lower ~limits lowering bundle)
+              with
+              | Error e -> failed (Err.Error.kind e)
+              | Ok json ->
+                  Me_response.Handle_result.Artifact
+                    { Me_response.Artifact.id; key = lowering; json })))
+  | None, Some key -> (
       match detail ~limits ~options ~key ~bytes with
       | Error e -> failed (Err.Error.kind e)
       | Ok d -> (
@@ -458,7 +487,7 @@ let handle ~emit request ~bytes =
           | Ok json ->
               Me_response.Handle_result.Delta
                 { Me_response.Delta.id; key; json }))
-  | None -> (
+  | None, None -> (
       match session ~limits ~options ~bytes with
       | Error e -> failed (Err.Error.kind e)
       | Ok s when declared_format_disagrees source s ->

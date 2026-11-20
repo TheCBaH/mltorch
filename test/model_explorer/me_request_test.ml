@@ -306,10 +306,17 @@ let%expect_test "the decoder lands in the encoder's domain" =
     [
       ("session", MR.Request.build_session ~id ~source ~options ~limits:wire);
       ("detail", MR.Request.build_detail ~id ~source ~options ~limits:wire ~key);
+      ( "lowering",
+        MR.Request.build_lowering ~id ~source ~options ~limits:wire
+          ~lowering:
+            (Lowering_key.make
+               (Graph_ir.Node_id.of_int 5)
+               (Result.get_ok (Lowering_key.of_name "loop:raw"))) );
     ];
   [%expect {|
     session  true
-    detail   true |}]
+    detail   true
+    lowering true |}]
 
 (* No Astring here, and none is wanted for one substring check. *)
 let contains ~affix s =
@@ -439,3 +446,54 @@ let%expect_test "the staged decoder rejects in its own order" =
     bad profile                      REJECTED invalid limit max_views = 999999
     bad source                       REJECTED source byte count is negative
     source under a tightened profile REJECTED source name is too long |}]
+
+(* A lowering request names its key as three members, the variant in
+   [Lowering_key]'s one spelling. Everything malformed is a decode failure at
+   the codec, and a node the model lacks is not one: that is the lowering's
+   answer, not the grammar's. *)
+let%expect_test "a lowering request on the wire, and its malformed forms" =
+  let source = Err.or_raise ~pp_error:MR.Request.pp_error (src ()) in
+  let lowering =
+    Lowering_key.make
+      (Graph_ir.Node_id.of_int 5)
+      (Result.get_ok (Lowering_key.of_name "js:ssa/exact"))
+  in
+  let req =
+    Err.or_raise ~pp_error:MR.Request.pp_error
+      (MR.Request.build_lowering ~id ~source ~options ~limits:wire ~lowering)
+  in
+  let text = Result.get_ok (encode req) in
+  Format.printf "%a@." pp_wire (Ok text);
+  let with_lowering l =
+    (* swap the lowering member for [l], keeping every other member *)
+    let marker = {|"lowering":|} in
+    let i =
+      let rec find i =
+        if String.equal (String.sub text i (String.length marker)) marker then i
+        else find (i + 1)
+      in
+      find 0
+    in
+    let j = String.index_from text i '}' in
+    String.sub text 0 i ^ marker ^ l
+    ^ String.sub text (j + 1) (String.length text - j - 1)
+  in
+  List.iter
+    (fun l ->
+      Format.printf "%a@." pp_wire
+        (Result.map (fun _ -> "ok") (decode (with_lowering l))))
+    [
+      {|{"dialect":"native","node":5,"variant":"js:ssa/exact"}|};
+      {|{"dialect":"native4d","node":0,"variant":"asm:riscv32"}|};
+      {|{"dialect":"cuda","node":5,"variant":"js"}|};
+      {|{"dialect":"native","node":5,"variant":"js:fast"}|};
+      {|{"dialect":"native","node":5,"variant":"fortran"}|};
+    ];
+  [%expect
+    {|
+    {"id":"0f8fad5b-d9cb-469f-a165-70867728950e-7","limits":{},"lowering":{"dialect":"native","node":5,"variant":"js:ssa/exact"},"options":{"fold":false,"namespace":"structural","stages":["canonical"]},"source":{"name":"resnet18","bytes":"1024","format":"model_json"}}
+    ok
+    ok
+    REJECTED unknown lowering dialect "cuda"
+    REJECTED js: unknown segment "fast"
+    REJECTED unknown family "fortran" |}]

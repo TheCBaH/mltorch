@@ -48,6 +48,14 @@ module Session : sig
   }
 end
 
+module Artifact : sig
+  type t = {
+    id : Me_request.Request_id.t;
+    key : Lowering_key.t;
+    json : string;  (** an encoded {!Me_artifact.t} *)
+  }
+end
+
 module Delta : sig
   type t = {
     id : Me_request.Request_id.t;
@@ -60,6 +68,9 @@ module Failed : sig
   type t = {
     id : Me_request.Request_id.t;
     key : Me_request.Detail_key.t option;
+    lowering : Lowering_key.t option;
+        (** [Some] exactly for a failed lowering request, as [key] is for a
+            failed detail request *)
     error : Me_limits.Diagnostic.t;
   }
   (** STRUCTURED: an over-limit detail has no delta to carry diagnostics, so the
@@ -79,6 +90,7 @@ end
 
 module Handle_result : sig
   type t =
+    | Artifact of Artifact.t
     | Delta of Delta.t
     | Failed of Failed.t
     | Session of Session.t
@@ -92,6 +104,7 @@ end
 
 module Final : sig
   type t =
+    | Artifact of Artifact.t
     | Delta of Delta.t
     | Failed of Failed.t
     | Protocol_failure of Protocol_failure.t
@@ -122,6 +135,14 @@ module Meta : sig
     }
   end
 
+  module Artifact : sig
+    type t = private {
+      id : Me_request.Request_id.t;
+      key : Lowering_key.t;
+      bytes : int;
+    }
+  end
+
   module Delta : sig
     type t = private {
       id : Me_request.Request_id.t;
@@ -131,6 +152,7 @@ module Meta : sig
   end
 
   type t = private
+    | Artifact of Artifact.t
     | Delta of Delta.t
     | Failed of Failed.t
     | Protocol_failure of Protocol_failure.t

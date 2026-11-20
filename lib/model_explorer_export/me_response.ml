@@ -58,10 +58,15 @@ module Delta = struct
   }
 end
 
+module Artifact = struct
+  type t = { id : Me_request.Request_id.t; key : Lowering_key.t; json : string }
+end
+
 module Failed = struct
   type t = {
     id : Me_request.Request_id.t;
     key : Me_request.Detail_key.t option;
+    lowering : Lowering_key.t option;
     error : Me_limits.Diagnostic.t;
   }
 end
@@ -71,17 +76,23 @@ module Protocol_failure = struct
 end
 
 module Handle_result = struct
-  type t = Delta of Delta.t | Failed of Failed.t | Session of Session.t
+  type t =
+    | Artifact of Artifact.t
+    | Delta of Delta.t
+    | Failed of Failed.t
+    | Session of Session.t
 end
 
 module Final = struct
   type t =
+    | Artifact of Artifact.t
     | Delta of Delta.t
     | Failed of Failed.t
     | Protocol_failure of Protocol_failure.t
     | Session of Session.t
 
   let of_handle_result = function
+    | Handle_result.Artifact a -> Artifact a
     | Handle_result.Delta d -> Delta d
     | Handle_result.Failed f -> Failed f
     | Handle_result.Session s -> Session s
@@ -96,6 +107,10 @@ module Meta = struct
     }
   end
 
+  module Artifact = struct
+    type t = { id : Me_request.Request_id.t; key : Lowering_key.t; bytes : int }
+  end
+
   module Delta = struct
     type t = {
       id : Me_request.Request_id.t;
@@ -105,6 +120,7 @@ module Meta = struct
   end
 
   type t =
+    | Artifact of Artifact.t
     | Delta of Delta.t
     | Failed of Failed.t
     | Protocol_failure of Protocol_failure.t
@@ -112,6 +128,7 @@ module Meta = struct
     | Session of Session.t
 
   let kind = function
+    | Artifact _ -> "artifact"
     | Delta _ -> "delta"
     | Failed _ -> "failed"
     | Protocol_failure _ -> "protocol_failure"
@@ -125,7 +142,7 @@ module Meta = struct
      and no stable field layout. *)
   let jsont =
     Jsont.Object.map ~kind:"responseMeta"
-      (fun kind id phase done_ total limits key bytes error ->
+      (fun kind id phase done_ total limits key lowering bytes error ->
         let need what = function
           | Some v -> v
           | None ->
@@ -148,6 +165,13 @@ module Meta = struct
                 limits = need "limits" limits;
                 bytes = need "bytes" bytes;
               }
+        | "artifact" ->
+            Artifact
+              {
+                Artifact.id = need "id" id;
+                key = need "lowering" lowering;
+                bytes = need "bytes" bytes;
+              }
         | "delta" ->
             Delta
               {
@@ -156,7 +180,13 @@ module Meta = struct
                 bytes = need "bytes" bytes;
               }
         | "failed" ->
-            Failed { Failed.id = need "id" id; key; error = need "error" error }
+            Failed
+              {
+                Failed.id = need "id" id;
+                key;
+                lowering;
+                error = need "error" error;
+              }
         | "protocol_failure" ->
             Protocol_failure { Protocol_failure.error = need "error" error }
         | _ -> Jsont.Error.msgf Jsont.Meta.none "unknown response kind %S" kind)
@@ -164,6 +194,7 @@ module Meta = struct
     |> Jsont.Object.opt_mem "id" Me_request.Request_id.jsont ~enc:(function
       | Progress p -> Some p.Progress.id
       | Session s -> Some s.Session.id
+      | Artifact a -> Some a.Artifact.id
       | Delta d -> Some d.Delta.id
       | Failed f -> Some f.Failed.id
       | Protocol_failure _ -> None)
@@ -186,12 +217,18 @@ module Meta = struct
       | Delta d -> Some d.Delta.key
       | Failed f -> f.Failed.key
       | _ -> None)
+    |> Jsont.Object.opt_mem "lowering" Me_request.Lowering_wire.jsont
+         ~enc:(function
+         | Artifact a -> Some a.Artifact.key
+         | Failed f -> f.Failed.lowering
+         | _ -> None)
     (* [int], not [int64], and the width rule does not bite: it is the length of
        a string that already exists, bounded by [max_session_bytes], itself an
        [int] because the writer limit is one. *)
     |> Jsont.Object.opt_mem "bytes" Jsont.int ~enc:(function
       | Session s -> Some s.Session.bytes
       | Delta d -> Some d.Delta.bytes
+      | Artifact a -> Some a.Artifact.bytes
       | _ -> None)
     |> Jsont.Object.opt_mem "error" Me_limits.Diagnostic.jsont ~enc:(function
       | Failed f -> Some f.Failed.error
@@ -261,6 +298,15 @@ module Wire = struct
                bytes = String.length s.Session.json;
              })
           (Some s.Session.json)
+    | Final.Artifact a ->
+        wrap ~max_meta_bytes
+          (Meta.Artifact
+             {
+               Meta.Artifact.id = a.Artifact.id;
+               key = a.Artifact.key;
+               bytes = String.length a.Artifact.json;
+             })
+          (Some a.Artifact.json)
     | Final.Delta d ->
         wrap ~max_meta_bytes
           (Meta.Delta

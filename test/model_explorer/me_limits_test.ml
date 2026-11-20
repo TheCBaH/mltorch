@@ -101,6 +101,48 @@ let%expect_test "the four relations between the constants" =
     max_diagnostics * escaped bytes           655360 <=    1048576
     |}]
 
+let%expect_test "the artifact ceiling is bounded by the response document" =
+  (* Module initialisation already raised if the widest artifact document —
+     every byte a six-byte u-escape — exceeded either ceiling; the margin is
+     pinned so a change that nearly breaks it shows here. *)
+  let open Me_limits.Hard in
+  let widest =
+    Int64.of_int (json_control_escape_expansion * max_artifact_bytes)
+  in
+  Printf.printf "widest artifact document %Ld <= %d, <= %Ld\n" widest
+    max_response_document_bytes jsoo_safe_bytes;
+  [%expect {| widest artifact document 6291456 <= 8388608, <= 1073741824 |}]
+
+let%expect_test
+    "an artifact ceiling above Hard is refused, and Hard is admitted" =
+  let base = Me_limits.Limits.small in
+  show
+    (Me_limits.Limits.create
+       ~max_artifact_bytes:(Me_limits.Hard.max_artifact_bytes + 1)
+       base);
+  show
+    (Me_limits.Limits.create
+       ~max_artifact_bytes:Me_limits.Hard.max_artifact_bytes base);
+  [%expect {|
+    invalid limit max_artifact_bytes = 1048577
+    ok |}]
+
+let%expect_test "the response peak accounts for the widest artifact document" =
+  (* [small]'s documents are far below an artifact document at Hard (six times
+     1 MiB), so raising the artifact ceiling raises the peak even though no
+     session or detail ceiling moved. *)
+  let peak (t : Me_limits.Limits.t) = t.Me_limits.Limits.response_live_bytes in
+  let small = Me_limits.Limits.small in
+  let wide =
+    Err.or_raise ~pp_error:Me_limits.pp_error
+      (Me_limits.Limits.create
+         ~max_artifact_bytes:Me_limits.Hard.max_artifact_bytes small)
+  in
+  Printf.printf "small %Ld, wide artifact %Ld, raised %b\n" (peak small)
+    (peak wide)
+    (Int64.compare (peak wide) (peak small) > 0);
+  [%expect {| small 70778880, wide artifact 641728512, raised true |}]
+
 (* --- the response peak --- *)
 
 let%expect_test "the peak is monotone in both of its inputs" =
@@ -340,13 +382,14 @@ let%expect_test "only profiles no looser than untrusted cross the wire" =
              max_edges_per_graph = 4194304, max_groups_per_graph = 1048576,
              max_total_nodes = 67108864, max_total_edges = 268435456,
              max_session_bytes = 16777216, max_detail_bytes = 16777216
-    trusted: 39 invalid limits: max_json_bytes = 536870912,
+    trusted: 40 invalid limits: max_json_bytes = 536870912,
                max_pt2_bytes = 536870912, max_nodes_per_graph = 1048576,
                max_edges_per_graph = 4194304, max_groups_per_graph = 1048576,
                max_attrs_per_node = 1024, max_metadata_items_per_node = 1024,
                max_outputs_metadata_per_node = 1024, max_namespace_depth = 64,
                max_namespace_component_bytes = 1024, max_label_bytes = 4096,
-               max_id_bytes = 4096, max_attr_chars = 65536, max_graphs = 4096,
+               max_id_bytes = 4096, max_artifact_bytes = 1048576,
+               max_attr_chars = 65536, max_graphs = 4096,
                max_total_nodes = 67108864, max_total_edges = 268435456,
                max_views = 4096, max_comparisons = 1024,
                max_node_data_sets = 1024, max_states = 4096,

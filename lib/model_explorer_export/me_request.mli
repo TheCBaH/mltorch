@@ -126,6 +126,16 @@ module Detail_key : sig
       {!Request.jsont} once the profile has been decoded. *)
 end
 
+(** {1 What a lowering request names} *)
+
+module Lowering_wire : sig
+  val jsont : Lowering_key.t Jsont.t
+  (** [{dialect; node; variant}], the variant in [Lowering_key]'s one spelling.
+      An unknown dialect, an unparseable variant or a malformed node is a decode
+      error; a node absent from the model is not -- that is a fact about the
+      model, answered by the lowering itself. *)
+end
+
 (** {1 Where the bytes came from} *)
 
 module Source : sig
@@ -251,8 +261,19 @@ module Request : sig
     }
   end
 
+  module Build_lowering : sig
+    type t = private {
+      id : Request_id.t;
+      source : Source.t;
+      options : Options.t;
+      limits : Me_limits.Wire_limits.t;
+      lowering : Lowering_key.t;
+    }
+  end
+
   type t = private
     | Build_detail of Build_detail.t
+    | Build_lowering of Build_lowering.t
     | Build_session of Build_session.t
 
   type error =
@@ -291,9 +312,25 @@ module Request : sig
       built under [untrusted] and combined with a [small] wire profile is valid
       alone and invalid here. *)
 
+  val build_lowering :
+    id:Request_id.t ->
+    source:Source.t ->
+    options:Options.t ->
+    limits:Me_limits.Wire_limits.t ->
+    lowering:Lowering_key.t ->
+    (t, [> error ]) Err.t
+  (** The lowering inspector's request. The identity grammar is
+      {!build_detail}'s: the same id, the same revalidation of the source under
+      the request's own profile. The key carries no text, so it has no
+      profile-dependent half. *)
+
   val id : t -> Request_id.t
   val epoch : t -> string
+
   val key : t -> Detail_key.t option
+  (** [None] for a session AND for a lowering request: use {!lowering}. *)
+
+  val lowering : t -> Lowering_key.t option
   val limits : t -> Me_limits.Wire_limits.t
   val source : t -> Source.t
   val options : t -> Options.t

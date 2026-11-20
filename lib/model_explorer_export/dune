@@ -21,6 +21,7 @@
   jsont
   jsont.bytesrw
   loop_ir
+  lowering_key
   model_explorer
   native
   native4d
