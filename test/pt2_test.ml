@@ -206,8 +206,8 @@ let%expect_test "pickle failures are typed" =
 let uint4_agrees word_le =
   let expected = Int32.unsigned_to_int (String.get_int32_le word_le 0) in
   match
-    Opickle.Src.uint4
-      (Opickle.Src.of_reader (Bytesrw.Bytes.Reader.of_string word_le))
+    Opickle.Private.Src.uint4
+      (Opickle.Private.Src.of_reader (Bytesrw.Bytes.Reader.of_string word_le))
   with
   | got -> ( match expected with Some e -> got = e | None -> false)
   | exception _ -> expected = None
@@ -229,8 +229,14 @@ let%expect_test
    backend's [int] (2^40 under js_of_ocaml) is a legal size, and only a
    negative one is refused. Nothing is narrowed here, so the two backends agree
    by construction. *)
+(* A decoded value is abstract, so the int is built from its LONG1 pickle. *)
+let int_value i64 =
+  let b = Bytes.create 8 in
+  Bytes.set_int64_le b 0 i64;
+  Opickle.of_string_exn ("\x8a\x08" ^ Bytes.to_string b ^ ".")
+
 let size_accepted i64 =
-  match Pt2_pickle.size_of "size" (Opickle.Value.Int i64) with
+  match Pt2_pickle.size_of "size" (int_value i64) with
   | Error _ -> false
   | Ok s -> Int64.equal (Pt2_tensor.Size.to_int64 s) i64
 

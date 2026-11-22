@@ -53,7 +53,8 @@ let pp_error ppf : error -> unit = function
    bound. A negative size or offset is [`Negative_value], distinct from
    [`Expected_int]: the value IS an integer, just outside the field's domain.
    See [[js_backends_design]]. *)
-let int64_of what = function
+let int64_of what v =
+  match V.view v with
   | V.Int i -> Err.return i
   | _ -> Err.fail (`Expected_int what)
 
@@ -77,18 +78,24 @@ let offset_of what v =
   | Error _ -> Err.fail (`Negative_value (what, i))
 
 (* A storage persistent id is ('storage', <TypeStorage>, key, device, numel). *)
-let storage_of_persid = function
-  | V.Tuple [| V.Str "storage"; V.Global { name; _ }; V.Str key; _; _ |] ->
-      let open Err.Syntax in
-      let+ dtype =
-        Pt2_dtype.of_storage_name name |> Err.map_error (fun e -> (e :> error))
-      in
-      (dtype, key)
+let storage_of_persid pid =
+  match V.view pid with
+  | V.Tuple [| tag; cls; key; _; _ |] -> (
+      match (V.view tag, V.view cls, V.view key) with
+      | V.Str "storage", V.Global { name; _ }, V.Str key ->
+          let open Err.Syntax in
+          let+ dtype =
+            Pt2_dtype.of_storage_name name
+            |> Err.map_error (fun e -> (e :> error))
+          in
+          (dtype, key)
+      | _ -> Err.fail `Unexpected_storage_persistent_id)
   | _ -> Err.fail `Unexpected_storage_persistent_id
 
-let rebuild_of_args = function
+let rebuild_of_args args =
+  match V.view args with
   | V.Tuple a when Array.length a >= 4 -> (
-      match (a.(0), a.(1), a.(2), a.(3)) with
+      match (V.view a.(0), a.(1), V.view a.(2), V.view a.(3)) with
       | V.Persistent pid, offset, V.Tuple size, V.Tuple stride ->
           let open Err.Syntax in
           let* dtype, storage_key = storage_of_persid pid in
@@ -99,53 +106,56 @@ let rebuild_of_args = function
       | _ -> Err.fail `Unexpected_rebuild_args)
   | _ -> Err.fail `Unexpected_rebuild_args
 
-let rec find_in_list = function
-  | [] -> Err.return None
-  | v :: vs -> (
-      let open Err.Syntax in
-      let* found = find_tensor v in
-      match found with Some _ -> Err.return found | None -> find_in_list vs)
+(* The arguments of a [_rebuild_tensor_v2(...)] reduction, whatever operations
+   follow it. *)
+let rebuild_args v =
+  match V.view v with
+  | V.Object { constructor = V.Reduce { func; args }; _ } -> (
+      match V.view func with
+      | V.Global { name = "_rebuild_tensor_v2"; _ } -> Some args
+      | _ -> None)
+  | _ -> None
 
-and find_in_dict = function
-  | [] -> Err.return None
-  | (k, v) :: rest -> (
-      let open Err.Syntax in
-      let* found = find_tensor k in
-      match found with
-      | Some _ -> Err.return found
-      | None -> (
-          let* found = find_tensor v in
-          match found with
-          | Some _ -> Err.return found
-          | None -> find_in_dict rest))
+let children v =
+  let constructor = function
+    | V.Reduce { func; args } -> [ func; args ]
+    | V.New { cls; args; kwargs } -> cls :: args :: Option.to_list kwargs
+    | V.Legacy_instantiate { cls; args } -> [ cls; args ]
+  in
+  let operation = function
+    | V.Append x | V.Add_item x | V.Build x -> [ x ]
+    | V.Set_item (k, x) -> [ k; x ]
+  in
+  match V.view v with
+  | V.Tuple a -> Array.to_list a
+  | V.List l | V.Set l | V.Frozenset l -> l
+  | V.Dict d -> List.concat_map (fun (k, x) -> [ k; x ]) d
+  | V.Object { constructor = c; operations } ->
+      constructor c @ List.concat_map operation operations
+  | V.Persistent x | V.Readonly_buffer x -> [ x ]
+  | _ -> []
 
-(* Find the first _rebuild_tensor_v2 reduction anywhere in the value tree: a
-   top-level tensor is wrapped by torch as ((tensor,), {}). *)
-and find_tensor (v : V.t) =
-  let open Err.Syntax in
-  match v with
-  | V.Reduce { func = V.Global { name = "_rebuild_tensor_v2"; _ }; args } ->
-      let+ rb = rebuild_of_args args in
-      Some rb
-  | V.Tuple a -> find_in_list (Array.to_list a)
-  | V.List r | V.Set r -> find_in_list !r
-  | V.Frozenset l -> find_in_list l
-  | V.Dict r -> find_in_dict !r
-  | V.Reduce { func; args } -> (
-      let* found = find_tensor func in
-      match found with Some _ -> Err.return found | None -> find_tensor args)
-  | V.Object { cls; args; state } -> (
-      let* found = find_tensor cls in
-      match found with
-      | Some _ -> Err.return found
-      | None -> (
-          let* found = find_tensor args in
-          match (found, state) with
-          | Some _, _ -> Err.return found
-          | None, None -> Err.return None
-          | None, Some state -> find_tensor state))
-  | V.Persistent id -> find_tensor id
-  | _ -> Err.return None
+(* Find the first _rebuild_tensor_v2 reduction anywhere in the value graph: a
+   top-level tensor is wrapped by torch as ((tensor,), {}). The graph keeps
+   pickle memo identity, so shared and self-referential nodes are visited once. *)
+let find_tensor (v : V.t) =
+  let seen = Hashtbl.create 64 in
+  let rec go v =
+    if Hashtbl.mem seen (V.id v) then Err.return None
+    else begin
+      Hashtbl.add seen (V.id v) ();
+      match rebuild_args v with
+      | Some args -> Err.map Option.some (rebuild_of_args args)
+      | None -> first (children v)
+    end
+  and first = function
+    | [] -> Err.return None
+    | v :: vs -> (
+        let open Err.Syntax in
+        let* found = go v in
+        match found with Some _ -> Err.return found | None -> first vs)
+  in
+  go v
 
 let parse_tensor s =
   match Opickle.of_string s with
@@ -159,31 +169,33 @@ let parse_tensor s =
    deliberately not a general tree search: accepting a tensor hidden in an
    arbitrary pickle object makes a malformed oracle look valid and loses the
    association the caller must check. *)
-let tensor_of_value key = function
-  | V.Reduce { func = V.Global { name = "_rebuild_tensor_v2"; _ }; args } ->
-      rebuild_of_args args
-  | _ -> Err.fail (`Tensor_map_value_not_tensor key)
+let tensor_of_value key v =
+  match rebuild_args v with
+  | Some args -> rebuild_of_args args
+  | None -> Err.fail (`Tensor_map_value_not_tensor key)
 
 let parse_tensor_map s =
   match Opickle.of_string s with
   | Error e -> Err.fail (`Malformed_pickle (Opickle.Error.to_string e))
-  | Ok (V.Dict entries) ->
-      let seen = Hashtbl.create 16 in
-      let open Err.Syntax in
-      let* pairs =
-        Err.List.map
-          (fun (key, value) ->
-            match key with
-            | V.Str key ->
-                if Hashtbl.mem seen key then
-                  Err.fail (`Duplicate_tensor_map_key key)
-                else begin
-                  Hashtbl.add seen key ();
-                  let+ tensor = tensor_of_value key value in
-                  (key, tensor)
-                end
-            | _ -> Err.fail `Tensor_map_key_not_string)
-          !entries
-      in
-      Err.return (List.sort (fun (a, _) (b, _) -> String.compare a b) pairs)
-  | Ok _ -> Err.fail `Expected_tensor_map
+  | Ok v -> (
+      match V.view v with
+      | V.Dict entries ->
+          let seen = Hashtbl.create 16 in
+          let open Err.Syntax in
+          let* pairs =
+            Err.List.map
+              (fun (key, value) ->
+                match V.view key with
+                | V.Str key ->
+                    if Hashtbl.mem seen key then
+                      Err.fail (`Duplicate_tensor_map_key key)
+                    else begin
+                      Hashtbl.add seen key ();
+                      let+ tensor = tensor_of_value key value in
+                      (key, tensor)
+                    end
+                | _ -> Err.fail `Tensor_map_key_not_string)
+              entries
+          in
+          Err.return (List.sort (fun (a, _) (b, _) -> String.compare a b) pairs)
+      | _ -> Err.fail `Expected_tensor_map)
