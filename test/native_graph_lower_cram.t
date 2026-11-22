@@ -135,9 +135,9 @@ product, which has a transfer plan and an RVV and a Zvt kernel (tabs shown as ~)
 An unknown family or variant is a usage error.
 
   $ ../bin/native_graph.exe lower --model model.json --node n0 --artifact bogus 2>&1 | grep unknown
-  native_graph: option --artifact: unknown family "bogus"
+  native_graph: option '--artifact': unknown family "bogus"
   $ ../bin/native_graph.exe lower --model model.json --node n0 --artifact loop:bogus 2>&1 | grep unknown
-  native_graph: option --artifact: loop: unknown segment "bogus"
+  native_graph: option '--artifact': loop: unknown segment "bogus"
 
 An unknown node is an error naming it.
 
@@ -145,7 +145,7 @@ An unknown node is an error naming it.
   native_graph: no invocation for node n999999
   [123]
   $ ../bin/native_graph.exe lower --model model.json --node x --artifact js 2>&1 | grep "not a node"
-  native_graph: option --node: "x" is not a node id (expected nN)
+  native_graph: option '--node': "x" is not a node id (expected nN)
 
 Native4D: the graph converted from the canonical one, whose node ids are the
 session's Native4D stage view (n0, then n415 on). The families with Native4D gates
