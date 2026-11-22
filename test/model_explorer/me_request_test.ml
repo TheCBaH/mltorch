@@ -450,8 +450,8 @@ let%expect_test "a summary request on the wire, and its malformed forms" =
     {"id":"0f8fad5b-d9cb-469f-a165-70867728950e-7","limits":{},"options":{"fold":false,"namespace":"structural","stages":["canonical"]},"source":{"name":"resnet18","bytes":"1024","format":"model_json"},"summary":{"dialect":"native","metric":"vector_loops"}}
     ok
     ok
-    REJECTED Unexpected [1mloweringMetric enum string[0m value: [1mvector_loop[0m.
-    REJECTED Unexpected [1mloweringDialect enum string[0m value: [1mcuda[0m. Must be [1mnative[0m or
+    REJECTED Unexpected loweringMetric enum string value: vector_loop.
+    REJECTED Unexpected loweringDialect enum string value: cuda. Must be native or
     REJECTED a request names one of a detail key, a lowering key and a summary key |}]
 
 (* A lowering request names its key as three members, the variant in
